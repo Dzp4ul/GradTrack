@@ -23,6 +23,7 @@ function HomePage() {
               <a href="#about" className="text-white hover:text-yellow-400 font-medium transition">About</a>
               <a href="#features" className="text-white hover:text-yellow-400 font-medium transition">Features</a>
               <a href="#" className="text-white hover:text-yellow-400 font-medium transition">FAQ</a>
+              <Link to="/survey" className="text-white hover:text-yellow-400 font-medium transition">Survey</Link>
               <Link to="/signup" className="bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white px-6 py-2 rounded-lg font-medium transition border-2 border-white/30">
                 Sign Up
               </Link>
@@ -245,6 +246,10 @@ function HomePage() {
               <div>
                 <h4 className="font-bold text-lg mb-4">Contact Information</h4>
                 <ul className="space-y-3 text-sm">
+                  <li className="flex items-start space-x-2">
+                    <span className="text-yellow-400 mt-1"></span>
+                    <span className="text-blue-200">norzagaraycollege2007@gmail.com</span>
+                  </li> 
                   <li className="flex items-start space-x-2">
                     <span className="text-yellow-400 mt-1"></span>
                     <span className="text-blue-200">Norzagaray, Bulacan</span>
