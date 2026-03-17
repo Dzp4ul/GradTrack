@@ -112,7 +112,7 @@ function Survey() {
   // ─── DATA PRIVACY CONSENT ───
   if (!agreed) {
     return (
-      <div className="min-h-screen bg-cover bg-center bg-fixed relative flex flex-col items-center justify-center p-6" style={{ backgroundImage: 'url(/public/520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
+      <div className="min-h-screen bg-cover bg-center bg-fixed relative flex flex-col items-center justify-center p-6" style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
         <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80 pointer-events-none"></div>
         <div className="flex justify-center mb-6 relative z-10">
           <img
@@ -474,7 +474,7 @@ function Survey() {
   };
 
   return (
-    <div className="min-h-screen bg-cover bg-center bg-fixed relative" style={{ backgroundImage: 'url(/public/520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
+    <div className="min-h-screen bg-cover bg-center bg-fixed relative" style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
       <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80 pointer-events-none"></div>
       {/* Header */}
       <nav className="bg-blue-900/95 backdrop-blur-sm shadow-lg sticky top-0 z-50">
