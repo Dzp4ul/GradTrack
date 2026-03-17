@@ -3,7 +3,7 @@ import { Briefcase, TrendingUp, Users } from 'lucide-react';
 
 function HomePage() {
   return (
-    <div className="min-h-screen bg-cover bg-center bg-fixed relative" style={{ backgroundImage: 'url(/public/520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
+    <div className="min-h-screen bg-cover bg-center bg-fixed relative" style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
       <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80 pointer-events-none"></div>
       <nav className="bg-blue-900/95 backdrop-blur-sm shadow-lg sticky top-0 z-50 relative">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

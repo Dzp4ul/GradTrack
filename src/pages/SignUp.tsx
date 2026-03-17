@@ -40,7 +40,7 @@ function SignUp() {
   return (
     <div className="flex min-h-screen">
       {/* Left Side - Fixed Branding */}
-      <div className="hidden md:flex md:w-1/2 bg-cover bg-center fixed top-0 left-0 h-screen items-center justify-center" style={{ backgroundImage: 'url(/public/520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
+      <div className="hidden md:flex md:w-1/2 bg-cover bg-center fixed top-0 left-0 h-screen items-center justify-center" style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
         <div className="absolute inset-0 bg-gradient-to-br from-blue-900/85 via-blue-800/85 to-blue-900/85"></div>
         <div className="text-center px-12 relative z-10">
           <img
