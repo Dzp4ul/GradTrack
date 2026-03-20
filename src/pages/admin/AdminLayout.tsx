@@ -13,6 +13,7 @@ import {
   LogOut,
   ChevronDown,
 } from 'lucide-react';
+import { useAuth } from '../../contexts/AuthContext';
 
 const navItems = [
   { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true },
@@ -27,6 +28,12 @@ export default function AdminLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [profileOpen, setProfileOpen] = useState(false);
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/signin');
+  };
 
   return (
     <div className="min-h-screen bg-gray-100 flex">
@@ -113,11 +120,11 @@ export default function AdminLayout() {
                 {profileOpen && (
                   <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border py-2 z-50">
                     <div className="px-4 py-2 border-b">
-                      <p className="text-sm font-semibold text-gray-800">Admin</p>
-                      <p className="text-xs text-gray-500">admin@norzagaray.edu.ph</p>
+                      <p className="text-sm font-semibold text-gray-800">{user?.full_name || 'User'}</p>
+                      <p className="text-xs text-gray-500">{user?.email}</p>
                     </div>
                     <button
-                      onClick={() => { navigate('/'); setProfileOpen(false); }}
+                      onClick={handleLogout}
                       className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
                     >
                       <LogOut className="w-4 h-4" />
