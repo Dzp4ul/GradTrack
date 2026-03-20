@@ -36,21 +36,19 @@ export default function AdminLayout() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 flex">
+    <div className="min-h-screen bg-gray-50 flex">
       {/* Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-30 bg-[#1b2a4a] text-white transition-all duration-300 flex flex-col ${
+        className={`fixed inset-y-0 left-0 z-30 bg-blue-900 text-white transition-all duration-300 flex flex-col ${
           sidebarOpen ? 'w-64' : 'w-20'
         }`}
       >
         {/* Logo */}
-        <div className="flex items-center gap-3 px-4 py-5 border-b border-white/10">
-          <img src="/logo.png" alt="Logo" className="h-10 w-10 object-contain flex-shrink-0" />
-          {sidebarOpen && (
-            <div className="overflow-hidden">
-              <h1 className="text-lg font-bold leading-tight">GradTrack</h1>
-              <p className="text-xs text-blue-200">Norzagaray College</p>
-            </div>
+        <div className="flex items-center justify-center gap-3 px-4 py-3 border-b border-white/10">
+          {sidebarOpen ? (
+            <img src="Gemini_Generated_Image_d1z1yd1z1yd1z1yd (2) (1).png" alt="Logo" className="object-contain flex-shrink-0" />
+          ) : (
+            <img src="Gemini_Generated_Image_pakq4ppakq4ppakq (1) (1).png" alt="Logo" className="h-12 w-12 object-contain flex-shrink-0" />
           )}
         </div>
 
@@ -64,8 +62,8 @@ export default function AdminLayout() {
               className={({ isActive }) =>
                 `flex items-center gap-3 px-4 py-3 mx-2 rounded-lg transition-colors ${
                   isActive
-                    ? 'bg-yellow-500 text-[#1b2a4a] font-semibold'
-                    : 'text-blue-100 hover:bg-white/10'
+                    ? 'bg-yellow-500 text-blue-900 font-semibold'
+                    : 'text-blue-100 hover:bg-blue-800'
                 }`
               }
             >
@@ -87,7 +85,7 @@ export default function AdminLayout() {
       {/* Main content */}
       <div className={`flex-1 transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-20'}`}>
         {/* Top bar */}
-        <header className="bg-white shadow-sm sticky top-0 z-20">
+        <header className="bg-white shadow-sm sticky top-0 z-20 border-b-4 border-yellow-500">
           <div className="flex items-center justify-between px-6 py-3">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
@@ -111,7 +109,7 @@ export default function AdminLayout() {
                   onClick={() => setProfileOpen(!profileOpen)}
                   className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-100 transition-colors"
                 >
-                  <div className="w-8 h-8 rounded-full bg-[#1b2a4a] flex items-center justify-center">
+                  <div className="w-8 h-8 rounded-full bg-blue-900 flex items-center justify-center">
                     <span className="text-white text-sm font-semibold">A</span>
                   </div>
                   <ChevronDown className="w-4 h-4 text-gray-500" />

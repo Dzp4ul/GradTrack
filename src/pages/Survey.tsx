@@ -100,9 +100,80 @@ function Survey() {
     });
   };
 
-  const handleSubmit = () => {
-    console.log('Survey submitted:', { sectionA, sectionB, sectionC, sectionD });
-    alert('Survey submitted successfully! Thank you for your participation.');
+  const handleSubmit = async () => {
+    try {
+      // Combine all section data
+      const allResponses = {
+        sectionA: sectionA,
+        sectionB: sectionB,
+        sectionC: sectionC,
+        sectionD: sectionD,
+      };
+
+      const response = await fetch('/api/surveys/responses.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          survey_id: 1, // You can dynamically set this if needed
+          graduate_id: null, // Will be set if user is logged in
+          responses: allResponses,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        alert('Survey submitted successfully! Thank you for your participation.');
+        // Reset form
+        setSectionA({
+          name: '',
+          permanentAddress: '',
+          email: '',
+          telephone: '',
+          mobile: '',
+          civilStatus: '',
+          sex: '',
+          birthday: '',
+          regionOfOrigin: '',
+          province: '',
+          locationOfResidence: '',
+        });
+        setSectionB({
+          degreeProgram: '',
+          college: '',
+          yearGraduated: '',
+          honors: [],
+          honorsOther: '',
+          examName: '',
+          examDate: '',
+          examRating: '',
+          reasons: [],
+          reasonsOther: '',
+        });
+        setSectionC({
+          trainingTitle: '',
+          trainingDuration: '',
+          trainingInstitution: '',
+          graduateProgram: '',
+          graduateProgramOther: '',
+          earnedUnits: '',
+          graduateCollege: '',
+          advanceStudyReason: [],
+          advanceStudyReasonOther: '',
+        });
+        setSectionD({
+          presentlyEmployed: '',
+          notEmployedReasons: [],
+          notEmployedOther: '',
+          suggestions: '',
+        });
+        setCurrentSection(0);
+        setAgreed(false);
+      }
+    } catch (error) {
+      console.error('Error submitting survey:', error);
+      alert('Error submitting survey. Please try again.');
+    }
   };
 
   const inputClass = 'w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition text-sm';

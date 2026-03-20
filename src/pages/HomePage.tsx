@@ -1,7 +1,12 @@
 import { Link } from 'react-router-dom';
 import { Briefcase, TrendingUp, Users } from 'lucide-react';
+import { useState, useEffect } from 'react';
 
 function HomePage() {
+  useEffect(() => {
+    // Component setup
+  }, []);
+
   return (
     <div className="min-h-screen bg-cover bg-center bg-fixed relative" style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
       <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80 pointer-events-none"></div>
@@ -143,7 +148,7 @@ function HomePage() {
           </div>
         </section>
 
-                <section id = "how-it-works" className="bg-gradient-to-br from-gray-50 to-white py-20">
+        <section className="bg-white py-20">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-16">
               <h2 className="text-4xl font-bold text-blue-900 mb-4">How It Works</h2>

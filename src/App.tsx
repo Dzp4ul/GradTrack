@@ -7,6 +7,7 @@ import AdminLayout from './pages/admin/AdminLayout';
 import Dashboard from './pages/admin/Dashboard';
 import Graduates from './pages/admin/Graduates';
 import Surveys from './pages/admin/Surveys';
+import SurveyResponses from './pages/admin/SurveyResponses';
 import Reports from './pages/admin/Reports';
 import Announcements from './pages/admin/Announcements';
 import Settings from './pages/admin/Settings';
@@ -34,6 +35,7 @@ function App() {
           <Route index element={<Dashboard />} />
           <Route path="graduates" element={<Graduates />} />
           <Route path="surveys" element={<Surveys />} />
+          <Route path="surveys/:surveyId/responses" element={<SurveyResponses />} />
           <Route path="reports" element={<Reports />} />
           <Route path="announcements" element={<Announcements />} />
           <Route path="settings" element={<Settings />} />
