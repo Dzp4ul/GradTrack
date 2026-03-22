@@ -213,9 +213,10 @@ export default function Graduates() {
               className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">All Programs</option>
-              <option value="1">BSIT</option>
-              <option value="2">BSED</option>
-              <option value="3">BSBA</option>
+              <option value="1">Bachelor of Science in Computer Science (BSCS)</option>
+              <option value="2">Bachelor of Science in Hospitality Management (BSHM)</option>
+              <option value="3">Bachelor of Secondary Education (BSED)</option>
+              <option value="4">Bachelor of Elementary Education (BEED)</option>
             </select>
             <select
               value={filterYear}
@@ -369,9 +370,10 @@ export default function Graduates() {
                       className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
                       <option value="">Select</option>
-                      <option value="1">BSIT</option>
-                      <option value="2">BSED</option>
-                      <option value="3">BSBA</option>
+                      <option value="1">Bachelor of Science in Computer Science (BSCS)</option>
+                      <option value="2">Bachelor of Science in Hospitality Management (BSHM)</option>
+                      <option value="3">Bachelor of Secondary Education (BSED)</option>
+                      <option value="4">Bachelor of Elementary Education (BEED)</option>
                     </select>
                   </div>
                   <Input label="Year Graduated" type="number" value={formData.year_graduated} onChange={(v) => updateField('year_graduated', v)} />

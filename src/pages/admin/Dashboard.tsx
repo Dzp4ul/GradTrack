@@ -49,11 +49,12 @@ export default function Dashboard() {
           employment_rate: 78,
           alignment_rate: 62,
           avg_time_to_employment: 5.4,
-          at_risk_programs: ['BSBA', 'BSED'],
+          at_risk_programs: [],
           program_stats: [
-            { code: 'BSIT', name: 'BS Information Technology', employability_index: 82 },
-            { code: 'BSED', name: 'BS Education', employability_index: 65 },
-            { code: 'BSBA', name: 'BS Business Administration', employability_index: 54 },
+            { code: 'BSCS', name: 'BS Computer Science', employability_index: 82 },
+            { code: 'BSHM', name: 'BS Hospitality Management', employability_index: 75 },
+            { code: 'BSED', name: 'BS Secondary Education', employability_index: 70 },
+            { code: 'BEED', name: 'BS Elementary Education', employability_index: 68 },
           ],
           employment_trends: [
             { year: 2019, employment_rate: 80, alignment_rate: 72 },
@@ -72,7 +73,6 @@ export default function Dashboard() {
             { job_title: 'IT Support Specialist', company_name: 'Global Systems Co.', graduate_count: 4 },
           ],
           recommended_actions: [
-            'Review BSBA Curriculum',
             'Enhance IT Internship Programs',
             'Industry Partnership Initiative',
             'Offer Data Analytics Course',

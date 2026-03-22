@@ -157,9 +157,10 @@ CREATE TABLE job_listings (
 
 -- Programs
 INSERT INTO programs (name, code, description) VALUES
-('Bachelor of Science in Information Technology', 'BSIT', 'Information Technology program'),
+('Bachelor of Science in Computer Science', 'BSCS', 'Computer Science program'),
+('Bachelor of Science in Hospitality Management', 'BSHM', 'Hospitality Management program'),
 ('Bachelor of Secondary Education', 'BSED', 'Secondary Education program'),
-('Bachelor of Science in Business Administration', 'BSBA', 'Business Administration program');
+('Bachelor of Elementary Education', 'BEED', 'Elementary Education program');
 
 -- Admin User (password: admin123)
 INSERT INTO admin_users (username, email, password, full_name, role) VALUES
@@ -170,45 +171,45 @@ INSERT INTO graduates (student_id, first_name, last_name, email, phone, program_
 ('2019-0001', 'Juan', 'Dela Cruz', 'juan@email.com', '09171234567', 1, 2019),
 ('2019-0002', 'Maria', 'Santos', 'maria@email.com', '09179876543', 1, 2019),
 ('2019-0003', 'Jose', 'Reyes', 'jose@email.com', '09171112233', 2, 2019),
-('2019-0004', 'Anna', 'Garcia', 'anna@email.com', '09174445566', 2, 2019),
-('2019-0005', 'Pedro', 'Mendoza', 'pedro@email.com', '09177778899', 3, 2019),
+('2019-0004', 'Anna', 'Garcia', 'anna@email.com', '09174445566', 3, 2019),
+('2019-0005', 'Pedro', 'Mendoza', 'pedro@email.com', '09177778899', 4, 2019),
 ('2020-0001', 'Clara', 'Bautista', 'clara@email.com', '09171010101', 1, 2020),
 ('2020-0002', 'Carlos', 'Rivera', 'carlos@email.com', '09172020202', 1, 2020),
 ('2020-0003', 'Rosa', 'Aquino', 'rosa@email.com', '09173030303', 2, 2020),
 ('2020-0004', 'Miguel', 'Torres', 'miguel@email.com', '09174040404', 3, 2020),
-('2020-0005', 'Elena', 'Villanueva', 'elena@email.com', '09175050505', 3, 2020),
+('2020-0005', 'Elena', 'Villanueva', 'elena@email.com', '09175050505', 4, 2020),
 ('2021-0001', 'Rafael', 'Cruz', 'rafael@email.com', '09176060606', 1, 2021),
 ('2021-0002', 'Sofia', 'Ramos', 'sofia@email.com', '09177070707', 1, 2021),
 ('2021-0003', 'Diego', 'Fernandez', 'diego@email.com', '09178080808', 2, 2021),
-('2021-0004', 'Lucia', 'Gonzales', 'lucia@email.com', '09179090909', 2, 2021),
-('2021-0005', 'Marco', 'Pascual', 'marco@email.com', '09170101010', 3, 2021),
+('2021-0004', 'Lucia', 'Gonzales', 'lucia@email.com', '09179090909', 3, 2021),
+('2021-0005', 'Marco', 'Pascual', 'marco@email.com', '09170101010', 4, 2021),
 ('2022-0001', 'Isabel', 'Morales', 'isabel@email.com', '09171111111', 1, 2022),
-('2022-0002', 'Andre', 'Lopez', 'andre@email.com', '09172222222', 1, 2022),
+('2022-0002', 'Andre', 'Lopez', 'andre@email.com', '09172222222', 2, 2022),
 ('2022-0003', 'Carmen', 'Perez', 'carmen@email.com', '09173333333', 2, 2022),
 ('2022-0004', 'Luis', 'Castillo', 'luis@email.com', '09174444444', 3, 2022),
-('2022-0005', 'Patricia', 'Navarro', 'patricia@email.com', '09175555555', 3, 2022);
+('2022-0005', 'Patricia', 'Navarro', 'patricia@email.com', '09175555555', 4, 2022);
 
 -- Employment Records
 INSERT INTO employment (graduate_id, company_name, job_title, industry, employment_status, is_aligned, date_hired, monthly_salary, time_to_employment) VALUES
 (1, 'Tech Solutions Inc.', 'Web Developer', 'IT', 'employed', 'aligned', '2019-08-15', 25000, 3),
 (2, 'DataCore Systems', 'Software Engineer', 'IT', 'employed', 'aligned', '2019-09-01', 28000, 4),
-(3, 'Norzagaray National HS', 'Science Teacher', 'Education', 'employed', 'aligned', '2019-07-01', 22000, 2),
-(4, 'St. Mary Academy', 'English Teacher', 'Education', 'employed', 'aligned', '2020-01-15', 20000, 8),
-(5, 'Prime Innovations', 'Marketing Associate', 'Marketing', 'employed', 'partially_aligned', '2019-11-01', 18000, 6),
+(3, 'Grand Hotel Manila', 'Hotel Manager', 'Hospitality', 'employed', 'aligned', '2019-07-15', 24000, 2),
+(4, 'Norzagaray National HS', 'Secondary Science Teacher', 'Education', 'employed', 'aligned', '2019-07-01', 22000, 2),
+(5, 'Bulakan Elementary School', 'Elementary Teacher', 'Education', 'employed', 'aligned', '2019-06-15', 20000, 1),
 (6, 'CloudTech Corp', 'Full Stack Developer', 'IT', 'employed', 'aligned', '2020-10-01', 30000, 4),
 (7, 'Global Systems Co.', 'IT Support Specialist', 'IT', 'employed', 'aligned', '2020-09-15', 22000, 3),
-(8, 'Bulacan State College', 'Math Teacher', 'Education', 'employed', 'aligned', '2020-08-01', 21000, 2),
-(9, 'ShopEasy Inc.', 'Sales Associate', 'Retail', 'employed', 'not_aligned', '2021-01-10', 15000, 7),
-(10, 'FreelanceHub', 'Virtual Assistant', 'BPO', 'self_employed', 'not_aligned', '2020-12-01', 20000, 6),
+(8, 'Paradise Resort', 'Chef', 'Hospitality', 'employed', 'aligned', '2020-08-01', 23000, 2),
+(9, 'Bulacan State College', 'Secondary Mathematics Teacher', 'Education', 'employed', 'aligned', '2020-08-01', 21000, 2),
+(10, 'Norzagaray Central School', 'Elementary Teacher', 'Education', 'employed', 'aligned', '2020-07-15', 20000, 1),
 (11, 'NetWave Solutions', 'Network Admin', 'IT', 'employed', 'aligned', '2021-09-01', 26000, 3),
 (12, 'AppDev Studio', 'Mobile Developer', 'IT', 'employed', 'aligned', '2021-10-15', 32000, 4),
-(13, 'City High School', 'Filipino Teacher', 'Education', 'employed', 'aligned', '2021-07-15', 22000, 1),
-(14, NULL, NULL, NULL, 'unemployed', 'not_aligned', NULL, NULL, 0),
-(15, 'QuickMart', 'Store Manager', 'Retail', 'employed', 'partially_aligned', '2022-02-01', 18000, 8),
+(13, 'Bayview Hotel', 'Front Office Manager', 'Hospitality', 'employed', 'aligned', '2021-08-01', 22000, 2),
+(14, 'City High School', 'Secondary English Teacher', 'Education', 'employed', 'aligned', '2021-07-15', 22000, 1),
+(15, 'Lakeview School', 'Elementary Grade Teacher', 'Education', 'employed', 'aligned', '2021-06-15', 20000, 0),
 (16, 'CyberLink Tech', 'Junior Developer', 'IT', 'employed', 'aligned', '2022-08-01', 23000, 2),
-(17, NULL, NULL, NULL, 'unemployed', 'not_aligned', NULL, NULL, 0),
-(18, 'Provincial School', 'Substitute Teacher', 'Education', 'employed', 'aligned', '2022-09-01', 18000, 3),
-(19, 'Family Store', 'Business Owner', 'Retail', 'self_employed', 'partially_aligned', '2022-06-01', 25000, 0),
+(17, 'Sunrise Cafe & Bistro', 'Restaurant Manager', 'Hospitality', 'employed', 'partially_aligned', '2022-09-01', 20000, 3),
+(18, 'Seaside Lodging', 'Receptionist', 'Hospitality', 'employed', 'aligned', '2022-07-01', 18000, 2),
+(19, 'Provincial School District', 'Secondary Teacher', 'Education', 'employed', 'aligned', '2022-09-01', 21000, 2),
 (20, NULL, NULL, NULL, 'unemployed', 'not_aligned', NULL, NULL, 0);
 
 -- Employment Trends
