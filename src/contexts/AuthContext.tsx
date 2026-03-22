@@ -53,6 +53,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = async (email: string, password: string) => {
+    // Hardcoded admin credentials
+    const hardcodedEmail = "admin@norzagaray.edu.ph";
+    const hardcodedPassword = "admin123";
+
+    // Check hardcoded credentials first
+    if (email === hardcodedEmail && password === hardcodedPassword) {
+      setUser({
+        id: 1,
+        username: "admin",
+        email: hardcodedEmail,
+        full_name: "System Administrator",
+        role: "super_admin"
+      });
+      setIsAuthenticated(true);
+      return;
+    }
+
+    // Try database login if hardcoded doesn't match
     try {
       const response = await fetch('/api/auth/login.php', {
         method: 'POST',
