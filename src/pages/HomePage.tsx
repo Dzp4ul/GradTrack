@@ -28,12 +28,8 @@ function HomePage() {
               <a href="#about" className="text-white hover:text-yellow-400 font-medium transition">About</a>
               <a href="#features" className="text-white hover:text-yellow-400 font-medium transition">Features</a>
               <a href="#" className="text-white hover:text-yellow-400 font-medium transition">FAQ</a>
-              <Link to="/survey" className="text-white hover:text-yellow-400 font-medium transition">Survey</Link>
-              <Link to="/signup" className="bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white px-6 py-2 rounded-lg font-medium transition border-2 border-white/30">
-                Sign Up
-              </Link>
-              <Link to="/signin" className="bg-yellow-500 hover:bg-yellow-600 text-blue-900 px-6 py-2.5 rounded-lg font-medium transition shadow-md hover:shadow-lg">
-                Sign In
+              <Link to="/survey" className="bg-yellow-500 hover:bg-yellow-600 text-blue-900 px-6 py-2.5 rounded-lg font-medium transition shadow-md hover:shadow-lg">
+                Take Survey
               </Link>
             </div>
           </div>
@@ -48,7 +44,7 @@ function HomePage() {
               <div className="text-white space-y-8">
                 <div className="inline-block">
                   <img
-                    src="Gemini_Generated_Image_d1z1yd1z1yd1z1yd (2) (1).png"
+                    src="Gradtrack_Logo2.png"
                     alt="GradTrack Logo"
                     className="h-24 object-contain mb-6"
                   />
@@ -60,12 +56,12 @@ function HomePage() {
                   GradTrack empowers Norzagaray College to stay connected with alumni, track career progression, and ensure educational outcomes align with professional success.
                 </p>
                 <div className="flex space-x-4">
-                  <Link to="/signup" className="bg-yellow-500 hover:bg-yellow-600 text-blue-900 px-8 py-4 rounded-lg font-bold text-lg transition shadow-xl hover:shadow-2xl hover:scale-105 transform">
-                    Get Started
+                  <Link to="/survey" className="bg-yellow-500 hover:bg-yellow-600 text-blue-900 px-8 py-4 rounded-lg font-bold text-lg transition shadow-xl hover:shadow-2xl hover:scale-105 transform">
+                    Take Survey
                   </Link>
-                  <button className="bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white px-8 py-4 rounded-lg font-bold text-lg transition border-2 border-white/30">
+                  <a href="#about" className="bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white px-8 py-4 rounded-lg font-bold text-lg transition border-2 border-white/30">
                     Learn More
-                  </button>
+                  </a>
                 </div>
               </div>
 
@@ -245,6 +241,7 @@ function HomePage() {
                   <li><a href="#about" className="text-blue-200 hover:text-yellow-400 transition text-sm">About Us</a></li>
                   <li><a href="#features" className="text-blue-200 hover:text-yellow-400 transition text-sm">Features</a></li>
                   <li><a href="#" className="text-blue-200 hover:text-yellow-400 transition text-sm">FAQs</a></li>
+                  <li><Link to="/admin/signin" className="text-blue-200 hover:text-yellow-400 transition text-sm">Admin Login</Link></li>
                 </ul>
               </div>
 

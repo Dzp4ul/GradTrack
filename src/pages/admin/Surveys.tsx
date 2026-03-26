@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
-  Plus, Edit2, Trash2, X, ClipboardList, Eye, ChevronDown, ChevronUp, ShieldCheck, BarChart3,
+  Plus, Edit2, Trash2, X, ClipboardList, Eye, ChevronDown, ChevronUp, ShieldCheck, BarChart3, FileText,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -105,6 +105,78 @@ export default function Surveys() {
     setShowModal(true);
   };
 
+  const loadDefaultTemplate = () => {
+    const defaultSurvey: FormData = {
+      title: 'Graduate Tracer Study Survey',
+      description: 'Comprehensive survey for tracking graduate employment and career outcomes',
+      status: 'draft',
+      questions: [
+        // Section A - General Information
+        { question_text: 'Last Name', question_type: 'text', options: null, is_required: 1, sort_order: 1 },
+        { question_text: 'First Name', question_type: 'text', options: null, is_required: 1, sort_order: 2 },
+        { question_text: 'Middle Name', question_type: 'text', options: null, is_required: 0, sort_order: 3 },
+        { question_text: 'Name Extension (Jr, Sr, III)', question_type: 'text', options: null, is_required: 0, sort_order: 4 },
+        { question_text: 'Region', question_type: 'multiple_choice', options: ['NCR', 'CAR', 'Region I', 'Region II', 'Region III', 'Region IV-A', 'Region IV-B', 'Region V', 'Region VI', 'Region VII', 'Region VIII', 'Region IX', 'Region X', 'Region XI', 'Region XII', 'Region XIII', 'BARMM'], is_required: 1, sort_order: 5 },
+        { question_text: 'Province', question_type: 'text', options: null, is_required: 1, sort_order: 6 },
+        { question_text: 'City / Municipality', question_type: 'text', options: null, is_required: 1, sort_order: 7 },
+        { question_text: 'Barangay', question_type: 'text', options: null, is_required: 1, sort_order: 8 },
+        { question_text: 'Street Address (House No., Street, Subdivision)', question_type: 'text', options: null, is_required: 0, sort_order: 9 },
+        { question_text: 'E-mail Address', question_type: 'text', options: null, is_required: 1, sort_order: 10 },
+        { question_text: 'Telephone / Contact Number(s)', question_type: 'text', options: null, is_required: 0, sort_order: 11 },
+        { question_text: 'Mobile Number', question_type: 'text', options: null, is_required: 1, sort_order: 12 },
+        { question_text: 'Civil Status', question_type: 'multiple_choice', options: ['Single', 'Married', 'Widowed', 'Separated'], is_required: 1, sort_order: 13 },
+        { question_text: 'Sex', question_type: 'multiple_choice', options: ['Male', 'Female'], is_required: 1, sort_order: 14 },
+        { question_text: 'Birthday', question_type: 'text', options: null, is_required: 1, sort_order: 15 },
+        
+        // Section B - Educational Background
+        { question_text: 'Degree Program & Specialization', question_type: 'text', options: null, is_required: 1, sort_order: 16 },
+        { question_text: 'College / University', question_type: 'text', options: null, is_required: 1, sort_order: 17 },
+        { question_text: 'Year Graduated', question_type: 'text', options: null, is_required: 1, sort_order: 18 },
+        { question_text: 'Honors / Awards Received', question_type: 'checkbox', options: ['Cum Laude', 'Magna Cum Laude', 'Leadership Award', 'Best in Thesis', "Dean's Lister", 'Academic Excellence'], is_required: 0, sort_order: 19 },
+        { question_text: 'Professional Examination Passed', question_type: 'multiple_choice', options: ['Licensure Examination for Teachers', 'Civil Service Examination', 'Other', 'None'], is_required: 0, sort_order: 20 },
+        { question_text: 'Examination Date Taken', question_type: 'text', options: null, is_required: 0, sort_order: 21 },
+        { question_text: 'Examination Rating', question_type: 'text', options: null, is_required: 0, sort_order: 22 },
+        { question_text: 'Reason(s) for taking the course', question_type: 'checkbox', options: ['High grades in related subjects', 'Good grades in high school', 'Influence of parents or relatives', 'Peer influence', 'Inspired by a role model', 'Strong passion for the profession', 'Prospect for immediate employment', 'Status or prestige of the profession', 'Availability of the course', 'Prospect for career advancement', 'Affordable for the family', 'Prospect of attractive compensation', 'Opportunity for employment abroad', 'No particular choice'], is_required: 0, sort_order: 23 },
+        
+        // Section C - Training / Advance Studies
+        { question_text: 'Title of Training After College', question_type: 'text', options: null, is_required: 0, sort_order: 24 },
+        { question_text: 'Training Duration', question_type: 'text', options: null, is_required: 0, sort_order: 25 },
+        { question_text: 'Name of Training Institution', question_type: 'text', options: null, is_required: 0, sort_order: 26 },
+        { question_text: 'Graduate Program Attended', question_type: 'multiple_choice', options: ['Master of Arts in Education', 'Master of Science in Computer Science', 'Master of Science in Hospitality Management', 'Other', 'None'], is_required: 0, sort_order: 27 },
+        { question_text: 'Earned Units', question_type: 'text', options: null, is_required: 0, sort_order: 28 },
+        { question_text: 'Graduate College / University', question_type: 'text', options: null, is_required: 0, sort_order: 29 },
+        { question_text: 'Reason for pursuing advance studies', question_type: 'checkbox', options: ['For promotion', 'For professional development', 'Other'], is_required: 0, sort_order: 30 },
+        
+        // Section D - Employment Data
+        { question_text: 'Are you presently employed?', question_type: 'multiple_choice', options: ['Yes', 'No'], is_required: 1, sort_order: 31 },
+        { question_text: 'If not employed, reason(s)', question_type: 'checkbox', options: ['Advance or further study', 'Family concern and decided not to find a job', 'Health-related reason(s)', 'Lack of work experience', 'No job opportunity', 'Did not look for a job'], is_required: 0, sort_order: 32 },
+        { question_text: 'Suggestions to further improve your course curriculum', question_type: 'text', options: null, is_required: 0, sort_order: 33 },
+      ]
+    };
+    setFormData(defaultSurvey);
+    setIsEditing(false);
+    setShowModal(true);
+  };
+
+  const clearAllSurveys = () => {
+    if (!confirm('⚠️ WARNING: This will permanently delete ALL surveys, questions, and responses. This action cannot be undone. Are you sure?')) return;
+    if (!confirm('Are you ABSOLUTELY sure? All survey data will be lost forever!')) return;
+    
+    fetch(`${API_BASE}/surveys/clear.php`, {
+      method: 'POST',
+    })
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success) {
+          alert('All survey data has been cleared successfully.');
+          fetchSurveys();
+        } else {
+          alert('Error clearing surveys: ' + res.error);
+        }
+      })
+      .catch(() => alert('Failed to clear surveys'));
+  };
+
   const openEdit = (s: Survey) => {
     fetch(`${API_BASE}/surveys/index.php?id=${s.id}`)
       .then((r) => r.json())
@@ -197,9 +269,14 @@ export default function Surveys() {
           <h1 className="text-3xl font-bold text-blue-900">Survey Management</h1>
           <p className="text-sm text-gray-500 mt-1">{surveys.length} surveys created</p>
         </div>
-        <button onClick={openAdd} className="flex items-center gap-2 bg-blue-900 hover:bg-blue-800 text-white px-6 py-2.5 rounded-lg transition-colors font-semibold shadow-md hover:shadow-lg">
-          <Plus className="w-5 h-5" /> Create Survey
-        </button>
+        <div className="flex gap-3">
+          <button onClick={loadDefaultTemplate} className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-6 py-2.5 rounded-lg transition-colors font-semibold shadow-md hover:shadow-lg">
+            <FileText className="w-5 h-5" /> Load Template
+          </button>
+          <button onClick={openAdd} className="flex items-center gap-2 bg-blue-900 hover:bg-blue-800 text-white px-6 py-2.5 rounded-lg transition-colors font-semibold shadow-md hover:shadow-lg">
+            <Plus className="w-5 h-5" /> Create Survey
+          </button>
+        </div>
       </div>
 
       {/* Survey Cards */}
@@ -211,10 +288,24 @@ export default function Surveys() {
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-12 text-center">
           <ClipboardList className="w-16 h-16 text-gray-300 mx-auto mb-4" />
           <p className="text-gray-600 text-lg font-medium">No surveys yet</p>
-          <p className="text-gray-500 text-sm">Create your first survey to get started</p>
+          <p className="text-gray-500 text-sm mb-6">Create your first survey or load the default template</p>
+          <div className="flex gap-3 justify-center">
+            <button onClick={loadDefaultTemplate} className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-6 py-2.5 rounded-lg transition-colors font-semibold">
+              <FileText className="w-5 h-5" /> Load Template
+            </button>
+            <button onClick={openAdd} className="flex items-center gap-2 bg-blue-900 hover:bg-blue-800 text-white px-6 py-2.5 rounded-lg transition-colors font-semibold">
+              <Plus className="w-5 h-5" /> Create Survey
+            </button>
+          </div>
         </div>
       ) : (
-        <div className="grid gap-4">
+        <>
+          <div className="flex justify-end mb-4">
+            <button onClick={clearAllSurveys} className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors font-semibold text-sm">
+              <Trash2 className="w-4 h-4" /> Clear All Surveys
+            </button>
+          </div>
+          <div className="grid gap-4">
           {surveys.map((s) => (
             <div key={s.id} className="bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow hover:border-yellow-200 overflow-hidden">
               <div className="p-6">
@@ -293,6 +384,7 @@ export default function Surveys() {
             </div>
           ))}
         </div>
+        </>
       )}
 
       {/* View Modal */}

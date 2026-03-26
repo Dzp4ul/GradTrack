@@ -1,7 +1,6 @@
 import { Routes, Route } from 'react-router-dom';
 import HomePage from './pages/HomePage';
 import SignIn from './pages/SignIn';
-import SignUp from './pages/SignUp';
 import Survey from './pages/Survey';
 import AdminLayout from './pages/admin/AdminLayout';
 import Dashboard from './pages/admin/Dashboard';
@@ -19,9 +18,10 @@ function App() {
     <AuthProvider>
       <Routes>
         <Route path="/" element={<HomePage />} />
-        <Route path="/signin" element={<SignIn />} />
-        <Route path="/signup" element={<SignUp />} />
         <Route path="/survey" element={<Survey />} />
+        
+        {/* Admin Sign In - Separate route for admin only */}
+        <Route path="/admin/signin" element={<SignIn />} />
 
         {/* Admin Routes - Protected */}
         <Route

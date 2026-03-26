@@ -66,7 +66,7 @@ function SignIn() {
 
           <div className="flex justify-center mb-6">
             <img
-              src="Gemini_Generated_Image_pakq4ppakq4ppakq (1).png"
+              src="GRADTRACK_LOGO1.png"
               alt="GradTrack Logo"
               className="h-20 object-contain"
             />

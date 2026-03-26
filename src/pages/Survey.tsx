@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { ShieldCheck, ChevronRight, ChevronLeft } from 'lucide-react';
+import { philippineRegions, philippineProvinces, philippineCities, philippineBarangays } from '../data/philippineAddress';
 
 const sections = [
   { key: 'A', label: 'General Information' },
@@ -15,18 +16,47 @@ function Survey() {
 
   // Section A
   const [sectionA, setSectionA] = useState({
-    name: '',
-    permanentAddress: '',
+    lastName: '',
+    firstName: '',
+    middleName: '',
+    nameExtension: '',
+    region: '',
+    province: '',
+    city: '',
+    barangay: '',
+    streetAddress: '',
     email: '',
     telephone: '',
     mobile: '',
     civilStatus: '',
     sex: '',
     birthday: '',
-    regionOfOrigin: '',
-    province: '',
-    locationOfResidence: '',
   });
+
+  const [availableProvinces, setAvailableProvinces] = useState<string[]>([]);
+  const [availableCities, setAvailableCities] = useState<string[]>([]);
+  const [availableBarangays, setAvailableBarangays] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (sectionA.region) {
+      setAvailableProvinces(philippineProvinces[sectionA.region] || []);
+      setSectionA(prev => ({ ...prev, province: '', city: '', barangay: '' }));
+    }
+  }, [sectionA.region]);
+
+  useEffect(() => {
+    if (sectionA.province) {
+      setAvailableCities(philippineCities[sectionA.province] || []);
+      setSectionA(prev => ({ ...prev, city: '', barangay: '' }));
+    }
+  }, [sectionA.province]);
+
+  useEffect(() => {
+    if (sectionA.city) {
+      setAvailableBarangays(philippineBarangays[sectionA.city] || []);
+      setSectionA(prev => ({ ...prev, barangay: '' }));
+    }
+  }, [sectionA.city]);
 
   // Section B
   const [sectionB, setSectionB] = useState({
@@ -126,17 +156,21 @@ function Survey() {
         alert('Survey submitted successfully! Thank you for your participation.');
         // Reset form
         setSectionA({
-          name: '',
-          permanentAddress: '',
+          lastName: '',
+          firstName: '',
+          middleName: '',
+          nameExtension: '',
+          region: '',
+          province: '',
+          city: '',
+          barangay: '',
+          streetAddress: '',
           email: '',
           telephone: '',
           mobile: '',
           civilStatus: '',
           sex: '',
           birthday: '',
-          regionOfOrigin: '',
-          province: '',
-          locationOfResidence: '',
         });
         setSectionB({
           degreeProgram: '',
@@ -187,7 +221,7 @@ function Survey() {
         <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80 pointer-events-none"></div>
         <div className="flex justify-center mb-6 relative z-10">
           <img
-            src="Gemini_Generated_Image_d1z1yd1z1yd1z1yd (2) (1).png"
+            src="Gradtrack_Logo2.png"
             alt="GradTrack Logo"
             className="h-20 object-contain"
           />
@@ -262,13 +296,68 @@ function Survey() {
       <p className="text-gray-500 text-sm mb-4">Please provide your personal details.</p>
 
       <div>
-        <label className={labelClass}>1. Name (Last Name, First Name M.I.)</label>
-        <input name="name" value={sectionA.name} onChange={handleChangeA} placeholder="Dela Cruz, Juan S." className={inputClass} />
+        <label className={labelClass}>1. Name</label>
+        <div className="grid grid-cols-4 gap-3">
+          <div>
+            <input name="lastName" value={sectionA.lastName} onChange={handleChangeA} placeholder="Last Name" className={inputClass} />
+          </div>
+          <div>
+            <input name="firstName" value={sectionA.firstName} onChange={handleChangeA} placeholder="First Name" className={inputClass} />
+          </div>
+          <div>
+            <input name="middleName" value={sectionA.middleName} onChange={handleChangeA} placeholder="Middle Name" className={inputClass} />
+          </div>
+          <div>
+            <input name="nameExtension" value={sectionA.nameExtension} onChange={handleChangeA} placeholder="Ext. (Jr, Sr)" className={inputClass} />
+          </div>
+        </div>
       </div>
+
       <div>
         <label className={labelClass}>2. Permanent Address</label>
-        <input name="permanentAddress" value={sectionA.permanentAddress} onChange={handleChangeA} placeholder="Enter your permanent address" className={inputClass} />
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <select name="region" value={sectionA.region} onChange={handleChangeA} className={selectClass}>
+                <option value="">Select Region</option>
+                {philippineRegions.map(r => (
+                  <option key={r.code} value={r.code}>{r.name}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <select name="province" value={sectionA.province} onChange={handleChangeA} className={selectClass} disabled={!sectionA.region}>
+                <option value="">Select Province</option>
+                {availableProvinces.map(p => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <select name="city" value={sectionA.city} onChange={handleChangeA} className={selectClass} disabled={!sectionA.province}>
+                <option value="">Select City/Municipality</option>
+                {availableCities.map(c => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <select name="barangay" value={sectionA.barangay} onChange={handleChangeA} className={selectClass} disabled={!sectionA.city}>
+                <option value="">Select Barangay</option>
+                {availableBarangays.map(b => (
+                  <option key={b} value={b}>{b}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <div>
+            <input name="streetAddress" value={sectionA.streetAddress} onChange={handleChangeA} placeholder="House No., Street, Subdivision" className={inputClass} />
+          </div>
+        </div>
       </div>
+
       <div>
         <label className={labelClass}>3. E-mail Address</label>
         <input name="email" type="email" value={sectionA.email} onChange={handleChangeA} placeholder="you@example.com" className={inputClass} />
@@ -305,20 +394,6 @@ function Survey() {
         <div>
           <label className={labelClass}>8. Birthday</label>
           <input name="birthday" type="date" value={sectionA.birthday} onChange={handleChangeA} className={inputClass} />
-        </div>
-      </div>
-      <div className="grid grid-cols-3 gap-4">
-        <div>
-          <label className={labelClass}>9. Region of Origin</label>
-          <input name="regionOfOrigin" value={sectionA.regionOfOrigin} onChange={handleChangeA} placeholder="e.g. Region III" className={inputClass} />
-        </div>
-        <div>
-          <label className={labelClass}>10. Province</label>
-          <input name="province" value={sectionA.province} onChange={handleChangeA} placeholder="e.g. Bulacan" className={inputClass} />
-        </div>
-        <div>
-          <label className={labelClass}>11. Location of Residence</label>
-          <input name="locationOfResidence" value={sectionA.locationOfResidence} onChange={handleChangeA} placeholder="City / Municipality" className={inputClass} />
         </div>
       </div>
     </div>
@@ -565,7 +640,7 @@ function Survey() {
       <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-10 relative">
         <div className="flex justify-center mb-6">
           <img
-            src="Gemini_Generated_Image_d1z1yd1z1yd1z1yd (2) (1).png"
+            src="Gradtrack_Logo2.png"
             alt="GradTrack Logo"
             className="h-20 object-contain"
           />

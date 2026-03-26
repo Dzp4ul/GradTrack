@@ -1,7 +1,7 @@
 <?php
 class Database {
-    private $host = "gradtrack-db.cry06m2ok5u8.ap-southeast-2.rds.amazonaws.com";
-    private $db_name = "gradtrack-db";
+    private $host = "gradtrackdb.cry06m2ok5u8.ap-southeast-2.rds.amazonaws.com";
+    private $db_name = "gradtrackdb";
     private $username = "admin";
     private $password = "Gradtrack301";
     private $port = 3306;

@@ -6,37 +6,69 @@ $database = new Database();
 $db = $database->getConnection();
 
 try {
-    // Total graduates
-    $stmt = $db->query("SELECT COUNT(*) as total FROM graduates");
-    $totalGraduates = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
-
-    // Employment rate
-    $stmt = $db->query("SELECT COUNT(*) as employed FROM employment WHERE employment_status IN ('employed', 'self_employed', 'freelance')");
-    $employed = $stmt->fetch(PDO::FETCH_ASSOC)['employed'];
-    $employmentRate = $totalGraduates > 0 ? round(($employed / $totalGraduates) * 100, 1) : 0;
-
-    // Alignment rate
+    // Get survey responses
+    $stmt = $db->query("SELECT responses FROM survey_responses");
+    $surveyResponses = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    
+    // Parse survey data
+    $employedCount = 0;
+    $totalResponses = count($surveyResponses);
+    $alignedCount = 0;
+    $partiallyAlignedCount = 0;
+    $notAlignedCount = 0;
+    $timeToEmploymentSum = 0;
+    $timeToEmploymentCount = 0;
+    $programData = [];
+    $jobTitles = [];
+    
+    foreach ($surveyResponses as $response) {
+        $data = json_decode($response['responses'], true);
+        
+        // Section D - Employment status
+        if (isset($data['sectionD']['presentlyEmployed']) && $data['sectionD']['presentlyEmployed'] === 'yes') {
+            $employedCount++;
+        }
+        
+        // Section B - Program data
+        if (isset($data['sectionB']['degreeProgram'])) {
+            $program = $data['sectionB']['degreeProgram'];
+            if (!isset($programData[$program])) {
+                $programData[$program] = ['total' => 0, 'employed' => 0];
+            }
+            $programData[$program]['total']++;
+            if (isset($data['sectionD']['presentlyEmployed']) && $data['sectionD']['presentlyEmployed'] === 'yes') {
+                $programData[$program]['employed']++;
+            }
+        }
+    }
+    
+    // Calculate rates
+    $employmentRate = $totalResponses > 0 ? round(($employedCount / $totalResponses) * 100, 1) : 0;
+    
+    // Get employment data from employment table for alignment and time
     $stmt = $db->query("SELECT COUNT(*) as aligned FROM employment WHERE is_aligned = 'aligned'");
     $aligned = $stmt->fetch(PDO::FETCH_ASSOC)['aligned'];
-    $alignmentRate = $employed > 0 ? round(($aligned / $employed) * 100, 1) : 0;
-
-    // Average time to employment (months)
+    $alignmentRate = $employedCount > 0 ? round(($aligned / $employedCount) * 100, 1) : 0;
+    
     $stmt = $db->query("SELECT AVG(time_to_employment) as avg_time FROM employment WHERE employment_status IN ('employed', 'self_employed', 'freelance') AND time_to_employment > 0");
     $avgTime = round($stmt->fetch(PDO::FETCH_ASSOC)['avg_time'], 1);
 
-    // Employability index by program
-    $stmt = $db->query("
-        SELECT p.code, p.name,
-            COUNT(g.id) as total_graduates,
-            SUM(CASE WHEN e.employment_status IN ('employed', 'self_employed', 'freelance') THEN 1 ELSE 0 END) as employed_count,
-            ROUND((SUM(CASE WHEN e.employment_status IN ('employed', 'self_employed', 'freelance') THEN 1 ELSE 0 END) / COUNT(g.id)) * 100, 0) as employability_index
-        FROM programs p
-        LEFT JOIN graduates g ON g.program_id = p.id
-        LEFT JOIN employment e ON e.graduate_id = g.id
-        GROUP BY p.id, p.code, p.name
-        ORDER BY employability_index DESC
-    ");
-    $programStats = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    // Build program stats from survey data
+    $programStats = [];
+    foreach ($programData as $program => $stats) {
+        $employabilityIndex = $stats['total'] > 0 ? round(($stats['employed'] / $stats['total']) * 100, 0) : 0;
+        $code = strtoupper(substr(preg_replace('/[^A-Z]/', '', $program), 0, 4));
+        $programStats[] = [
+            'code' => $code ?: 'PROG',
+            'name' => $program,
+            'total_graduates' => $stats['total'],
+            'employed_count' => $stats['employed'],
+            'employability_index' => $employabilityIndex
+        ];
+    }
+    usort($programStats, function($a, $b) {
+        return $b['employability_index'] - $a['employability_index'];
+    });
 
     // At-risk programs (employability below 70%)
     $atRiskPrograms = array_filter($programStats, function($p) {
@@ -89,7 +121,7 @@ try {
     echo json_encode([
         "success" => true,
         "data" => [
-            "total_graduates" => (int)$totalGraduates,
+            "total_graduates" => (int)$totalResponses,
             "employment_rate" => $employmentRate,
             "alignment_rate" => $alignmentRate,
             "avg_time_to_employment" => $avgTime,
