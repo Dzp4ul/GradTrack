@@ -12,6 +12,7 @@ const sections = [
 
 function Survey() {
   const [agreed, setAgreed] = useState(false);
+  const [agreedCheckbox, setAgreedCheckbox] = useState(false);
   const [currentSection, setCurrentSection] = useState(0);
 
   // Section A
@@ -53,7 +54,12 @@ function Survey() {
 
   useEffect(() => {
     if (sectionA.city) {
-      setAvailableBarangays(philippineBarangays[sectionA.city] || []);
+      const barangays = philippineBarangays[sectionA.city];
+      if (barangays && barangays.length > 0 && barangays[0] !== 'default') {
+        setAvailableBarangays(barangays);
+      } else {
+        setAvailableBarangays([]);
+      }
       setSectionA(prev => ({ ...prev, barangay: '' }));
     }
   }, [sectionA.city]);
@@ -240,10 +246,23 @@ function Survey() {
               By proceeding with this form, you voluntarily consent to participate in this research. The information you provide will be collected and processed in accordance with the <strong>Data Privacy Act of 2012 (RA 10173)</strong> and will be used for academic research purposes only. Your responses will be kept confidential, reported in aggregated form, and accessed only by the researcher. Participation is voluntary.
             </p>
           </div>
+          <div className="mt-6 flex items-start space-x-3">
+            <input
+              type="checkbox"
+              id="agreeCheckbox"
+              checked={agreedCheckbox}
+              onChange={(e) => setAgreedCheckbox(e.target.checked)}
+              className="mt-1 w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+            />
+            <label htmlFor="agreeCheckbox" className="text-gray-700 text-sm cursor-pointer">
+              I have read and understood the Data Privacy Notice and I voluntarily consent to participate in this survey.
+            </label>
+          </div>
           <div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center">
             <button
               onClick={() => setAgreed(true)}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-semibold transition shadow-md hover:shadow-lg"
+              disabled={!agreedCheckbox}
+              className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-white px-8 py-3 rounded-lg font-semibold transition shadow-md hover:shadow-lg disabled:shadow-none"
             >
               I Agree & Proceed
             </button>
@@ -261,7 +280,7 @@ function Survey() {
 
   // ─── PROGRESS BAR ───
   const ProgressBar = () => (
-    <div className="w-full max-w-3xl mx-auto mb-10">
+    <div className="w-full max-w-5xl mx-auto mb-10">
       <div className="flex items-center justify-between">
         {sections.map((s, i) => (
           <div key={s.key} className="flex-1 flex flex-col items-center relative">
@@ -344,12 +363,23 @@ function Survey() {
               </select>
             </div>
             <div>
-              <select name="barangay" value={sectionA.barangay} onChange={handleChangeA} className={selectClass} disabled={!sectionA.city}>
-                <option value="">Select Barangay</option>
-                {availableBarangays.map(b => (
-                  <option key={b} value={b}>{b}</option>
-                ))}
-              </select>
+              {availableBarangays.length > 0 ? (
+                <select name="barangay" value={sectionA.barangay} onChange={handleChangeA} className={selectClass} disabled={!sectionA.city}>
+                  <option value="">Select Barangay</option>
+                  {availableBarangays.map(b => (
+                    <option key={b} value={b}>{b}</option>
+                  ))}
+                </select>
+              ) : (
+                <input 
+                  name="barangay" 
+                  value={sectionA.barangay} 
+                  onChange={handleChangeA} 
+                  placeholder="Enter Barangay" 
+                  className={inputClass} 
+                  disabled={!sectionA.city}
+                />
+              )}
             </div>
           </div>
           <div>
@@ -637,7 +667,7 @@ function Survey() {
         </div>
       </nav>
 
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-10 relative">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 relative">
         <div className="flex justify-center mb-6">
           <img
             src="Gradtrack_Logo2.png"
