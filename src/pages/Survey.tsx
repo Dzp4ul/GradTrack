@@ -251,6 +251,17 @@ function Survey() {
           />
         );
 
+      case 'date':
+        return (
+          <input
+            type="date"
+            value={value}
+            onChange={(e) => handleResponseChange(question.id!, e.target.value)}
+            className={inputClass}
+            required={question.is_required === 1}
+          />
+        );
+
       case 'multiple_choice':
         return (
           <select

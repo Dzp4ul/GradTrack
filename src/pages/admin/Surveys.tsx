@@ -175,7 +175,7 @@ export default function Surveys() {
         { question_text: 'Telephone or Contact Number', question_type: 'text', options: null, is_required: 0, sort_order: 9, section: 'Personal Information' },
         { question_text: 'Civil Status', question_type: 'multiple_choice', options: ['Single', 'Married', 'Widowed', 'Separated', 'Divorced'], is_required: 1, sort_order: 10, section: 'Personal Information' },
         { question_text: 'Sex', question_type: 'multiple_choice', options: ['Male', 'Female', 'Prefer not to say'], is_required: 1, sort_order: 11, section: 'Personal Information' },
-        { question_text: 'Birthday', question_type: 'text', options: null, is_required: 1, sort_order: 12, section: 'Personal Information' },
+        { question_text: 'Birthday', question_type: 'date', options: null, is_required: 1, sort_order: 12, section: 'Personal Information' },
         
         // SECTION 2: EDUCATIONAL BACKGROUND
         { question_text: 'Degree Program & Specialization', question_type: 'multiple_choice', options: ['Bachelor of Secondary Education Major in General Science', 'Bachelor of Elementary Education', 'Bachelor of Science in Hospitality Management', 'Bachelor of Science in Computer Science', 'Associate in Computer Technology' ], is_required: 1, sort_order: 13, section: 'Educational Background' },
@@ -724,6 +724,7 @@ export default function Surveys() {
                                       className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition bg-white"
                                     >
                                       <option value="text">Text</option>
+                                      <option value="date">Date</option>
                                       <option value="multiple_choice">Multiple Choice</option>
                                       <option value="rating">Rating</option>
                                       <option value="checkbox">Checkbox</option>
