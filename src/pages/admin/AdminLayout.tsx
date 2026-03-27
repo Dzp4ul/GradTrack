@@ -46,9 +46,9 @@ export default function AdminLayout() {
         {/* Logo */}
         <div className="flex items-center justify-center gap-3 px-4 py-3 border-b border-white/10">
           {sidebarOpen ? (
-            <img src="Gemini_Generated_Image_d1z1yd1z1yd1z1yd (2) (1).png" alt="Logo" className="object-contain flex-shrink-0" />
+            <img src="Gradtrack_Logo2.png" alt="Logo" className="object-contain flex-shrink-0" />
           ) : (
-            <img src="Gemini_Generated_Image_pakq4ppakq4ppakq (1) (1).png" alt="Logo" className="h-12 w-12 object-contain flex-shrink-0" />
+            <img src="Gradtrack_small.png" alt="Logo" className="h-12 w-12 object-contain flex-shrink-0" />
           )}
         </div>
 

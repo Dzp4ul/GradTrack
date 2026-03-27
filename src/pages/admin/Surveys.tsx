@@ -129,10 +129,8 @@ export default function Surveys() {
   };
 
   const createFromScratch = () => {
-    setFormData(emptyForm);
-    setIsEditing(false);
+    loadDefaultTemplate();
     setShowTemplates(false);
-    setShowModal(true);
   };
 
   const loadTemplate = (templateId: string) => {
@@ -164,46 +162,69 @@ export default function Surveys() {
       description: 'Comprehensive survey for tracking graduate employment and career outcomes',
       status: 'draft',
       questions: [
-        // Section A - General Information
-        { question_text: '1. Last Name', question_type: 'text', options: null, is_required: 1, sort_order: 1 },
-        { question_text: '1. First Name', question_type: 'text', options: null, is_required: 1, sort_order: 2 },
-        { question_text: '1. Middle Name', question_type: 'text', options: null, is_required: 0, sort_order: 3 },
-        { question_text: '1. Name Extension (Jr, Sr, III)', question_type: 'text', options: null, is_required: 0, sort_order: 4 },
-        { question_text: '2. Region', question_type: 'multiple_choice', options: ['NCR', 'CAR', 'Region I', 'Region II', 'Region III', 'Region IV-A', 'Region IV-B', 'Region V', 'Region VI', 'Region VII', 'Region VIII', 'Region IX', 'Region X', 'Region XI', 'Region XII', 'Region XIII', 'BARMM'], is_required: 1, sort_order: 5 },
-        { question_text: '2. Province', question_type: 'text', options: null, is_required: 1, sort_order: 6 },
-        { question_text: '2. City / Municipality', question_type: 'text', options: null, is_required: 1, sort_order: 7 },
-        { question_text: '2. Barangay', question_type: 'text', options: null, is_required: 1, sort_order: 8 },
-        { question_text: '2. Street Address (House No., Street, Subdivision)', question_type: 'text', options: null, is_required: 0, sort_order: 9 },
-        { question_text: '3. E-mail Address', question_type: 'text', options: null, is_required: 1, sort_order: 10 },
-        { question_text: '4. Telephone / Contact Number(s)', question_type: 'text', options: null, is_required: 0, sort_order: 11 },
-        { question_text: '5. Mobile Number', question_type: 'text', options: null, is_required: 1, sort_order: 12 },
-        { question_text: '6. Civil Status', question_type: 'multiple_choice', options: ['Single', 'Married', 'Widowed', 'Separated'], is_required: 1, sort_order: 13 },
-        { question_text: '7. Sex', question_type: 'multiple_choice', options: ['Male', 'Female'], is_required: 1, sort_order: 14 },
-        { question_text: '8. Birthday', question_type: 'text', options: null, is_required: 1, sort_order: 15 },
+        // SECTION 1: PERSONAL INFORMATION
+        { question_text: 'SECTION 1: PERSONAL INFORMATION', question_type: 'text', options: null, is_required: 0, sort_order: 1 },
+        { question_text: 'Last Name', question_type: 'text', options: null, is_required: 1, sort_order: 2 },
+        { question_text: 'First Name', question_type: 'text', options: null, is_required: 1, sort_order: 3 },
+        { question_text: 'Middle Name', question_type: 'text', options: null, is_required: 0, sort_order: 4 },
+        { question_text: 'Region', question_type: 'multiple_choice', options: ['NCR', 'CAR', 'Region I', 'Region II', 'Region III', 'Region IV-A', 'Region IV-B', 'Region V', 'Region VI', 'Region VII', 'Region VIII', 'Region IX', 'Region X', 'Region XI', 'Region XII', 'Region XIII', 'BARMM'], is_required: 1, sort_order: 5 },
+        { question_text: 'Province', question_type: 'text', options: null, is_required: 1, sort_order: 6 },
+        { question_text: 'City / Municipality', question_type: 'text', options: null, is_required: 1, sort_order: 7 },
+        { question_text: 'Email Address', question_type: 'text', options: null, is_required: 1, sort_order: 8 },
+        { question_text: 'Mobile Number', question_type: 'text', options: null, is_required: 1, sort_order: 9 },
+        { question_text: 'Telephone or Contact Number', question_type: 'text', options: null, is_required: 0, sort_order: 10 },
+        { question_text: 'Civil Status', question_type: 'multiple_choice', options: ['Single', 'Married', 'Widowed', 'Separated', 'Divorced'], is_required: 1, sort_order: 11 },
+        { question_text: 'Sex', question_type: 'multiple_choice', options: ['Male', 'Female'], is_required: 1, sort_order: 12 },
+        { question_text: 'Birthday', question_type: 'text', options: null, is_required: 1, sort_order: 13 },
         
-        // Section B - Educational Background
-        { question_text: '12a. Degree Program & Specialization', question_type: 'multiple_choice', options: ['Bachelor of Science in Computer Science', 'Associate in Computer Technology', 'Bachelor of Secondary Education - General Science', 'Bachelor of Elementary Education', 'Bachelor of Science in Hospitality Management'], is_required: 1, sort_order: 16 },
-        { question_text: '12b. College / University', question_type: 'text', options: null, is_required: 1, sort_order: 17 },
-        { question_text: '12c. Year Graduated', question_type: 'text', options: null, is_required: 1, sort_order: 18 },
-        { question_text: '12d. Honors / Awards Received (if any)', question_type: 'checkbox', options: ['Cum Laude', 'Magna Cum Laude', 'Leadership Award', 'Best in Thesis', "Dean's Lister", 'Academic Excellence'], is_required: 0, sort_order: 19 },
-        { question_text: '13a. Name of Examination', question_type: 'multiple_choice', options: ['Licensure Examination for Teachers', 'Civil Service Examination', 'Other'], is_required: 0, sort_order: 20 },
-        { question_text: '13b. Date Taken', question_type: 'text', options: null, is_required: 0, sort_order: 21 },
-        { question_text: '13c. Rating', question_type: 'text', options: null, is_required: 0, sort_order: 22 },
-        { question_text: '14. Reason(s) for taking the course / pursuing the degree', question_type: 'checkbox', options: ['High grades in the course/subject area(s) related to the course', 'Good grades in high school', 'Influence of parents or relatives', 'Peer influence', 'Inspired by a role model', 'Strong passion for the profession', 'Prospect for immediate employment', 'Status or prestige of the profession', 'Availability of the course in chosen institution', 'Prospect for career advancement', 'Affordable for the family', 'Prospect of attractive compensation', 'Opportunity for employment abroad', 'No particular choice / no better idea'], is_required: 0, sort_order: 23 },
+        // SECTION 2: EDUCATIONAL BACKGROUND
+        { question_text: 'SECTION 2: EDUCATIONAL BACKGROUND', question_type: 'text', options: null, is_required: 0, sort_order: 14 },
+        { question_text: 'Degree Program & Specialization', question_type: 'text', options: null, is_required: 1, sort_order: 15 },
+        { question_text: 'Year Graduated', question_type: 'text', options: null, is_required: 1, sort_order: 16 },
+        { question_text: 'Honors / Awards Received (if applicable)', question_type: 'text', options: null, is_required: 0, sort_order: 17 },
+        { question_text: 'Professional Examination(s) Passed (if applicable)', question_type: 'text', options: null, is_required: 0, sort_order: 18 },
+        { question_text: 'Name of Examination', question_type: 'text', options: null, is_required: 0, sort_order: 19 },
+        { question_text: 'Date Taken', question_type: 'text', options: null, is_required: 0, sort_order: 20 },
+        { question_text: 'Rating', question_type: 'text', options: null, is_required: 0, sort_order: 21 },
+        { question_text: 'Reason(s) for taking the course / pursuing the degree', question_type: 'checkbox', options: ['High grades in related subjects', 'Good grades in high school', 'Influence of parents/relatives', 'Peer influence', 'Inspired by a role model', 'Strong passion for the profession', 'Prospect for immediate employment', 'Status/prestige of profession', 'Course availability', 'Career advancement prospects', 'Affordable for family', 'Attractive compensation', 'Employment abroad opportunity', 'No particular choice'], is_required: 0, sort_order: 22 },
         
-        // Section C - Training / Advance Studies
-        { question_text: '15a. Title of Training', question_type: 'text', options: null, is_required: 0, sort_order: 24 },
-        { question_text: '15b. Duration', question_type: 'text', options: null, is_required: 0, sort_order: 25 },
-        { question_text: '15c. Name of Training Institution', question_type: 'text', options: null, is_required: 0, sort_order: 26 },
-        { question_text: '16a. Name of Graduate Program', question_type: 'multiple_choice', options: ['Master of Arts in Education', 'Master of Science in Computer Science', 'Master of Science in Hospitality Management', 'Doctor of Philosophy', 'Other'], is_required: 0, sort_order: 27 },
-        { question_text: '16b. Earned Units', question_type: 'text', options: null, is_required: 0, sort_order: 28 },
-        { question_text: '16c. Name of College / University', question_type: 'text', options: null, is_required: 0, sort_order: 29 },
-        { question_text: '17. What made you pursue advance studies?', question_type: 'checkbox', options: ['For promotion', 'For professional development'], is_required: 0, sort_order: 30 },
+        // SECTION 3: TRAININGS ATTENDED AFTER COLLEGE
+        { question_text: 'SECTION 3: TRAININGS ATTENDED AFTER COLLEGE', question_type: 'text', options: null, is_required: 0, sort_order: 23 },
+        { question_text: 'Title of Training', question_type: 'text', options: null, is_required: 0, sort_order: 24 },
+        { question_text: 'Duration', question_type: 'text', options: null, is_required: 0, sort_order: 25 },
+        { question_text: 'Name of Training Institution', question_type: 'text', options: null, is_required: 0, sort_order: 26 },
         
-        // Section D - Employment Data
-        { question_text: '18. Are you presently employed?', question_type: 'multiple_choice', options: ['Yes', 'No'], is_required: 1, sort_order: 31 },
-        { question_text: '19. Reason(s) why you are not yet employed', question_type: 'checkbox', options: ['Advance or further study', 'Family concern and decided not to find a job', 'Health-related reason(s)', 'Lack of work experience', 'No job opportunity', 'Did not look for a job'], is_required: 0, sort_order: 32 },
-        { question_text: '35. Suggestions to further improve your course curriculum', question_type: 'text', options: null, is_required: 0, sort_order: 33 },
+        // SECTION 4: GRADUATE STUDIES
+        { question_text: 'SECTION 4: GRADUATE STUDIES', question_type: 'text', options: null, is_required: 0, sort_order: 27 },
+        { question_text: 'Name of Graduate Program', question_type: 'text', options: null, is_required: 0, sort_order: 28 },
+        { question_text: 'Earned Units', question_type: 'text', options: null, is_required: 0, sort_order: 29 },
+        { question_text: 'Name of College/University', question_type: 'text', options: null, is_required: 0, sort_order: 30 },
+        { question_text: 'What made you pursue advanced studies?', question_type: 'checkbox', options: ['For promotion', 'For professional development', 'Career change', 'Personal interest', 'Higher salary'], is_required: 0, sort_order: 31 },
+        
+        // SECTION 5: EMPLOYMENT DATA
+        { question_text: 'SECTION 5: EMPLOYMENT DATA', question_type: 'text', options: null, is_required: 0, sort_order: 32 },
+        { question_text: 'Are you presently employed?', question_type: 'multiple_choice', options: ['Yes', 'No'], is_required: 1, sort_order: 33 },
+        
+        // IF YES (Employed)
+        { question_text: 'Present Employment Status', question_type: 'multiple_choice', options: ['Regular/Permanent', 'Temporary', 'Casual', 'Contractual', 'Self-employed'], is_required: 0, sort_order: 34 },
+        { question_text: 'If self-employed, what skills acquired in college were applied?', question_type: 'text', options: null, is_required: 0, sort_order: 35 },
+        { question_text: 'Present Occupation', question_type: 'text', options: null, is_required: 0, sort_order: 36 },
+        { question_text: 'Major line of business of the company', question_type: 'text', options: null, is_required: 0, sort_order: 37 },
+        { question_text: 'Place of work', question_type: 'text', options: null, is_required: 0, sort_order: 38 },
+        { question_text: 'Is this your first job after college?', question_type: 'multiple_choice', options: ['Yes', 'No'], is_required: 0, sort_order: 39 },
+        { question_text: 'If YES, reasons for staying on the job', question_type: 'checkbox', options: ['Career challenge', 'Related to course', 'Salaries and benefits', 'Career advancement', 'Learning environment', 'Proximity to residence'], is_required: 0, sort_order: 40 },
+        { question_text: 'Is your first job related to your course?', question_type: 'multiple_choice', options: ['Yes', 'No'], is_required: 0, sort_order: 41 },
+        { question_text: 'Reasons for changing job', question_type: 'checkbox', options: ['Salaries and benefits', 'Career challenge', 'Related to course', 'Proximity to residence', 'Working conditions', 'Work environment'], is_required: 0, sort_order: 42 },
+        { question_text: 'How long did you stay in your first job?', question_type: 'multiple_choice', options: ['Less than 1 month', '1-6 months', '6-12 months', '1-2 years', '2-3 years', 'More than 3 years'], is_required: 0, sort_order: 43 },
+        { question_text: 'How did you find your first job?', question_type: 'multiple_choice', options: ['Response to job advertisement', 'Walk-in applicant', 'Recommended by someone', 'Job fair/Public employment service', 'Arranged by school', 'Family business', 'Job posting in social media'], is_required: 0, sort_order: 44 },
+        { question_text: 'How long did it take to land your first job?', question_type: 'multiple_choice', options: ['Less than 1 month', '1-6 months', '6-12 months', '1-2 years', 'More than 2 years'], is_required: 0, sort_order: 45 },
+        { question_text: 'Job Level Position', question_type: 'multiple_choice', options: ['Rank and File', 'Supervisory', 'Managerial', 'Executive'], is_required: 0, sort_order: 46 },
+        { question_text: 'Initial gross monthly earning', question_type: 'multiple_choice', options: ['Below 10,000', '10,000-15,000', '15,001-20,000', '20,001-25,000', '25,001-30,000', 'Above 30,000'], is_required: 0, sort_order: 47 },
+        { question_text: 'Was the college curriculum relevant to your first job?', question_type: 'multiple_choice', options: ['Yes', 'No'], is_required: 0, sort_order: 48 },
+        { question_text: 'If YES, what competencies were useful?', question_type: 'checkbox', options: ['Communication skills', 'Critical thinking skills', 'Human relations skills', 'Problem-solving skills', 'Technical skills', 'IT skills'], is_required: 0, sort_order: 49 },
+        
+        // IF NO (Not Employed)
+        { question_text: 'Reason(s) why you are not yet employed', question_type: 'checkbox', options: ['Advance or further study', 'Family concern', 'Health-related reason', 'Lack of work experience', 'No job opportunity', 'Did not look for a job', 'Waiting for job offer'], is_required: 0, sort_order: 50 },
       ]
     };
     setFormData(defaultSurvey);
@@ -491,7 +512,9 @@ export default function Surveys() {
                               {template.name}
                             </h3>
                             {template.analytics_enabled && (
-                              <BarChart3 className="w-4 h-4 text-green-600" title="Analytics Enabled" />
+                              <span title="Analytics Enabled">
+                                <BarChart3 className="w-4 h-4 text-green-600" />
+                              </span>
                             )}
                           </div>
                           <p className="text-sm text-gray-600 mb-3">{template.description}</p>
