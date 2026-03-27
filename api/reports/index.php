@@ -72,6 +72,18 @@ try {
             break;
 
         case 'by_program':
+            // Map program names to codes
+            function getProgramCode($programName) {
+                $programLower = strtolower($programName);
+                if (strpos($programLower, 'computer science') !== false) return 'BSCS';
+                if (strpos($programLower, 'secondary education') !== false) return 'BSED';
+                if (strpos($programLower, 'elementary education') !== false) return 'BEED';
+                if (strpos($programLower, 'hospitality management') !== false) return 'BSHM';
+                if (strpos($programLower, 'computer technology') !== false) return 'ACT';
+                preg_match('/\b([A-Z]{3,})\b/', $programName, $matches);
+                return isset($matches[1]) && strlen($matches[1]) > 3 ? $matches[1] : strtoupper(substr(preg_replace('/[^A-Za-z]/', '', $programName), 0, 4));
+            }
+
             // Get survey responses and parse by program
             $stmt = $db->query("SELECT q.id, q.question_text FROM surveys s JOIN survey_questions q ON s.id = q.survey_id WHERE s.status = 'active' ORDER BY q.sort_order");
             $questions = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -117,9 +129,7 @@ try {
                 }
                 
                 if (!empty($degreeProgram)) {
-                    // Extract program code
-                    preg_match('/\b([A-Z]{2,})\b/', $degreeProgram, $matches);
-                    $code = isset($matches[1]) ? $matches[1] : strtoupper(substr(preg_replace('/[^A-Za-z]/', '', $degreeProgram), 0, 4));
+                    $code = getProgramCode($degreeProgram);
                     
                     if (!isset($programData[$code])) {
                         $programData[$code] = [
