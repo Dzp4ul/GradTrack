@@ -277,6 +277,26 @@ function Survey() {
           </select>
         );
 
+      case 'radio':
+        return (
+          <div className="space-y-2">
+            {question.options?.map((option, idx) => (
+              <label key={idx} className="flex items-center space-x-3 text-sm text-gray-700 cursor-pointer hover:bg-blue-100 p-2 rounded-lg transition">
+                <input
+                  type="radio"
+                  name={`question-${question.id}`}
+                  value={option}
+                  checked={value === option}
+                  onChange={(e) => handleResponseChange(question.id!, e.target.value)}
+                  className="w-4 h-4 text-blue-600 focus:ring-blue-500"
+                  required={question.is_required === 1}
+                />
+                <span>{option}</span>
+              </label>
+            ))}
+          </div>
+        );
+
       case 'checkbox':
         return (
           <div className="space-y-2">

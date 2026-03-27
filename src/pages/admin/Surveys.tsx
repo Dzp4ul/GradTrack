@@ -179,45 +179,44 @@ export default function Surveys() {
         
         // SECTION 2: EDUCATIONAL BACKGROUND
         { question_text: 'Degree Program & Specialization', question_type: 'multiple_choice', options: ['Bachelor of Secondary Education Major in General Science', 'Bachelor of Elementary Education', 'Bachelor of Science in Hospitality Management', 'Bachelor of Science in Computer Science', 'Associate in Computer Technology' ], is_required: 1, sort_order: 13, section: 'Educational Background' },
-        { question_text: 'Year Graduated', question_type: 'text', options: null, is_required: 1, sort_order: 14, section: 'Educational Background' },
-        { question_text: 'Honors / Awards Received', question_type: 'text', options: null, is_required: 0, sort_order: 15, section: 'Educational Background' },
+        { question_text: 'Year Graduated', question_type: 'multiple_choice', options: ['2021', '2022', '2023', '2024', '2025'], is_required: 1, sort_order: 14, section: 'Educational Background' },
+        { question_text: 'Honors / Awards Received', question_type: 'checkbox', options: ['Cum Laude', 'Magna Cum Laude', 'Leadership Award', 'Best in Thesis', 'Dean\'s lister', 'Academic Excellence', 'Other' ], is_required: 0, sort_order: 15, section: 'Educational Background' },
         { question_text: 'Professional Examination(s) Passed', question_type: 'text', options: null, is_required: 0, sort_order: 16, section: 'Educational Background' },
-        { question_text: 'Name of Examination', question_type: 'text', options: null, is_required: 0, sort_order: 17, section: 'Educational Background' },
-        { question_text: 'Date Taken', question_type: 'text', options: null, is_required: 0, sort_order: 18, section: 'Educational Background' },
+        { question_text: 'Name of Examination', question_type: 'radio', options: ['Licensure Examination for Teachers', 'Civil Service Examination'], is_required: 0, sort_order: 17, section: 'Educational Background' },
+        { question_text: 'Date Taken', question_type: 'date', options: null, is_required: 0, sort_order: 18, section: 'Educational Background' },
         { question_text: 'Rating', question_type: 'text', options: null, is_required: 0, sort_order: 19, section: 'Educational Background' },
-        { question_text: 'Reason(s) for taking the course / pursuing the degree', question_type: 'checkbox', options: ['High grades in related subjects', 'Good grades in high school', 'Influence of parents/relatives', 'Peer influence', 'Inspired by a role model', 'Strong passion for the profession', 'Prospect for immediate employment', 'Status/prestige of profession', 'Course availability', 'Career advancement prospects', 'Affordable for family', 'Attractive compensation', 'Employment abroad opportunity', 'No particular choice'], is_required: 0, sort_order: 20, section: 'Educational Background' },
+        { question_text: 'Reason(s) for taking the course / pursuing the degree', question_type: 'checkbox', options: ['High grades in the course/subject area(s) related to the course', 'Good grades in high school', 'Influence of parents/relatives', 'Peer influence', 'Inspired by a role model', 'Strong passion for the profession', 'Prospect for immediate employment', 'Status/prestige of profession', 'Availability of the course in chosen institution', 'Prospect for career advancement', 'Affordable for family', 'Prospect of attractive compensation', 'Opportunity for employment abroad', 'No particular choice / no better idea'], is_required: 0, sort_order: 20, section: 'Educational Background' },
         
         // SECTION 3: TRAININGS ATTENDED AFTER COLLEGE
-        { question_text: 'List of trainings attended', question_type: 'text', options: null, is_required: 0, sort_order: 21, section: 'Trainings Attended After College' },
         { question_text: 'Title of Training', question_type: 'text', options: null, is_required: 0, sort_order: 22, section: 'Trainings Attended After College' },
         { question_text: 'Duration', question_type: 'text', options: null, is_required: 0, sort_order: 23, section: 'Trainings Attended After College' },
         { question_text: 'Name of Training Institution', question_type: 'text', options: null, is_required: 0, sort_order: 24, section: 'Trainings Attended After College' },
         
         // SECTION 4: GRADUATE STUDIES
-        { question_text: 'Graduate Program', question_type: 'text', options: null, is_required: 0, sort_order: 25, section: 'Graduate Studies' },
+        { question_text: 'Name of Graduate Program', question_type: 'radio', options: ['Master of Arts in Education', 'Master of Science in Computer Science', 'Master of Science in Hospitality Management'], is_required: 0, sort_order: 25, section: 'Graduate Studies' },
         { question_text: 'Earned Units', question_type: 'text', options: null, is_required: 0, sort_order: 26, section: 'Graduate Studies' },
-        { question_text: 'College/University', question_type: 'text', options: null, is_required: 0, sort_order: 27, section: 'Graduate Studies' },
-        { question_text: 'Reason for pursuing advanced studies', question_type: 'text', options: null, is_required: 0, sort_order: 28, section: 'Graduate Studies' },
+        { question_text: 'Name of College/University', question_type: 'text', options: null, is_required: 0, sort_order: 27, section: 'Graduate Studies' },
+        { question_text: 'What made you pursue advance studies?', question_type: 'radio', options: ['For promotion', 'For professional development'], is_required: 0, sort_order: 28, section: 'Graduate Studies' },
         
         // SECTION 5: EMPLOYMENT DATA
         { question_text: 'Are you presently employed?', question_type: 'multiple_choice', options: ['Yes', 'No'], is_required: 1, sort_order: 29, section: 'Employment Data' },
         { question_text: 'Present Employment Status', question_type: 'multiple_choice', options: ['Regular/Permanent', 'Temporary', 'Casual', 'Contractual', 'Self-employed'], is_required: 0, sort_order: 30, section: 'Employment Data' },
-        { question_text: 'If self-employed, what skills acquired in college were applied?', question_type: 'text', options: null, is_required: 0, sort_order: 31, section: 'Employment Data' },
-        { question_text: 'Present Occupation', question_type: 'text', options: null, is_required: 0, sort_order: 32, section: 'Employment Data' },
-        { question_text: 'Major line of business of the company', question_type: 'text', options: null, is_required: 0, sort_order: 33, section: 'Employment Data' },
-        { question_text: 'Place of work', question_type: 'text', options: null, is_required: 0, sort_order: 34, section: 'Employment Data' },
-        { question_text: 'Is this your first job after college?', question_type: 'multiple_choice', options: ['Yes', 'No'], is_required: 0, sort_order: 35, section: 'Employment Data' },
-        { question_text: 'If YES, reasons for staying on the job', question_type: 'checkbox', options: ['Career challenge', 'Related to course', 'Salaries and benefits', 'Career advancement', 'Learning environment', 'Proximity to residence'], is_required: 0, sort_order: 36, section: 'Employment Data' },
-        { question_text: 'Is your first job related to your course?', question_type: 'multiple_choice', options: ['Yes', 'No'], is_required: 0, sort_order: 37, section: 'Employment Data' },
-        { question_text: 'Reasons for changing job', question_type: 'checkbox', options: ['Salaries and benefits', 'Career challenge', 'Related to course', 'Proximity to residence', 'Working conditions', 'Work environment'], is_required: 0, sort_order: 38, section: 'Employment Data' },
-        { question_text: 'How long did you stay in your first job?', question_type: 'multiple_choice', options: ['Less than 1 month', '1-6 months', '6-12 months', '1-2 years', '2-3 years', 'More than 3 years'], is_required: 0, sort_order: 39, section: 'Employment Data' },
-        { question_text: 'How did you find your first job?', question_type: 'multiple_choice', options: ['Response to job advertisement', 'Walk-in applicant', 'Recommended by someone', 'Job fair/Public employment service', 'Arranged by school', 'Family business', 'Job posting in social media'], is_required: 0, sort_order: 40, section: 'Employment Data' },
-        { question_text: 'How long did it take to land your first job?', question_type: 'multiple_choice', options: ['Less than 1 month', '1-6 months', '6-12 months', '1-2 years', 'More than 2 years'], is_required: 0, sort_order: 41, section: 'Employment Data' },
+        { question_text: 'If self-employed, what skills acquired in college were you able to apply in your work?', question_type: 'text', options: null, is_required: 0, sort_order: 31, section: 'Employment Data' },
+        { question_text: 'Present Occupation (e.g., Grade School Teacher, Engineer, Self-employed)', question_type: 'text', options: null, is_required: 0, sort_order: 32, section: 'Employment Data' },
+        { question_text: 'Major line of business of the company you are presently employed in', question_type: 'multiple_choice', options: ['Agriculture, Hunting and Forestry', 'Fishing', 'Mining and Quarrying', 'Manufacturing', 'Electricity, Gas and Water Supply', 'Construction', 'Wholesale and Retail Trade; repair of motor vehicles, motorcycles, and personal household goods', 'Hotel and Restaurants', 'Transport, Storage and Communications', 'Financial Intermediation', 'Real Estate, Renting and Business Activities', 'Public Administration and Defense; Compulsory and Social Security', 'Education', 'Health and Social Work', 'Other Community, Social and Personal Service Activities', 'Private Households and Employed Persons', 'Extra-territorial Organizations and Bodies'], is_required: 0, sort_order: 33, section: 'Employment Data' },
+        { question_text: 'Place of work', question_type: 'multiple_choice', options: ['Local', 'Abroad'], is_required: 0, sort_order: 34, section: 'Employment Data' },
+        { question_text: 'Is this your first job after college?', question_type: 'multiple_choice', options: ['Yes', 'No (please proceed to Question 27 and 28)'], is_required: 0, sort_order: 35, section: 'Employment Data' },
+        { question_text: 'If YES, what are your reason(s) for staying on the job?', question_type: 'checkbox', options: ['Salaries and benefits', 'Career challenge', 'Related to special skill', 'Related to course/program of study', 'Proximity to residence', 'Peer influence', 'Family influence'], is_required: 0, sort_order: 36, section: 'Employment Data' },
+        { question_text: 'Is your first job related to the course you took up in college?', question_type: 'multiple_choice', options: ['Yes', 'No'], is_required: 0, sort_order: 37, section: 'Employment Data' },
+        { question_text: 'What were your reason(s) for changing job?', question_type: 'checkbox', options: ['Salaries and benefits', 'Career challenge', 'Related to special skills', 'Proximity to residence'], is_required: 0, sort_order: 38, section: 'Employment Data' },
+        { question_text: 'How long did you stay in your first job?', question_type: 'multiple_choice', options: ['Less than a month', '1-6 months', '7-11 months', '1 year to less than 2 years', '2 years to less than 3 years', 'More than 3 years'], is_required: 0, sort_order: 39, section: 'Employment Data' },
+        { question_text: 'How did you find your first job?', question_type: 'multiple_choice', options: ['Response to job advertisement', 'Walk-in applicant', 'Recommended by someone', 'Information from friends', 'Arranged by school’s job placement officer', 'Family business', 'Job Fair / PESO'], is_required: 0, sort_order: 40, section: 'Employment Data' },
+        { question_text: 'How long did it take to land your first job?', question_type: 'multiple_choice', options: ['Less than a month', '1-6 months', '7-11 months', '1 year to less than 2 years', '2 years to less than 3 years', 'More than 3 years'], is_required: 0, sort_order: 41, section: 'Employment Data' },
         { question_text: 'Job Level Position', question_type: 'multiple_choice', options: ['Rank and File', 'Supervisory', 'Managerial', 'Executive'], is_required: 0, sort_order: 42, section: 'Employment Data' },
-        { question_text: 'Initial gross monthly earning', question_type: 'multiple_choice', options: ['Below 10,000', '10,000-15,000', '15,001-20,000', '20,001-25,000', '25,001-30,000', 'Above 30,000'], is_required: 0, sort_order: 43, section: 'Employment Data' },
-        { question_text: 'Was the college curriculum relevant to your first job?', question_type: 'multiple_choice', options: ['Yes', 'No'], is_required: 0, sort_order: 44, section: 'Employment Data' },
-        { question_text: 'If YES, what competencies were useful?', question_type: 'checkbox', options: ['Communication skills', 'Critical thinking skills', 'Human relations skills', 'Problem-solving skills', 'Technical skills', 'IT skills'], is_required: 0, sort_order: 45, section: 'Employment Data' },
-        { question_text: 'Reason(s) why you are not yet employed', question_type: 'checkbox', options: ['Advance or further study', 'Family concern', 'Health-related reason', 'Lack of work experience', 'No job opportunity', 'Did not look for a job', 'Waiting for job offer'], is_required: 0, sort_order: 46, section: 'Employment Data' },
+        { question_text: 'What is your initial gross monthly earning in your first job after college?', question_type: 'multiple_choice', options: ['Below ₱5,000.00', '₱5,000.00 to less than ₱10,000.00', '₱10,000.00 to less than ₱15,000.00 ', '₱15,000.00 to less than ₱20,000.00', '₱20,000.00 to less than ₱25,000.00', '₱25,000 and above'], is_required: 0, sort_order: 43, section: 'Employment Data' },
+        { question_text: 'Was the college curriculum relevant to your first job?', question_type: 'multiple_choice', options: ['Yes', 'No (proceed to Question 35)'], is_required: 0, sort_order: 44, section: 'Employment Data' },
+        { question_text: 'If YES, what competencies were useful?', question_type: 'checkbox', options: ['Communication skills', 'Human relations skills', 'Entrepreneurial skills', 'Information Technology skills', 'Problem-solving skills', 'Critical Thinking skills'], is_required: 0, sort_order: 45, section: 'Employment Data' },
+        { question_text: 'Reason(s) why you are not yet employed', question_type: 'checkbox', options: ['Advance or further study', 'Family concern and decided not to find a job', 'Health-related reason(s)', 'Lack of work experience', 'No job opportunity', 'Did not look for a job'], is_required: 0, sort_order: 46, section: 'Employment Data' },
       ]
     };
     setFormData(defaultSurvey);
@@ -257,15 +256,21 @@ export default function Surveys() {
       .then((res) => {
         if (res.success) {
           const d = res.data;
+          console.log('Editing survey data from server:', d);
           setFormData({
             id: d.id,
             title: d.title,
             description: d.description || '',
             status: d.status,
-            questions: (d.questions || []).map((q: Question) => ({
-              ...q,
-              options: typeof q.options === 'string' ? JSON.parse(q.options) : q.options,
-            })),
+            questions: (d.questions || []).map((q: any) => {
+              const parsedQuestion = {
+                ...q,
+                question_type: q.question_type || 'text',
+                options: typeof q.options === 'string' ? JSON.parse(q.options) : q.options,
+              };
+              console.log('Parsed question:', parsedQuestion);
+              return parsedQuestion;
+            }),
           });
           setIsEditing(true);
           setShowModal(true);
@@ -292,6 +297,7 @@ export default function Surveys() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const method = isEditing ? 'PUT' : 'POST';
+    console.log('Submitting survey data:', formData);
     fetch(`${API_BASE}/surveys/index.php`, {
       method,
       headers: { 'Content-Type': 'application/json' },
@@ -299,6 +305,7 @@ export default function Surveys() {
     })
       .then((r) => r.json())
       .then((res) => {
+        console.log('Server response:', res);
         if (res.success) { setShowModal(false); fetchSurveys(); }
       });
   };
@@ -719,13 +726,24 @@ export default function Surveys() {
                                   <div>
                                     <label className="block text-sm font-semibold text-gray-700 mb-2">Type</label>
                                     <select
-                                      value={q.question_type}
-                                      onChange={(e) => updateQuestion(i, 'question_type', e.target.value)}
+                                      value={q.question_type || 'text'}
+                                      onChange={(e) => {
+                                        const newType = e.target.value;
+                                        updateQuestion(i, 'question_type', newType);
+                                        // Clear options if switching to text or date type
+                                        if (newType === 'text' || newType === 'date') {
+                                          updateQuestion(i, 'options', null);
+                                        } else if (!q.options) {
+                                          // Initialize empty options array for choice-based types
+                                          updateQuestion(i, 'options', []);
+                                        }
+                                      }}
                                       className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition bg-white"
                                     >
                                       <option value="text">Text</option>
                                       <option value="date">Date</option>
                                       <option value="multiple_choice">Multiple Choice</option>
+                                      <option value="radio">Radio Button</option>
                                       <option value="rating">Rating</option>
                                       <option value="checkbox">Checkbox</option>
                                     </select>
@@ -742,7 +760,7 @@ export default function Surveys() {
                                     </select>
                                   </div>
                                 </div>
-                                {(q.question_type === 'multiple_choice' || q.question_type === 'checkbox') && (
+                                {(q.question_type === 'multiple_choice' || q.question_type === 'radio' || q.question_type === 'checkbox') && (
                                   <div>
                                     <label className="block text-sm font-semibold text-gray-700 mb-2">Options (one per line)</label>
                                     <textarea
