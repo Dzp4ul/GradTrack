@@ -1,8 +1,8 @@
 -- GradTrack Database Schema
 -- Run this SQL in phpMyAdmin or MySQL CLI
 
-CREATE DATABASE IF NOT EXISTS gradtrack_db;
-USE gradtrack_db;
+CREATE DATABASE IF NOT EXISTS gradtrackdb;
+USE gradtrackdb;
 
 -- =============================================
 -- Programs Table

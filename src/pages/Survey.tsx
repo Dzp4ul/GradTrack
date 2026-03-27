@@ -1,158 +1,93 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ShieldCheck, ChevronRight, ChevronLeft } from 'lucide-react';
+import { ShieldCheck, ChevronRight, ChevronLeft, ClipboardList } from 'lucide-react';
 import { philippineRegions, philippineProvinces, philippineCities, philippineBarangays } from '../data/philippineAddress';
 
-const sections = [
-  { key: 'A', label: 'General Information' },
-  { key: 'B', label: 'Educational Background' },
-  { key: 'C', label: 'Training / Advance Studies' },
-  { key: 'D', label: 'Employment Data' },
-];
+interface Question {
+  id?: number;
+  question_text: string;
+  question_type: string;
+  options: string[] | null;
+  is_required: number;
+  sort_order: number;
+}
+
+interface Survey {
+  id: number;
+  title: string;
+  description: string;
+  status: string;
+  questions: Question[];
+}
 
 function Survey() {
   const [agreed, setAgreed] = useState(false);
   const [agreedCheckbox, setAgreedCheckbox] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [activeSurvey, setActiveSurvey] = useState<Survey | null>(null);
   const [currentSection, setCurrentSection] = useState(0);
-
-  // Section A
-  const [sectionA, setSectionA] = useState({
-    lastName: '',
-    firstName: '',
-    middleName: '',
-    nameExtension: '',
-    region: '',
-    province: '',
-    city: '',
-    barangay: '',
-    streetAddress: '',
-    email: '',
-    telephone: '',
-    mobile: '',
-    civilStatus: '',
-    sex: '',
-    birthday: '',
-  });
-
-  const [availableProvinces, setAvailableProvinces] = useState<string[]>([]);
-  const [availableCities, setAvailableCities] = useState<string[]>([]);
-  const [availableBarangays, setAvailableBarangays] = useState<string[]>([]);
+  const [responses, setResponses] = useState<Record<number, any>>({});
 
   useEffect(() => {
-    if (sectionA.region) {
-      setAvailableProvinces(philippineProvinces[sectionA.region] || []);
-      setSectionA(prev => ({ ...prev, province: '', city: '', barangay: '' }));
-    }
-  }, [sectionA.region]);
+    fetchActiveSurvey();
+  }, []);
 
-  useEffect(() => {
-    if (sectionA.province) {
-      setAvailableCities(philippineCities[sectionA.province] || []);
-      setSectionA(prev => ({ ...prev, city: '', barangay: '' }));
-    }
-  }, [sectionA.province]);
-
-  useEffect(() => {
-    if (sectionA.city) {
-      const barangays = philippineBarangays[sectionA.city];
-      if (barangays && barangays.length > 0 && barangays[0] !== 'default') {
-        setAvailableBarangays(barangays);
-      } else {
-        setAvailableBarangays([]);
+  const fetchActiveSurvey = async () => {
+    try {
+      const response = await fetch('/api/surveys/index.php');
+      const result = await response.json();
+      
+      if (result.success && result.data.length > 0) {
+        // Find the first active survey
+        const active = result.data.find((s: Survey) => s.status === 'active');
+        
+        if (active) {
+          // Fetch full survey details with questions
+          const detailResponse = await fetch(`/api/surveys/index.php?id=${active.id}`);
+          const detailResult = await detailResponse.json();
+          
+          if (detailResult.success) {
+            const survey = detailResult.data;
+            survey.questions = (survey.questions || []).map((q: Question) => ({
+              ...q,
+              options: typeof q.options === 'string' ? JSON.parse(q.options) : q.options,
+            }));
+            setActiveSurvey(survey);
+          }
+        }
       }
-      setSectionA(prev => ({ ...prev, barangay: '' }));
+    } catch (error) {
+      console.error('Error fetching survey:', error);
+    } finally {
+      setLoading(false);
     }
-  }, [sectionA.city]);
-
-  // Section B
-  const [sectionB, setSectionB] = useState({
-    degreeProgram: '',
-    college: '',
-    yearGraduated: '',
-    honors: [] as string[],
-    honorsOther: '',
-    examName: '',
-    examDate: '',
-    examRating: '',
-    reasons: [] as string[],
-    reasonsOther: '',
-  });
-
-  // Section C
-  const [sectionC, setSectionC] = useState({
-    trainingTitle: '',
-    trainingDuration: '',
-    trainingInstitution: '',
-    graduateProgram: '',
-    graduateProgramOther: '',
-    earnedUnits: '',
-    graduateCollege: '',
-    advanceStudyReason: [] as string[],
-    advanceStudyReasonOther: '',
-  });
-
-  // Section D
-  const [sectionD, setSectionD] = useState({
-    presentlyEmployed: '',
-    notEmployedReasons: [] as string[],
-    notEmployedOther: '',
-    suggestions: '',
-  });
-
-  const handleChangeA = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    setSectionA({ ...sectionA, [e.target.name]: e.target.value });
   };
 
-  const handleChangeB = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    setSectionB({ ...sectionB, [e.target.name]: e.target.value });
+  const handleResponseChange = (questionId: number, value: any) => {
+    setResponses(prev => ({ ...prev, [questionId]: value }));
   };
 
-  const handleCheckB = (field: 'honors' | 'reasons', value: string) => {
-    setSectionB(prev => {
-      const arr = prev[field];
-      return { ...prev, [field]: arr.includes(value) ? arr.filter(v => v !== value) : [...arr, value] };
-    });
-  };
-
-  const handleChangeC = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    setSectionC({ ...sectionC, [e.target.name]: e.target.value });
-  };
-
-  const handleCheckC = (field: 'advanceStudyReason', value: string) => {
-    setSectionC(prev => {
-      const arr = prev[field];
-      return { ...prev, [field]: arr.includes(value) ? arr.filter(v => v !== value) : [...arr, value] };
-    });
-  };
-
-  const handleChangeD = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    setSectionD({ ...sectionD, [e.target.name]: e.target.value });
-  };
-
-  const handleCheckD = (field: 'notEmployedReasons', value: string) => {
-    setSectionD(prev => {
-      const arr = prev[field];
-      return { ...prev, [field]: arr.includes(value) ? arr.filter(v => v !== value) : [...arr, value] };
+  const handleCheckboxChange = (questionId: number, option: string) => {
+    setResponses(prev => {
+      const current = prev[questionId] || [];
+      const updated = current.includes(option)
+        ? current.filter((v: string) => v !== option)
+        : [...current, option];
+      return { ...prev, [questionId]: updated };
     });
   };
 
   const handleSubmit = async () => {
-    try {
-      // Combine all section data
-      const allResponses = {
-        sectionA: sectionA,
-        sectionB: sectionB,
-        sectionC: sectionC,
-        sectionD: sectionD,
-      };
+    if (!activeSurvey) return;
 
+    try {
       const response = await fetch('/api/surveys/responses.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          survey_id: 1, // You can dynamically set this if needed
-          graduate_id: null, // Will be set if user is logged in
-          responses: allResponses,
+          survey_id: activeSurvey.id,
+          graduate_id: null,
+          responses: responses,
         }),
       });
 
@@ -160,65 +95,56 @@ function Survey() {
 
       if (result.success) {
         alert('Survey submitted successfully! Thank you for your participation.');
-        // Reset form
-        setSectionA({
-          lastName: '',
-          firstName: '',
-          middleName: '',
-          nameExtension: '',
-          region: '',
-          province: '',
-          city: '',
-          barangay: '',
-          streetAddress: '',
-          email: '',
-          telephone: '',
-          mobile: '',
-          civilStatus: '',
-          sex: '',
-          birthday: '',
-        });
-        setSectionB({
-          degreeProgram: '',
-          college: '',
-          yearGraduated: '',
-          honors: [],
-          honorsOther: '',
-          examName: '',
-          examDate: '',
-          examRating: '',
-          reasons: [],
-          reasonsOther: '',
-        });
-        setSectionC({
-          trainingTitle: '',
-          trainingDuration: '',
-          trainingInstitution: '',
-          graduateProgram: '',
-          graduateProgramOther: '',
-          earnedUnits: '',
-          graduateCollege: '',
-          advanceStudyReason: [],
-          advanceStudyReasonOther: '',
-        });
-        setSectionD({
-          presentlyEmployed: '',
-          notEmployedReasons: [],
-          notEmployedOther: '',
-          suggestions: '',
-        });
+        setResponses({});
         setCurrentSection(0);
         setAgreed(false);
+      } else {
+        const errorMsg = result.error || 'Unknown error occurred';
+        const hint = result.hint || '';
+        alert(`Error: ${errorMsg}\n\n${hint}`);
+        console.error('Survey submission error:', result);
       }
     } catch (error) {
       console.error('Error submitting survey:', error);
-      alert('Error submitting survey. Please try again.');
+      alert('Error submitting survey. Please check your internet connection and try again.');
     }
   };
 
   const inputClass = 'w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition text-sm';
   const selectClass = 'w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition text-sm bg-white';
   const labelClass = 'block text-sm font-semibold text-gray-700 mb-1';
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-cover bg-center bg-fixed relative flex items-center justify-center" style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
+        <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80 pointer-events-none"></div>
+        <div className="relative z-10">
+          <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-white"></div>
+        </div>
+      </div>
+    );
+  }
+
+  // No active survey
+  if (!activeSurvey) {
+    return (
+      <div className="min-h-screen bg-cover bg-center bg-fixed relative flex flex-col items-center justify-center p-6" style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
+        <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80 pointer-events-none"></div>
+        <div className="flex justify-center mb-6 relative z-10">
+          <img src="Gradtrack_Logo2.png" alt="GradTrack Logo" className="h-20 object-contain" />
+        </div>
+        <div className="w-full max-w-2xl bg-white rounded-2xl shadow-xl p-10 border border-blue-100 relative z-10 text-center">
+          <ClipboardList className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+          <h1 className="text-3xl font-bold text-blue-900 mb-4">No Active Survey</h1>
+          <p className="text-gray-600 mb-6">There are currently no active surveys available. Please check back later.</p>
+          <Link to="/" className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-semibold transition">
+            Back to Home
+          </Link>
+        </div>
+      </div>
+    );
+  }
 
   // ─── DATA PRIVACY CONSENT ───
   if (!agreed) {
@@ -278,12 +204,12 @@ function Survey() {
     );
   }
 
-  // ─── PROGRESS BAR ───
+  // Progress Bar
   const ProgressBar = () => (
     <div className="w-full max-w-5xl mx-auto mb-10">
       <div className="flex items-center justify-between">
-        {sections.map((s, i) => (
-          <div key={s.key} className="flex-1 flex flex-col items-center relative">
+        {Array.from({ length: totalPages }).map((_, i) => (
+          <div key={i} className="flex-1 flex flex-col items-center relative">
             <button
               onClick={() => setCurrentSection(i)}
               className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm transition z-10 ${
@@ -294,12 +220,12 @@ function Survey() {
                   : 'bg-gray-200 text-gray-500'
               }`}
             >
-              {i < currentSection ? '✓' : s.key}
+              {i < currentSection ? '✓' : i + 1}
             </button>
             <span className={`text-xs mt-2 font-medium text-center ${i === currentSection ? 'text-yellow-400' : 'text-blue-200'}`}>
-              {s.label}
+              Page {i + 1}
             </span>
-            {i < sections.length - 1 && (
+            {i < totalPages - 1 && (
               <div className={`absolute top-5 left-[55%] w-full h-0.5 ${i < currentSection ? 'bg-green-500' : 'bg-gray-200'}`} />
             )}
           </div>
@@ -308,346 +234,92 @@ function Survey() {
     </div>
   );
 
-  // ─── SECTION A ───
-  const renderSectionA = () => (
-    <div className="space-y-5">
-      <h2 className="text-2xl font-bold text-blue-900 mb-1">A. General Information</h2>
-      <p className="text-gray-500 text-sm mb-4">Please provide your personal details.</p>
+  // Render question based on type
+  const renderQuestion = (question: Question) => {
+    const value = responses[question.id!] || '';
 
-      <div>
-        <label className={labelClass}>1. Name</label>
-        <div className="grid grid-cols-4 gap-3">
-          <div>
-            <input name="lastName" value={sectionA.lastName} onChange={handleChangeA} placeholder="Last Name" className={inputClass} />
-          </div>
-          <div>
-            <input name="firstName" value={sectionA.firstName} onChange={handleChangeA} placeholder="First Name" className={inputClass} />
-          </div>
-          <div>
-            <input name="middleName" value={sectionA.middleName} onChange={handleChangeA} placeholder="Middle Name" className={inputClass} />
-          </div>
-          <div>
-            <input name="nameExtension" value={sectionA.nameExtension} onChange={handleChangeA} placeholder="Ext. (Jr, Sr)" className={inputClass} />
-          </div>
-        </div>
-      </div>
+    switch (question.question_type) {
+      case 'text':
+        return (
+          <input
+            type="text"
+            value={value}
+            onChange={(e) => handleResponseChange(question.id!, e.target.value)}
+            className={inputClass}
+            required={question.is_required === 1}
+          />
+        );
 
-      <div>
-        <label className={labelClass}>2. Permanent Address</label>
-        <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <select name="region" value={sectionA.region} onChange={handleChangeA} className={selectClass}>
-                <option value="">Select Region</option>
-                {philippineRegions.map(r => (
-                  <option key={r.code} value={r.code}>{r.name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <select name="province" value={sectionA.province} onChange={handleChangeA} className={selectClass} disabled={!sectionA.region}>
-                <option value="">Select Province</option>
-                {availableProvinces.map(p => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <select name="city" value={sectionA.city} onChange={handleChangeA} className={selectClass} disabled={!sectionA.province}>
-                <option value="">Select City/Municipality</option>
-                {availableCities.map(c => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              {availableBarangays.length > 0 ? (
-                <select name="barangay" value={sectionA.barangay} onChange={handleChangeA} className={selectClass} disabled={!sectionA.city}>
-                  <option value="">Select Barangay</option>
-                  {availableBarangays.map(b => (
-                    <option key={b} value={b}>{b}</option>
-                  ))}
-                </select>
-              ) : (
-                <input 
-                  name="barangay" 
-                  value={sectionA.barangay} 
-                  onChange={handleChangeA} 
-                  placeholder="Enter Barangay" 
-                  className={inputClass} 
-                  disabled={!sectionA.city}
-                />
-              )}
-            </div>
-          </div>
-          <div>
-            <input name="streetAddress" value={sectionA.streetAddress} onChange={handleChangeA} placeholder="House No., Street, Subdivision" className={inputClass} />
-          </div>
-        </div>
-      </div>
-
-      <div>
-        <label className={labelClass}>3. E-mail Address</label>
-        <input name="email" type="email" value={sectionA.email} onChange={handleChangeA} placeholder="you@example.com" className={inputClass} />
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className={labelClass}>4. Telephone / Contact Number(s)</label>
-          <input name="telephone" value={sectionA.telephone} onChange={handleChangeA} placeholder="(044) 123-4567" className={inputClass} />
-        </div>
-        <div>
-          <label className={labelClass}>5. Mobile Number</label>
-          <input name="mobile" value={sectionA.mobile} onChange={handleChangeA} placeholder="09XXXXXXXXX" className={inputClass} />
-        </div>
-      </div>
-      <div className="grid grid-cols-3 gap-4">
-        <div>
-          <label className={labelClass}>6. Civil Status</label>
-          <select name="civilStatus" value={sectionA.civilStatus} onChange={handleChangeA} className={selectClass}>
-            <option value="" disabled>Select</option>
-            <option value="single">Single</option>
-            <option value="married">Married</option>
-            <option value="widowed">Widowed</option>
-            <option value="separated">Separated</option>
-          </select>
-        </div>
-        <div>
-          <label className={labelClass}>7. Sex</label>
-          <select name="sex" value={sectionA.sex} onChange={handleChangeA} className={selectClass}>
-            <option value="" disabled>Select</option>
-            <option value="male">Male</option>
-            <option value="female">Female</option>
-          </select>
-        </div>
-        <div>
-          <label className={labelClass}>8. Birthday</label>
-          <input name="birthday" type="date" value={sectionA.birthday} onChange={handleChangeA} className={inputClass} />
-        </div>
-      </div>
-    </div>
-  );
-
-  // ─── SECTION B ───
-  const honorsOptions = ['Cum Laude', 'Magna Cum Laude', 'Leadership Award', 'Best in Thesis', "Dean's Lister", 'Academic Excellence'];
-  const reasonOptions = [
-    'High grades in the course/subject area(s) related to the course',
-    'Good grades in high school',
-    'Influence of parents or relatives',
-    'Peer influence',
-    'Inspired by a role model',
-    'Strong passion for the profession',
-    'Prospect for immediate employment',
-    'Status or prestige of the profession',
-    'Availability of the course in chosen institution',
-    'Prospect for career advancement',
-    'Affordable for the family',
-    'Prospect of attractive compensation',
-    'Opportunity for employment abroad',
-    'No particular choice / no better idea',
-  ];
-
-  const renderSectionB = () => (
-    <div className="space-y-5">
-      <h2 className="text-2xl font-bold text-blue-900 mb-1">B. Educational Background</h2>
-      <p className="text-gray-500 text-sm mb-4">Baccalaureate Degree information only.</p>
-
-      <div className="bg-blue-50 rounded-xl p-5 border border-blue-100 space-y-4">
-        <p className="font-semibold text-blue-900 text-sm">12. Educational Attainment</p>
-        <div>
-          <label className={labelClass}>12a. Degree Program & Specialization</label>
-          <input name="degreeProgram" value={sectionB.degreeProgram} onChange={handleChangeB} placeholder="e.g. BS Information Technology" className={inputClass} />
-        </div>
-        <div>
-          <label className={labelClass}>12b. College / University</label>
-          <input name="college" value={sectionB.college} onChange={handleChangeB} placeholder="e.g. Norzagaray College" className={inputClass} />
-        </div>
-        <div>
-          <label className={labelClass}>12c. Year Graduated</label>
-          <input name="yearGraduated" value={sectionB.yearGraduated} onChange={handleChangeB} placeholder="e.g. 2024" className={inputClass} />
-        </div>
-        <div>
-          <label className={labelClass}>12d. Honors / Awards Received (if any)</label>
-          <div className="grid grid-cols-2 gap-2 mt-1">
-            {honorsOptions.map(h => (
-              <label key={h} className="flex items-center space-x-2 text-sm text-gray-700 cursor-pointer">
-                <input type="checkbox" checked={sectionB.honors.includes(h)} onChange={() => handleCheckB('honors', h)} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-                <span>{h}</span>
-              </label>
+      case 'multiple_choice':
+        return (
+          <select
+            value={value}
+            onChange={(e) => handleResponseChange(question.id!, e.target.value)}
+            className={selectClass}
+            required={question.is_required === 1}
+          >
+            <option value="">Select an option</option>
+            {question.options?.map((option, idx) => (
+              <option key={idx} value={option}>{option}</option>
             ))}
-          </div>
-          <input name="honorsOther" value={sectionB.honorsOther} onChange={handleChangeB} placeholder="Other (please specify)" className={`${inputClass} mt-2`} />
-        </div>
-      </div>
-
-      <div className="bg-blue-50 rounded-xl p-5 border border-blue-100 space-y-4">
-        <p className="font-semibold text-blue-900 text-sm">13. Professional Examination(s) Passed (if applicable)</p>
-        <div>
-          <label className={labelClass}>13a. Name of Examination</label>
-          <select name="examName" value={sectionB.examName} onChange={handleChangeB} className={selectClass}>
-            <option value="" disabled>Select examination</option>
-            <option value="let">Licensure Examination for Teachers</option>
-            <option value="cse">Civil Service Examination</option>
-            <option value="other">Other</option>
           </select>
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className={labelClass}>13b. Date Taken</label>
-            <input name="examDate" type="date" value={sectionB.examDate} onChange={handleChangeB} className={inputClass} />
-          </div>
-          <div>
-            <label className={labelClass}>13c. Rating</label>
-            <input name="examRating" value={sectionB.examRating} onChange={handleChangeB} placeholder="e.g. 85.50" className={inputClass} />
-          </div>
-        </div>
-      </div>
+        );
 
-      <div>
-        <label className={labelClass}>14. Reason(s) for taking the course / pursuing the degree</label>
-        <p className="text-xs text-gray-400 mb-2">You may check more than one answer.</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {reasonOptions.map(r => (
-            <label key={r} className="flex items-start space-x-2 text-sm text-gray-700 cursor-pointer">
-              <input type="checkbox" checked={sectionB.reasons.includes(r)} onChange={() => handleCheckB('reasons', r)} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 mt-0.5" />
-              <span>{r}</span>
-            </label>
-          ))}
-        </div>
-        <input name="reasonsOther" value={sectionB.reasonsOther} onChange={handleChangeB} placeholder="Other (please specify)" className={`${inputClass} mt-2`} />
-      </div>
-    </div>
-  );
-
-  // ─── SECTION C ───
-  const renderSectionC = () => (
-    <div className="space-y-5">
-      <h2 className="text-2xl font-bold text-blue-900 mb-1">C. Training(s) / Advance Studies Attended After College</h2>
-      <p className="text-gray-500 text-sm mb-4">Professional training and graduate programs after college.</p>
-
-      <div className="bg-blue-50 rounded-xl p-5 border border-blue-100 space-y-4">
-        <p className="font-semibold text-blue-900 text-sm">15. Professional / Work-Related Training(s) After College</p>
-        <div>
-          <label className={labelClass}>15a. Title of Training</label>
-          <input name="trainingTitle" value={sectionC.trainingTitle} onChange={handleChangeC} placeholder="e.g. Web Development Bootcamp" className={inputClass} />
-        </div>
-        <div>
-          <label className={labelClass}>15b. Duration</label>
-          <input name="trainingDuration" value={sectionC.trainingDuration} onChange={handleChangeC} placeholder="e.g. 3 months" className={inputClass} />
-        </div>
-        <div>
-          <label className={labelClass}>15c. Name of Training Institution</label>
-          <input name="trainingInstitution" value={sectionC.trainingInstitution} onChange={handleChangeC} placeholder="e.g. TESDA" className={inputClass} />
-        </div>
-      </div>
-
-      <div className="bg-blue-50 rounded-xl p-5 border border-blue-100 space-y-4">
-        <p className="font-semibold text-blue-900 text-sm">16. Graduate Program(s) Attended After College</p>
-        <div>
-          <label className={labelClass}>16a. Name of Graduate Program</label>
-          <select name="graduateProgram" value={sectionC.graduateProgram} onChange={handleChangeC} className={selectClass}>
-            <option value="" disabled>Select program</option>
-            <option value="maed">Master of Arts in Education</option>
-            <option value="mscs">Master of Science in Computer Science</option>
-            <option value="mshm">Master of Science in Hospitality Management</option>
-            <option value="other">Other</option>
-          </select>
-          {sectionC.graduateProgram === 'other' && (
-            <input name="graduateProgramOther" value={sectionC.graduateProgramOther} onChange={handleChangeC} placeholder="Please specify program" className={`${inputClass} mt-2`} />
-          )}
-        </div>
-        <div>
-          <label className={labelClass}>16b. Earned Units</label>
-          <input name="earnedUnits" value={sectionC.earnedUnits} onChange={handleChangeC} placeholder="e.g. 24 units" className={inputClass} />
-        </div>
-        <div>
-          <label className={labelClass}>16c. Name of College / University</label>
-          <input name="graduateCollege" value={sectionC.graduateCollege} onChange={handleChangeC} placeholder="e.g. Bulacan State University" className={inputClass} />
-        </div>
-      </div>
-
-      <div>
-        <label className={labelClass}>17. What made you pursue advance studies?</label>
-        <div className="space-y-2 mt-1">
-          {['For promotion', 'For professional development'].map(r => (
-            <label key={r} className="flex items-center space-x-2 text-sm text-gray-700 cursor-pointer">
-              <input type="checkbox" checked={sectionC.advanceStudyReason.includes(r)} onChange={() => handleCheckC('advanceStudyReason', r)} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-              <span>{r}</span>
-            </label>
-          ))}
-        </div>
-        <input name="advanceStudyReasonOther" value={sectionC.advanceStudyReasonOther} onChange={handleChangeC} placeholder="Other (please specify)" className={`${inputClass} mt-2`} />
-      </div>
-    </div>
-  );
-
-  // ─── SECTION D ───
-  const notEmployedOptions = [
-    'Advance or further study',
-    'Family concern and decided not to find a job',
-    'Health-related reason(s)',
-    'Lack of work experience',
-    'No job opportunity',
-    'Did not look for a job',
-  ];
-
-  const renderSectionD = () => (
-    <div className="space-y-5">
-      <h2 className="text-2xl font-bold text-blue-900 mb-1">D. Employment Data</h2>
-      <p className="text-gray-500 text-sm mb-4">Your current employment status and suggestions.</p>
-
-      <div>
-        <label className={labelClass}>18. Are you presently employed?</label>
-        <div className="flex space-x-6 mt-2">
-          {['Yes', 'No'].map(opt => (
-            <label key={opt} className="flex items-center space-x-2 text-sm text-gray-700 cursor-pointer">
-              <input type="radio" name="presentlyEmployed" value={opt.toLowerCase()} checked={sectionD.presentlyEmployed === opt.toLowerCase()} onChange={handleChangeD} className="text-blue-600 focus:ring-blue-500" />
-              <span>{opt}</span>
-            </label>
-          ))}
-        </div>
-      </div>
-
-      {sectionD.presentlyEmployed === 'no' && (
-        <div className="bg-red-50 rounded-xl p-5 border border-red-100 space-y-4">
-          <p className="font-semibold text-red-800 text-sm">19. Reason(s) why you are not yet employed</p>
-          <p className="text-xs text-gray-400">You may check more than one answer.</p>
+      case 'checkbox':
+        return (
           <div className="space-y-2">
-            {notEmployedOptions.map(r => (
-              <label key={r} className="flex items-center space-x-2 text-sm text-gray-700 cursor-pointer">
-                <input type="checkbox" checked={sectionD.notEmployedReasons.includes(r)} onChange={() => handleCheckD('notEmployedReasons', r)} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-                <span>{r}</span>
+            {question.options?.map((option, idx) => (
+              <label key={idx} className="flex items-center space-x-2 text-sm text-gray-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={(value || []).includes(option)}
+                  onChange={() => handleCheckboxChange(question.id!, option)}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span>{option}</span>
               </label>
             ))}
           </div>
-          <input name="notEmployedOther" value={sectionD.notEmployedOther} onChange={handleChangeD} placeholder="Other (please specify)" className={inputClass} />
-        </div>
-      )}
+        );
 
-      <div className="mt-6">
-        <label className={labelClass}>35. Suggestions to further improve your course curriculum</label>
-        <textarea
-          name="suggestions"
-          value={sectionD.suggestions}
-          onChange={handleChangeD}
-          rows={5}
-          placeholder="Share your suggestions here..."
-          className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition text-sm resize-none"
-        />
-      </div>
-    </div>
-  );
+      case 'rating':
+        return (
+          <div className="flex space-x-2">
+            {[1, 2, 3, 4, 5].map((rating) => (
+              <button
+                key={rating}
+                type="button"
+                onClick={() => handleResponseChange(question.id!, rating)}
+                className={`px-4 py-2 rounded-lg border-2 transition ${
+                  value === rating
+                    ? 'bg-blue-600 text-white border-blue-600'
+                    : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'
+                }`}
+              >
+                {rating}
+              </button>
+            ))}
+          </div>
+        );
 
-  const renderCurrentSection = () => {
-    switch (currentSection) {
-      case 0: return renderSectionA();
-      case 1: return renderSectionB();
-      case 2: return renderSectionC();
-      case 3: return renderSectionD();
-      default: return null;
+      default:
+        return (
+          <textarea
+            value={value}
+            onChange={(e) => handleResponseChange(question.id!, e.target.value)}
+            rows={4}
+            className={inputClass}
+            required={question.is_required === 1}
+          />
+        );
     }
   };
+
+  const questionsPerPage = 5;
+  const totalPages = Math.ceil((activeSurvey?.questions.length || 0) / questionsPerPage);
+  const startIdx = currentSection * questionsPerPage;
+  const endIdx = startIdx + questionsPerPage;
+  const currentQuestions = activeSurvey?.questions.slice(startIdx, endIdx) || [];
 
   return (
     <div className="min-h-screen bg-cover bg-center bg-fixed relative" style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
@@ -678,7 +350,24 @@ function Survey() {
         <ProgressBar />
 
         <div className="bg-white rounded-2xl shadow-lg p-8 border border-gray-100">
-          {renderCurrentSection()}
+          <h2 className="text-2xl font-bold text-blue-900 mb-4">{activeSurvey.title}</h2>
+          {activeSurvey.description && (
+            <p className="text-gray-600 mb-6">{activeSurvey.description}</p>
+          )}
+
+          <div className="space-y-6">
+            {currentQuestions.map((question, idx) => (
+              <div key={question.id} className="bg-blue-50 rounded-xl p-5 border border-blue-100">
+                <label className="block text-base font-semibold text-gray-800 mb-3">
+                  {startIdx + idx + 1}. {question.question_text}
+                  {question.is_required === 1 && (
+                    <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
+                  )}
+                </label>
+                {renderQuestion(question)}
+              </div>
+            ))}
+          </div>
 
           {/* Navigation Buttons */}
           <div className="flex justify-between mt-10 pt-6 border-t border-gray-100">
@@ -695,7 +384,7 @@ function Survey() {
               <span>Previous</span>
             </button>
 
-            {currentSection < sections.length - 1 ? (
+            {currentSection < totalPages - 1 ? (
               <button
                 onClick={() => setCurrentSection(prev => prev + 1)}
                 className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition shadow-md hover:shadow-lg"

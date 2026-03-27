@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GradTrack Survey Fix</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 800px;
+            width: 100%;
+            padding: 40px;
+        }
+        h1 {
+            color: #1a202c;
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #718096;
+            margin-bottom: 30px;
+        }
+        .status {
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .status.loading {
+            background: #edf2f7;
+            color: #2d3748;
+        }
+        .status.success {
+            background: #c6f6d5;
+            color: #22543d;
+        }
+        .status.error {
+            background: #fed7d7;
+            color: #742a2a;
+        }
+        .btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .btn:hover {
+            background: #5a67d8;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+        .btn:disabled {
+            background: #cbd5e0;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .log {
+            background: #f7fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+        }
+        .log-item {
+            padding: 8px 0;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .log-item:last-child {
+            border-bottom: none;
+        }
+        .log-item.success { color: #22543d; }
+        .log-item.error { color: #742a2a; }
+        .log-item.info { color: #2c5282; }
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 GradTrack Survey Fix</h1>
+        <p class="subtitle">Automatic database repair tool</p>
+        
+        <div id="status" class="status loading">
+            <div class="spinner"></div>
+            <p style="text-align: center; margin-top: 10px;">Checking system...</p>
+        </div>
+        
+        <button id="fixBtn" class="btn" onclick="runFix()" disabled>Run Fix</button>
+        
+        <div id="log" class="log" style="display: none;"></div>
+    </div>
+
+    <script>
+        let logItems = [];
+        
+        function addLog(message, type = 'info') {
+            logItems.push({ message, type });
+            updateLog();
+        }
+        
+        function updateLog() {
+            const logDiv = document.getElementById('log');
+            logDiv.style.display = 'block';
+            logDiv.innerHTML = logItems.map(item => 
+                `<div class="log-item ${item.type}">${item.message}</div>`
+            ).join('');
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+        
+        async function checkSystem() {
+            try {
+                const response = await fetch('/api/diagnose-survey.php');
+                const data = await response.json();
+                
+                const statusDiv = document.getElementById('status');
+                const fixBtn = document.getElementById('fixBtn');
+                
+                if (data.success) {
+                    statusDiv.className = 'status success';
+                    statusDiv.innerHTML = '<h3>✅ System is healthy!</h3><p>No fixes needed. Survey submissions should work.</p>';
+                    fixBtn.disabled = true;
+                } else {
+                    statusDiv.className = 'status error';
+                    statusDiv.innerHTML = `
+                        <h3>⚠️ Issues Found</h3>
+                        <ul style="margin-top: 10px; margin-left: 20px;">
+                            ${data.issues.map(issue => `<li>${issue}</li>`).join('')}
+                        </ul>
+                    `;
+                    fixBtn.disabled = false;
+                }
+                
+                addLog('System check complete', 'info');
+                data.issues.forEach(issue => addLog(issue, 'error'));
+                
+            } catch (error) {
+                const statusDiv = document.getElementById('status');
+                statusDiv.className = 'status error';
+                statusDiv.innerHTML = `<h3>❌ Error</h3><p>${error.message}</p>`;
+                addLog('Error checking system: ' + error.message, 'error');
+            }
+        }
+        
+        async function runFix() {
+            const fixBtn = document.getElementById('fixBtn');
+            const statusDiv = document.getElementById('status');
+            
+            fixBtn.disabled = true;
+            statusDiv.className = 'status loading';
+            statusDiv.innerHTML = '<div class="spinner"></div><p style="text-align: center; margin-top: 10px;">Applying fixes...</p>';
+            
+            addLog('Starting fix process...', 'info');
+            
+            try {
+                // Fix 1: Allow NULL in graduate_id
+                addLog('Fixing graduate_id column...', 'info');
+                const response1 = await fetch('/api/fix-survey-table.php');
+                const result1 = await response1.json();
+                
+                if (result1.success) {
+                    addLog('✅ graduate_id column fixed', 'success');
+                } else {
+                    addLog('❌ Failed to fix graduate_id: ' + result1.error, 'error');
+                }
+                
+                // Wait a bit
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                
+                // Re-check system
+                addLog('Re-checking system...', 'info');
+                await checkSystem();
+                
+                statusDiv.className = 'status success';
+                statusDiv.innerHTML = '<h3>✅ Fix Complete!</h3><p>Please test the survey now.</p>';
+                
+            } catch (error) {
+                statusDiv.className = 'status error';
+                statusDiv.innerHTML = `<h3>❌ Fix Failed</h3><p>${error.message}</p>`;
+                addLog('Error during fix: ' + error.message, 'error');
+                fixBtn.disabled = false;
+            }
+        }
+        
+        // Run check on page load
+        checkSystem();
+    </script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
-  Plus, Edit2, Trash2, X, ClipboardList, Eye, ChevronDown, ChevronUp, ShieldCheck, BarChart3, FileText,
+  Plus, Edit2, Trash2, X, ClipboardList, Eye, ChevronDown, ChevronUp, ShieldCheck, BarChart3, FileText, Briefcase, Star, Users, Award,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 
@@ -34,6 +34,17 @@ interface FormData {
   questions: Question[];
 }
 
+interface Template {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  icon: string;
+  questions_count: number;
+  analytics_enabled: boolean;
+  questions?: Question[];
+}
+
 const emptyForm: FormData = {
   title: '', description: '', status: 'draft', questions: [],
 };
@@ -58,6 +69,8 @@ export default function Surveys() {
   const [isEditing, setIsEditing] = useState(false);
   const [expandedQ, setExpandedQ] = useState<number | null>(null);
   const [expandedSurvey, setExpandedSurvey] = useState<number | null>(null);
+  const [showTemplates, setShowTemplates] = useState(false);
+  const [templates, setTemplates] = useState<Template[]>([]);
   const navigate = useNavigate();
 
   const fetchSurveys = () => {
@@ -97,12 +110,52 @@ export default function Surveys() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchSurveys(); }, []);
+  useEffect(() => { 
+    fetchSurveys();
+    fetchTemplates();
+  }, []);
+
+  const fetchTemplates = () => {
+    fetch(`${API_BASE}/surveys/templates.php`)
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success) setTemplates(res.data);
+      })
+      .catch(() => {});
+  };
 
   const openAdd = () => {
+    setShowTemplates(true);
+  };
+
+  const createFromScratch = () => {
     setFormData(emptyForm);
     setIsEditing(false);
+    setShowTemplates(false);
     setShowModal(true);
+  };
+
+  const loadTemplate = (templateId: string) => {
+    fetch(`${API_BASE}/surveys/templates.php?id=${templateId}`)
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success) {
+          const template = res.data;
+          setFormData({
+            title: template.name,
+            description: template.description,
+            status: 'draft',
+            questions: template.questions.map((q: Question) => ({
+              ...q,
+              options: q.options
+            }))
+          });
+          setIsEditing(false);
+          setShowTemplates(false);
+          setShowModal(true);
+        }
+      })
+      .catch(() => alert('Failed to load template'));
   };
 
   const loadDefaultTemplate = () => {
@@ -112,45 +165,45 @@ export default function Surveys() {
       status: 'draft',
       questions: [
         // Section A - General Information
-        { question_text: 'Last Name', question_type: 'text', options: null, is_required: 1, sort_order: 1 },
-        { question_text: 'First Name', question_type: 'text', options: null, is_required: 1, sort_order: 2 },
-        { question_text: 'Middle Name', question_type: 'text', options: null, is_required: 0, sort_order: 3 },
-        { question_text: 'Name Extension (Jr, Sr, III)', question_type: 'text', options: null, is_required: 0, sort_order: 4 },
-        { question_text: 'Region', question_type: 'multiple_choice', options: ['NCR', 'CAR', 'Region I', 'Region II', 'Region III', 'Region IV-A', 'Region IV-B', 'Region V', 'Region VI', 'Region VII', 'Region VIII', 'Region IX', 'Region X', 'Region XI', 'Region XII', 'Region XIII', 'BARMM'], is_required: 1, sort_order: 5 },
-        { question_text: 'Province', question_type: 'text', options: null, is_required: 1, sort_order: 6 },
-        { question_text: 'City / Municipality', question_type: 'text', options: null, is_required: 1, sort_order: 7 },
-        { question_text: 'Barangay', question_type: 'text', options: null, is_required: 1, sort_order: 8 },
-        { question_text: 'Street Address (House No., Street, Subdivision)', question_type: 'text', options: null, is_required: 0, sort_order: 9 },
-        { question_text: 'E-mail Address', question_type: 'text', options: null, is_required: 1, sort_order: 10 },
-        { question_text: 'Telephone / Contact Number(s)', question_type: 'text', options: null, is_required: 0, sort_order: 11 },
-        { question_text: 'Mobile Number', question_type: 'text', options: null, is_required: 1, sort_order: 12 },
-        { question_text: 'Civil Status', question_type: 'multiple_choice', options: ['Single', 'Married', 'Widowed', 'Separated'], is_required: 1, sort_order: 13 },
-        { question_text: 'Sex', question_type: 'multiple_choice', options: ['Male', 'Female'], is_required: 1, sort_order: 14 },
-        { question_text: 'Birthday', question_type: 'text', options: null, is_required: 1, sort_order: 15 },
+        { question_text: '1. Last Name', question_type: 'text', options: null, is_required: 1, sort_order: 1 },
+        { question_text: '1. First Name', question_type: 'text', options: null, is_required: 1, sort_order: 2 },
+        { question_text: '1. Middle Name', question_type: 'text', options: null, is_required: 0, sort_order: 3 },
+        { question_text: '1. Name Extension (Jr, Sr, III)', question_type: 'text', options: null, is_required: 0, sort_order: 4 },
+        { question_text: '2. Region', question_type: 'multiple_choice', options: ['NCR', 'CAR', 'Region I', 'Region II', 'Region III', 'Region IV-A', 'Region IV-B', 'Region V', 'Region VI', 'Region VII', 'Region VIII', 'Region IX', 'Region X', 'Region XI', 'Region XII', 'Region XIII', 'BARMM'], is_required: 1, sort_order: 5 },
+        { question_text: '2. Province', question_type: 'text', options: null, is_required: 1, sort_order: 6 },
+        { question_text: '2. City / Municipality', question_type: 'text', options: null, is_required: 1, sort_order: 7 },
+        { question_text: '2. Barangay', question_type: 'text', options: null, is_required: 1, sort_order: 8 },
+        { question_text: '2. Street Address (House No., Street, Subdivision)', question_type: 'text', options: null, is_required: 0, sort_order: 9 },
+        { question_text: '3. E-mail Address', question_type: 'text', options: null, is_required: 1, sort_order: 10 },
+        { question_text: '4. Telephone / Contact Number(s)', question_type: 'text', options: null, is_required: 0, sort_order: 11 },
+        { question_text: '5. Mobile Number', question_type: 'text', options: null, is_required: 1, sort_order: 12 },
+        { question_text: '6. Civil Status', question_type: 'multiple_choice', options: ['Single', 'Married', 'Widowed', 'Separated'], is_required: 1, sort_order: 13 },
+        { question_text: '7. Sex', question_type: 'multiple_choice', options: ['Male', 'Female'], is_required: 1, sort_order: 14 },
+        { question_text: '8. Birthday', question_type: 'text', options: null, is_required: 1, sort_order: 15 },
         
         // Section B - Educational Background
-        { question_text: 'Degree Program & Specialization', question_type: 'text', options: null, is_required: 1, sort_order: 16 },
-        { question_text: 'College / University', question_type: 'text', options: null, is_required: 1, sort_order: 17 },
-        { question_text: 'Year Graduated', question_type: 'text', options: null, is_required: 1, sort_order: 18 },
-        { question_text: 'Honors / Awards Received', question_type: 'checkbox', options: ['Cum Laude', 'Magna Cum Laude', 'Leadership Award', 'Best in Thesis', "Dean's Lister", 'Academic Excellence'], is_required: 0, sort_order: 19 },
-        { question_text: 'Professional Examination Passed', question_type: 'multiple_choice', options: ['Licensure Examination for Teachers', 'Civil Service Examination', 'Other', 'None'], is_required: 0, sort_order: 20 },
-        { question_text: 'Examination Date Taken', question_type: 'text', options: null, is_required: 0, sort_order: 21 },
-        { question_text: 'Examination Rating', question_type: 'text', options: null, is_required: 0, sort_order: 22 },
-        { question_text: 'Reason(s) for taking the course', question_type: 'checkbox', options: ['High grades in related subjects', 'Good grades in high school', 'Influence of parents or relatives', 'Peer influence', 'Inspired by a role model', 'Strong passion for the profession', 'Prospect for immediate employment', 'Status or prestige of the profession', 'Availability of the course', 'Prospect for career advancement', 'Affordable for the family', 'Prospect of attractive compensation', 'Opportunity for employment abroad', 'No particular choice'], is_required: 0, sort_order: 23 },
+        { question_text: '12a. Degree Program & Specialization', question_type: 'multiple_choice', options: ['Bachelor of Science in Computer Science', 'Associate in Computer Technology', 'Bachelor of Secondary Education - General Science', 'Bachelor of Elementary Education', 'Bachelor of Science in Hospitality Management'], is_required: 1, sort_order: 16 },
+        { question_text: '12b. College / University', question_type: 'text', options: null, is_required: 1, sort_order: 17 },
+        { question_text: '12c. Year Graduated', question_type: 'text', options: null, is_required: 1, sort_order: 18 },
+        { question_text: '12d. Honors / Awards Received (if any)', question_type: 'checkbox', options: ['Cum Laude', 'Magna Cum Laude', 'Leadership Award', 'Best in Thesis', "Dean's Lister", 'Academic Excellence'], is_required: 0, sort_order: 19 },
+        { question_text: '13a. Name of Examination', question_type: 'multiple_choice', options: ['Licensure Examination for Teachers', 'Civil Service Examination', 'Other'], is_required: 0, sort_order: 20 },
+        { question_text: '13b. Date Taken', question_type: 'text', options: null, is_required: 0, sort_order: 21 },
+        { question_text: '13c. Rating', question_type: 'text', options: null, is_required: 0, sort_order: 22 },
+        { question_text: '14. Reason(s) for taking the course / pursuing the degree', question_type: 'checkbox', options: ['High grades in the course/subject area(s) related to the course', 'Good grades in high school', 'Influence of parents or relatives', 'Peer influence', 'Inspired by a role model', 'Strong passion for the profession', 'Prospect for immediate employment', 'Status or prestige of the profession', 'Availability of the course in chosen institution', 'Prospect for career advancement', 'Affordable for the family', 'Prospect of attractive compensation', 'Opportunity for employment abroad', 'No particular choice / no better idea'], is_required: 0, sort_order: 23 },
         
         // Section C - Training / Advance Studies
-        { question_text: 'Title of Training After College', question_type: 'text', options: null, is_required: 0, sort_order: 24 },
-        { question_text: 'Training Duration', question_type: 'text', options: null, is_required: 0, sort_order: 25 },
-        { question_text: 'Name of Training Institution', question_type: 'text', options: null, is_required: 0, sort_order: 26 },
-        { question_text: 'Graduate Program Attended', question_type: 'multiple_choice', options: ['Master of Arts in Education', 'Master of Science in Computer Science', 'Master of Science in Hospitality Management', 'Other', 'None'], is_required: 0, sort_order: 27 },
-        { question_text: 'Earned Units', question_type: 'text', options: null, is_required: 0, sort_order: 28 },
-        { question_text: 'Graduate College / University', question_type: 'text', options: null, is_required: 0, sort_order: 29 },
-        { question_text: 'Reason for pursuing advance studies', question_type: 'checkbox', options: ['For promotion', 'For professional development', 'Other'], is_required: 0, sort_order: 30 },
+        { question_text: '15a. Title of Training', question_type: 'text', options: null, is_required: 0, sort_order: 24 },
+        { question_text: '15b. Duration', question_type: 'text', options: null, is_required: 0, sort_order: 25 },
+        { question_text: '15c. Name of Training Institution', question_type: 'text', options: null, is_required: 0, sort_order: 26 },
+        { question_text: '16a. Name of Graduate Program', question_type: 'multiple_choice', options: ['Master of Arts in Education', 'Master of Science in Computer Science', 'Master of Science in Hospitality Management', 'Doctor of Philosophy', 'Other'], is_required: 0, sort_order: 27 },
+        { question_text: '16b. Earned Units', question_type: 'text', options: null, is_required: 0, sort_order: 28 },
+        { question_text: '16c. Name of College / University', question_type: 'text', options: null, is_required: 0, sort_order: 29 },
+        { question_text: '17. What made you pursue advance studies?', question_type: 'checkbox', options: ['For promotion', 'For professional development'], is_required: 0, sort_order: 30 },
         
         // Section D - Employment Data
-        { question_text: 'Are you presently employed?', question_type: 'multiple_choice', options: ['Yes', 'No'], is_required: 1, sort_order: 31 },
-        { question_text: 'If not employed, reason(s)', question_type: 'checkbox', options: ['Advance or further study', 'Family concern and decided not to find a job', 'Health-related reason(s)', 'Lack of work experience', 'No job opportunity', 'Did not look for a job'], is_required: 0, sort_order: 32 },
-        { question_text: 'Suggestions to further improve your course curriculum', question_type: 'text', options: null, is_required: 0, sort_order: 33 },
+        { question_text: '18. Are you presently employed?', question_type: 'multiple_choice', options: ['Yes', 'No'], is_required: 1, sort_order: 31 },
+        { question_text: '19. Reason(s) why you are not yet employed', question_type: 'checkbox', options: ['Advance or further study', 'Family concern and decided not to find a job', 'Health-related reason(s)', 'Lack of work experience', 'No job opportunity', 'Did not look for a job'], is_required: 0, sort_order: 32 },
+        { question_text: '35. Suggestions to further improve your course curriculum', question_type: 'text', options: null, is_required: 0, sort_order: 33 },
       ]
     };
     setFormData(defaultSurvey);
@@ -270,9 +323,6 @@ export default function Surveys() {
           <p className="text-sm text-gray-500 mt-1">{surveys.length} surveys created</p>
         </div>
         <div className="flex gap-3">
-          <button onClick={loadDefaultTemplate} className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-6 py-2.5 rounded-lg transition-colors font-semibold shadow-md hover:shadow-lg">
-            <FileText className="w-5 h-5" /> Load Template
-          </button>
           <button onClick={openAdd} className="flex items-center gap-2 bg-blue-900 hover:bg-blue-800 text-white px-6 py-2.5 rounded-lg transition-colors font-semibold shadow-md hover:shadow-lg">
             <Plus className="w-5 h-5" /> Create Survey
           </button>
@@ -289,14 +339,9 @@ export default function Surveys() {
           <ClipboardList className="w-16 h-16 text-gray-300 mx-auto mb-4" />
           <p className="text-gray-600 text-lg font-medium">No surveys yet</p>
           <p className="text-gray-500 text-sm mb-6">Create your first survey or load the default template</p>
-          <div className="flex gap-3 justify-center">
-            <button onClick={loadDefaultTemplate} className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-6 py-2.5 rounded-lg transition-colors font-semibold">
-              <FileText className="w-5 h-5" /> Load Template
-            </button>
-            <button onClick={openAdd} className="flex items-center gap-2 bg-blue-900 hover:bg-blue-800 text-white px-6 py-2.5 rounded-lg transition-colors font-semibold">
-              <Plus className="w-5 h-5" /> Create Survey
-            </button>
-          </div>
+          <button onClick={openAdd} className="flex items-center gap-2 bg-blue-900 hover:bg-blue-800 text-white px-6 py-2.5 rounded-lg transition-colors font-semibold mx-auto">
+            <Plus className="w-5 h-5" /> Create Survey
+          </button>
         </div>
       ) : (
         <>
@@ -325,11 +370,14 @@ export default function Surveys() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 ml-4 flex-shrink-0">
-                    <button onClick={() => navigate(`/admin/surveys/${s.id}/responses`)} className="p-2 rounded-lg hover:bg-green-50 text-green-600 transition-colors font-medium" title="View Responses">
+                    <button onClick={() => navigate(`/admin/surveys/${s.id}/analytics`)} className="p-2 rounded-lg hover:bg-purple-50 text-purple-600 transition-colors font-medium" title="View Analytics">
                       <BarChart3 className="w-5 h-5" />
                     </button>
-                    <button onClick={() => openView(s)} className="p-2 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors font-medium" title="View">
+                    <button onClick={() => navigate(`/admin/surveys/${s.id}/responses`)} className="p-2 rounded-lg hover:bg-green-50 text-green-600 transition-colors font-medium" title="View Responses">
                       <Eye className="w-5 h-5" />
+                    </button>
+                    <button onClick={() => openView(s)} className="p-2 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors font-medium" title="Preview">
+                      <ClipboardList className="w-5 h-5" />
                     </button>
                     <button onClick={() => openEdit(s)} className="p-2 rounded-lg hover:bg-yellow-50 text-yellow-600 transition-colors font-medium" title="Edit">
                       <Edit2 className="w-5 h-5" />
@@ -385,6 +433,83 @@ export default function Surveys() {
           ))}
         </div>
         </>
+      )}
+
+      {/* Template Selection Modal */}
+      {showTemplates && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto m-4">
+            <div className="flex items-center justify-between p-6 border-b sticky top-0 bg-white rounded-t-2xl z-10">
+              <div>
+                <h2 className="text-2xl font-bold text-blue-900">Choose Survey Template</h2>
+                <p className="text-sm text-gray-500 mt-1">Select a template or start from scratch</p>
+              </div>
+              <button onClick={() => setShowTemplates(false)} className="p-2 rounded-lg hover:bg-gray-100">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {/* Create from Scratch Option */}
+              <div
+                onClick={createFromScratch}
+                className="border-2 border-dashed border-blue-300 rounded-xl p-6 hover:border-blue-500 hover:bg-blue-50 transition-all cursor-pointer group"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="p-4 bg-blue-100 rounded-xl group-hover:bg-blue-200 transition">
+                    <Plus className="w-8 h-8 text-blue-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-bold text-blue-900">Create from Scratch</h3>
+                    <p className="text-sm text-gray-600">Build a custom survey with your own questions</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Template Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {templates.map((template) => {
+                  const IconComponent = 
+                    template.icon === 'briefcase' ? Briefcase :
+                    template.icon === 'star' ? Star :
+                    template.icon === 'users' ? Users :
+                    template.icon === 'award' ? Award : FileText;
+                  
+                  return (
+                    <div
+                      key={template.id}
+                      onClick={() => loadTemplate(template.id)}
+                      className="border-2 border-gray-200 rounded-xl p-5 hover:border-blue-500 hover:shadow-lg transition-all cursor-pointer group"
+                    >
+                      <div className="flex items-start gap-4">
+                        <div className="p-3 bg-gradient-to-br from-blue-100 to-blue-50 rounded-lg group-hover:from-blue-200 group-hover:to-blue-100 transition">
+                          <IconComponent className="w-6 h-6 text-blue-600" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-start justify-between mb-2">
+                            <h3 className="text-base font-bold text-blue-900 group-hover:text-blue-700">
+                              {template.name}
+                            </h3>
+                            {template.analytics_enabled && (
+                              <BarChart3 className="w-4 h-4 text-green-600" title="Analytics Enabled" />
+                            )}
+                          </div>
+                          <p className="text-sm text-gray-600 mb-3">{template.description}</p>
+                          <div className="flex items-center gap-3 text-xs text-gray-500">
+                            <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full font-medium">
+                              {template.category}
+                            </span>
+                            <span>{template.questions_count} questions</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* View Modal */}

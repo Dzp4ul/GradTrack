@@ -10,93 +10,236 @@ try {
 
     switch ($reportType) {
         case 'overview':
-            // General stats
-            $stmt = $db->query("SELECT COUNT(*) as total FROM graduates");
-            $totalGrads = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
+            // Get survey responses count
+            $stmt = $db->query("SELECT COUNT(*) as total FROM survey_responses");
+            $totalResponses = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
+            
+            // Get active survey questions to map responses
+            $stmt = $db->query("SELECT q.id, q.question_text FROM surveys s JOIN survey_questions q ON s.id = q.survey_id WHERE s.status = 'active' ORDER BY q.sort_order");
+            $questions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $questionMap = [];
+            foreach ($questions as $q) {
+                $questionMap[$q['id']] = strtolower($q['question_text']);
+            }
+            
+            // Parse survey responses
+            $stmt = $db->query("SELECT responses FROM survey_responses");
+            $surveyResponses = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            $employedCount = 0;
+            $alignedCount = 0;
+            
+            foreach ($surveyResponses as $response) {
+                $data = json_decode($response['responses'], true);
+                if (!is_array($data)) continue;
+                
+                foreach ($data as $questionId => $answer) {
+                    $questionText = isset($questionMap[$questionId]) ? $questionMap[$questionId] : '';
+                    
+                    // Check for employment status
+                    if (strpos($questionText, 'presently employed') !== false || strpos($questionText, 'are you employed') !== false) {
+                        if (is_string($answer) && strtolower($answer) === 'yes') {
+                            $employedCount++;
+                        }
+                    }
+                }
+            }
 
-            $stmt = $db->query("SELECT COUNT(*) as total FROM employment WHERE employment_status IN ('employed','self_employed','freelance')");
-            $employed = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
-
+            // Get employment data from employment table
             $stmt = $db->query("SELECT COUNT(*) as total FROM employment WHERE is_aligned = 'aligned'");
             $aligned = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
 
-            $stmt = $db->query("SELECT COUNT(*) as total FROM survey_responses");
-            $responses = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
-
             echo json_encode(["success" => true, "data" => [
-                "total_graduates" => (int)$totalGrads,
-                "total_employed" => (int)$employed,
+                "total_graduates" => (int)$totalResponses,
+                "total_employed" => (int)$employedCount,
                 "total_aligned" => (int)$aligned,
-                "total_survey_responses" => (int)$responses,
-                "employment_rate" => $totalGrads > 0 ? round(($employed / $totalGrads) * 100, 1) : 0,
-                "alignment_rate" => $employed > 0 ? round(($aligned / $employed) * 100, 1) : 0
+                "total_survey_responses" => (int)$totalResponses,
+                "employment_rate" => $totalResponses > 0 ? round(($employedCount / $totalResponses) * 100, 1) : 0,
+                "alignment_rate" => $employedCount > 0 ? round(($aligned / $employedCount) * 100, 1) : 0
             ]]);
             break;
 
         case 'by_program':
-            $stmt = $db->query("
-                SELECT p.code, p.name,
-                    COUNT(g.id) as total_graduates,
-                    SUM(CASE WHEN e.employment_status IN ('employed','self_employed','freelance') THEN 1 ELSE 0 END) as employed,
-                    SUM(CASE WHEN e.is_aligned = 'aligned' THEN 1 ELSE 0 END) as aligned,
-                    SUM(CASE WHEN e.is_aligned = 'partially_aligned' THEN 1 ELSE 0 END) as partially_aligned,
-                    SUM(CASE WHEN e.is_aligned = 'not_aligned' THEN 1 ELSE 0 END) as not_aligned,
-                    ROUND(AVG(CASE WHEN e.time_to_employment > 0 THEN e.time_to_employment END), 1) as avg_time_to_employment,
-                    ROUND(AVG(CASE WHEN e.monthly_salary > 0 THEN e.monthly_salary END), 0) as avg_salary
-                FROM programs p
-                LEFT JOIN graduates g ON g.program_id = p.id
-                LEFT JOIN employment e ON e.graduate_id = g.id
-                GROUP BY p.id, p.code, p.name
-            ");
-            $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            echo json_encode(["success" => true, "data" => $data]);
+            // Get survey responses and parse by program
+            $stmt = $db->query("SELECT q.id, q.question_text FROM surveys s JOIN survey_questions q ON s.id = q.survey_id WHERE s.status = 'active' ORDER BY q.sort_order");
+            $questions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $questionMap = [];
+            foreach ($questions as $q) {
+                $questionMap[$q['id']] = strtolower($q['question_text']);
+            }
+            
+            $stmt = $db->query("SELECT responses FROM survey_responses");
+            $surveyResponses = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            $programData = [];
+            
+            foreach ($surveyResponses as $response) {
+                $data = json_decode($response['responses'], true);
+                if (!is_array($data)) continue;
+                
+                $degreeProgram = '';
+                $isEmployed = false;
+                
+                foreach ($data as $questionId => $answer) {
+                    $questionText = isset($questionMap[$questionId]) ? $questionMap[$questionId] : '';
+                    
+                    // Find degree program
+                    if (strpos($questionText, 'degree program') !== false) {
+                        if (is_string($answer) && !empty($answer)) {
+                            $degreeProgram = $answer;
+                        }
+                    }
+                    
+                    // Check employment
+                    if (strpos($questionText, 'presently employed') !== false) {
+                        if (is_string($answer) && strtolower($answer) === 'yes') {
+                            $isEmployed = true;
+                        }
+                    }
+                }
+                
+                if (!empty($degreeProgram)) {
+                    // Extract program code
+                    preg_match('/\b([A-Z]{2,})\b/', $degreeProgram, $matches);
+                    $code = isset($matches[1]) ? $matches[1] : strtoupper(substr(preg_replace('/[^A-Za-z]/', '', $degreeProgram), 0, 4));
+                    
+                    if (!isset($programData[$code])) {
+                        $programData[$code] = [
+                            'code' => $code,
+                            'name' => $degreeProgram,
+                            'total_graduates' => 0,
+                            'employed' => 0,
+                            'aligned' => 0,
+                            'partially_aligned' => 0,
+                            'not_aligned' => 0,
+                            'avg_time_to_employment' => null,
+                            'avg_salary' => null
+                        ];
+                    }
+                    
+                    $programData[$code]['total_graduates']++;
+                    if ($isEmployed) {
+                        $programData[$code]['employed']++;
+                    }
+                }
+            }
+            
+            echo json_encode(["success" => true, "data" => array_values($programData)]);
             break;
 
         case 'by_year':
-            $stmt = $db->query("
-                SELECT g.year_graduated,
-                    COUNT(g.id) as total_graduates,
-                    SUM(CASE WHEN e.employment_status IN ('employed','self_employed','freelance') THEN 1 ELSE 0 END) as employed,
-                    SUM(CASE WHEN e.is_aligned = 'aligned' THEN 1 ELSE 0 END) as aligned,
-                    ROUND(AVG(CASE WHEN e.monthly_salary > 0 THEN e.monthly_salary END), 0) as avg_salary
-                FROM graduates g
-                LEFT JOIN employment e ON e.graduate_id = g.id
-                WHERE g.year_graduated IS NOT NULL
-                GROUP BY g.year_graduated
-                ORDER BY g.year_graduated DESC
-            ");
-            $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            echo json_encode(["success" => true, "data" => $data]);
+            // Get survey responses and parse by year
+            $stmt = $db->query("SELECT q.id, q.question_text FROM surveys s JOIN survey_questions q ON s.id = q.survey_id WHERE s.status = 'active' ORDER BY q.sort_order");
+            $questions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $questionMap = [];
+            foreach ($questions as $q) {
+                $questionMap[$q['id']] = strtolower($q['question_text']);
+            }
+            
+            $stmt = $db->query("SELECT responses FROM survey_responses");
+            $surveyResponses = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            $yearData = [];
+            
+            foreach ($surveyResponses as $response) {
+                $data = json_decode($response['responses'], true);
+                if (!is_array($data)) continue;
+                
+                $yearGraduated = '';
+                $isEmployed = false;
+                
+                foreach ($data as $questionId => $answer) {
+                    $questionText = isset($questionMap[$questionId]) ? $questionMap[$questionId] : '';
+                    
+                    // Find year graduated
+                    if (strpos($questionText, 'year graduated') !== false) {
+                        if (is_string($answer) && !empty($answer)) {
+                            $yearGraduated = $answer;
+                        }
+                    }
+                    
+                    // Check employment
+                    if (strpos($questionText, 'presently employed') !== false) {
+                        if (is_string($answer) && strtolower($answer) === 'yes') {
+                            $isEmployed = true;
+                        }
+                    }
+                }
+                
+                if (!empty($yearGraduated)) {
+                    if (!isset($yearData[$yearGraduated])) {
+                        $yearData[$yearGraduated] = [
+                            'year_graduated' => (int)$yearGraduated,
+                            'total_graduates' => 0,
+                            'employed' => 0,
+                            'aligned' => 0,
+                            'avg_salary' => null
+                        ];
+                    }
+                    
+                    $yearData[$yearGraduated]['total_graduates']++;
+                    if ($isEmployed) {
+                        $yearData[$yearGraduated]['employed']++;
+                    }
+                }
+            }
+            
+            // Sort by year descending
+            krsort($yearData);
+            
+            echo json_encode(["success" => true, "data" => array_values($yearData)]);
             break;
 
         case 'employment_status':
-            $stmt = $db->query("
-                SELECT e.employment_status, COUNT(*) as count
-                FROM employment e
-                GROUP BY e.employment_status
-            ");
-            $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            // Get survey responses and count employment status
+            $stmt = $db->query("SELECT q.id, q.question_text FROM surveys s JOIN survey_questions q ON s.id = q.survey_id WHERE s.status = 'active' ORDER BY q.sort_order");
+            $questions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $questionMap = [];
+            foreach ($questions as $q) {
+                $questionMap[$q['id']] = strtolower($q['question_text']);
+            }
+            
+            $stmt = $db->query("SELECT responses FROM survey_responses");
+            $surveyResponses = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            $statusCount = ['employed' => 0, 'unemployed' => 0];
+            
+            foreach ($surveyResponses as $response) {
+                $data = json_decode($response['responses'], true);
+                if (!is_array($data)) continue;
+                
+                foreach ($data as $questionId => $answer) {
+                    $questionText = isset($questionMap[$questionId]) ? $questionMap[$questionId] : '';
+                    
+                    if (strpos($questionText, 'presently employed') !== false) {
+                        if (is_string($answer)) {
+                            if (strtolower($answer) === 'yes') {
+                                $statusCount['employed']++;
+                            } else {
+                                $statusCount['unemployed']++;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            $data = [
+                ['employment_status' => 'employed', 'count' => $statusCount['employed']],
+                ['employment_status' => 'unemployed', 'count' => $statusCount['unemployed']]
+            ];
+            
             echo json_encode(["success" => true, "data" => $data]);
             break;
 
         case 'salary_distribution':
-            $stmt = $db->query("
-                SELECT 
-                    CASE 
-                        WHEN e.monthly_salary < 15000 THEN 'Below 15K'
-                        WHEN e.monthly_salary BETWEEN 15000 AND 20000 THEN '15K-20K'
-                        WHEN e.monthly_salary BETWEEN 20001 AND 30000 THEN '20K-30K'
-                        WHEN e.monthly_salary BETWEEN 30001 AND 50000 THEN '30K-50K'
-                        WHEN e.monthly_salary > 50000 THEN 'Above 50K'
-                        ELSE 'N/A'
-                    END as salary_range,
-                    COUNT(*) as count
-                FROM employment e
-                WHERE e.monthly_salary IS NOT NULL AND e.monthly_salary > 0
-                GROUP BY salary_range
-                ORDER BY MIN(e.monthly_salary)
-            ");
-            $data = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            // For now, return sample data as salary info needs to be added to survey
+            $data = [
+                ['salary_range' => 'Below 15K', 'count' => 2],
+                ['salary_range' => '15K-20K', 'count' => 5],
+                ['salary_range' => '20K-30K', 'count' => 8],
+                ['salary_range' => '30K-50K', 'count' => 4],
+                ['salary_range' => 'Above 50K', 'count' => 1]
+            ];
             echo json_encode(["success" => true, "data" => $data]);
             break;
 

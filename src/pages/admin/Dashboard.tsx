@@ -1,10 +1,13 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Briefcase,
   Target,
   Clock,
   AlertTriangle,
   CheckCircle2,
+  ClipboardList,
+  BarChart3,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -35,6 +38,7 @@ const BAR_COLORS = ['#22c55e', '#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6'];
 export default function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   useEffect(() => {
     fetch(`${API_BASE}/dashboard/stats.php`)
@@ -146,25 +150,23 @@ export default function Dashboard() {
           <p className="text-xs text-gray-400 mt-1">Average Time</p>
         </div>
 
-        {/* At-Risk Programs */}
-        <div className="bg-white rounded-xl shadow-sm border p-5">
+        {/* Survey Analytics - New Card */}
+        <div 
+          onClick={() => navigate('/admin/surveys')}
+          className="bg-gradient-to-br from-purple-50 to-blue-50 rounded-xl shadow-sm border border-purple-200 p-5 cursor-pointer hover:shadow-lg transition-all group"
+        >
           <div className="flex items-center gap-2 mb-3">
-            <div className="p-2 bg-red-100 rounded-lg">
-              <AlertTriangle className="w-5 h-5 text-red-600" />
+            <div className="p-2 bg-purple-100 rounded-lg group-hover:bg-purple-200 transition">
+              <ClipboardList className="w-5 h-5 text-purple-700" />
             </div>
-            <span className="text-sm font-medium text-gray-600">At-Risk Programs</span>
+            <span className="text-sm font-medium text-gray-600">Survey Analytics</span>
           </div>
-          <div className="space-y-1.5">
-            {data.at_risk_programs.length > 0 ? (
-              data.at_risk_programs.map((p) => (
-                <div key={p} className="bg-gray-100 rounded px-3 py-1.5 text-sm font-semibold text-[#1b2a4a]">
-                  {p}
-                </div>
-              ))
-            ) : (
-              <p className="text-sm text-green-600 font-medium">No at-risk programs</p>
-            )}
-          </div>
+          <p className="text-4xl font-bold text-[#1b2a4a]">
+            {data.total_responses}
+          </p>
+          <p className="text-xs text-purple-600 mt-1 font-medium flex items-center gap-1">
+            <BarChart3 className="w-3 h-3" /> View Insights →
+          </p>
         </div>
       </div>
 

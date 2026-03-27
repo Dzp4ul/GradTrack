@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
 } from 'recharts';
-import { Download, Users, Briefcase, Target, FileText } from 'lucide-react';
+import { Download, Users, Briefcase, Target, FileText, ClipboardList } from 'lucide-react';
 
 const API_BASE = '/api';
 
@@ -49,13 +50,14 @@ interface SalaryData {
 const COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
 
 export default function Reports() {
-  const [tab, setTab] = useState<'overview' | 'program' | 'year' | 'employment' | 'salary'>('overview');
+  const [tab, setTab] = useState<'overview' | 'program' | 'year' | 'employment' | 'salary' | 'surveys'>('overview');
   const [overview, setOverview] = useState<Overview | null>(null);
   const [programData, setProgramData] = useState<ProgramReport[]>([]);
   const [yearData, setYearData] = useState<YearReport[]>([]);
   const [statusData, setStatusData] = useState<StatusData[]>([]);
   const [salaryData, setSalaryData] = useState<SalaryData[]>([]);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   const fetchReport = (type: string) => {
     setLoading(true);
@@ -90,6 +92,7 @@ export default function Reports() {
     { key: 'year', label: 'By Year' },
     { key: 'employment', label: 'Employment Status' },
     { key: 'salary', label: 'Salary Distribution' },
+    { key: 'surveys', label: 'Survey Analytics' },
   ] as const;
 
   return (
@@ -297,6 +300,63 @@ export default function Reports() {
                         <p className="text-xs text-gray-500 mt-1">{s.salary_range}</p>
                       </div>
                     ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Survey Analytics */}
+              {tab === 'surveys' && (
+                <div className="space-y-6">
+                  <div className="text-center py-12">
+                    <ClipboardList className="w-16 h-16 text-blue-600 mx-auto mb-4" />
+                    <h3 className="text-xl font-bold text-[#1b2a4a] mb-2">Survey Analytics</h3>
+                    <p className="text-gray-600 mb-6">View detailed analytics for each survey</p>
+                    <button
+                      onClick={() => navigate('/admin/surveys')}
+                      className="bg-blue-900 hover:bg-blue-800 text-white px-6 py-3 rounded-lg font-semibold transition-colors"
+                    >
+                      Go to Survey Management
+                    </button>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="border rounded-xl p-6">
+                      <h4 className="text-lg font-semibold text-[#1b2a4a] mb-4">Survey Features</h4>
+                      <ul className="space-y-3 text-sm text-gray-700">
+                        <li className="flex items-start gap-2">
+                          <div className="w-2 h-2 bg-blue-600 rounded-full mt-1.5" />
+                          <span>Real-time response tracking</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <div className="w-2 h-2 bg-blue-600 rounded-full mt-1.5" />
+                          <span>Employment and alignment analytics</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <div className="w-2 h-2 bg-blue-600 rounded-full mt-1.5" />
+                          <span>Question-by-question insights</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <div className="w-2 h-2 bg-blue-600 rounded-full mt-1.5" />
+                          <span>Visual data representations</span>
+                        </li>
+                      </ul>
+                    </div>
+                    
+                    <div className="border rounded-xl p-6">
+                      <h4 className="text-lg font-semibold text-[#1b2a4a] mb-4">Quick Stats</h4>
+                      <div className="space-y-3">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-600">Total Responses</span>
+                          <span className="text-xl font-bold text-blue-900">{overview?.total_survey_responses || 0}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-600">Response Rate</span>
+                          <span className="text-xl font-bold text-green-600">
+                            {overview ? Math.round((overview.total_survey_responses / overview.total_graduates) * 100) : 0}%
+                          </span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
