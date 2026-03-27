@@ -33,21 +33,33 @@ try {
                 $data = json_decode($response['responses'], true);
                 if (!is_array($data)) continue;
                 
+                $isEmployed = false;
+                $jobRelated = '';
+                
                 foreach ($data as $questionId => $answer) {
                     $questionText = isset($questionMap[$questionId]) ? $questionMap[$questionId] : '';
                     
                     // Check for employment status
-                    if (strpos($questionText, 'presently employed') !== false || strpos($questionText, 'are you employed') !== false) {
-                        if (is_string($answer) && strtolower($answer) === 'yes') {
+                    if (strpos($questionText, 'employment status') !== false || strpos($questionText, 'presently employed') !== false) {
+                        if (is_string($answer) && (strtolower($answer) === 'employed' || strtolower($answer) === 'yes')) {
+                            $isEmployed = true;
                             $employedCount++;
                         }
                     }
+                    
+                    // Check job alignment from survey
+                    if (strpos($questionText, 'job related to') !== false || strpos($questionText, 'related to your course') !== false) {
+                        $jobRelated = strtolower(trim($answer));
+                    }
+                }
+                
+                // Count as aligned if job is directly related
+                if ($isEmployed && (strpos($jobRelated, 'yes') !== false || strpos($jobRelated, 'directly related') !== false)) {
+                    $alignedCount++;
                 }
             }
 
-            // Get employment data from employment table
-            $stmt = $db->query("SELECT COUNT(*) as total FROM employment WHERE is_aligned = 'aligned'");
-            $aligned = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
+            $aligned = $alignedCount;
 
             echo json_encode(["success" => true, "data" => [
                 "total_graduates" => (int)$totalResponses,
@@ -79,6 +91,7 @@ try {
                 
                 $degreeProgram = '';
                 $isEmployed = false;
+                $jobRelated = '';
                 
                 foreach ($data as $questionId => $answer) {
                     $questionText = isset($questionMap[$questionId]) ? $questionMap[$questionId] : '';
@@ -91,10 +104,15 @@ try {
                     }
                     
                     // Check employment
-                    if (strpos($questionText, 'presently employed') !== false) {
-                        if (is_string($answer) && strtolower($answer) === 'yes') {
+                    if (strpos($questionText, 'employment status') !== false || strpos($questionText, 'presently employed') !== false) {
+                        if (is_string($answer) && (strtolower($answer) === 'employed' || strtolower($answer) === 'yes')) {
                             $isEmployed = true;
                         }
+                    }
+                    
+                    // Check job alignment
+                    if (strpos($questionText, 'job related to') !== false || strpos($questionText, 'related to your course') !== false) {
+                        $jobRelated = strtolower(trim($answer));
                     }
                 }
                 
@@ -120,6 +138,15 @@ try {
                     $programData[$code]['total_graduates']++;
                     if ($isEmployed) {
                         $programData[$code]['employed']++;
+                        
+                        // Calculate alignment from survey response
+                        if (strpos($jobRelated, 'yes') !== false || strpos($jobRelated, 'directly related') !== false) {
+                            $programData[$code]['aligned']++;
+                        } else if (strpos($jobRelated, 'partially') !== false) {
+                            $programData[$code]['partially_aligned']++;
+                        } else if (!empty($jobRelated)) {
+                            $programData[$code]['not_aligned']++;
+                        }
                     }
                 }
             }
@@ -147,6 +174,7 @@ try {
                 
                 $yearGraduated = '';
                 $isEmployed = false;
+                $jobRelated = '';
                 
                 foreach ($data as $questionId => $answer) {
                     $questionText = isset($questionMap[$questionId]) ? $questionMap[$questionId] : '';
@@ -159,10 +187,15 @@ try {
                     }
                     
                     // Check employment
-                    if (strpos($questionText, 'presently employed') !== false) {
-                        if (is_string($answer) && strtolower($answer) === 'yes') {
+                    if (strpos($questionText, 'employment status') !== false || strpos($questionText, 'presently employed') !== false) {
+                        if (is_string($answer) && (strtolower($answer) === 'employed' || strtolower($answer) === 'yes')) {
                             $isEmployed = true;
                         }
+                    }
+                    
+                    // Check job alignment
+                    if (strpos($questionText, 'job related to') !== false || strpos($questionText, 'related to your course') !== false) {
+                        $jobRelated = strtolower(trim($answer));
                     }
                 }
                 
@@ -180,6 +213,11 @@ try {
                     $yearData[$yearGraduated]['total_graduates']++;
                     if ($isEmployed) {
                         $yearData[$yearGraduated]['employed']++;
+                        
+                        // Calculate alignment from survey
+                        if (strpos($jobRelated, 'yes') !== false || strpos($jobRelated, 'directly related') !== false) {
+                            $yearData[$yearGraduated]['aligned']++;
+                        }
                     }
                 }
             }
@@ -211,11 +249,12 @@ try {
                 foreach ($data as $questionId => $answer) {
                     $questionText = isset($questionMap[$questionId]) ? $questionMap[$questionId] : '';
                     
-                    if (strpos($questionText, 'presently employed') !== false) {
+                    if (strpos($questionText, 'employment status') !== false || strpos($questionText, 'presently employed') !== false) {
                         if (is_string($answer)) {
-                            if (strtolower($answer) === 'yes') {
+                            $answerLower = strtolower($answer);
+                            if ($answerLower === 'employed' || $answerLower === 'yes') {
                                 $statusCount['employed']++;
-                            } else {
+                            } else if ($answerLower === 'unemployed' || $answerLower === 'no') {
                                 $statusCount['unemployed']++;
                             }
                         }

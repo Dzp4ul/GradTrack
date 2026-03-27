@@ -34,18 +34,22 @@ try {
         
         if (!is_array($data)) continue;
         
-        // Find employment status question
+        // Find employment status and job alignment
         $isEmployed = false;
         $degreeProgram = '';
+        $jobRelated = '';
         
         foreach ($data as $questionId => $answer) {
             $questionText = isset($questionMap[$questionId]) ? $questionMap[$questionId] : '';
             
             // Check for employment status
-            if (strpos($questionText, 'presently employed') !== false || strpos($questionText, 'are you employed') !== false) {
-                if (is_string($answer) && strtolower($answer) === 'yes') {
-                    $isEmployed = true;
-                    $employedCount++;
+            if (strpos($questionText, 'employment status') !== false || strpos($questionText, 'presently employed') !== false || strpos($questionText, 'are you employed') !== false) {
+                if (is_string($answer)) {
+                    $answerLower = strtolower($answer);
+                    if ($answerLower === 'yes' || $answerLower === 'employed') {
+                        $isEmployed = true;
+                        $employedCount++;
+                    }
                 }
             }
             
@@ -55,27 +59,42 @@ try {
                     $degreeProgram = $answer;
                 }
             }
+            
+            // Check job alignment from survey
+            if (strpos($questionText, 'job related to') !== false || strpos($questionText, 'related to your course') !== false) {
+                $jobRelated = strtolower(trim($answer));
+            }
+        }
+        
+        // Count alignment based on survey response
+        if ($isEmployed) {
+            if (strpos($jobRelated, 'yes') !== false || strpos($jobRelated, 'directly related') !== false) {
+                $alignedCount++;
+            } else if (strpos($jobRelated, 'partially') !== false) {
+                $partiallyAlignedCount++;
+            } else if (!empty($jobRelated)) {
+                $notAlignedCount++;
+            }
         }
         
         // Track program data
         if (!empty($degreeProgram)) {
             if (!isset($programData[$degreeProgram])) {
-                $programData[$degreeProgram] = ['total' => 0, 'employed' => 0];
+                $programData[$degreeProgram] = ['total' => 0, 'employed' => 0, 'aligned' => 0];
             }
             $programData[$degreeProgram]['total']++;
             if ($isEmployed) {
                 $programData[$degreeProgram]['employed']++;
+                if (strpos($jobRelated, 'yes') !== false || strpos($jobRelated, 'directly related') !== false) {
+                    $programData[$degreeProgram]['aligned']++;
+                }
             }
         }
     }
     
     // Calculate rates
     $employmentRate = $totalResponses > 0 ? round(($employedCount / $totalResponses) * 100, 1) : 0;
-    
-    // Get employment data from employment table for alignment and time
-    $stmt = $db->query("SELECT COUNT(*) as aligned FROM employment WHERE is_aligned = 'aligned'");
-    $aligned = $stmt->fetch(PDO::FETCH_ASSOC)['aligned'];
-    $alignmentRate = $employedCount > 0 ? round(($aligned / $employedCount) * 100, 1) : 0;
+    $alignmentRate = $employedCount > 0 ? round(($alignedCount / $employedCount) * 100, 1) : 0;
     
     $stmt = $db->query("SELECT AVG(time_to_employment) as avg_time FROM employment WHERE employment_status IN ('employed', 'self_employed', 'freelance') AND time_to_employment > 0");
     $avgTime = round($stmt->fetch(PDO::FETCH_ASSOC)['avg_time'] ?? 0, 1);
@@ -84,6 +103,7 @@ try {
     $programStats = [];
     foreach ($programData as $program => $stats) {
         $employabilityIndex = $stats['total'] > 0 ? round(($stats['employed'] / $stats['total']) * 100, 0) : 0;
+        $alignmentIndex = $stats['employed'] > 0 ? round(($stats['aligned'] / $stats['employed']) * 100, 0) : 0;
         // Extract program code from program name
         preg_match('/\b([A-Z]{2,})\b/', $program, $matches);
         $code = isset($matches[1]) ? $matches[1] : strtoupper(substr(preg_replace('/[^A-Za-z]/', '', $program), 0, 4));
@@ -92,7 +112,9 @@ try {
             'name' => $program,
             'total_graduates' => $stats['total'],
             'employed_count' => $stats['employed'],
-            'employability_index' => $employabilityIndex
+            'aligned_count' => $stats['aligned'],
+            'employability_index' => $employabilityIndex,
+            'alignment_index' => $alignmentIndex
         ];
     }
     usort($programStats, function($a, $b) {
@@ -105,13 +127,28 @@ try {
     });
     $atRiskPrograms = array_values($atRiskPrograms);
 
-    // Employment trends
+    // Employment trends - update current year with real data
     $stmt = $db->query("SELECT year, employment_rate, alignment_rate FROM employment_trends ORDER BY year ASC");
     $trends = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
+    // Update or add current year data
+    $currentYear = date('Y');
+    $currentYearExists = false;
+    foreach ($trends as &$trend) {
+        if ($trend['year'] == $currentYear) {
+            $trend['employment_rate'] = $employmentRate;
+            $trend['alignment_rate'] = $alignmentRate;
+            $currentYearExists = true;
+            break;
+        }
+    }
+    
+    if (!$currentYearExists) {
+        $trends[] = ['year' => $currentYear, 'employment_rate' => $employmentRate, 'alignment_rate' => $alignmentRate];
+    }
+    
     // If no trends data, create sample data
     if (empty($trends)) {
-        $currentYear = date('Y');
         $trends = [
             ['year' => $currentYear - 3, 'employment_rate' => 75, 'alignment_rate' => 65],
             ['year' => $currentYear - 2, 'employment_rate' => 78, 'alignment_rate' => 68],
@@ -120,21 +157,12 @@ try {
         ];
     }
 
-    // Job alignment distribution
-    $stmt = $db->query("
-        SELECT 
-            SUM(CASE WHEN is_aligned = 'aligned' THEN 1 ELSE 0 END) as aligned,
-            SUM(CASE WHEN is_aligned = 'partially_aligned' THEN 1 ELSE 0 END) as partially_aligned,
-            SUM(CASE WHEN is_aligned = 'not_aligned' THEN 1 ELSE 0 END) as not_aligned
-        FROM employment
-        WHERE employment_status IN ('employed', 'self_employed', 'freelance')
-    ");
-    $alignment = $stmt->fetch(PDO::FETCH_ASSOC);
-    $totalEmployed = ($alignment['aligned'] + $alignment['partially_aligned'] + $alignment['not_aligned']);
+    // Job alignment distribution from survey responses
+    $totalEmployedForAlignment = $alignedCount + $partiallyAlignedCount + $notAlignedCount;
     $alignmentDistribution = [
-        ['name' => 'Aligned', 'value' => (int)$alignment['aligned'], 'percentage' => $totalEmployed > 0 ? round(($alignment['aligned'] / $totalEmployed) * 100) : 65],
-        ['name' => 'Partially Aligned', 'value' => (int)$alignment['partially_aligned'], 'percentage' => $totalEmployed > 0 ? round(($alignment['partially_aligned'] / $totalEmployed) * 100) : 20],
-        ['name' => 'Not Aligned', 'value' => (int)$alignment['not_aligned'], 'percentage' => $totalEmployed > 0 ? round(($alignment['not_aligned'] / $totalEmployed) * 100) : 15],
+        ['name' => 'Aligned', 'value' => $alignedCount, 'percentage' => $totalEmployedForAlignment > 0 ? round(($alignedCount / $totalEmployedForAlignment) * 100) : 0],
+        ['name' => 'Partially Aligned', 'value' => $partiallyAlignedCount, 'percentage' => $totalEmployedForAlignment > 0 ? round(($partiallyAlignedCount / $totalEmployedForAlignment) * 100) : 0],
+        ['name' => 'Not Aligned', 'value' => $notAlignedCount, 'percentage' => $totalEmployedForAlignment > 0 ? round(($notAlignedCount / $totalEmployedForAlignment) * 100) : 0],
     ];
 
     // Top job listings
