@@ -10,6 +10,7 @@ interface Question {
   options: string[] | null;
   is_required: number;
   sort_order: number;
+  section?: string;
 }
 
 interface Survey {
@@ -208,7 +209,7 @@ function Survey() {
   const ProgressBar = () => (
     <div className="w-full max-w-5xl mx-auto mb-10">
       <div className="flex items-center justify-between">
-        {Array.from({ length: totalPages }).map((_, i) => (
+        {allSections.map((section, i) => (
           <div key={i} className="flex-1 flex flex-col items-center relative">
             <button
               onClick={() => setCurrentSection(i)}
@@ -222,10 +223,10 @@ function Survey() {
             >
               {i < currentSection ? '✓' : i + 1}
             </button>
-            <span className={`text-xs mt-2 font-medium text-center ${i === currentSection ? 'text-yellow-400' : 'text-blue-200'}`}>
-              Page {i + 1}
+            <span className={`text-xs mt-2 font-medium text-center max-w-[100px] truncate ${i === currentSection ? 'text-yellow-400' : 'text-blue-200'}`} title={section}>
+              {section}
             </span>
-            {i < totalPages - 1 && (
+            {i < allSections.length - 1 && (
               <div className={`absolute top-5 left-[55%] w-full h-0.5 ${i < currentSection ? 'bg-green-500' : 'bg-gray-200'}`} />
             )}
           </div>
@@ -315,11 +316,24 @@ function Survey() {
     }
   };
 
-  const questionsPerPage = 5;
-  const totalPages = Math.ceil((activeSurvey?.questions.length || 0) / questionsPerPage);
-  const startIdx = currentSection * questionsPerPage;
-  const endIdx = startIdx + questionsPerPage;
-  const currentQuestions = activeSurvey?.questions.slice(startIdx, endIdx) || [];
+  // Get unique sections from all questions
+  const allSections: string[] = [];
+  const sectionQuestions: Record<string, Question[]> = {};
+  
+  activeSurvey?.questions.forEach(q => {
+    const section = q.section || 'General';
+    if (!allSections.includes(section)) {
+      allSections.push(section);
+    }
+    if (!sectionQuestions[section]) {
+      sectionQuestions[section] = [];
+    }
+    sectionQuestions[section].push(q);
+  });
+
+  const totalPages = allSections.length;
+  const currentSectionName = allSections[currentSection] || 'General';
+  const currentSectionQuestions = sectionQuestions[currentSectionName] || [];
 
   return (
     <div className="min-h-screen bg-cover bg-center bg-fixed relative" style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
@@ -355,18 +369,31 @@ function Survey() {
             <p className="text-gray-600 mb-6">{activeSurvey.description}</p>
           )}
 
-          <div className="space-y-6">
-            {currentQuestions.map((question, idx) => (
-              <div key={question.id} className="bg-blue-50 rounded-xl p-5 border border-blue-100">
-                <label className="block text-base font-semibold text-gray-800 mb-3">
-                  {startIdx + idx + 1}. {question.question_text}
-                  {question.is_required === 1 && (
-                    <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
-                  )}
-                </label>
-                {renderQuestion(question)}
-              </div>
-            ))}
+          <div className="space-y-8">
+            {/* Section Header */}
+            <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl p-4 mb-4 shadow-md">
+              <h3 className="text-xl font-bold text-white uppercase tracking-wide">
+                {currentSectionName}
+              </h3>
+            </div>
+            
+            {/* Questions in this section */}
+            <div className="space-y-6">
+              {currentSectionQuestions.map((question) => {
+                const globalIdx = activeSurvey.questions.findIndex(q => q.id === question.id);
+                return (
+                  <div key={question.id} className="bg-blue-50 rounded-xl p-5 border border-blue-100">
+                    <label className="block text-base font-semibold text-gray-800 mb-3">
+                      {globalIdx + 1}. {question.question_text}
+                      {question.is_required === 1 && (
+                        <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
+                      )}
+                    </label>
+                    {renderQuestion(question)}
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           {/* Navigation Buttons */}

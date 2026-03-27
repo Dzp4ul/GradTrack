@@ -61,12 +61,13 @@ try {
 
             if (isset($data['questions']) && is_array($data['questions'])) {
                 $qStmt = $db->prepare("
-                    INSERT INTO survey_questions (survey_id, question_text, question_type, options, is_required, sort_order)
-                    VALUES (:survey_id, :text, :type, :options, :required, :sort)
+                    INSERT INTO survey_questions (survey_id, section, question_text, question_type, options, is_required, sort_order)
+                    VALUES (:survey_id, :section, :text, :type, :options, :required, :sort)
                 ");
                 foreach ($data['questions'] as $i => $q) {
                     $qStmt->execute([
                         ':survey_id' => $surveyId,
+                        ':section' => $q['section'] ?? null,
                         ':text' => $q['question_text'],
                         ':type' => $q['question_type'] ?? 'text',
                         ':options' => isset($q['options']) ? json_encode($q['options']) : null,
@@ -104,12 +105,13 @@ try {
                 $delStmt->execute([':id' => $data['id']]);
 
                 $qStmt = $db->prepare("
-                    INSERT INTO survey_questions (survey_id, question_text, question_type, options, is_required, sort_order)
-                    VALUES (:survey_id, :text, :type, :options, :required, :sort)
+                    INSERT INTO survey_questions (survey_id, section, question_text, question_type, options, is_required, sort_order)
+                    VALUES (:survey_id, :section, :text, :type, :options, :required, :sort)
                 ");
                 foreach ($data['questions'] as $i => $q) {
                     $qStmt->execute([
                         ':survey_id' => $data['id'],
+                        ':section' => $q['section'] ?? null,
                         ':text' => $q['question_text'],
                         ':type' => $q['question_type'] ?? 'text',
                         ':options' => isset($q['options']) ? json_encode($q['options']) : null,

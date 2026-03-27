@@ -13,6 +13,7 @@ interface Question {
   options: string[] | null;
   is_required: number;
   sort_order: number;
+  section?: string;
 }
 
 interface Survey {
@@ -50,7 +51,7 @@ const emptyForm: FormData = {
 };
 
 const emptyQuestion: Question = {
-  question_text: '', question_type: 'text', options: null, is_required: 1, sort_order: 0,
+  question_text: '', question_type: 'text', options: null, is_required: 1, sort_order: 0, section: '',
 };
 
 const statusStyle: Record<string, string> = {
@@ -163,73 +164,72 @@ export default function Surveys() {
       status: 'draft',
       questions: [
         // SECTION 1: PERSONAL INFORMATION
-        { question_text: 'SECTION 1: PERSONAL INFORMATION', question_type: 'text', options: null, is_required: 0, sort_order: 1 },
-        { question_text: 'Last Name', question_type: 'text', options: null, is_required: 1, sort_order: 2 },
-        { question_text: 'First Name', question_type: 'text', options: null, is_required: 1, sort_order: 3 },
-        { question_text: 'Middle Name', question_type: 'text', options: null, is_required: 0, sort_order: 4 },
-        { question_text: 'Region', question_type: 'multiple_choice', options: ['NCR', 'CAR', 'Region I', 'Region II', 'Region III', 'Region IV-A', 'Region IV-B', 'Region V', 'Region VI', 'Region VII', 'Region VIII', 'Region IX', 'Region X', 'Region XI', 'Region XII', 'Region XIII', 'BARMM'], is_required: 1, sort_order: 5 },
-        { question_text: 'Province', question_type: 'text', options: null, is_required: 1, sort_order: 6 },
-        { question_text: 'City / Municipality', question_type: 'text', options: null, is_required: 1, sort_order: 7 },
-        { question_text: 'Email Address', question_type: 'text', options: null, is_required: 1, sort_order: 8 },
-        { question_text: 'Mobile Number', question_type: 'text', options: null, is_required: 1, sort_order: 9 },
-        { question_text: 'Telephone or Contact Number', question_type: 'text', options: null, is_required: 0, sort_order: 10 },
-        { question_text: 'Civil Status', question_type: 'multiple_choice', options: ['Single', 'Married', 'Widowed', 'Separated', 'Divorced'], is_required: 1, sort_order: 11 },
-        { question_text: 'Sex', question_type: 'multiple_choice', options: ['Male', 'Female'], is_required: 1, sort_order: 12 },
-        { question_text: 'Birthday', question_type: 'text', options: null, is_required: 1, sort_order: 13 },
+        { question_text: 'Last Name', question_type: 'text', options: null, is_required: 1, sort_order: 1, section: 'Personal Information' },
+        { question_text: 'First Name', question_type: 'text', options: null, is_required: 1, sort_order: 2, section: 'Personal Information' },
+        { question_text: 'Middle Name', question_type: 'text', options: null, is_required: 0, sort_order: 3, section: 'Personal Information' },
+        { question_text: 'Region', question_type: 'multiple_choice', options: ['National Capital Region (NCR)', 'Cordillera Administrative Region (CAR)', 'Region I - Ilocos Region', 'Region II - Cagayan Valley', 'Region III - Central Luzon', 'Region IV - CALABARZON', 'Region V - Bicol Region', 'Region VI - Western Visayas', 'Region VII - Central Visayas', 'Region VIII - Eastern Visayas', 'Region IX - Zamboanga Peninsula', 'Region X - Northern Mindanao', 'Region XI - Davao Region', 'Region XII - SOCCSKSARGEN', 'Region XIII - Caraga', 'BARMM' ], is_required: 1, sort_order: 4, section: 'Personal Information' },
+        { question_text: 'Province', question_type: 'text', options: null, is_required: 1, sort_order: 5, section: 'Personal Information' },
+        { question_text: 'City / Municipality', question_type: 'text', options: null, is_required: 1, sort_order: 6, section: 'Personal Information' },
+        { question_text: 'Email Address', question_type: 'text', options: null, is_required: 1, sort_order: 7, section: 'Personal Information' },
+        { question_text: 'Mobile Number', question_type: 'text', options: null, is_required: 1, sort_order: 8, section: 'Personal Information' },
+        { question_text: 'Telephone or Contact Number', question_type: 'text', options: null, is_required: 0, sort_order: 9, section: 'Personal Information' },
+        { question_text: 'Civil Status', question_type: 'multiple_choice', options: ['Single', 'Married', 'Widowed', 'Separated', 'Divorced'], is_required: 1, sort_order: 10, section: 'Personal Information' },
+        { question_text: 'Sex', question_type: 'multiple_choice', options: ['Male', 'Female', 'Prefer not to say'], is_required: 1, sort_order: 11, section: 'Personal Information' },
+        { question_text: 'Birthday', question_type: 'text', options: null, is_required: 1, sort_order: 12, section: 'Personal Information' },
         
         // SECTION 2: EDUCATIONAL BACKGROUND
-        { question_text: 'SECTION 2: EDUCATIONAL BACKGROUND', question_type: 'text', options: null, is_required: 0, sort_order: 14 },
-        { question_text: 'Degree Program & Specialization', question_type: 'text', options: null, is_required: 1, sort_order: 15 },
-        { question_text: 'Year Graduated', question_type: 'text', options: null, is_required: 1, sort_order: 16 },
-        { question_text: 'Honors / Awards Received (if applicable)', question_type: 'text', options: null, is_required: 0, sort_order: 17 },
-        { question_text: 'Professional Examination(s) Passed (if applicable)', question_type: 'text', options: null, is_required: 0, sort_order: 18 },
-        { question_text: 'Name of Examination', question_type: 'text', options: null, is_required: 0, sort_order: 19 },
-        { question_text: 'Date Taken', question_type: 'text', options: null, is_required: 0, sort_order: 20 },
-        { question_text: 'Rating', question_type: 'text', options: null, is_required: 0, sort_order: 21 },
-        { question_text: 'Reason(s) for taking the course / pursuing the degree', question_type: 'checkbox', options: ['High grades in related subjects', 'Good grades in high school', 'Influence of parents/relatives', 'Peer influence', 'Inspired by a role model', 'Strong passion for the profession', 'Prospect for immediate employment', 'Status/prestige of profession', 'Course availability', 'Career advancement prospects', 'Affordable for family', 'Attractive compensation', 'Employment abroad opportunity', 'No particular choice'], is_required: 0, sort_order: 22 },
+        { question_text: 'Degree Program & Specialization', question_type: 'multiple_choice', options: ['Bachelor of Secondary Education Major in General Science', 'Bachelor of Elementary Education', 'Bachelor of Science in Hospitality Management', 'Bachelor of Science in Computer Science', 'Associate in Computer Technology' ], is_required: 1, sort_order: 13, section: 'Educational Background' },
+        { question_text: 'Year Graduated', question_type: 'text', options: null, is_required: 1, sort_order: 14, section: 'Educational Background' },
+        { question_text: 'Honors / Awards Received', question_type: 'text', options: null, is_required: 0, sort_order: 15, section: 'Educational Background' },
+        { question_text: 'Professional Examination(s) Passed', question_type: 'text', options: null, is_required: 0, sort_order: 16, section: 'Educational Background' },
+        { question_text: 'Name of Examination', question_type: 'text', options: null, is_required: 0, sort_order: 17, section: 'Educational Background' },
+        { question_text: 'Date Taken', question_type: 'text', options: null, is_required: 0, sort_order: 18, section: 'Educational Background' },
+        { question_text: 'Rating', question_type: 'text', options: null, is_required: 0, sort_order: 19, section: 'Educational Background' },
+        { question_text: 'Reason(s) for taking the course / pursuing the degree', question_type: 'checkbox', options: ['High grades in related subjects', 'Good grades in high school', 'Influence of parents/relatives', 'Peer influence', 'Inspired by a role model', 'Strong passion for the profession', 'Prospect for immediate employment', 'Status/prestige of profession', 'Course availability', 'Career advancement prospects', 'Affordable for family', 'Attractive compensation', 'Employment abroad opportunity', 'No particular choice'], is_required: 0, sort_order: 20, section: 'Educational Background' },
         
         // SECTION 3: TRAININGS ATTENDED AFTER COLLEGE
-        { question_text: 'SECTION 3: TRAININGS ATTENDED AFTER COLLEGE', question_type: 'text', options: null, is_required: 0, sort_order: 23 },
-        { question_text: 'Title of Training', question_type: 'text', options: null, is_required: 0, sort_order: 24 },
-        { question_text: 'Duration', question_type: 'text', options: null, is_required: 0, sort_order: 25 },
-        { question_text: 'Name of Training Institution', question_type: 'text', options: null, is_required: 0, sort_order: 26 },
+        { question_text: 'List of trainings attended', question_type: 'text', options: null, is_required: 0, sort_order: 21, section: 'Trainings Attended After College' },
+        { question_text: 'Title of Training', question_type: 'text', options: null, is_required: 0, sort_order: 22, section: 'Trainings Attended After College' },
+        { question_text: 'Duration', question_type: 'text', options: null, is_required: 0, sort_order: 23, section: 'Trainings Attended After College' },
+        { question_text: 'Name of Training Institution', question_type: 'text', options: null, is_required: 0, sort_order: 24, section: 'Trainings Attended After College' },
         
         // SECTION 4: GRADUATE STUDIES
-        { question_text: 'SECTION 4: GRADUATE STUDIES', question_type: 'text', options: null, is_required: 0, sort_order: 27 },
-        { question_text: 'Name of Graduate Program', question_type: 'text', options: null, is_required: 0, sort_order: 28 },
-        { question_text: 'Earned Units', question_type: 'text', options: null, is_required: 0, sort_order: 29 },
-        { question_text: 'Name of College/University', question_type: 'text', options: null, is_required: 0, sort_order: 30 },
-        { question_text: 'What made you pursue advanced studies?', question_type: 'checkbox', options: ['For promotion', 'For professional development', 'Career change', 'Personal interest', 'Higher salary'], is_required: 0, sort_order: 31 },
+        { question_text: 'Graduate Program', question_type: 'text', options: null, is_required: 0, sort_order: 25, section: 'Graduate Studies' },
+        { question_text: 'Earned Units', question_type: 'text', options: null, is_required: 0, sort_order: 26, section: 'Graduate Studies' },
+        { question_text: 'College/University', question_type: 'text', options: null, is_required: 0, sort_order: 27, section: 'Graduate Studies' },
+        { question_text: 'Reason for pursuing advanced studies', question_type: 'text', options: null, is_required: 0, sort_order: 28, section: 'Graduate Studies' },
         
         // SECTION 5: EMPLOYMENT DATA
-        { question_text: 'SECTION 5: EMPLOYMENT DATA', question_type: 'text', options: null, is_required: 0, sort_order: 32 },
-        { question_text: 'Are you presently employed?', question_type: 'multiple_choice', options: ['Yes', 'No'], is_required: 1, sort_order: 33 },
-        
-        // IF YES (Employed)
-        { question_text: 'Present Employment Status', question_type: 'multiple_choice', options: ['Regular/Permanent', 'Temporary', 'Casual', 'Contractual', 'Self-employed'], is_required: 0, sort_order: 34 },
-        { question_text: 'If self-employed, what skills acquired in college were applied?', question_type: 'text', options: null, is_required: 0, sort_order: 35 },
-        { question_text: 'Present Occupation', question_type: 'text', options: null, is_required: 0, sort_order: 36 },
-        { question_text: 'Major line of business of the company', question_type: 'text', options: null, is_required: 0, sort_order: 37 },
-        { question_text: 'Place of work', question_type: 'text', options: null, is_required: 0, sort_order: 38 },
-        { question_text: 'Is this your first job after college?', question_type: 'multiple_choice', options: ['Yes', 'No'], is_required: 0, sort_order: 39 },
-        { question_text: 'If YES, reasons for staying on the job', question_type: 'checkbox', options: ['Career challenge', 'Related to course', 'Salaries and benefits', 'Career advancement', 'Learning environment', 'Proximity to residence'], is_required: 0, sort_order: 40 },
-        { question_text: 'Is your first job related to your course?', question_type: 'multiple_choice', options: ['Yes', 'No'], is_required: 0, sort_order: 41 },
-        { question_text: 'Reasons for changing job', question_type: 'checkbox', options: ['Salaries and benefits', 'Career challenge', 'Related to course', 'Proximity to residence', 'Working conditions', 'Work environment'], is_required: 0, sort_order: 42 },
-        { question_text: 'How long did you stay in your first job?', question_type: 'multiple_choice', options: ['Less than 1 month', '1-6 months', '6-12 months', '1-2 years', '2-3 years', 'More than 3 years'], is_required: 0, sort_order: 43 },
-        { question_text: 'How did you find your first job?', question_type: 'multiple_choice', options: ['Response to job advertisement', 'Walk-in applicant', 'Recommended by someone', 'Job fair/Public employment service', 'Arranged by school', 'Family business', 'Job posting in social media'], is_required: 0, sort_order: 44 },
-        { question_text: 'How long did it take to land your first job?', question_type: 'multiple_choice', options: ['Less than 1 month', '1-6 months', '6-12 months', '1-2 years', 'More than 2 years'], is_required: 0, sort_order: 45 },
-        { question_text: 'Job Level Position', question_type: 'multiple_choice', options: ['Rank and File', 'Supervisory', 'Managerial', 'Executive'], is_required: 0, sort_order: 46 },
-        { question_text: 'Initial gross monthly earning', question_type: 'multiple_choice', options: ['Below 10,000', '10,000-15,000', '15,001-20,000', '20,001-25,000', '25,001-30,000', 'Above 30,000'], is_required: 0, sort_order: 47 },
-        { question_text: 'Was the college curriculum relevant to your first job?', question_type: 'multiple_choice', options: ['Yes', 'No'], is_required: 0, sort_order: 48 },
-        { question_text: 'If YES, what competencies were useful?', question_type: 'checkbox', options: ['Communication skills', 'Critical thinking skills', 'Human relations skills', 'Problem-solving skills', 'Technical skills', 'IT skills'], is_required: 0, sort_order: 49 },
-        
-        // IF NO (Not Employed)
-        { question_text: 'Reason(s) why you are not yet employed', question_type: 'checkbox', options: ['Advance or further study', 'Family concern', 'Health-related reason', 'Lack of work experience', 'No job opportunity', 'Did not look for a job', 'Waiting for job offer'], is_required: 0, sort_order: 50 },
+        { question_text: 'Are you presently employed?', question_type: 'multiple_choice', options: ['Yes', 'No'], is_required: 1, sort_order: 29, section: 'Employment Data' },
+        { question_text: 'Present Employment Status', question_type: 'multiple_choice', options: ['Regular/Permanent', 'Temporary', 'Casual', 'Contractual', 'Self-employed'], is_required: 0, sort_order: 30, section: 'Employment Data' },
+        { question_text: 'If self-employed, what skills acquired in college were applied?', question_type: 'text', options: null, is_required: 0, sort_order: 31, section: 'Employment Data' },
+        { question_text: 'Present Occupation', question_type: 'text', options: null, is_required: 0, sort_order: 32, section: 'Employment Data' },
+        { question_text: 'Major line of business of the company', question_type: 'text', options: null, is_required: 0, sort_order: 33, section: 'Employment Data' },
+        { question_text: 'Place of work', question_type: 'text', options: null, is_required: 0, sort_order: 34, section: 'Employment Data' },
+        { question_text: 'Is this your first job after college?', question_type: 'multiple_choice', options: ['Yes', 'No'], is_required: 0, sort_order: 35, section: 'Employment Data' },
+        { question_text: 'If YES, reasons for staying on the job', question_type: 'checkbox', options: ['Career challenge', 'Related to course', 'Salaries and benefits', 'Career advancement', 'Learning environment', 'Proximity to residence'], is_required: 0, sort_order: 36, section: 'Employment Data' },
+        { question_text: 'Is your first job related to your course?', question_type: 'multiple_choice', options: ['Yes', 'No'], is_required: 0, sort_order: 37, section: 'Employment Data' },
+        { question_text: 'Reasons for changing job', question_type: 'checkbox', options: ['Salaries and benefits', 'Career challenge', 'Related to course', 'Proximity to residence', 'Working conditions', 'Work environment'], is_required: 0, sort_order: 38, section: 'Employment Data' },
+        { question_text: 'How long did you stay in your first job?', question_type: 'multiple_choice', options: ['Less than 1 month', '1-6 months', '6-12 months', '1-2 years', '2-3 years', 'More than 3 years'], is_required: 0, sort_order: 39, section: 'Employment Data' },
+        { question_text: 'How did you find your first job?', question_type: 'multiple_choice', options: ['Response to job advertisement', 'Walk-in applicant', 'Recommended by someone', 'Job fair/Public employment service', 'Arranged by school', 'Family business', 'Job posting in social media'], is_required: 0, sort_order: 40, section: 'Employment Data' },
+        { question_text: 'How long did it take to land your first job?', question_type: 'multiple_choice', options: ['Less than 1 month', '1-6 months', '6-12 months', '1-2 years', 'More than 2 years'], is_required: 0, sort_order: 41, section: 'Employment Data' },
+        { question_text: 'Job Level Position', question_type: 'multiple_choice', options: ['Rank and File', 'Supervisory', 'Managerial', 'Executive'], is_required: 0, sort_order: 42, section: 'Employment Data' },
+        { question_text: 'Initial gross monthly earning', question_type: 'multiple_choice', options: ['Below 10,000', '10,000-15,000', '15,001-20,000', '20,001-25,000', '25,001-30,000', 'Above 30,000'], is_required: 0, sort_order: 43, section: 'Employment Data' },
+        { question_text: 'Was the college curriculum relevant to your first job?', question_type: 'multiple_choice', options: ['Yes', 'No'], is_required: 0, sort_order: 44, section: 'Employment Data' },
+        { question_text: 'If YES, what competencies were useful?', question_type: 'checkbox', options: ['Communication skills', 'Critical thinking skills', 'Human relations skills', 'Problem-solving skills', 'Technical skills', 'IT skills'], is_required: 0, sort_order: 45, section: 'Employment Data' },
+        { question_text: 'Reason(s) why you are not yet employed', question_type: 'checkbox', options: ['Advance or further study', 'Family concern', 'Health-related reason', 'Lack of work experience', 'No job opportunity', 'Did not look for a job', 'Waiting for job offer'], is_required: 0, sort_order: 46, section: 'Employment Data' },
       ]
     };
     setFormData(defaultSurvey);
     setIsEditing(false);
     setShowModal(true);
+    // Scroll modal to top after a brief delay
+    setTimeout(() => {
+      const modalContent = document.querySelector('.fixed.inset-0.z-50 .overflow-y-auto');
+      if (modalContent) {
+        modalContent.scrollTop = 0;
+      }
+    }, 100);
   };
 
   const clearAllSurveys = () => {
@@ -576,8 +576,8 @@ export default function Surveys() {
       {/* Create/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto m-4">
-            <div className="flex items-center justify-between p-6 border-b sticky top-0 bg-white rounded-t-2xl z-10">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col m-4">
+            <div className="flex items-center justify-between p-6 border-b bg-white rounded-t-2xl flex-shrink-0">
               <h2 className="text-2xl font-bold text-blue-900">
                 {isEditing ? 'Edit Survey' : 'Create New Survey'}
               </h2>
@@ -586,128 +586,184 @@ export default function Surveys() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-6 space-y-6">
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-bold text-blue-900 mb-2">Survey Title</label>
-                  <input
-                    type="text"
-                    value={formData.title}
-                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    required
-                    placeholder="Enter survey title"
-                    className="w-full border-2 border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-blue-900 mb-2">Description</label>
-                  <textarea
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    rows={3}
-                    placeholder="Describe the purpose of this survey"
-                    className="w-full border-2 border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition resize-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-bold text-blue-900 mb-2">Status</label>
-                  <select
-                    value={formData.status}
-                    onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                    className="w-full border-2 border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition bg-white"
-                  >
-                    <option value="draft">Draft</option>
-                    <option value="active">Active</option>
-                    <option value="inactive">Inactive</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Questions */}
-              <div className="border-t pt-6">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-bold text-blue-900">Questions ({formData.questions.length})</h3>
-                  <button type="button" onClick={addQuestion} className="flex items-center gap-2 text-sm bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded-lg font-semibold transition">
-                    <Plus className="w-4 h-4" /> Add Question
-                  </button>
+            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
+              <div className="p-6 space-y-6">
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-bold text-blue-900 mb-2">Survey Title</label>
+                    <input
+                      type="text"
+                      value={formData.title}
+                      onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                      required
+                      placeholder="Enter survey title"
+                      className="w-full border-2 border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-blue-900 mb-2">Description</label>
+                    <textarea
+                      value={formData.description}
+                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                      rows={3}
+                      placeholder="Describe the purpose of this survey"
+                      className="w-full border-2 border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition resize-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-blue-900 mb-2">Status</label>
+                    <select
+                      value={formData.status}
+                      onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                      className="w-full border-2 border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition bg-white"
+                    >
+                      <option value="draft">Draft</option>
+                      <option value="active">Active</option>
+                      <option value="inactive">Inactive</option>
+                    </select>
+                  </div>
                 </div>
 
-                <div className="space-y-3">
-                  {formData.questions.map((q, i) => (
-                    <div key={i} className="border-2 border-gray-200 rounded-lg overflow-hidden">
-                      <div
-                        className="flex items-center justify-between p-4 bg-blue-50 cursor-pointer hover:bg-blue-100 transition"
-                        onClick={() => setExpandedQ(expandedQ === i ? null : i)}
-                      >
-                        <span className="text-sm font-semibold text-blue-900">
-                          Q{i + 1}: {q.question_text || '(untitled)'}
-                        </span>
-                        <div className="flex items-center gap-2">
-                          <button type="button" onClick={(e) => { e.stopPropagation(); removeQuestion(i); }} className="p-1.5 text-red-600 hover:bg-red-100 rounded transition">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                          {expandedQ === i ? <ChevronUp className="w-5 h-5 text-gray-500" /> : <ChevronDown className="w-5 h-5 text-gray-500" />}
-                        </div>
-                      </div>
+                {/* Questions */}
+                <div className="border-t pt-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-bold text-blue-900">Questions ({formData.questions.length})</h3>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={addQuestion} className="flex items-center gap-2 text-sm bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded-lg font-semibold transition">
+                        <Plus className="w-4 h-4" /> Add Question
+                      </button>
+                    </div>
+                  </div>
 
-                      {expandedQ === i && (
-                        <div className="p-4 space-y-4 bg-gray-50">
-                          <div>
-                            <label className="block text-sm font-semibold text-gray-700 mb-2">Question Text</label>
-                            <input
-                              type="text"
-                              value={q.question_text}
-                              onChange={(e) => updateQuestion(i, 'question_text', e.target.value)}
-                              placeholder="Enter your question"
-                              className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
-                            />
-                          </div>
-                          <div className="grid grid-cols-2 gap-4">
-                            <div>
-                              <label className="block text-sm font-semibold text-gray-700 mb-2">Type</label>
-                              <select
-                                value={q.question_type}
-                                onChange={(e) => updateQuestion(i, 'question_type', e.target.value)}
-                                className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition bg-white"
-                              >
-                                <option value="text">Text</option>
-                                <option value="multiple_choice">Multiple Choice</option>
-                                <option value="rating">Rating</option>
-                                <option value="checkbox">Checkbox</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label className="block text-sm font-semibold text-gray-700 mb-2">Required</label>
-                              <select
-                                value={q.is_required}
-                                onChange={(e) => updateQuestion(i, 'is_required', parseInt(e.target.value))}
-                                className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition bg-white"
-                              >
-                                <option value={1}>Yes</option>
-                                <option value={0}>No</option>
-                              </select>
-                            </div>
-                          </div>
-                          {(q.question_type === 'multiple_choice' || q.question_type === 'checkbox') && (
-                            <div>
-                              <label className="block text-sm font-semibold text-gray-700 mb-2">Options (one per line)</label>
-                              <textarea
-                                value={q.options?.join('\n') || ''}
-                                onChange={(e) => updateQuestion(i, 'options', e.target.value.split('\n'))}
-                                rows={4}
-                                placeholder="Option 1&#10;Option 2&#10;Option 3"
-                                className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition resize-none"
-                              />
+                  {/* Section Input Helper */}
+                  <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <p className="text-sm text-blue-900 font-semibold mb-2">💡 Tip: Group questions by section</p>
+                    <p className="text-xs text-blue-700">Enter the same section name (e.g., "Personal Information") for multiple questions to group them together. Section headers will automatically appear on the survey.</p>
+                  </div>
+
+                  <div className="space-y-3">
+                    {formData.questions.map((q, i) => {
+                      const prevSection = i > 0 ? formData.questions[i - 1].section : null;
+                      const showSectionBadge = q.section && q.section !== prevSection;
+                      
+                      return (
+                        <div key={i}>
+                          {/* Section Badge */}
+                          {showSectionBadge && (
+                            <div className="bg-gradient-to-r from-blue-600 to-blue-700 text-white px-4 py-2 rounded-lg mb-2 font-bold text-sm uppercase tracking-wide">
+                              📋 {q.section}
                             </div>
                           )}
+                          
+                          {/* Question Card */}
+                          <div className="border-2 border-gray-200 rounded-lg overflow-hidden">
+                            <div
+                              className="flex items-center justify-between p-4 bg-blue-50 cursor-pointer hover:bg-blue-100 transition"
+                              onClick={() => setExpandedQ(expandedQ === i ? null : i)}
+                            >
+                              <div className="flex-1">
+                                <span className="text-sm font-semibold text-blue-900">
+                                  Q{i + 1}: {q.question_text || '(untitled)'}
+                                </span>
+                                {q.section && (
+                                  <span className="ml-2 text-xs bg-blue-200 text-blue-800 px-2 py-1 rounded-full">
+                                    {q.section}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <button type="button" onClick={(e) => { e.stopPropagation(); removeQuestion(i); }} className="p-1.5 text-red-600 hover:bg-red-100 rounded transition">
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                                {expandedQ === i ? <ChevronUp className="w-5 h-5 text-gray-500" /> : <ChevronDown className="w-5 h-5 text-gray-500" />}
+                              </div>
+                            </div>
+
+                            {expandedQ === i && (
+                              <div className="p-4 space-y-4 bg-gray-50">
+                                <div>
+                                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                    Section <span className="text-xs text-gray-500">(Group related questions together)</span>
+                                  </label>
+                                  <select
+                                    value={q.section || ''}
+                                    onChange={(e) => updateQuestion(i, 'section', e.target.value)}
+                                    className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition bg-white mb-2"
+                                  >
+                                    <option value="">-- No Section --</option>
+                                    <option value="Personal Information">Personal Information</option>
+                                    <option value="Educational Background">Educational Background</option>
+                                    <option value="Trainings Attended After College">Trainings Attended After College</option>
+                                    <option value="Graduate Studies">Graduate Studies</option>
+                                    <option value="Employment Data">Employment Data</option>
+                                  </select>
+                                  <input
+                                    type="text"
+                                    value={q.section || ''}
+                                    onChange={(e) => updateQuestion(i, 'section', e.target.value)}
+                                    placeholder="Or type a custom section name"
+                                    className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-semibold text-gray-700 mb-2">Question Text</label>
+                                  <input
+                                    type="text"
+                                    value={q.question_text}
+                                    onChange={(e) => updateQuestion(i, 'question_text', e.target.value)}
+                                    placeholder="Enter your question"
+                                    className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                                  />
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">Type</label>
+                                    <select
+                                      value={q.question_type}
+                                      onChange={(e) => updateQuestion(i, 'question_type', e.target.value)}
+                                      className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition bg-white"
+                                    >
+                                      <option value="text">Text</option>
+                                      <option value="multiple_choice">Multiple Choice</option>
+                                      <option value="rating">Rating</option>
+                                      <option value="checkbox">Checkbox</option>
+                                    </select>
+                                  </div>
+                                  <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">Required</label>
+                                    <select
+                                      value={q.is_required}
+                                      onChange={(e) => updateQuestion(i, 'is_required', parseInt(e.target.value))}
+                                      className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition bg-white"
+                                    >
+                                      <option value={1}>Yes</option>
+                                      <option value={0}>No</option>
+                                    </select>
+                                  </div>
+                                </div>
+                                {(q.question_type === 'multiple_choice' || q.question_type === 'checkbox') && (
+                                  <div>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">Options (one per line)</label>
+                                    <textarea
+                                      value={q.options?.join('\n') || ''}
+                                      onChange={(e) => updateQuestion(i, 'options', e.target.value.split('\n'))}
+                                      rows={4}
+                                      placeholder="Option 1&#10;Option 2&#10;Option 3"
+                                      className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition resize-none"
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      )}
-                    </div>
-                  ))}
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3 pt-4 border-t">
+              <div className="flex justify-end gap-3 p-6 border-t bg-gray-50 flex-shrink-0">
                 <button type="button" onClick={() => setShowModal(false)} className="px-6 py-2.5 border-2 border-gray-300 text-gray-700 rounded-lg font-semibold hover:bg-gray-50 transition">
                   Cancel
                 </button>
