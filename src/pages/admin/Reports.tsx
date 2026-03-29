@@ -11,6 +11,8 @@ const API_BASE = '/api';
 interface Overview {
   total_graduates: number;
   total_employed: number;
+  total_employed_local: number;
+  total_employed_abroad: number;
   total_aligned: number;
   total_survey_responses: number;
   employment_rate: number;
@@ -49,6 +51,15 @@ interface SalaryData {
 
 const COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
 
+// Program-specific colors
+const PROGRAM_COLORS: Record<string, string> = {
+  'BSCS': 'rgb(255, 196, 0)',  // yellow
+  'BSHM': '#ef4444',  // red
+  'BSED': '#3b82f6',  // blue
+  'BEED': '#7dd3fc',  // light blue
+  'ACT': '#6b7280',   // gray
+};
+
 export default function Reports() {
   const [tab, setTab] = useState<'overview' | 'program' | 'year' | 'employment' | 'salary' | 'surveys'>('overview');
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -57,18 +68,26 @@ export default function Reports() {
   const [statusData, setStatusData] = useState<StatusData[]>([]);
   const [salaryData, setSalaryData] = useState<SalaryData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedYear, setSelectedYear] = useState<string>('all');
+  const [availableYears, setAvailableYears] = useState<string[]>([]);
   const navigate = useNavigate();
 
-  const fetchReport = (type: string) => {
+  const fetchReport = (type: string, year: string = 'all') => {
     setLoading(true);
-    fetch(`${API_BASE}/reports/index.php?type=${type}`)
+    const url = year !== 'all' ? `${API_BASE}/reports/index.php?type=${type}&year=${year}` : `${API_BASE}/reports/index.php?type=${type}`;
+    fetch(url)
       .then((r) => r.json())
       .then((res) => {
         if (res.success) {
           switch (type) {
             case 'overview': setOverview(res.data); break;
             case 'by_program': setProgramData(res.data); break;
-            case 'by_year': setYearData(res.data); break;
+            case 'by_year': 
+              setYearData(res.data);
+              // Extract available years from the data
+              const years = res.data.map((y: YearReport) => y.year_graduated.toString());
+              setAvailableYears(years);
+              break;
             case 'employment_status': setStatusData(res.data); break;
             case 'salary_distribution': setSalaryData(res.data); break;
           }
@@ -79,12 +98,35 @@ export default function Reports() {
   };
 
   useEffect(() => {
+    // Fetch year data first to populate the filter
+    fetch(`${API_BASE}/reports/index.php?type=by_year`)
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success && res.data) {
+          const years = res.data.map((y: YearReport) => y.year_graduated.toString());
+          setAvailableYears(years);
+        }
+      })
+      .catch(() => {});
+    
+    // Fetch program data for overview
+    fetch(`${API_BASE}/reports/index.php?type=by_program`)
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success && res.data) {
+          setProgramData(res.data);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
     const typeMap: Record<string, string> = {
       overview: 'overview', program: 'by_program', year: 'by_year',
       employment: 'employment_status', salary: 'salary_distribution',
     };
-    fetchReport(typeMap[tab]);
-  }, [tab]);
+    fetchReport(typeMap[tab], selectedYear);
+  }, [tab, selectedYear]);
 
   const tabs = [
     { key: 'overview', label: 'Overview' },
@@ -102,9 +144,27 @@ export default function Reports() {
           <h1 className="text-2xl font-bold text-[#1b2a4a]">Reports & Analytics</h1>
           <p className="text-sm text-gray-500">Graduate employment data insights</p>
         </div>
-        <button className="flex items-center gap-2 border px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
-          <Download className="w-4 h-4" /> Export
-        </button>
+        <div className="flex items-center gap-3">
+          {/* Year Filter */}
+          {(tab === 'program' || tab === 'employment' || tab === 'salary') && availableYears.length > 0 && (
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-gray-700">Filter by Year:</label>
+              <select
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(e.target.value)}
+                className="border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value="all">All Years</option>
+                {availableYears.map((year) => (
+                  <option key={year} value={year}>{year}</option>
+                ))}
+              </select>
+            </div>
+          )}
+          <button className="flex items-center gap-2 border px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
+            <Download className="w-4 h-4" /> Export
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -135,27 +195,262 @@ export default function Reports() {
               {/* Overview */}
               {tab === 'overview' && overview && (
                 <div className="space-y-6">
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
                     <StatCard icon={Users} label="Total Graduates" value={overview.total_graduates.toString()} color="bg-blue-100 text-blue-700" />
-                    <StatCard icon={Briefcase} label="Employed" value={overview.total_employed.toString()} sub={`${overview.employment_rate}%`} color="bg-green-100 text-green-700" />
+                    <StatCard icon={Briefcase} label="Employed (Total)" value={overview.total_employed.toString()} sub={`${overview.employment_rate}%`} color="bg-green-100 text-green-700" />
+                    <StatCard icon={Briefcase} label="Employed (Local)" value={overview.total_employed_local.toString()} color="bg-teal-100 text-teal-700" />
+                    <StatCard icon={Briefcase} label="Employed (Abroad)" value={overview.total_employed_abroad.toString()} color="bg-indigo-100 text-indigo-700" />
                     <StatCard icon={Target} label="Aligned" value={overview.total_aligned.toString()} sub={`${overview.alignment_rate}%`} color="bg-orange-100 text-orange-700" />
-                    <StatCard icon={FileText} label="Survey Responses" value={overview.total_survey_responses.toString()} color="bg-purple-100 text-purple-700" />
                   </div>
 
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                    <div className="border rounded-xl p-4">
-                      <h3 className="text-sm font-semibold text-[#1b2a4a] mb-3">Key Metrics</h3>
-                      <div className="space-y-3">
-                        <MetricBar label="Employment Rate" value={overview.employment_rate} color="bg-green-500" />
-                        <MetricBar label="Alignment Rate" value={overview.alignment_rate} color="bg-orange-500" />
+                  {/* Pie Charts Section */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* Employment Status Pie Chart */}
+                    <div className="border rounded-xl p-5">
+                      <h3 className="text-sm font-semibold text-[#1b2a4a] mb-4">Employment Status</h3>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie 
+                              data={[
+                                { name: 'Employed', value: overview.total_employed },
+                                { name: 'Unemployed', value: overview.total_graduates - overview.total_employed }
+                              ]} 
+                              cx="50%" 
+                              cy="50%" 
+                              outerRadius={80} 
+                              dataKey="value"
+                              label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
+                            >
+                              <Cell fill="#22c55e" />
+                              <Cell fill="#ef4444" />
+                            </Pie>
+                            <Tooltip />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div className="flex justify-center gap-4 mt-2">
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full bg-green-500" />
+                          <span className="text-xs text-gray-600">Employed: {overview.total_employed}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full bg-red-500" />
+                          <span className="text-xs text-gray-600">Unemployed: {overview.total_graduates - overview.total_employed}</span>
+                        </div>
                       </div>
                     </div>
-                    <div className="border rounded-xl p-4">
-                      <h3 className="text-sm font-semibold text-[#1b2a4a] mb-3">Summary</h3>
-                      <div className="space-y-2 text-sm text-gray-600">
-                        <p>Out of <strong>{overview.total_graduates}</strong> graduates tracked, <strong>{overview.total_employed}</strong> are currently employed.</p>
-                        <p><strong>{overview.total_aligned}</strong> graduates have jobs aligned with their course.</p>
-                        <p>A total of <strong>{overview.total_survey_responses}</strong> survey responses have been collected.</p>
+
+                    {/* Work Location Pie Chart */}
+                    <div className="border rounded-xl p-5">
+                      <h3 className="text-sm font-semibold text-[#1b2a4a] mb-4">Work Location</h3>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie 
+                              data={[
+                                { name: 'Local', value: overview.total_employed_local },
+                                { name: 'Abroad', value: overview.total_employed_abroad }
+                              ]} 
+                              cx="50%" 
+                              cy="50%" 
+                              outerRadius={80} 
+                              dataKey="value"
+                              label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
+                            >
+                              <Cell fill="#14b8a6" />
+                              <Cell fill="#6366f1" />
+                            </Pie>
+                            <Tooltip />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div className="flex justify-center gap-4 mt-2">
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full bg-teal-500" />
+                          <span className="text-xs text-gray-600">Local: {overview.total_employed_local}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full bg-indigo-500" />
+                          <span className="text-xs text-gray-600">Abroad: {overview.total_employed_abroad}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Job Alignment Pie Chart */}
+                    <div className="border rounded-xl p-5">
+                      <h3 className="text-sm font-semibold text-[#1b2a4a] mb-4">Job Alignment</h3>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie 
+                              data={[
+                                { name: 'Aligned', value: overview.total_aligned },
+                                { name: 'Not Aligned', value: overview.total_employed - overview.total_aligned }
+                              ]} 
+                              cx="50%" 
+                              cy="50%" 
+                              outerRadius={80} 
+                              dataKey="value"
+                              label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
+                            >
+                              <Cell fill="#f59e0b" />
+                              <Cell fill="#94a3b8" />
+                            </Pie>
+                            <Tooltip />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div className="flex justify-center gap-4 mt-2">
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full bg-orange-500" />
+                          <span className="text-xs text-gray-600">Aligned: {overview.total_aligned}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="w-3 h-3 rounded-full bg-slate-400" />
+                          <span className="text-xs text-gray-600">Not Aligned: {overview.total_employed - overview.total_aligned}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Program-Based Pie Charts */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    {/* Employment by Program */}
+                    <div className="border rounded-xl p-5">
+                      <h3 className="text-sm font-semibold text-[#1b2a4a] mb-4">Employment by Program</h3>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie 
+                              data={programData.map((p) => ({ name: p.code, value: p.employed }))} 
+                              cx="50%" 
+                              cy="50%" 
+                              outerRadius={80} 
+                              dataKey="value"
+                              label={({ name, value }) => `${name}: ${value}`}
+                            >
+                              {programData.map((p, i) => (
+                                <Cell key={i} fill={PROGRAM_COLORS[p.code] || COLORS[i % COLORS.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div className="flex flex-wrap justify-center gap-2 mt-2">
+                        {programData.map((p, i) => (
+                          <div key={p.code} className="flex items-center gap-1">
+                            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: PROGRAM_COLORS[p.code] || COLORS[i % COLORS.length] }} />
+                            <span className="text-xs text-gray-600">{p.code}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Alignment by Program */}
+                    <div className="border rounded-xl p-5">
+                      <h3 className="text-sm font-semibold text-[#1b2a4a] mb-4">Alignment by Program</h3>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie 
+                              data={programData.map((p) => ({ name: p.code, value: p.aligned }))} 
+                              cx="50%" 
+                              cy="50%" 
+                              outerRadius={80} 
+                              dataKey="value"
+                              label={({ name, value }) => `${name}: ${value}`}
+                            >
+                              {programData.map((p, i) => (
+                                <Cell key={i} fill={PROGRAM_COLORS[p.code] || COLORS[i % COLORS.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div className="flex flex-wrap justify-center gap-2 mt-2">
+                        {programData.map((p, i) => (
+                          <div key={p.code} className="flex items-center gap-1">
+                            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: PROGRAM_COLORS[p.code] || COLORS[i % COLORS.length] }} />
+                            <span className="text-xs text-gray-600">{p.code}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Employment Rate by Program */}
+                    <div className="border rounded-xl p-5">
+                      <h3 className="text-sm font-semibold text-[#1b2a4a] mb-4">Employment Rate by Program</h3>
+                      <div className="h-64">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie 
+                              data={programData.map((p) => ({ 
+                                name: p.code, 
+                                value: p.total_graduates > 0 ? Math.round((p.employed / p.total_graduates) * 100) : 0 
+                              }))} 
+                              cx="50%" 
+                              cy="50%" 
+                              outerRadius={80} 
+                              dataKey="value"
+                              label={({ name, value }) => `${name}: ${value}%`}
+                            >
+                              {programData.map((p, i) => (
+                                <Cell key={i} fill={PROGRAM_COLORS[p.code] || COLORS[i % COLORS.length]} />
+                              ))}
+                            </Pie>
+                            <Tooltip formatter={(value) => `${value}%`} />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div className="flex flex-wrap justify-center gap-2 mt-2">
+                        {programData.map((p, i) => (
+                          <div key={p.code} className="flex items-center gap-1">
+                            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: PROGRAM_COLORS[p.code] || COLORS[i % COLORS.length] }} />
+                            <span className="text-xs text-gray-600">{p.code}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Descriptive Summary Card */}
+                  <div className="border-2 border-blue-200 rounded-xl p-6 bg-gradient-to-br from-blue-50 to-white">
+                    <div className="flex items-start gap-4">
+                      <div className="p-3 bg-blue-600 rounded-lg">
+                        <FileText className="w-6 h-6 text-white" />
+                      </div>
+                      <div className="flex-1">
+                        <h3 className="text-lg font-bold text-[#1b2a4a] mb-3">Graduate Employment Overview</h3>
+                        <div className="space-y-2 text-sm text-gray-700 leading-relaxed">
+                          <p>
+                            Out of <strong className="text-black-900">{overview.total_graduates}</strong> graduates tracked in the system, 
+                            <strong className="text-black-700"> {overview.total_employed} ({overview.employment_rate}%)</strong> are currently employed, 
+                            while <strong className="text-black-600">{overview.total_graduates - overview.total_employed}</strong> remain unemployed.
+                          </p>
+                          <p>
+                            Among the employed graduates, <strong className="text-black-700">{overview.total_employed_local}</strong> are working locally in the Philippines, 
+                            and <strong className="text-black-700">{overview.total_employed_abroad}</strong> have secured employment abroad. 
+                            This represents a <strong>{overview.total_employed > 0 ? Math.round((overview.total_employed_local / overview.total_employed) * 100) : 0}% local</strong> to 
+                            <strong> {overview.total_employed > 0 ? Math.round((overview.total_employed_abroad / overview.total_employed) * 100) : 0}% overseas</strong> employment distribution.
+                          </p>
+                          <p>
+                            In terms of job-course alignment, <strong className="text-black-700">{overview.total_aligned} graduates ({overview.alignment_rate}%)</strong> have 
+                            jobs that are aligned with their degree programs, indicating {overview.alignment_rate >= 70 ? 'strong' : overview.alignment_rate >= 50 ? 'moderate' : 'limited'} relevance 
+                            between academic preparation and career placement.
+                          </p>
+                          <p>
+                            The system has collected <strong className="text-black-700">{overview.total_survey_responses} survey responses</strong>, 
+                            achieving a <strong>{overview.total_graduates > 0 ? Math.round((overview.total_survey_responses / overview.total_graduates) * 100) : 0}% response rate</strong>. 
+                            {overview.total_graduates > 0 && Math.round((overview.total_survey_responses / overview.total_graduates) * 100) >= 80 
+                              ? ' This high response rate provides reliable data for analysis.' 
+                              : overview.total_graduates > 0 && Math.round((overview.total_survey_responses / overview.total_graduates) * 100) >= 50
+                              ? ' This moderate response rate offers good insights into graduate outcomes.'
+                              : ' Increasing survey participation would enhance data reliability.'}
+                          </p>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -252,30 +547,162 @@ export default function Reports() {
 
               {/* Employment Status */}
               {tab === 'employment' && (
-                <div className="flex flex-col lg:flex-row items-center gap-8">
-                  <div className="w-80 h-80">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie data={statusData.map((s) => ({ name: s.employment_status.replace('_', ' '), value: parseInt(String(s.count)) }))} cx="50%" cy="50%" outerRadius={120} dataKey="value" label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}>
-                          {statusData.map((_, i) => (
-                            <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <Tooltip />
-                        <Legend />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                  <div className="flex-1 space-y-3">
-                    {statusData.map((s, i) => (
-                      <div key={s.employment_status} className="flex items-center justify-between border rounded-lg p-3">
-                        <div className="flex items-center gap-3">
-                          <div className="w-4 h-4 rounded" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
-                          <span className="text-sm font-medium capitalize">{s.employment_status.replace('_', ' ')}</span>
+                <div className="space-y-6">
+                  <div className="flex flex-col lg:flex-row items-center gap-8">
+                    <div className="w-80 h-80">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie data={statusData.map((s) => ({ name: s.employment_status, value: parseInt(String(s.count)) }))} cx="50%" cy="50%" outerRadius={120} dataKey="value" label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}>
+                            {statusData.map((_, i) => (
+                              <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip />
+                          <Legend />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="flex-1 space-y-3">
+                      {statusData.map((s, i) => (
+                        <div key={s.employment_status} className="flex items-center justify-between border rounded-lg p-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-4 h-4 rounded" style={{ backgroundColor: COLORS[i % COLORS.length] }} />
+                            <span className="text-sm font-medium">{s.employment_status}</span>
+                          </div>
+                          <span className="text-lg font-bold text-[#1b2a4a]">{s.count}</span>
                         </div>
-                        <span className="text-lg font-bold text-[#1b2a4a]">{s.count}</span>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Separate Analytics for Local and Overseas */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
+                    {/* Local Employment Analytics */}
+                    <div className="border-2 border-teal-200 rounded-xl p-6 bg-teal-50">
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className="p-3 bg-teal-500 rounded-lg">
+                          <Briefcase className="w-6 h-6 text-white" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-bold text-teal-900">Local Employment</h3>
+                          <p className="text-sm text-teal-700">Graduates working in the Philippines</p>
+                        </div>
                       </div>
-                    ))}
+                      <div className="bg-white rounded-lg p-4 space-y-3">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-600">Total Employed Locally</span>
+                          <span className="text-2xl font-bold text-teal-900">
+                            {statusData.find(s => s.employment_status === 'Employed (Local)')?.count || 0}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center pt-3 border-t">
+                          <span className="text-sm text-gray-600">Percentage of Total Employed</span>
+                          <span className="text-xl font-bold text-teal-700">
+                            {(() => {
+                              const localCount = statusData.find(s => s.employment_status === 'Employed (Local)')?.count || 0;
+                              const abroadCount = statusData.find(s => s.employment_status === 'Employed (Abroad)')?.count || 0;
+                              const totalEmployed = localCount + abroadCount;
+                              return totalEmployed > 0 ? Math.round((localCount / totalEmployed) * 100) : 0;
+                            })()}%
+                          </span>
+                        </div>
+                        <div className="pt-3 border-t">
+                          <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
+                            <div 
+                              className="h-full bg-teal-500 rounded-full transition-all duration-500" 
+                              style={{ 
+                                width: `${(() => {
+                                  const localCount = statusData.find(s => s.employment_status === 'Employed (Local)')?.count || 0;
+                                  const abroadCount = statusData.find(s => s.employment_status === 'Employed (Abroad)')?.count || 0;
+                                  const totalEmployed = localCount + abroadCount;
+                                  return totalEmployed > 0 ? Math.round((localCount / totalEmployed) * 100) : 0;
+                                })()}%` 
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Overseas Employment Analytics */}
+                    <div className="border-2 border-indigo-200 rounded-xl p-6 bg-indigo-50">
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className="p-3 bg-indigo-500 rounded-lg">
+                          <Briefcase className="w-6 h-6 text-white" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-bold text-indigo-900">Overseas Employment</h3>
+                          <p className="text-sm text-indigo-700">Graduates working abroad</p>
+                        </div>
+                      </div>
+                      <div className="bg-white rounded-lg p-4 space-y-3">
+                        <div className="flex justify-between items-center">
+                          <span className="text-sm text-gray-600">Total Employed Abroad</span>
+                          <span className="text-2xl font-bold text-indigo-900">
+                            {statusData.find(s => s.employment_status === 'Employed (Abroad)')?.count || 0}
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center pt-3 border-t">
+                          <span className="text-sm text-gray-600">Percentage of Total Employed</span>
+                          <span className="text-xl font-bold text-indigo-700">
+                            {(() => {
+                              const localCount = statusData.find(s => s.employment_status === 'Employed (Local)')?.count || 0;
+                              const abroadCount = statusData.find(s => s.employment_status === 'Employed (Abroad)')?.count || 0;
+                              const totalEmployed = localCount + abroadCount;
+                              return totalEmployed > 0 ? Math.round((abroadCount / totalEmployed) * 100) : 0;
+                            })()}%
+                          </span>
+                        </div>
+                        <div className="pt-3 border-t">
+                          <div className="h-3 bg-gray-200 rounded-full overflow-hidden">
+                            <div 
+                              className="h-full bg-indigo-500 rounded-full transition-all duration-500" 
+                              style={{ 
+                                width: `${(() => {
+                                  const localCount = statusData.find(s => s.employment_status === 'Employed (Local)')?.count || 0;
+                                  const abroadCount = statusData.find(s => s.employment_status === 'Employed (Abroad)')?.count || 0;
+                                  const totalEmployed = localCount + abroadCount;
+                                  return totalEmployed > 0 ? Math.round((abroadCount / totalEmployed) * 100) : 0;
+                                })()}%` 
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Summary Statistics */}
+                  <div className="border rounded-xl p-6 bg-gray-50">
+                    <h3 className="text-lg font-bold text-[#1b2a4a] mb-4">Employment Distribution Summary</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="bg-white rounded-lg p-4 text-center">
+                        <p className="text-sm text-gray-600 mb-2">Total Employed</p>
+                        <p className="text-3xl font-bold text-green-600">
+                          {(() => {
+                            const localCount = statusData.find(s => s.employment_status === 'Employed (Local)')?.count || 0;
+                            const abroadCount = statusData.find(s => s.employment_status === 'Employed (Abroad)')?.count || 0;
+                            return localCount + abroadCount;
+                          })()}
+                        </p>
+                      </div>
+                      <div className="bg-white rounded-lg p-4 text-center">
+                        <p className="text-sm text-gray-600 mb-2">Local vs Abroad Ratio</p>
+                        <p className="text-xl font-bold text-[#1b2a4a]">
+                          {(() => {
+                            const localCount = statusData.find(s => s.employment_status === 'Employed (Local)')?.count || 0;
+                            const abroadCount = statusData.find(s => s.employment_status === 'Employed (Abroad)')?.count || 0;
+                            return `${localCount} : ${abroadCount}`;
+                          })()}
+                        </p>
+                      </div>
+                      <div className="bg-white rounded-lg p-4 text-center">
+                        <p className="text-sm text-gray-600 mb-2">Unemployed</p>
+                        <p className="text-3xl font-bold text-red-600">
+                          {statusData.find(s => s.employment_status === 'Unemployed')?.count || 0}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}

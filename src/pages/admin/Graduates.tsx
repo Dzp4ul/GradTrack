@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   Search, Plus, Edit2, Trash2, X, ChevronLeft, ChevronRight, Filter,
 } from 'lucide-react';
+import MessageBox from '../../components/MessageBox';
 
 const API_BASE = '/api';
 
@@ -77,6 +78,7 @@ export default function Graduates() {
   const [formData, setFormData] = useState<FormData>(emptyForm);
   const [isEditing, setIsEditing] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const [msgBox, setMsgBox] = useState<{ isOpen: boolean; type: 'confirm' | 'success' | 'error'; message: string; onConfirm?: () => void }>({ isOpen: false, type: 'success', message: '' });
 
   const fetchGraduates = () => {
     setLoading(true);
@@ -152,17 +154,23 @@ export default function Graduates() {
   };
 
   const handleDelete = (id: number) => {
-    if (!confirm('Are you sure you want to delete this graduate?')) return;
-    fetch(`${API_BASE}/graduates/index.php`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id }),
-    })
-      .then((r) => r.json())
-      .then((res) => {
-        if (res.success) fetchGraduates();
-      })
-      .catch(() => {});
+    setMsgBox({
+      isOpen: true,
+      type: 'confirm',
+      message: 'Are you sure you want to delete this graduate?',
+      onConfirm: () => {
+        fetch(`${API_BASE}/graduates/index.php`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id }),
+        })
+          .then((r) => r.json())
+          .then((res) => {
+            if (res.success) fetchGraduates();
+          })
+          .catch(() => {});
+      }
+    });
   };
 
   const updateField = (field: keyof FormData, value: string) => {
@@ -446,6 +454,14 @@ export default function Graduates() {
           </div>
         </div>
       )}
+
+      <MessageBox
+        isOpen={msgBox.isOpen}
+        onClose={() => setMsgBox({ ...msgBox, isOpen: false })}
+        onConfirm={msgBox.onConfirm}
+        type={msgBox.type}
+        message={msgBox.message}
+      />
     </div>
   );
 }

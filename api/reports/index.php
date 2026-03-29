@@ -7,6 +7,7 @@ $db = $database->getConnection();
 
 try {
     $reportType = isset($_GET['type']) ? $_GET['type'] : 'overview';
+    $filterYear = isset($_GET['year']) && $_GET['year'] !== 'all' ? $_GET['year'] : null;
 
     switch ($reportType) {
         case 'overview':
@@ -27,6 +28,8 @@ try {
             $surveyResponses = $stmt->fetchAll(PDO::FETCH_ASSOC);
             
             $employedCount = 0;
+            $employedLocalCount = 0;
+            $employedAbroadCount = 0;
             $alignedCount = 0;
             
             foreach ($surveyResponses as $response) {
@@ -35,6 +38,7 @@ try {
                 
                 $isEmployed = false;
                 $jobRelated = '';
+                $workLocation = '';
                 
                 foreach ($data as $questionId => $answer) {
                     $questionText = isset($questionMap[$questionId]) ? $questionMap[$questionId] : '';
@@ -47,9 +51,25 @@ try {
                         }
                     }
                     
+                    // Check place of work
+                    if (strpos($questionText, 'place of work') !== false) {
+                        if (is_string($answer)) {
+                            $workLocation = strtolower(trim($answer));
+                        }
+                    }
+                    
                     // Check job alignment from survey
                     if (strpos($questionText, 'job related to') !== false || strpos($questionText, 'related to your course') !== false) {
                         $jobRelated = strtolower(trim($answer));
+                    }
+                }
+                
+                // Count local vs abroad employment
+                if ($isEmployed) {
+                    if (strpos($workLocation, 'abroad') !== false || strpos($workLocation, 'overseas') !== false) {
+                        $employedAbroadCount++;
+                    } else {
+                        $employedLocalCount++;
                     }
                 }
                 
@@ -64,6 +84,8 @@ try {
             echo json_encode(["success" => true, "data" => [
                 "total_graduates" => (int)$totalResponses,
                 "total_employed" => (int)$employedCount,
+                "total_employed_local" => (int)$employedLocalCount,
+                "total_employed_abroad" => (int)$employedAbroadCount,
                 "total_aligned" => (int)$aligned,
                 "total_survey_responses" => (int)$totalResponses,
                 "employment_rate" => $totalResponses > 0 ? round(($employedCount / $totalResponses) * 100, 1) : 0,
@@ -102,6 +124,7 @@ try {
                 if (!is_array($data)) continue;
                 
                 $degreeProgram = '';
+                $yearGraduated = '';
                 $isEmployed = false;
                 $jobRelated = '';
                 
@@ -112,6 +135,13 @@ try {
                     if (strpos($questionText, 'degree program') !== false) {
                         if (is_string($answer) && !empty($answer)) {
                             $degreeProgram = $answer;
+                        }
+                    }
+                    
+                    // Find year graduated
+                    if (strpos($questionText, 'year graduated') !== false) {
+                        if (is_string($answer) && !empty($answer)) {
+                            $yearGraduated = $answer;
                         }
                     }
                     
@@ -126,6 +156,11 @@ try {
                     if (strpos($questionText, 'job related to') !== false || strpos($questionText, 'related to your course') !== false) {
                         $jobRelated = strtolower(trim($answer));
                     }
+                }
+                
+                // Apply year filter if specified
+                if ($filterYear !== null && $yearGraduated !== $filterYear) {
+                    continue;
                 }
                 
                 if (!empty($degreeProgram)) {
@@ -239,7 +274,7 @@ try {
             break;
 
         case 'employment_status':
-            // Get survey responses and count employment status
+            // Get survey responses and count employment status with location
             $stmt = $db->query("SELECT q.id, q.question_text FROM surveys s JOIN survey_questions q ON s.id = q.survey_id WHERE s.status = 'active' ORDER BY q.sort_order");
             $questions = $stmt->fetchAll(PDO::FETCH_ASSOC);
             $questionMap = [];
@@ -250,45 +285,157 @@ try {
             $stmt = $db->query("SELECT responses FROM survey_responses");
             $surveyResponses = $stmt->fetchAll(PDO::FETCH_ASSOC);
             
-            $statusCount = ['employed' => 0, 'unemployed' => 0];
+            $statusCount = [
+                'employed_local' => 0,
+                'employed_abroad' => 0,
+                'unemployed' => 0
+            ];
             
             foreach ($surveyResponses as $response) {
                 $data = json_decode($response['responses'], true);
                 if (!is_array($data)) continue;
                 
+                $isEmployed = false;
+                $workLocation = '';
+                $yearGraduated = '';
+                
                 foreach ($data as $questionId => $answer) {
                     $questionText = isset($questionMap[$questionId]) ? $questionMap[$questionId] : '';
                     
+                    // Find year graduated
+                    if (strpos($questionText, 'year graduated') !== false) {
+                        if (is_string($answer) && !empty($answer)) {
+                            $yearGraduated = $answer;
+                        }
+                    }
+                    
+                    // Check employment status
                     if (strpos($questionText, 'employment status') !== false || strpos($questionText, 'presently employed') !== false) {
                         if (is_string($answer)) {
                             $answerLower = strtolower($answer);
                             if ($answerLower === 'employed' || $answerLower === 'yes') {
-                                $statusCount['employed']++;
+                                $isEmployed = true;
                             } else if ($answerLower === 'unemployed' || $answerLower === 'no') {
-                                $statusCount['unemployed']++;
+                                // Will count unemployed after year filter check
                             }
                         }
                     }
+                    
+                    // Check place of work
+                    if (strpos($questionText, 'place of work') !== false) {
+                        if (is_string($answer)) {
+                            $workLocation = strtolower(trim($answer));
+                        }
+                    }
+                }
+                
+                // Apply year filter if specified
+                if ($filterYear !== null && $yearGraduated !== $filterYear) {
+                    continue;
+                }
+                
+                // Categorize employed by location
+                if ($isEmployed) {
+                    if (strpos($workLocation, 'abroad') !== false || strpos($workLocation, 'overseas') !== false) {
+                        $statusCount['employed_abroad']++;
+                    } else if (strpos($workLocation, 'local') !== false || !empty($workLocation)) {
+                        $statusCount['employed_local']++;
+                    } else {
+                        // Default to local if no location specified
+                        $statusCount['employed_local']++;
+                    }
+                } else {
+                    $statusCount['unemployed']++;
                 }
             }
             
             $data = [
-                ['employment_status' => 'employed', 'count' => $statusCount['employed']],
-                ['employment_status' => 'unemployed', 'count' => $statusCount['unemployed']]
+                ['employment_status' => 'Employed (Local)', 'count' => $statusCount['employed_local']],
+                ['employment_status' => 'Employed (Abroad)', 'count' => $statusCount['employed_abroad']],
+                ['employment_status' => 'Unemployed', 'count' => $statusCount['unemployed']]
             ];
             
             echo json_encode(["success" => true, "data" => $data]);
             break;
 
         case 'salary_distribution':
-            // For now, return sample data as salary info needs to be added to survey
-            $data = [
-                ['salary_range' => 'Below 15K', 'count' => 2],
-                ['salary_range' => '15K-20K', 'count' => 5],
-                ['salary_range' => '20K-30K', 'count' => 8],
-                ['salary_range' => '30K-50K', 'count' => 4],
-                ['salary_range' => 'Above 50K', 'count' => 1]
+            // Get survey responses and parse salary data
+            $stmt = $db->query("SELECT q.id, q.question_text FROM surveys s JOIN survey_questions q ON s.id = q.survey_id WHERE s.status = 'active' ORDER BY q.sort_order");
+            $questions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            $questionMap = [];
+            foreach ($questions as $q) {
+                $questionMap[$q['id']] = strtolower($q['question_text']);
+            }
+            
+            $stmt = $db->query("SELECT responses FROM survey_responses");
+            $surveyResponses = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            
+            // Initialize salary ranges
+            $salaryRanges = [
+                'Below ₱5,000' => 0,
+                '₱5,000 - ₱10,000' => 0,
+                '₱10,000 - ₱15,000' => 0,
+                '₱15,000 - ₱20,000' => 0,
+                '₱20,000 - ₱25,000' => 0,
+                '₱25,000 and above' => 0
             ];
+            
+            foreach ($surveyResponses as $response) {
+                $data = json_decode($response['responses'], true);
+                if (!is_array($data)) continue;
+                
+                $yearGraduated = '';
+                $salaryAnswer = '';
+                
+                foreach ($data as $questionId => $answer) {
+                    $questionText = isset($questionMap[$questionId]) ? $questionMap[$questionId] : '';
+                    
+                    // Find year graduated
+                    if (strpos($questionText, 'year graduated') !== false) {
+                        if (is_string($answer) && !empty($answer)) {
+                            $yearGraduated = $answer;
+                        }
+                    }
+                    
+                    // Check for salary question
+                    if (strpos($questionText, 'gross monthly earning') !== false || strpos($questionText, 'initial gross monthly') !== false) {
+                        if (is_string($answer) && !empty($answer)) {
+                            $salaryAnswer = $answer;
+                        }
+                    }
+                }
+                
+                // Apply year filter if specified
+                if ($filterYear !== null && $yearGraduated !== $filterYear) {
+                    continue;
+                }
+                
+                // Map salary answer to ranges
+                if (!empty($salaryAnswer)) {
+                    $answerLower = strtolower($salaryAnswer);
+                    
+                    if (strpos($answerLower, 'below') !== false && strpos($answerLower, '5,000') !== false) {
+                        $salaryRanges['Below ₱5,000']++;
+                    } elseif (strpos($answerLower, '5,000') !== false && strpos($answerLower, '10,000') !== false) {
+                        $salaryRanges['₱5,000 - ₱10,000']++;
+                    } elseif (strpos($answerLower, '10,000') !== false && strpos($answerLower, '15,000') !== false) {
+                        $salaryRanges['₱10,000 - ₱15,000']++;
+                    } elseif (strpos($answerLower, '15,000') !== false && strpos($answerLower, '20,000') !== false) {
+                        $salaryRanges['₱15,000 - ₱20,000']++;
+                    } elseif (strpos($answerLower, '20,000') !== false && strpos($answerLower, '25,000') !== false) {
+                        $salaryRanges['₱20,000 - ₱25,000']++;
+                    } elseif (strpos($answerLower, '25,000') !== false && strpos($answerLower, 'above') !== false) {
+                        $salaryRanges['₱25,000 and above']++;
+                    }
+                }
+            }
+            
+            // Convert to array format
+            $data = [];
+            foreach ($salaryRanges as $range => $count) {
+                $data[] = ['salary_range' => $range, 'count' => $count];
+            }
+            
             echo json_encode(["success" => true, "data" => $data]);
             break;
 

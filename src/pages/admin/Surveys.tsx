@@ -3,6 +3,7 @@ import {
   Plus, Edit2, Trash2, X, ClipboardList, Eye, ChevronDown, ChevronUp, ShieldCheck, BarChart3, FileText, Briefcase, Star, Users, Award,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import MessageBox from '../../components/MessageBox';
 
 const API_BASE = '/api';
 
@@ -73,6 +74,7 @@ export default function Surveys() {
   const [showTemplates, setShowTemplates] = useState(false);
   const [templates, setTemplates] = useState<Template[]>([]);
   const navigate = useNavigate();
+  const [msgBox, setMsgBox] = useState<{ isOpen: boolean; type: 'confirm' | 'success' | 'error'; message: string; onConfirm?: () => void }>({ isOpen: false, type: 'success', message: '' });
 
   const fetchSurveys = () => {
     setLoading(true);
@@ -154,7 +156,7 @@ export default function Surveys() {
           setShowModal(true);
         }
       })
-      .catch(() => alert('Failed to load template'));
+      .catch(() => setMsgBox({ isOpen: true, type: 'error', message: 'Failed to load template' }));
   };
 
   const loadDefaultTemplate = () => {
@@ -232,22 +234,26 @@ export default function Surveys() {
   };
 
   const clearAllSurveys = () => {
-    if (!confirm('⚠️ WARNING: This will permanently delete ALL surveys, questions, and responses. This action cannot be undone. Are you sure?')) return;
-    if (!confirm('Are you ABSOLUTELY sure? All survey data will be lost forever!')) return;
-    
-    fetch(`${API_BASE}/surveys/clear.php`, {
-      method: 'POST',
-    })
-      .then((r) => r.json())
-      .then((res) => {
-        if (res.success) {
-          alert('All survey data has been cleared successfully.');
-          fetchSurveys();
-        } else {
-          alert('Error clearing surveys: ' + res.error);
-        }
-      })
-      .catch(() => alert('Failed to clear surveys'));
+    setMsgBox({
+      isOpen: true,
+      type: 'confirm',
+      message: '⚠️ WARNING: This will permanently delete ALL surveys, questions, and responses. This action cannot be undone. Are you ABSOLUTELY sure?',
+      onConfirm: () => {
+        fetch(`${API_BASE}/surveys/clear.php`, {
+          method: 'POST',
+        })
+          .then((r) => r.json())
+          .then((res) => {
+            if (res.success) {
+              setMsgBox({ isOpen: true, type: 'success', message: 'All survey data has been cleared successfully.' });
+              fetchSurveys();
+            } else {
+              setMsgBox({ isOpen: true, type: 'error', message: 'Error clearing surveys: ' + res.error });
+            }
+          })
+          .catch(() => setMsgBox({ isOpen: true, type: 'error', message: 'Failed to clear surveys' }));
+      }
+    });
   };
 
   const openEdit = (s: Survey) => {
@@ -311,14 +317,20 @@ export default function Surveys() {
   };
 
   const handleDelete = (id: number) => {
-    if (!confirm('Delete this survey and all its responses?')) return;
-    fetch(`${API_BASE}/surveys/index.php`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id }),
-    })
-      .then((r) => r.json())
-      .then((res) => { if (res.success) fetchSurveys(); });
+    setMsgBox({
+      isOpen: true,
+      type: 'confirm',
+      message: 'Delete this survey and all its responses?',
+      onConfirm: () => {
+        fetch(`${API_BASE}/surveys/index.php`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id }),
+        })
+          .then((r) => r.json())
+          .then((res) => { if (res.success) fetchSurveys(); });
+      }
+    });
   };
 
   const addQuestion = () => {
@@ -794,6 +806,14 @@ export default function Surveys() {
           </div>
         </div>
       )}
+
+      <MessageBox
+        isOpen={msgBox.isOpen}
+        onClose={() => setMsgBox({ ...msgBox, isOpen: false })}
+        onConfirm={msgBox.onConfirm}
+        type={msgBox.type}
+        message={msgBox.message}
+      />
     </div>
   );
 }

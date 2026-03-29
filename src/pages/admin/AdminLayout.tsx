@@ -14,6 +14,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import MessageBox from '../../components/MessageBox';
 
 const navItems = [
   { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true },
@@ -29,10 +30,18 @@ export default function AdminLayout() {
   const [profileOpen, setProfileOpen] = useState(false);
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const [msgBox, setMsgBox] = useState<{ isOpen: boolean; type: 'confirm'; message: string; onConfirm?: () => void }>({ isOpen: false, type: 'confirm', message: '' });
 
-  const handleLogout = async () => {
-    await logout();
-    navigate('/signin');
+  const handleLogout = () => {
+    setMsgBox({
+      isOpen: true,
+      type: 'confirm',
+      message: 'Are you sure you want to sign out?',
+      onConfirm: async () => {
+        await logout();
+        navigate('/signin');
+      }
+    });
   };
 
   return (
@@ -140,6 +149,14 @@ export default function AdminLayout() {
           <Outlet />
         </main>
       </div>
+
+      <MessageBox
+        isOpen={msgBox.isOpen}
+        onClose={() => setMsgBox({ ...msgBox, isOpen: false })}
+        onConfirm={msgBox.onConfirm}
+        type={msgBox.type}
+        message={msgBox.message}
+      />
     </div>
   );
 }

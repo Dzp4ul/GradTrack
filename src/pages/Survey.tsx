@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { ShieldCheck, ChevronRight, ChevronLeft, ClipboardList } from 'lucide-react';
+import { ShieldCheck, ChevronRight, ChevronLeft, ClipboardList, Save } from 'lucide-react';
 import { philippineRegions, philippineProvinces, philippineCities, philippineBarangays } from '../data/philippineAddress';
+import MessageBox from '../components/MessageBox';
 
 interface Question {
   id?: number;
@@ -28,10 +29,36 @@ function Survey() {
   const [activeSurvey, setActiveSurvey] = useState<Survey | null>(null);
   const [currentSection, setCurrentSection] = useState(0);
   const [responses, setResponses] = useState<Record<number, any>>({});
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [msgBox, setMsgBox] = useState<{ isOpen: boolean; type: 'success' | 'error' | 'warning' | 'info'; message: string; title?: string }>({ isOpen: false, type: 'info', message: '' });
 
   useEffect(() => {
     fetchActiveSurvey();
   }, []);
+
+  // Load draft from localStorage
+  useEffect(() => {
+    if (activeSurvey) {
+      const draftKey = `survey_draft_${activeSurvey.id}`;
+      const saved = localStorage.getItem(draftKey);
+      if (saved) {
+        const draft = JSON.parse(saved);
+        setResponses(draft.responses || {});
+        setCurrentSection(draft.section || 0);
+        setLastSaved(new Date(draft.timestamp));
+      }
+    }
+  }, [activeSurvey]);
+
+  // Auto-save draft
+  useEffect(() => {
+    if (activeSurvey && Object.keys(responses).length > 0) {
+      const draftKey = `survey_draft_${activeSurvey.id}`;
+      const draft = { responses, section: currentSection, timestamp: new Date().toISOString() };
+      localStorage.setItem(draftKey, JSON.stringify(draft));
+      setLastSaved(new Date());
+    }
+  }, [responses, currentSection, activeSurvey]);
 
   const fetchActiveSurvey = async () => {
     try {
@@ -78,6 +105,27 @@ function Survey() {
     });
   };
 
+  // Validate current section before moving to next
+  const validateCurrentSection = () => {
+    const requiredQuestions = currentSectionQuestions.filter(
+      q => q.is_required === 1 || q.is_required === '1'
+    );
+    
+    for (const question of requiredQuestions) {
+      const answer = responses[question.id!];
+      
+      // Check if answer is empty, null, undefined, or empty array
+      if (!answer || 
+          (Array.isArray(answer) && answer.length === 0) || 
+          (typeof answer === 'string' && answer.trim() === '')) {
+        setMsgBox({ isOpen: true, type: 'warning', message: `Please answer the required question: "${question.question_text}"`, title: 'Required Field' });
+        return false;
+      }
+    }
+    
+    return true;
+  };
+
   const handleSubmit = async () => {
     if (!activeSurvey) return;
 
@@ -95,19 +143,21 @@ function Survey() {
       const result = await response.json();
 
       if (result.success) {
-        alert('Survey submitted successfully! Thank you for your participation.');
+        localStorage.removeItem(`survey_draft_${activeSurvey.id}`);
+        setMsgBox({ isOpen: true, type: 'success', message: 'Survey submitted successfully! Thank you for your participation.', title: 'Success' });
         setResponses({});
         setCurrentSection(0);
         setAgreed(false);
+        setLastSaved(null);
       } else {
         const errorMsg = result.error || 'Unknown error occurred';
         const hint = result.hint || '';
-        alert(`Error: ${errorMsg}\n\n${hint}`);
+        setMsgBox({ isOpen: true, type: 'error', message: `Error: ${errorMsg}\n\n${hint}`, title: 'Submission Error' });
         console.error('Survey submission error:', result);
       }
     } catch (error) {
       console.error('Error submitting survey:', error);
-      alert('Error submitting survey. Please check your internet connection and try again.');
+      setMsgBox({ isOpen: true, type: 'error', message: 'Error submitting survey. Please check your internet connection and try again.', title: 'Network Error' });
     }
   };
 
@@ -364,7 +414,44 @@ function Survey() {
 
   const totalPages = allSections.length;
   const currentSectionName = allSections[currentSection] || 'General';
-  const currentSectionQuestions = sectionQuestions[currentSectionName] || [];
+  
+  // Filter questions based on conditional logic
+  const getFilteredQuestions = () => {
+    const questions = sectionQuestions[currentSectionName] || [];
+    const filtered: Question[] = [];
+    
+    // Find question 28 (index 27 in 0-based array)
+    const question28 = activeSurvey?.questions[27];
+    const answer28 = question28?.id ? responses[question28.id] : null;
+    
+    questions.forEach((q) => {
+      const globalIdx = activeSurvey?.questions.findIndex(quest => quest.id === q.id) ?? -1;
+      const questionNumber = globalIdx + 1;
+      
+      // If question is between 29-44
+      if (questionNumber >= 29 && questionNumber <= 44) {
+        // Only show if answer to question 28 is "Yes"
+        if (answer28?.toLowerCase() === 'yes') {
+          filtered.push(q);
+        }
+      }
+      // If question is 45
+      else if (questionNumber === 45) {
+        // Only show if answer to question 28 is "No"
+        if (answer28?.toLowerCase() === 'no') {
+          filtered.push(q);
+        }
+      }
+      // All other questions show normally
+      else {
+        filtered.push(q);
+      }
+    });
+    
+    return filtered;
+  };
+  
+  const currentSectionQuestions = getFilteredQuestions();
 
   return (
     <div className="min-h-screen bg-cover bg-center bg-fixed relative" style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
@@ -395,10 +482,20 @@ function Survey() {
         <ProgressBar />
 
         <div className="bg-white rounded-2xl shadow-lg p-8 border border-gray-100">
-          <h2 className="text-2xl font-bold text-blue-900 mb-4">{activeSurvey.title}</h2>
-          {activeSurvey.description && (
-            <p className="text-gray-600 mb-6">{activeSurvey.description}</p>
-          )}
+          <div className="flex justify-between items-start mb-4">
+            <div>
+              <h2 className="text-2xl font-bold text-blue-900">{activeSurvey.title}</h2>
+              {activeSurvey.description && (
+                <p className="text-gray-600 mt-2">{activeSurvey.description}</p>
+              )}
+            </div>
+            {lastSaved && (
+              <div className="flex items-center gap-2 text-sm text-green-600 bg-green-50 px-3 py-1.5 rounded-lg">
+                <Save className="w-4 h-4" />
+                <span>Draft saved</span>
+              </div>
+            )}
+          </div>
 
           <div className="space-y-8">
             {/* Section Header */}
@@ -410,20 +507,256 @@ function Survey() {
             
             {/* Questions in this section */}
             <div className="space-y-6">
-              {currentSectionQuestions.map((question) => {
-                const globalIdx = activeSurvey.questions.findIndex(q => q.id === question.id);
-                return (
-                  <div key={question.id} className="bg-blue-50 rounded-xl p-5 border border-blue-100">
-                    <label className="block text-base font-semibold text-gray-800 mb-3">
-                      {globalIdx + 1}. {question.question_text}
-                      {question.is_required === 1 && (
-                        <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
-                      )}
-                    </label>
-                    {renderQuestion(question)}
-                  </div>
-                );
-              })}
+              {(() => {
+                const renderedQuestions: JSX.Element[] = [];
+                let i = 0;
+                
+                while (i < currentSectionQuestions.length) {
+                  const question = currentSectionQuestions[i];
+                  const globalIdx = activeSurvey.questions.findIndex(q => q.id === question.id);
+                  const questionText = question.question_text.toLowerCase();
+                  
+                  // Check if this is Last Name and next two are First Name and Middle Name
+                  if (questionText.includes('last name') &&
+                      i + 2 < currentSectionQuestions.length &&
+                      currentSectionQuestions[i + 1].question_text.toLowerCase().includes('first name') &&
+                      currentSectionQuestions[i + 2].question_text.toLowerCase().includes('middle name')) {
+                    
+                    const firstNameQ = currentSectionQuestions[i + 1];
+                    const middleNameQ = currentSectionQuestions[i + 2];
+                    const firstNameIdx = activeSurvey.questions.findIndex(q => q.id === firstNameQ.id);
+                    const middleNameIdx = activeSurvey.questions.findIndex(q => q.id === middleNameQ.id);
+                    
+                    renderedQuestions.push(
+                      <div key={`name-group-${question.id}`} className="bg-blue-50 rounded-xl p-5 border border-blue-100">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div>
+                            <label className="block text-base font-semibold text-gray-800 mb-3">
+                              {globalIdx + 1}. {question.question_text}
+                              {(question.is_required === 1 || question.is_required === '1') && (
+                                <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
+                              )}
+                            </label>
+                            {renderQuestion(question)}
+                          </div>
+                          <div>
+                            <label className="block text-base font-semibold text-gray-800 mb-3">
+                              {firstNameIdx + 1}. {firstNameQ.question_text}
+                              {(firstNameQ.is_required === 1 || firstNameQ.is_required === '1') && (
+                                <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
+                              )}
+                            </label>
+                            {renderQuestion(firstNameQ)}
+                          </div>
+                          <div>
+                            <label className="block text-base font-semibold text-gray-800 mb-3">
+                              {middleNameIdx + 1}. {middleNameQ.question_text}
+                              {(middleNameQ.is_required === 1 || middleNameQ.is_required === '1') && (
+                                <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
+                              )}
+                            </label>
+                            {renderQuestion(middleNameQ)}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                    i += 3;
+                  }
+                  // Check if this is Email and next two are Mobile Number and Telephone/Contact Number
+                  else if (questionText.includes('email') &&
+                      i + 2 < currentSectionQuestions.length &&
+                      currentSectionQuestions[i + 1].question_text.toLowerCase().includes('mobile') &&
+                      (currentSectionQuestions[i + 2].question_text.toLowerCase().includes('telephone') ||
+                       currentSectionQuestions[i + 2].question_text.toLowerCase().includes('contact number'))) {
+                    
+                    const mobileQ = currentSectionQuestions[i + 1];
+                    const telephoneQ = currentSectionQuestions[i + 2];
+                    const mobileIdx = activeSurvey.questions.findIndex(q => q.id === mobileQ.id);
+                    const telephoneIdx = activeSurvey.questions.findIndex(q => q.id === telephoneQ.id);
+                    
+                    renderedQuestions.push(
+                      <div key={`contact-group-${question.id}`} className="bg-blue-50 rounded-xl p-5 border border-blue-100">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div>
+                            <label className="block text-base font-semibold text-gray-800 mb-3">
+                              {globalIdx + 1}. {question.question_text}
+                              {(question.is_required === 1 || question.is_required === '1') && (
+                                <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
+                              )}
+                            </label>
+                            {renderQuestion(question)}
+                          </div>
+                          <div>
+                            <label className="block text-base font-semibold text-gray-800 mb-3">
+                              {mobileIdx + 1}. {mobileQ.question_text}
+                              {(mobileQ.is_required === 1 || mobileQ.is_required === '1') && (
+                                <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
+                              )}
+                            </label>
+                            {renderQuestion(mobileQ)}
+                          </div>
+                          <div>
+                            <label className="block text-base font-semibold text-gray-800 mb-3">
+                              {telephoneIdx + 1}. {telephoneQ.question_text}
+                              {(telephoneQ.is_required === 1 || telephoneQ.is_required === '1') && (
+                                <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
+                              )}
+                            </label>
+                            {renderQuestion(telephoneQ)}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                    i += 3;
+                  }
+                  // Check if this is Civil Status and next two are Sex and Birthday
+                  else if (questionText.includes('civil status') &&
+                      i + 2 < currentSectionQuestions.length &&
+                      currentSectionQuestions[i + 1].question_text.toLowerCase().includes('sex') &&
+                      (currentSectionQuestions[i + 2].question_text.toLowerCase().includes('birthday') ||
+                       currentSectionQuestions[i + 2].question_text.toLowerCase().includes('birth date') ||
+                       currentSectionQuestions[i + 2].question_text.toLowerCase().includes('date of birth'))) {
+                    
+                    const sexQ = currentSectionQuestions[i + 1];
+                    const birthdayQ = currentSectionQuestions[i + 2];
+                    const sexIdx = activeSurvey.questions.findIndex(q => q.id === sexQ.id);
+                    const birthdayIdx = activeSurvey.questions.findIndex(q => q.id === birthdayQ.id);
+                    
+                    renderedQuestions.push(
+                      <div key={`personal-group-${question.id}`} className="bg-blue-50 rounded-xl p-5 border border-blue-100">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div>
+                            <label className="block text-base font-semibold text-gray-800 mb-3">
+                              {globalIdx + 1}. {question.question_text}
+                              {(question.is_required === 1 || question.is_required === '1') && (
+                                <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
+                              )}
+                            </label>
+                            {renderQuestion(question)}
+                          </div>
+                          <div>
+                            <label className="block text-base font-semibold text-gray-800 mb-3">
+                              {sexIdx + 1}. {sexQ.question_text}
+                              {(sexQ.is_required === 1 || sexQ.is_required === '1') && (
+                                <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
+                              )}
+                            </label>
+                            {renderQuestion(sexQ)}
+                          </div>
+                          <div>
+                            <label className="block text-base font-semibold text-gray-800 mb-3">
+                              {birthdayIdx + 1}. {birthdayQ.question_text}
+                              {(birthdayQ.is_required === 1 || birthdayQ.is_required === '1') && (
+                                <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
+                              )}
+                            </label>
+                            {renderQuestion(birthdayQ)}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                    i += 3;
+                  }
+                  // Check if this is Region and next two are Province and City/Municipality
+                  else if (questionText.includes('region') &&
+                      i + 2 < currentSectionQuestions.length &&
+                      currentSectionQuestions[i + 1].question_text.toLowerCase().includes('province') &&
+                      (currentSectionQuestions[i + 2].question_text.toLowerCase().includes('city') ||
+                       currentSectionQuestions[i + 2].question_text.toLowerCase().includes('municipality'))) {
+                    
+                    const provinceQ = currentSectionQuestions[i + 1];
+                    const cityQ = currentSectionQuestions[i + 2];
+                    const provinceIdx = activeSurvey.questions.findIndex(q => q.id === provinceQ.id);
+                    const cityIdx = activeSurvey.questions.findIndex(q => q.id === cityQ.id);
+                    
+                    renderedQuestions.push(
+                      <div key={`address-group-${question.id}`} className="bg-blue-50 rounded-xl p-5 border border-blue-100">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div>
+                            <label className="block text-base font-semibold text-gray-800 mb-3">
+                              {globalIdx + 1}. {question.question_text}
+                              {(question.is_required === 1 || question.is_required === '1') && (
+                                <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
+                              )}
+                            </label>
+                            {renderQuestion(question)}
+                          </div>
+                          <div>
+                            <label className="block text-base font-semibold text-gray-800 mb-3">
+                              {provinceIdx + 1}. {provinceQ.question_text}
+                              {(provinceQ.is_required === 1 || provinceQ.is_required === '1') && (
+                                <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
+                              )}
+                            </label>
+                            {renderQuestion(provinceQ)}
+                          </div>
+                          <div>
+                            <label className="block text-base font-semibold text-gray-800 mb-3">
+                              {cityIdx + 1}. {cityQ.question_text}
+                              {(cityQ.is_required === 1 || cityQ.is_required === '1') && (
+                                <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
+                              )}
+                            </label>
+                            {renderQuestion(cityQ)}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                    i += 3;
+                  }
+                  // Check if this is Degree Program and next is Year Graduated
+                  else if ((questionText.includes('degree program') || questionText.includes('degree/program')) &&
+                      i + 1 < currentSectionQuestions.length &&
+                      currentSectionQuestions[i + 1].question_text.toLowerCase().includes('year graduated')) {
+                    
+                    const yearGradQ = currentSectionQuestions[i + 1];
+                    const yearGradIdx = activeSurvey.questions.findIndex(q => q.id === yearGradQ.id);
+                    
+                    renderedQuestions.push(
+                      <div key={`degree-group-${question.id}`} className="bg-blue-50 rounded-xl p-5 border border-blue-100">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-base font-semibold text-gray-800 mb-3">
+                              {globalIdx + 1}. {question.question_text}
+                              {(question.is_required === 1 || question.is_required === '1') && (
+                                <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
+                              )}
+                            </label>
+                            {renderQuestion(question)}
+                          </div>
+                          <div>
+                            <label className="block text-base font-semibold text-gray-800 mb-3">
+                              {yearGradIdx + 1}. {yearGradQ.question_text}
+                              {(yearGradQ.is_required === 1 || yearGradQ.is_required === '1') && (
+                                <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
+                              )}
+                            </label>
+                            {renderQuestion(yearGradQ)}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                    i += 2;
+                  }
+                  else {
+                    // Render normal question
+                    renderedQuestions.push(
+                      <div key={question.id} className="bg-blue-50 rounded-xl p-5 border border-blue-100">
+                        <label className="block text-base font-semibold text-gray-800 mb-3">
+                          {globalIdx + 1}. {question.question_text}
+                          {(question.is_required === 1 || question.is_required === '1') && (
+                            <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
+                          )}
+                        </label>
+                        {renderQuestion(question)}
+                      </div>
+                    );
+                    i++;
+                  }
+                }
+                
+                return renderedQuestions;
+              })()}
             </div>
           </div>
 
@@ -444,7 +777,11 @@ function Survey() {
 
             {currentSection < totalPages - 1 ? (
               <button
-                onClick={() => setCurrentSection(prev => prev + 1)}
+                onClick={() => {
+                  if (validateCurrentSection()) {
+                    setCurrentSection(prev => prev + 1);
+                  }
+                }}
                 className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition shadow-md hover:shadow-lg"
               >
                 <span>Next</span>
@@ -452,7 +789,11 @@ function Survey() {
               </button>
             ) : (
               <button
-                onClick={handleSubmit}
+                onClick={() => {
+                  if (validateCurrentSection()) {
+                    handleSubmit();
+                  }
+                }}
                 className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-lg font-semibold transition shadow-md hover:shadow-lg"
               >
                 Submit Survey
@@ -461,6 +802,14 @@ function Survey() {
           </div>
         </div>
       </div>
+
+      <MessageBox
+        isOpen={msgBox.isOpen}
+        onClose={() => setMsgBox({ ...msgBox, isOpen: false })}
+        type={msgBox.type}
+        message={msgBox.message}
+        title={msgBox.title}
+      />
     </div>
   );
 }
