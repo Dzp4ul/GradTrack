@@ -1,0 +1,21 @@
+{
+  "name": "gradtrack-backend",
+  "version": "1.0.0",
+  "description": "GradTrack PHP Backend API",
+  "scripts": {
+    "dev": "php -S localhost:8000",
+    "start": "php -S localhost:8000",
+    "serve": "php -S localhost:8000",
+    "install-deps": "composer install",
+    "install-prod": "composer install --no-dev --optimize-autoloader",
+    "deploy": "bash deploy-ec2.sh"
+  },
+  "keywords": [
+    "gradtrack",
+    "backend",
+    "php",
+    "api"
+  ],
+  "author": "GradTrack Team",
+  "license": "UNLICENSED"
+}

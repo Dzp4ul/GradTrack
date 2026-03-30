@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>GradTrack System Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; background: #f5f5f5; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #2563eb; }
+        .test { margin: 20px 0; padding: 15px; border-left: 4px solid #ddd; background: #f9f9f9; }
+        .test.success { border-color: #10b981; background: #f0fdf4; }
+        .test.error { border-color: #ef4444; background: #fef2f2; }
+        .test.loading { border-color: #f59e0b; background: #fffbeb; }
+        button { background: #2563eb; color: white; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin: 5px; }
+        button:hover { background: #1d4ed8; }
+        pre { background: #1f2937; color: #f3f4f6; padding: 15px; border-radius: 5px; overflow-x: auto; }
+        .status { font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔍 GradTrack System Test</h1>
+        <p>This page will test all connections to verify your system is working.</p>
+        
+        <button onclick="runAllTests()">Run All Tests</button>
+        <button onclick="location.reload()">Refresh Page</button>
+        
+        <div id="results"></div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000';
+        
+        async function runTest(name, url, description) {
+            const resultDiv = document.getElementById('results');
+            const testDiv = document.createElement('div');
+            testDiv.className = 'test loading';
+            testDiv.innerHTML = `<h3>${name}</h3><p>${description}</p><p class="status">Testing...</p>`;
+            resultDiv.appendChild(testDiv);
+            
+            try {
+                const response = await fetch(url, {
+                    credentials: 'include'
+                });
+                const text = await response.text();
+                let data;
+                
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    throw new Error('Response is not JSON: ' + text.substring(0, 100));
+                }
+                
+                testDiv.className = 'test success';
+                testDiv.innerHTML = `
+                    <h3>✅ ${name}</h3>
+                    <p>${description}</p>
+                    <p class="status">Status: SUCCESS</p>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+            } catch (error) {
+                testDiv.className = 'test error';
+                testDiv.innerHTML = `
+                    <h3>❌ ${name}</h3>
+                    <p>${description}</p>
+                    <p class="status">Status: FAILED</p>
+                    <p style="color: #ef4444;">${error.message}</p>
+                `;
+            }
+        }
+        
+        async function runAllTests() {
+            document.getElementById('results').innerHTML = '';
+            
+            await runTest(
+                'Test 1: Backend Server',
+                `${API_BASE}/api/auth/check.php`,
+                'Checking if backend server is running and responding'
+            );
+            
+            await runTest(
+                'Test 2: Database Connection',
+                `${API_BASE}/api/test-db.php`,
+                'Testing connection to AWS RDS database'
+            );
+            
+            await runTest(
+                'Test 3: Surveys Endpoint',
+                `${API_BASE}/api/surveys/index.php`,
+                'Checking if surveys can be fetched from database'
+            );
+            
+            await runTest(
+                'Test 4: Create Admin User',
+                `${API_BASE}/api/create-admin.php`,
+                'Creating admin user if it doesn\'t exist'
+            );
+        }
+        
+        // Auto-run tests on page load
+        window.onload = () => {
+            setTimeout(runAllTests, 500);
+        };
+    </script>
+</body>
+</html>
