@@ -201,19 +201,6 @@ netlify deploy --prod
 - Deploy to Ubuntu server with Apache/Nginx
 - More control, requires server management
 
-## Environment Variables
-
-### Backend (.env)
-```
-DB_HOST=your-rds-endpoint.rds.amazonaws.com
-DB_NAME=gradtrackdb
-DB_USER=admin
-DB_PASSWORD=your_password
-DB_PORT=3306
-APP_ENV=production
-CORS_ALLOWED_ORIGINS=https://your-frontend-domain.com
-```
-
 ### Frontend (.env.production)
 ```
 VITE_API_BASE_URL=https://your-backend-url.com
