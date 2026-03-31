@@ -24,7 +24,7 @@ CREATE TABLE admin_users (
   email VARCHAR(100) NOT NULL UNIQUE,
   password VARCHAR(255) NOT NULL,
   full_name VARCHAR(100),
-  role ENUM('super_admin', 'admin') DEFAULT 'admin',
+  role ENUM('super_admin', 'admin', 'registrar') DEFAULT 'admin',
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
@@ -164,7 +164,8 @@ INSERT INTO programs (name, code, description) VALUES
 
 -- Admin User (password: admin123)
 INSERT INTO admin_users (username, email, password, full_name, role) VALUES
-('admin', 'admin@norzagaray.edu.ph', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'System Administrator', 'super_admin');
+('admin', 'admin@norzagaray.edu.ph', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'System Administrator', 'super_admin'),
+('registrar', 'registrar@norzagaray.edu.ph', '$2y$10$xdcUNUI9Rd//izOo8u5vROycB91SwWUThhaV2FD1TOd7IODqIGkRK', 'Registrar Account', 'registrar');
 
 -- Graduates (sample data)
 INSERT INTO graduates (student_id, first_name, last_name, email, phone, program_id, year_graduated) VALUES

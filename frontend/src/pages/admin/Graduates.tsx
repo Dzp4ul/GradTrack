@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
-  Search, Plus, Edit2, Trash2, X, ChevronLeft, ChevronRight, Filter,
+  Search, Plus, Edit2, Trash2, X, ChevronLeft, ChevronRight, Filter, Upload, Download,
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import MessageBox from '../../components/MessageBox';
 import { API_ROOT } from '../../config/api';
 
@@ -52,6 +53,13 @@ const emptyForm: FormData = {
   date_hired: '', monthly_salary: '', time_to_employment: '',
 };
 
+const PROGRAM_OPTIONS = [
+  { id: '1', code: 'BSCS', name: 'Bachelor of Science in Computer Science (BSCS)' },
+  { id: '2', code: 'BSHM', name: 'Bachelor of Science in Hospitality Management (BSHM)' },
+  { id: '3', code: 'BSED', name: 'Bachelor of Secondary Education (BSED)' },
+  { id: '4', code: 'BEED', name: 'Bachelor of Elementary Education (BEED)' },
+];
+
 const statusColors: Record<string, string> = {
   employed: 'bg-green-100 text-green-700',
   self_employed: 'bg-blue-100 text-blue-700',
@@ -64,6 +72,85 @@ const alignColors: Record<string, string> = {
   partially_aligned: 'bg-yellow-100 text-yellow-700',
   not_aligned: 'bg-red-100 text-red-700',
 };
+
+const normalizeText = (value: unknown): string => {
+  if (value === null || value === undefined) return '';
+  return String(value).trim();
+};
+
+const pickValue = (row: Record<string, unknown>, keys: string[]): string => {
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(row, key)) {
+      const value = normalizeText(row[key]);
+      if (value !== '') return value;
+    }
+  }
+  return '';
+};
+
+const normalizeEmploymentStatus = (value: string): string => {
+  const parsed = value.toLowerCase().replace(/\s+/g, '_');
+  if (['employed', 'self_employed', 'freelance', 'unemployed'].includes(parsed)) {
+    return parsed;
+  }
+  return 'unemployed';
+};
+
+const normalizeAlignment = (value: string): string => {
+  const parsed = value.toLowerCase().replace(/\s+/g, '_');
+  if (['aligned', 'partially_aligned', 'not_aligned'].includes(parsed)) {
+    return parsed;
+  }
+  return 'not_aligned';
+};
+
+const resolveProgramId = (row: Record<string, unknown>): string => {
+  const programId = pickValue(row, ['Program ID', 'program_id', 'programId']);
+  if (programId !== '' && PROGRAM_OPTIONS.some((option) => option.id === programId)) {
+    return programId;
+  }
+
+  const code = pickValue(row, ['Program Code', 'program_code', 'programCode']).toUpperCase();
+  if (code !== '') {
+    const matchByCode = PROGRAM_OPTIONS.find((option) => option.code === code);
+    if (matchByCode) return matchByCode.id;
+  }
+
+  const name = pickValue(row, ['Program', 'Program Name', 'program_name', 'programName']).toLowerCase();
+  if (name !== '') {
+    const matchByName = PROGRAM_OPTIONS.find((option) => option.name.toLowerCase() === name);
+    if (matchByName) return matchByName.id;
+  }
+
+  return '';
+};
+
+const mapExcelRowToPayload = (row: Record<string, unknown>): FormData => {
+  const rawYear = pickValue(row, ['Year Graduated', 'year_graduated', 'yearGraduated']);
+  const parsedYear = rawYear ? Number.parseInt(rawYear, 10) : NaN;
+
+  return {
+    ...emptyForm,
+    student_id: pickValue(row, ['Student ID', 'student_id', 'studentId']),
+    first_name: pickValue(row, ['First Name', 'first_name', 'firstName']),
+    last_name: pickValue(row, ['Last Name', 'last_name', 'lastName']),
+    email: pickValue(row, ['Email', 'email']),
+    phone: pickValue(row, ['Phone', 'phone']),
+    program_id: resolveProgramId(row),
+    year_graduated: Number.isNaN(parsedYear) ? '' : String(parsedYear),
+    address: pickValue(row, ['Address', 'address']),
+    employment_status: normalizeEmploymentStatus(pickValue(row, ['Employment Status', 'employment_status', 'employmentStatus'])),
+    is_aligned: normalizeAlignment(pickValue(row, ['Course Alignment', 'is_aligned', 'isAligned'])),
+    company_name: pickValue(row, ['Company Name', 'company_name', 'companyName']),
+    job_title: pickValue(row, ['Job Title', 'job_title', 'jobTitle']),
+    industry: pickValue(row, ['Industry', 'industry']),
+    date_hired: pickValue(row, ['Date Hired', 'date_hired', 'dateHired']),
+    monthly_salary: pickValue(row, ['Monthly Salary', 'monthly_salary', 'monthlySalary']),
+    time_to_employment: pickValue(row, ['Time to Employment (months)', 'time_to_employment', 'timeToEmployment']),
+  };
+};
+
+type MessageType = 'confirm' | 'success' | 'error';
 
 export default function Graduates() {
   const [graduates, setGraduates] = useState<Graduate[]>([]);
@@ -79,32 +166,52 @@ export default function Graduates() {
   const [formData, setFormData] = useState<FormData>(emptyForm);
   const [isEditing, setIsEditing] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
-  const [msgBox, setMsgBox] = useState<{ isOpen: boolean; type: 'confirm' | 'success' | 'error'; message: string; onConfirm?: () => void }>({ isOpen: false, type: 'success', message: '' });
+  const [isImporting, setIsImporting] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [msgBox, setMsgBox] = useState<{ isOpen: boolean; type: MessageType; message: string; onConfirm?: () => void }>({ isOpen: false, type: 'success', message: '' });
 
-  const fetchGraduates = () => {
-    setLoading(true);
+  const buildQueryParams = (targetPage: number, limit: number) => {
     const params = new URLSearchParams();
-    params.append('page', page.toString());
-    params.append('limit', '10');
+    params.append('page', targetPage.toString());
+    params.append('limit', limit.toString());
     if (search) params.append('search', search);
     if (filterProgram) params.append('program_id', filterProgram);
     if (filterYear) params.append('year_graduated', filterYear);
     if (filterStatus) params.append('employment_status', filterStatus);
-
-    fetch(`${API_BASE}/graduates/index.php?${params}`)
-      .then((r) => r.json())
-      .then((res) => {
-        if (res.success) {
-          setGraduates(res.data);
-          setTotalPages(res.pagination.pages);
-          setTotal(res.pagination.total);
-        }
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    return params;
   };
 
-  useEffect(() => { fetchGraduates(); }, [page, search, filterProgram, filterYear, filterStatus]);
+  const fetchGraduates = async () => {
+    setLoading(true);
+    try {
+      const params = buildQueryParams(page, 10);
+      const response = await fetch(`${API_BASE}/graduates/index.php?${params}`, {
+        credentials: 'include',
+      });
+      const res = await response.json();
+
+      if (!response.ok || !res.success) {
+        throw new Error(res.error || 'Failed to load graduates');
+      }
+
+      setGraduates(res.data);
+      setTotalPages(res.pagination.pages);
+      setTotal(res.pagination.total);
+    } catch (error) {
+      setMsgBox({
+        isOpen: true,
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Failed to load graduates',
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchGraduates();
+  }, [page, search, filterProgram, filterYear, filterStatus]);
 
   const openAdd = () => {
     setFormData(emptyForm);
@@ -136,22 +243,37 @@ export default function Graduates() {
     setShowModal(true);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const method = isEditing ? 'PUT' : 'POST';
-    fetch(`${API_BASE}/graduates/index.php`, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(formData),
-    })
-      .then((r) => r.json())
-      .then((res) => {
-        if (res.success) {
-          setShowModal(false);
-          fetchGraduates();
-        }
-      })
-      .catch(() => {});
+
+    try {
+      const method = isEditing ? 'PUT' : 'POST';
+      const response = await fetch(`${API_BASE}/graduates/index.php`, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(formData),
+      });
+      const res = await response.json();
+
+      if (!response.ok || !res.success) {
+        throw new Error(res.error || 'Unable to save graduate');
+      }
+
+      setShowModal(false);
+      await fetchGraduates();
+      setMsgBox({
+        isOpen: true,
+        type: 'success',
+        message: isEditing ? 'Graduate updated successfully.' : 'Graduate added successfully.',
+      });
+    } catch (error) {
+      setMsgBox({
+        isOpen: true,
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Unable to save graduate',
+      });
+    }
   };
 
   const handleDelete = (id: number) => {
@@ -159,19 +281,190 @@ export default function Graduates() {
       isOpen: true,
       type: 'confirm',
       message: 'Are you sure you want to delete this graduate?',
-      onConfirm: () => {
-        fetch(`${API_BASE}/graduates/index.php`, {
-          method: 'DELETE',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id }),
-        })
-          .then((r) => r.json())
-          .then((res) => {
-            if (res.success) fetchGraduates();
-          })
-          .catch(() => {});
-      }
+      onConfirm: async () => {
+        try {
+          const response = await fetch(`${API_BASE}/graduates/index.php`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ id }),
+          });
+          const res = await response.json();
+
+          if (!response.ok || !res.success) {
+            throw new Error(res.error || 'Unable to delete graduate');
+          }
+
+          await fetchGraduates();
+          setMsgBox({
+            isOpen: true,
+            type: 'success',
+            message: 'Graduate deleted successfully.',
+          });
+        } catch (error) {
+          setMsgBox({
+            isOpen: true,
+            type: 'error',
+            message: error instanceof Error ? error.message : 'Unable to delete graduate',
+          });
+        }
+      },
     });
+  };
+
+  const fetchAllGraduates = async () => {
+    const rows: Graduate[] = [];
+    let currentPage = 1;
+    let pages = 1;
+
+    while (currentPage <= pages) {
+      const params = buildQueryParams(currentPage, 200);
+      const response = await fetch(`${API_BASE}/graduates/index.php?${params}`, {
+        credentials: 'include',
+      });
+      const res = await response.json();
+
+      if (!response.ok || !res.success) {
+        throw new Error(res.error || 'Unable to fetch graduates for export');
+      }
+
+      rows.push(...res.data);
+      pages = res.pagination.pages;
+      currentPage += 1;
+    }
+
+    return rows;
+  };
+
+  const handleExportExcel = async () => {
+    setIsExporting(true);
+
+    try {
+      const exportRows = await fetchAllGraduates();
+      const sheetData = exportRows.map((g) => ({
+        'Student ID': g.student_id || '',
+        'First Name': g.first_name || '',
+        'Last Name': g.last_name || '',
+        Email: g.email || '',
+        Phone: g.phone || '',
+        'Program ID': g.program_id || '',
+        'Program Code': g.program_code || '',
+        'Year Graduated': g.year_graduated || '',
+        Address: g.address || '',
+        'Employment Status': g.employment_status || '',
+        'Course Alignment': g.is_aligned || '',
+        'Company Name': g.company_name || '',
+        'Job Title': g.job_title || '',
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(sheetData, {
+        header: [
+          'Student ID',
+          'First Name',
+          'Last Name',
+          'Email',
+          'Phone',
+          'Program ID',
+          'Program Code',
+          'Year Graduated',
+          'Address',
+          'Employment Status',
+          'Course Alignment',
+          'Company Name',
+          'Job Title',
+        ],
+      });
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Graduates');
+
+      const dateStamp = new Date().toISOString().slice(0, 10);
+      XLSX.writeFile(workbook, `graduates-${dateStamp}.xlsx`);
+
+      setMsgBox({
+        isOpen: true,
+        type: 'success',
+        message: `Exported ${exportRows.length} graduate record(s) to Excel.`,
+      });
+    } catch (error) {
+      setMsgBox({
+        isOpen: true,
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Excel export failed',
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleImportClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+
+    if (!file) return;
+
+    setIsImporting(true);
+
+    try {
+      const fileBuffer = await file.arrayBuffer();
+      const workbook = XLSX.read(fileBuffer, { type: 'array' });
+      const firstSheetName = workbook.SheetNames[0];
+      if (!firstSheetName) {
+        throw new Error('Excel file has no worksheet.');
+      }
+
+      const worksheet = workbook.Sheets[firstSheetName];
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: '' });
+
+      if (rows.length === 0) {
+        throw new Error('Excel file is empty.');
+      }
+
+      let successCount = 0;
+      let failedCount = 0;
+
+      for (const row of rows) {
+        const payload = mapExcelRowToPayload(row);
+        if (!payload.first_name || !payload.last_name) {
+          failedCount += 1;
+          continue;
+        }
+
+        const response = await fetch(`${API_BASE}/graduates/index.php`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify(payload),
+        });
+        const result = await response.json();
+
+        if (response.ok && result.success) {
+          successCount += 1;
+        } else {
+          failedCount += 1;
+        }
+      }
+
+      await fetchGraduates();
+
+      const msgType: MessageType = failedCount > 0 ? 'error' : 'success';
+      setMsgBox({
+        isOpen: true,
+        type: msgType,
+        message: `Excel import finished. Added: ${successCount}. Failed: ${failedCount}.`,
+      });
+    } catch (error) {
+      setMsgBox({
+        isOpen: true,
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Excel import failed',
+      });
+    } finally {
+      setIsImporting(false);
+    }
   };
 
   const updateField = (field: keyof FormData, value: string) => {
@@ -185,15 +478,43 @@ export default function Graduates() {
           <h1 className="text-2xl font-bold text-[#1b2a4a]">Manage Graduates</h1>
           <p className="text-sm text-gray-500">{total} total graduates</p>
         </div>
-        <button
-          onClick={openAdd}
-          className="flex items-center gap-2 bg-[#1b2a4a] text-white px-4 py-2.5 rounded-lg hover:bg-[#263c66] transition-colors text-sm font-medium"
-        >
-          <Plus className="w-4 h-4" /> Add Graduate
-        </button>
+
+        <div className="flex items-center gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls"
+            className="hidden"
+            onChange={handleImportExcel}
+          />
+
+          <button
+            onClick={handleImportClick}
+            disabled={isImporting}
+            className="flex items-center gap-2 border border-blue-200 text-blue-700 px-4 py-2.5 rounded-lg hover:bg-blue-50 transition-colors text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <Download className="w-4 h-4" />
+            {isImporting ? 'Importing...' : 'Import Excel'}
+          </button>
+
+          <button
+            onClick={handleExportExcel}
+            disabled={isExporting}
+            className="flex items-center gap-2 border border-emerald-200 text-emerald-700 px-4 py-2.5 rounded-lg hover:bg-emerald-50 transition-colors text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <Upload className="w-4 h-4" />
+            {isExporting ? 'Exporting...' : 'Export Excel'}
+          </button>
+
+          <button
+            onClick={openAdd}
+            className="flex items-center gap-2 bg-[#1b2a4a] text-white px-4 py-2.5 rounded-lg hover:bg-[#263c66] transition-colors text-sm font-medium"
+          >
+            <Plus className="w-4 h-4" /> Add Graduate
+          </button>
+        </div>
       </div>
 
-      {/* Search & Filters */}
       <div className="bg-white rounded-xl shadow-sm border p-4 space-y-3">
         <div className="flex items-center gap-3">
           <div className="relative flex-1">
@@ -222,10 +543,9 @@ export default function Graduates() {
               className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="">All Programs</option>
-              <option value="1">Bachelor of Science in Computer Science (BSCS)</option>
-              <option value="2">Bachelor of Science in Hospitality Management (BSHM)</option>
-              <option value="3">Bachelor of Secondary Education (BSED)</option>
-              <option value="4">Bachelor of Elementary Education (BEED)</option>
+              {PROGRAM_OPTIONS.map((program) => (
+                <option key={program.id} value={program.id}>{program.name}</option>
+              ))}
             </select>
             <select
               value={filterYear}
@@ -252,7 +572,6 @@ export default function Graduates() {
         )}
       </div>
 
-      {/* Table */}
       <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -283,10 +602,10 @@ export default function Graduates() {
                     </td>
                     <td className="px-4 py-3">
                       <span className="bg-blue-50 text-blue-700 text-xs font-medium px-2 py-1 rounded">
-                        {g.program_code || '—'}
+                        {g.program_code || '-'}
                       </span>
                     </td>
-                    <td className="px-4 py-3">{g.year_graduated || '—'}</td>
+                    <td className="px-4 py-3">{g.year_graduated || '-'}</td>
                     <td className="px-4 py-3">
                       <span className={`text-xs font-medium px-2 py-1 rounded capitalize ${statusColors[g.employment_status] || 'bg-gray-100 text-gray-600'}`}>
                         {(g.employment_status || 'unknown').replace('_', ' ')}
@@ -303,7 +622,7 @@ export default function Graduates() {
                           <p className="font-medium">{g.job_title}</p>
                           <p className="text-gray-400">{g.company_name}</p>
                         </>
-                      ) : '—'}
+                      ) : '-'}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-center gap-1">
@@ -322,7 +641,6 @@ export default function Graduates() {
           </table>
         </div>
 
-        {/* Pagination */}
         {totalPages > 1 && (
           <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50">
             <p className="text-sm text-gray-500">
@@ -348,7 +666,6 @@ export default function Graduates() {
         )}
       </div>
 
-      {/* Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4">
@@ -362,7 +679,6 @@ export default function Graduates() {
             </div>
 
             <form onSubmit={handleSubmit} className="p-5 space-y-5">
-              {/* Personal Info */}
               <div>
                 <h3 className="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wide">Personal Information</h3>
                 <div className="grid grid-cols-2 gap-3">
@@ -379,10 +695,9 @@ export default function Graduates() {
                       className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
                       <option value="">Select</option>
-                      <option value="1">Bachelor of Science in Computer Science (BSCS)</option>
-                      <option value="2">Bachelor of Science in Hospitality Management (BSHM)</option>
-                      <option value="3">Bachelor of Secondary Education (BSED)</option>
-                      <option value="4">Bachelor of Elementary Education (BEED)</option>
+                      {PROGRAM_OPTIONS.map((program) => (
+                        <option key={program.id} value={program.id}>{program.name}</option>
+                      ))}
                     </select>
                   </div>
                   <Input label="Year Graduated" type="number" value={formData.year_graduated} onChange={(v) => updateField('year_graduated', v)} />
@@ -398,7 +713,6 @@ export default function Graduates() {
                 </div>
               </div>
 
-              {/* Employment Info */}
               <div>
                 <h3 className="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wide">Employment Information</h3>
                 <div className="grid grid-cols-2 gap-3">

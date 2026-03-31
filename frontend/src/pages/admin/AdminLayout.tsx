@@ -13,16 +13,27 @@ import {
   LogOut,
   ChevronDown,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import MessageBox from '../../components/MessageBox';
 
-const navItems = [
+type NavItem = {
+  to: string;
+  icon: LucideIcon;
+  label: string;
+  end?: boolean;
+};
+
+const adminNavItems: NavItem[] = [
   { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true },
-  { to: '/admin/graduates', icon: GraduationCap, label: 'Manage Graduates' },
   { to: '/admin/surveys', icon: ClipboardList, label: 'Survey Management' },
   { to: '/admin/reports', icon: BarChart3, label: 'Reports & Analytics' },
   { to: '/admin/announcements', icon: Megaphone, label: 'Announcements' },
   { to: '/admin/settings', icon: Settings, label: 'System Settings' },
+];
+
+const registrarNavItems: NavItem[] = [
+  { to: '/admin/graduates', icon: GraduationCap, label: 'Manage Graduates' },
 ];
 
 export default function AdminLayout() {
@@ -31,6 +42,7 @@ export default function AdminLayout() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const [msgBox, setMsgBox] = useState<{ isOpen: boolean; type: 'confirm'; message: string; onConfirm?: () => void }>({ isOpen: false, type: 'confirm', message: '' });
+  const navItems = user?.role === 'registrar' ? registrarNavItems : adminNavItems;
 
   const handleLogout = () => {
     setMsgBox({

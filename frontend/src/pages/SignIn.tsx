@@ -18,8 +18,8 @@ function SignIn() {
     setIsLoading(true);
 
     try {
-      await login(email, password);
-      navigate('/admin');
+      const user = await login(email, password);
+      navigate(user.role === 'registrar' ? '/admin/graduates' : '/admin');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {

@@ -241,7 +241,6 @@ function HomePage() {
                   <li><a href="#about" className="text-blue-200 hover:text-yellow-400 transition text-sm">About Us</a></li>
                   <li><a href="#features" className="text-blue-200 hover:text-yellow-400 transition text-sm">Features</a></li>
                   <li><a href="#" className="text-blue-200 hover:text-yellow-400 transition text-sm">FAQs</a></li>
-                  <li><Link to="/admin/signin" className="text-blue-200 hover:text-yellow-400 transition text-sm">Admin Login</Link></li>
                 </ul>
               </div>
 

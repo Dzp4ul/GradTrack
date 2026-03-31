@@ -20,6 +20,11 @@ GradTrack/
 └── database/          # SQL files
 ```
 
+## Default Accounts
+
+- Super Admin: `admin@norzagaray.edu.ph` / `admin123`
+- Registrar: `registrar@norzagaray.edu.ph` / `Registrar2026`
+
 ## Quick Start (Local Development)
 
 ### Backend Setup

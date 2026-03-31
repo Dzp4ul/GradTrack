@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import HomePage from './pages/HomePage';
 import SignIn from './pages/SignIn';
 import Survey from './pages/Survey';
@@ -11,8 +11,20 @@ import SurveyAnalytics from './pages/admin/SurveyAnalytics';
 import Reports from './pages/admin/Reports';
 import Announcements from './pages/admin/Announcements';
 import Settings from './pages/admin/Settings';
-import { AuthProvider } from './contexts/AuthContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ProtectedRoute } from './lib/ProtectedRoute';
+
+const ADMIN_ROLES = ['super_admin', 'admin'];
+
+function AdminHome() {
+  const { user } = useAuth();
+
+  if (user?.role === 'registrar') {
+    return <Navigate to="/admin/graduates" replace />;
+  }
+
+  return <Dashboard />;
+}
 
 function App() {
   return (
@@ -33,14 +45,63 @@ function App() {
             </ProtectedRoute>
           }
         >
-          <Route index element={<Dashboard />} />
-          <Route path="graduates" element={<Graduates />} />
-          <Route path="surveys" element={<Surveys />} />
-          <Route path="surveys/:surveyId/responses" element={<SurveyResponses />} />
-          <Route path="surveys/:surveyId/analytics" element={<SurveyAnalytics />} />
-          <Route path="reports" element={<Reports />} />
-          <Route path="announcements" element={<Announcements />} />
-          <Route path="settings" element={<Settings />} />
+          <Route index element={<AdminHome />} />
+          <Route
+            path="graduates"
+            element={
+              <ProtectedRoute allowedRoles={['registrar']}>
+                <Graduates />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="surveys"
+            element={
+              <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+                <Surveys />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="surveys/:surveyId/responses"
+            element={
+              <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+                <SurveyResponses />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="surveys/:surveyId/analytics"
+            element={
+              <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+                <SurveyAnalytics />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="reports"
+            element={
+              <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+                <Reports />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="announcements"
+            element={
+              <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+                <Announcements />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="settings"
+            element={
+              <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+                <Settings />
+              </ProtectedRoute>
+            }
+          />
         </Route>
       </Routes>
     </AuthProvider>
