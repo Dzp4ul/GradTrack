@@ -24,7 +24,8 @@ CREATE TABLE admin_users (
   email VARCHAR(100) NOT NULL UNIQUE,
   password VARCHAR(255) NOT NULL,
   full_name VARCHAR(100),
-  role ENUM('super_admin', 'admin', 'registrar') DEFAULT 'admin',
+  role ENUM('super_admin', 'admin', 'registrar', 'dean_cs', 'dean_coed', 'dean_hm') DEFAULT 'admin',
+  is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
@@ -160,12 +161,17 @@ INSERT INTO programs (name, code, description) VALUES
 ('Bachelor of Science in Computer Science', 'BSCS', 'Computer Science program'),
 ('Bachelor of Science in Hospitality Management', 'BSHM', 'Hospitality Management program'),
 ('Bachelor of Secondary Education', 'BSED', 'Secondary Education program'),
-('Bachelor of Elementary Education', 'BEED', 'Elementary Education program');
+('Bachelor of Elementary Education', 'BEED', 'Elementary Education program'),
+('Associate in Computer Technology', 'ACT', 'Associate in Computer Technology program');
 
 -- Admin User (password: admin123)
 INSERT INTO admin_users (username, email, password, full_name, role) VALUES
 ('admin', 'admin@norzagaray.edu.ph', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', 'System Administrator', 'super_admin'),
-('registrar', 'registrar@norzagaray.edu.ph', '$2y$10$xdcUNUI9Rd//izOo8u5vROycB91SwWUThhaV2FD1TOd7IODqIGkRK', 'Registrar Account', 'registrar');
+('superadmin', 'superadmin@gradtrack.com', '$2y$10$M2FkQKG7ojGzVUZWV5bC8.1mT7e73LoLZIun13FQSFYpRvzLj6c9i', 'Super Administrator', 'super_admin'),
+('registrar', 'registrar@norzagaray.edu.ph', '$2y$10$xdcUNUI9Rd//izOo8u5vROycB91SwWUThhaV2FD1TOd7IODqIGkRK', 'Registrar Account', 'registrar'),
+('dean_cs', 'deancs@gradtrack.com', '$2y$10$kK0dRboh18OnTKsS7z1tnu7rpvJ.DvmKq1HYyU.8H4dC/Owzawcs.', 'Dean - College of Computer Studies', 'dean_cs'),
+('dean_coed', 'deancoed@gradtrack.com', '$2y$10$jmCoiznvvHO5fkbCOyb9hO1.xhEq004Qqg91S.WmHYJ2Xmyf9zQxm', 'Dean - College of Education', 'dean_coed'),
+('dean_hm', 'deanhm@gradtrack.com', '$2y$10$fAI6GBuGlcYYino2Hhr5eOJ5xrnl0os0TcI6qBIqDo/zn6Qr50SMm', 'Dean - Hospitality Management', 'dean_hm');
 
 -- Graduates (sample data)
 INSERT INTO graduates (student_id, first_name, last_name, email, phone, program_id, year_graduated) VALUES

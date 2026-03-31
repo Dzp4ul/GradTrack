@@ -19,4 +19,6 @@ export const API_ENDPOINTS = {
   REPORTS: `${API_ROOT}/reports/index.php`,
   ANNOUNCEMENTS: `${API_ROOT}/announcements/index.php`,
   SETTINGS: `${API_ROOT}/settings/index.php`,
+  USERS: `${API_ROOT}/users/index.php`,
+  DEAN_SURVEY_STATUS: `${API_ROOT}/dean/survey-status.php`,
 };

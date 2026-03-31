@@ -3,8 +3,10 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   GraduationCap,
+  ClipboardCheck,
   ClipboardList,
   BarChart3,
+  Users,
   Megaphone,
   Settings,
   Menu,
@@ -29,11 +31,19 @@ const adminNavItems: NavItem[] = [
   { to: '/admin/surveys', icon: ClipboardList, label: 'Survey Management' },
   { to: '/admin/reports', icon: BarChart3, label: 'Reports & Analytics' },
   { to: '/admin/announcements', icon: Megaphone, label: 'Announcements' },
+];
+
+const superAdminNavItems: NavItem[] = [
+  { to: '/admin/user-management', icon: Users, label: 'User Management' },
   { to: '/admin/settings', icon: Settings, label: 'System Settings' },
 ];
 
 const registrarNavItems: NavItem[] = [
   { to: '/admin/graduates', icon: GraduationCap, label: 'Manage Graduates' },
+];
+
+const deanNavItems: NavItem[] = [
+  { to: '/admin/survey-status', icon: ClipboardCheck, label: 'Survey Participation' },
 ];
 
 export default function AdminLayout() {
@@ -42,7 +52,14 @@ export default function AdminLayout() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const [msgBox, setMsgBox] = useState<{ isOpen: boolean; type: 'confirm'; message: string; onConfirm?: () => void }>({ isOpen: false, type: 'confirm', message: '' });
-  const navItems = user?.role === 'registrar' ? registrarNavItems : adminNavItems;
+  const navItems =
+    user?.role === 'super_admin'
+      ? superAdminNavItems
+      : user?.role === 'registrar'
+      ? registrarNavItems
+      : ['dean_cs', 'dean_coed', 'dean_hm'].includes(user?.role || '')
+        ? deanNavItems
+        : adminNavItems;
 
   const handleLogout = () => {
     setMsgBox({
@@ -67,9 +84,9 @@ export default function AdminLayout() {
         {/* Logo */}
         <div className="flex items-center justify-center gap-3 px-4 py-3 border-b border-white/10">
           {sidebarOpen ? (
-            <img src="Gradtrack_Logo2.png" alt="Logo" className="object-contain flex-shrink-0" />
+            <img src="/Gradtrack_Logo2.png" alt="Logo" className="object-contain flex-shrink-0" />
           ) : (
-            <img src="Gradtrack_small.png" alt="Logo" className="h-12 w-12 object-contain flex-shrink-0" />
+            <img src="/Gradtrack_small.png" alt="Logo" className="h-12 w-12 object-contain flex-shrink-0" />
           )}
         </div>
 

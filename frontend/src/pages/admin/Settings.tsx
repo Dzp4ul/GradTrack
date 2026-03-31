@@ -41,7 +41,9 @@ export default function Settings() {
 
   const fetchSettings = () => {
     setLoading(true);
-    fetch(`${API_BASE}/settings/index.php`)
+    fetch(`${API_BASE}/settings/index.php`, {
+      credentials: 'include',
+    })
       .then((r) => r.json())
       .then((res) => {
         if (res.success) {
@@ -76,6 +78,7 @@ export default function Settings() {
     fetch(`${API_BASE}/settings/index.php`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({
         settings: settings.map((s) => ({
           setting_key: s.setting_key,

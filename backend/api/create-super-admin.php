@@ -8,12 +8,12 @@ if (!in_array($_SERVER['REQUEST_METHOD'], ['GET', 'POST'], true)) {
     exit;
 }
 
-$registrarEmail = 'registrar@norzagaray.edu.ph';
-$registrarPassword = 'Registrar2026';
-$registrarUsername = 'registrar';
-$registrarFullName = 'Registrar Account';
-$registrarRole = 'registrar';
-$passwordHash = password_hash($registrarPassword, PASSWORD_BCRYPT);
+$email = 'superadmin@gradtrack.com';
+$password = 'Superadin2026';
+$username = 'superadmin';
+$fullName = 'Super Administrator';
+$role = 'super_admin';
+$passwordHash = password_hash($password, PASSWORD_BCRYPT);
 
 function ensureIsActiveColumn(PDO $conn): void
 {
@@ -27,15 +27,14 @@ try {
     $database = new Database();
     $conn = $database->getConnection();
 
-    $alterRoleColumn = $conn->prepare("
+    $conn->exec("
         ALTER TABLE admin_users
         MODIFY role ENUM('super_admin', 'admin', 'registrar', 'dean_cs', 'dean_coed', 'dean_hm') DEFAULT 'admin'
     ");
-    $alterRoleColumn->execute();
     ensureIsActiveColumn($conn);
 
     $checkStmt = $conn->prepare("SELECT id FROM admin_users WHERE email = :email");
-    $checkStmt->execute([':email' => $registrarEmail]);
+    $checkStmt->execute([':email' => $email]);
     $existing = $checkStmt->fetch(PDO::FETCH_ASSOC);
 
     if ($existing) {
@@ -45,19 +44,19 @@ try {
             WHERE id = :id
         ");
         $updateStmt->execute([
-            ':username' => $registrarUsername,
+            ':username' => $username,
             ':password' => $passwordHash,
-            ':full_name' => $registrarFullName,
-            ':role' => $registrarRole,
+            ':full_name' => $fullName,
+            ':role' => $role,
             ':id' => $existing['id'],
         ]);
 
         echo json_encode([
             "success" => true,
-            "message" => "Registrar account updated",
+            "message" => "Super admin account updated",
             "credentials" => [
-                "email" => $registrarEmail,
-                "password" => $registrarPassword,
+                "email" => $email,
+                "password" => $password,
             ],
         ]);
         exit;
@@ -68,26 +67,22 @@ try {
         VALUES (:username, :email, :password, :full_name, :role, 1)
     ");
     $insertStmt->execute([
-        ':username' => $registrarUsername,
-        ':email' => $registrarEmail,
+        ':username' => $username,
+        ':email' => $email,
         ':password' => $passwordHash,
-        ':full_name' => $registrarFullName,
-        ':role' => $registrarRole,
+        ':full_name' => $fullName,
+        ':role' => $role,
     ]);
 
     echo json_encode([
         "success" => true,
-        "message" => "Registrar account created",
+        "message" => "Super admin account created",
         "credentials" => [
-            "email" => $registrarEmail,
-            "password" => $registrarPassword,
+            "email" => $email,
+            "password" => $password,
         ],
     ]);
 } catch (Exception $e) {
     http_response_code(500);
-    echo json_encode([
-        "success" => false,
-        "error" => $e->getMessage(),
-    ]);
+    echo json_encode(["success" => false, "error" => $e->getMessage()]);
 }
-?>

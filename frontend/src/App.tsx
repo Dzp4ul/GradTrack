@@ -11,16 +11,28 @@ import SurveyAnalytics from './pages/admin/SurveyAnalytics';
 import Reports from './pages/admin/Reports';
 import Announcements from './pages/admin/Announcements';
 import Settings from './pages/admin/Settings';
+import DeanSurveyStatus from './pages/admin/DeanSurveyStatus';
+import UserManagement from './pages/admin/UserManagement';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ProtectedRoute } from './lib/ProtectedRoute';
 
-const ADMIN_ROLES = ['super_admin', 'admin'];
+const SUPER_ADMIN_ROLES = ['super_admin'];
+const ADMIN_ROLES = ['admin'];
+const DEAN_ROLES = ['dean_cs', 'dean_coed', 'dean_hm'];
 
 function AdminHome() {
   const { user } = useAuth();
 
+  if (user?.role === 'super_admin') {
+    return <Navigate to="/admin/user-management" replace />;
+  }
+
   if (user?.role === 'registrar') {
     return <Navigate to="/admin/graduates" replace />;
+  }
+
+  if (user?.role && DEAN_ROLES.includes(user.role)) {
+    return <Navigate to="/admin/survey-status" replace />;
   }
 
   return <Dashboard />;
@@ -51,6 +63,14 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={['registrar']}>
                 <Graduates />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="survey-status"
+            element={
+              <ProtectedRoute allowedRoles={DEAN_ROLES}>
+                <DeanSurveyStatus />
               </ProtectedRoute>
             }
           />
@@ -97,8 +117,16 @@ function App() {
           <Route
             path="settings"
             element={
-              <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+              <ProtectedRoute allowedRoles={SUPER_ADMIN_ROLES}>
                 <Settings />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="user-management"
+            element={
+              <ProtectedRoute allowedRoles={SUPER_ADMIN_ROLES}>
+                <UserManagement />
               </ProtectedRoute>
             }
           />

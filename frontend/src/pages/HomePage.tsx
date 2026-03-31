@@ -44,7 +44,7 @@ function HomePage() {
               <div className="text-white space-y-8">
                 <div className="inline-block">
                   <img
-                    src="Gradtrack_Logo2.png"
+                    src="/Gradtrack_Logo2.png"
                     alt="GradTrack Logo"
                     className="h-24 object-contain mb-6"
                   />

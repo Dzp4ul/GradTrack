@@ -184,7 +184,7 @@ function Survey() {
       <div className="min-h-screen bg-cover bg-center bg-fixed relative flex flex-col items-center justify-center p-6" style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
         <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80 pointer-events-none"></div>
         <div className="flex justify-center mb-6 relative z-10">
-          <img src="Gradtrack_Logo2.png" alt="GradTrack Logo" className="h-20 object-contain" />
+          <img src="/Gradtrack_Logo2.png" alt="GradTrack Logo" className="h-20 object-contain" />
         </div>
         <div className="w-full max-w-2xl bg-white rounded-2xl shadow-xl p-10 border border-blue-100 relative z-10 text-center">
           <ClipboardList className="w-16 h-16 text-gray-300 mx-auto mb-4" />
@@ -205,7 +205,7 @@ function Survey() {
         <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80 pointer-events-none"></div>
         <div className="flex justify-center mb-6 relative z-10">
           <img
-            src="Gradtrack_Logo2.png"
+            src="/Gradtrack_Logo2.png"
             alt="GradTrack Logo"
             className="h-20 object-contain"
           />
@@ -475,7 +475,7 @@ function Survey() {
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 relative">
         <div className="flex justify-center mb-6">
           <img
-            src="Gradtrack_Logo2.png"
+            src="/Gradtrack_Logo2.png"
             alt="GradTrack Logo"
             className="h-20 object-contain"
           />

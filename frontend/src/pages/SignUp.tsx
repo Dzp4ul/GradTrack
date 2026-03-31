@@ -79,7 +79,7 @@ function SignUp() {
 
           <div className="flex justify-center mb-6">
             <img
-              src="GRADTRACK_LOGO1.png"
+              src="/GRADTRACK_LOGO1.png"
               alt="GradTrack Logo"
               className="h-20 object-contain"
             />

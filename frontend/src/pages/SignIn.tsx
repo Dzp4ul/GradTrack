@@ -19,7 +19,13 @@ function SignIn() {
 
     try {
       const user = await login(email, password);
-      navigate(user.role === 'registrar' ? '/admin/graduates' : '/admin');
+      if (user.role === 'registrar') {
+        navigate('/admin/graduates');
+      } else if (['dean_cs', 'dean_coed', 'dean_hm'].includes(user.role)) {
+        navigate('/admin/survey-status');
+      } else {
+        navigate('/admin');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
     } finally {

@@ -58,6 +58,7 @@ const PROGRAM_OPTIONS = [
   { id: '2', code: 'BSHM', name: 'Bachelor of Science in Hospitality Management (BSHM)' },
   { id: '3', code: 'BSED', name: 'Bachelor of Secondary Education (BSED)' },
   { id: '4', code: 'BEED', name: 'Bachelor of Elementary Education (BEED)' },
+  { id: '5', code: 'ACT', name: 'Associate in Computer Technology (ACT)' },
 ];
 
 const statusColors: Record<string, string> = {

@@ -1,6 +1,5 @@
 USE gradtrackdb;
 
--- Allow registrar role in existing databases.
 ALTER TABLE admin_users
   MODIFY role ENUM('super_admin', 'admin', 'registrar', 'dean_cs', 'dean_coed', 'dean_hm') DEFAULT 'admin';
 
@@ -22,20 +21,18 @@ PREPARE stmt_add_is_active FROM @add_column_sql;
 EXECUTE stmt_add_is_active;
 DEALLOCATE PREPARE stmt_add_is_active;
 
--- Registrar credentials:
--- Email: registrar@norzagaray.edu.ph
--- Password: Registrar2026
 INSERT INTO admin_users (username, email, password, full_name, role, is_active)
 VALUES (
-  'registrar',
-  'registrar@norzagaray.edu.ph',
-  '$2y$10$xdcUNUI9Rd//izOo8u5vROycB91SwWUThhaV2FD1TOd7IODqIGkRK',
-  'Registrar Account',
-  'registrar',
+  'superadmin',
+  'superadmin@gradtrack.com',
+  '$2y$10$M2FkQKG7ojGzVUZWV5bC8.1mT7e73LoLZIun13FQSFYpRvzLj6c9i',
+  'Super Administrator',
+  'super_admin',
   1
 )
 ON DUPLICATE KEY UPDATE
+  username = VALUES(username),
   password = VALUES(password),
   full_name = VALUES(full_name),
-  role = 'registrar',
+  role = 'super_admin',
   is_active = 1;

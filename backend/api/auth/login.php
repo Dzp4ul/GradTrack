@@ -52,7 +52,17 @@ $database = new Database();
 $conn = $database->getConnection();
 
 try {
-    $query = "SELECT id, username, email, full_name, role FROM admin_users WHERE email = :email";
+    $hasIsActive = false;
+    try {
+        $columnStmt = $conn->query("SHOW COLUMNS FROM admin_users LIKE 'is_active'");
+        $hasIsActive = $columnStmt !== false && $columnStmt->rowCount() > 0;
+    } catch (Exception $ignored) {
+        $hasIsActive = false;
+    }
+
+    $query = $hasIsActive
+        ? "SELECT id, username, email, full_name, role, password, is_active FROM admin_users WHERE email = :email"
+        : "SELECT id, username, email, full_name, role, password, 1 AS is_active FROM admin_users WHERE email = :email";
     $stmt = $conn->prepare($query);
     $stmt->bindParam(':email', $email);
     $stmt->execute();
@@ -65,18 +75,20 @@ try {
 
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    // Verify password (check against hashed password in database)
-    $hashedPasswordQuery = "SELECT password FROM admin_users WHERE email = :email";
-    $hashStmt = $conn->prepare($hashedPasswordQuery);
-    $hashStmt->bindParam(':email', $email);
-    $hashStmt->execute();
-    $hashResult = $hashStmt->fetch(PDO::FETCH_ASSOC);
+    if (isset($user['is_active']) && (int) $user['is_active'] === 0) {
+        http_response_code(403);
+        echo json_encode(["error" => "Account is deactivated. Please contact super admin."]);
+        exit;
+    }
 
-    if (!password_verify($password, $hashResult['password']) && $hashResult['password'] !== $password) {
+    if (!password_verify($password, $user['password']) && $user['password'] !== $password) {
         http_response_code(401);
         echo json_encode(["error" => "Invalid email or password"]);
         exit;
     }
+
+    unset($user['password']);
+    unset($user['is_active']);
 
     // Start session
     session_start();

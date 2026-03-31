@@ -25,7 +25,12 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
   }
 
   if (allowedRoles && user && !allowedRoles.includes(user.role)) {
-    const fallbackPath = user.role === 'registrar' ? '/admin/graduates' : '/admin';
+    const fallbackPath =
+      user.role === 'registrar'
+        ? '/admin/graduates'
+        : ['dean_cs', 'dean_coed', 'dean_hm'].includes(user.role)
+          ? '/admin/survey-status'
+          : '/admin';
     return <Navigate to={fallbackPath} replace />;
   }
 
