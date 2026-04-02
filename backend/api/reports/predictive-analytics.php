@@ -176,7 +176,7 @@ try {
     $dataContext = json_encode($analysisData);
     
     // Get GROQ API key
-    $groqApiKey = getenv('GROQ_API_KEY') ?: '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';
+    $groqApiKey = getenv('GROQ_API_KEY');
     
     if (empty($groqApiKey)) {
         // Return predictions without AI analysis
