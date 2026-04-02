@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
-  Plus, Edit2, Trash2, X, ClipboardList, Eye, ChevronDown, ChevronUp, ShieldCheck, BarChart3, FileText, Briefcase, Star, Users, Award,
+  Plus, Edit2, Trash2, X, ClipboardList, Eye, ChevronDown, ChevronUp, ShieldCheck, BarChart3, FileText, Briefcase, Star, Users, Award, Info,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import MessageBox from '../../components/MessageBox';
@@ -411,6 +411,9 @@ export default function Surveys() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 ml-4 flex-shrink-0">
+                    <button onClick={() => navigate(`/admin/surveys/${s.id}`)} className="p-2 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors font-medium" title="View Details">
+                      <Info className="w-5 h-5" />
+                    </button>
                     <button onClick={() => navigate(`/admin/surveys/${s.id}/analytics`)} className="p-2 rounded-lg hover:bg-purple-50 text-purple-600 transition-colors font-medium" title="View Analytics">
                       <BarChart3 className="w-5 h-5" />
                     </button>

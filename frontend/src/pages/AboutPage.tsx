@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Target, AlertTriangle, CheckCircle, Users, BarChart2, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Users, BarChart2, ShieldCheck } from 'lucide-react';
 
 export default function AboutPage() {
   return (
@@ -32,9 +32,7 @@ export default function AboutPage() {
       <section className="bg-gradient-to-br from-blue-900 via-blue-800 to-blue-700 py-20">
         <div className="max-w-6xl mx-auto px-6 grid md:grid-cols-2 gap-12 items-center">
           <div className="flex justify-center">
-            <div className="w-64 h-64 bg-white/10 rounded-full flex items-center justify-center">
-              <Target className="w-32 h-32 text-yellow-400 opacity-80" />
-            </div>
+            <img src="/GradTrack_bw.png" alt="GradTrack" className="h-64 object-contain" />
           </div>
           <div>
             <h2 className="text-4xl font-extrabold text-yellow-400 mb-6">Our Mission</h2>
@@ -61,13 +59,7 @@ export default function AboutPage() {
             </p>
           </div>
           <div className="flex justify-center">
-            <div className="relative w-72 h-72">
-              <div className="absolute inset-0 bg-blue-700 rounded-full opacity-20" />
-              <div className="absolute inset-8 bg-blue-600 rounded-full opacity-30" />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <AlertTriangle className="w-28 h-28 text-yellow-500" />
-              </div>
-            </div>
+            <img src="/CHALLENGE (1).png" alt="GradTrack" className="h-64 object-contain" />
           </div>
         </div>
       </section>
@@ -75,15 +67,7 @@ export default function AboutPage() {
       {/* The Solution */}
       <section className="py-24 bg-white">
         <div className="max-w-6xl mx-auto px-6 grid md:grid-cols-2 gap-16 items-center">
-          <div className="flex justify-center order-2 md:order-1">
-            <div className="relative w-72 h-72">
-              <div className="absolute inset-0 bg-yellow-400 rounded-full opacity-20" />
-              <div className="absolute inset-8 bg-yellow-500 rounded-full opacity-20" />
-              <div className="absolute inset-0 flex items-center justify-center">
-                <CheckCircle className="w-28 h-28 text-blue-700" />
-              </div>
-            </div>
-          </div>
+          <img src="/GRADTRACK_POV.png" alt="GradTrack" className="h-150 object-contain" />
           <div className="order-1 md:order-2">
             <h2 className="text-3xl font-bold mb-4">
               <span className="text-yellow-500">The Solution: </span>

@@ -7,6 +7,7 @@ import AdminLayout from './pages/admin/AdminLayout';
 import Dashboard from './pages/admin/Dashboard';
 import Graduates from './pages/admin/Graduates';
 import Surveys from './pages/admin/Surveys';
+import SurveyDetail from './pages/admin/SurveyDetail';
 import SurveyResponses from './pages/admin/SurveyResponses';
 import SurveyAnalytics from './pages/admin/SurveyAnalytics';
 import Reports from './pages/admin/Reports';
@@ -81,6 +82,14 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={ADMIN_ROLES}>
                 <Surveys />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="surveys/:id"
+            element={
+              <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+                <SurveyDetail />
               </ProtectedRoute>
             }
           />
