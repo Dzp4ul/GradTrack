@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import HomePage from './pages/HomePage';
+import AboutPage from './pages/AboutPage';
 import SignIn from './pages/SignIn';
 import Survey from './pages/Survey';
 import AdminLayout from './pages/admin/AdminLayout';
@@ -43,6 +44,7 @@ function App() {
     <AuthProvider>
       <Routes>
         <Route path="/" element={<HomePage />} />
+        <Route path="/about" element={<AboutPage />} />
         <Route path="/survey" element={<Survey />} />
         
         {/* Admin Sign In - Separate route for admin only */}

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Briefcase, TrendingUp, Users } from 'lucide-react';
+import { Briefcase, TrendingUp, Users, BarChart2, Bell, ShieldCheck } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
 function HomePage() {
@@ -11,23 +11,23 @@ function HomePage() {
     <div className="min-h-screen bg-cover bg-center bg-fixed relative" style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
       <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80 pointer-events-none"></div>
       <nav className="bg-blue-900/95 backdrop-blur-sm shadow-lg sticky top-0 z-50 relative">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-20">
             <div className="flex items-center space-x-4">
               <img
-                src="/logo.png"
+                src="/Gradtrack_small.png"
                 alt="Norzagaray College"
                 className="h-16 w-16 object-contain"
               />
               <div>
-                <h1 className="text-xl font-bold text-white">Norzagaray College</h1>
-                <p className="text-sm text-blue-100">Alumni Tracking System</p>
+                <h1 className="text-xl font-bold text-white">GradTrack</h1>
+                <p className="text-sm text-blue-100">Graduate Tracer System</p>
               </div>
             </div>
             <div className="flex items-center space-x-6">
-              <a href="#about" className="text-white hover:text-yellow-400 font-medium transition">About</a>
-              <a href="#features" className="text-white hover:text-yellow-400 font-medium transition">Features</a>
-              <a href="#" className="text-white hover:text-yellow-400 font-medium transition">FAQ</a>
+              <Link to="/about" className="text-white hover:text-yellow-400 font-medium transition">About</Link>
+              <a href="#why-gradtrack" className="text-white hover:text-yellow-400 font-medium transition">Features</a>
+              <a href="#" className="text-white hover:text-yellow-400 font-medium transition">FAQ's</a>
               <Link to="/survey" className="bg-yellow-500 hover:bg-yellow-600 text-blue-900 px-6 py-2.5 rounded-lg font-medium transition shadow-md hover:shadow-lg">
                 Take Survey
               </Link>
@@ -77,7 +77,7 @@ function HomePage() {
             <div className="text-center mb-16">
               <h2 className="text-4xl font-bold text-blue-900 mb-4">About GradTrack</h2>
               <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-                A comprehensive alumni tracking system designed to bridge the gap between education and career success
+                GradTrack is Norzagaray College's official graduate tracking and survey management system — built to monitor alumni outcomes, measure program effectiveness, and strengthen the bond between the college and its graduates.
               </p>
             </div>
 
@@ -88,7 +88,7 @@ function HomePage() {
                 </div>
                 <h3 className="text-2xl font-bold text-blue-900 mb-3">For Graduates</h3>
                 <p className="text-gray-600 leading-relaxed">
-                  Share your employment information, complete surveys, and stay connected with your alma mater through announcements and updates.
+                  Complete tracer surveys, submit your employment details, and receive announcements from Norzagaray College — all in one place.
                 </p>
               </div>
 
@@ -96,9 +96,9 @@ function HomePage() {
                 <div className="inline-block bg-yellow-500 p-4 rounded-2xl mb-6">
                   <TrendingUp className="w-8 h-8 text-blue-900" />
                 </div>
-                <h3 className="text-2xl font-bold text-blue-900 mb-3">Data-Driven Insights</h3>
+                <h3 className="text-2xl font-bold text-blue-900 mb-3">Institutional Insights</h3>
                 <p className="text-gray-600 leading-relaxed">
-                  Analyze employment trends, track course-to-career alignment, and make informed decisions about curriculum development.
+                  Gain a clear picture of graduate outcomes — employment rates, industry distribution, and course-career alignment — to guide program improvements.
                 </p>
               </div>
 
@@ -106,38 +106,67 @@ function HomePage() {
                 <div className="inline-block bg-blue-600 p-4 rounded-2xl mb-6">
                   <Briefcase className="w-8 h-8 text-white" />
                 </div>
-                <h3 className="text-2xl font-bold text-blue-900 mb-3">Career Tracking</h3>
+                <h3 className="text-2xl font-bold text-blue-900 mb-3">Course-Career Alignment</h3>
                 <p className="text-gray-600 leading-relaxed">
-                  Monitor graduate career progression, identify successful outcomes, and ensure educational programs meet industry demands.
+                  Automatically measures whether graduates are working in fields related to their degree, giving the college actionable data to improve its programs.
                 </p>
               </div>
             </div>
           </div>
         </section>
 
-        <section id="features" className="bg-gradient-to-br from-blue-900 to-blue-800 py-20">
+        <section id="why-gradtrack" className="bg-gray-50 py-20">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-16">
-              <h2 className="text-4xl font-bold text-white mb-4">Key Features</h2>
-              <p className="text-xl text-blue-100 max-w-3xl mx-auto">
-                Everything you need to effectively track and engage with alumni
+              <h2 className="text-4xl font-bold text-blue-900 mb-4">Why GradTrack?</h2>
+              <p className="text-xl text-gray-600 max-w-2xl mx-auto">
+                Built specifically for Norzagaray College to turn graduate data into meaningful action.
               </p>
             </div>
 
-            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="grid md:grid-cols-3 gap-8 mb-16">
+              <div className="bg-white rounded-2xl p-8 shadow-sm border border-gray-100 flex flex-col items-center text-center hover:shadow-md transition">
+                <div className="bg-blue-100 p-4 rounded-full mb-5">
+                  <BarChart2 className="w-8 h-8 text-blue-700" />
+                </div>
+                <h3 className="text-xl font-bold text-blue-900 mb-2">Real Employment Data</h3>
+                <p className="text-gray-500 text-sm leading-relaxed">
+                  Collect verified employment status, job titles, companies, and industries directly from graduates through structured tracer surveys.
+                </p>
+              </div>
+
+              <div className="bg-white rounded-2xl p-8 shadow-sm border border-gray-100 flex flex-col items-center text-center hover:shadow-md transition">
+                <div className="bg-yellow-100 p-4 rounded-full mb-5">
+                  <Bell className="w-8 h-8 text-yellow-600" />
+                </div>
+                <h3 className="text-xl font-bold text-blue-900 mb-2">Structured Tracer Surveys</h3>
+                <p className="text-gray-500 text-sm leading-relaxed">
+                  Admins build custom tracer surveys with multiple question types. Graduates answer directly online no paper forms, no manual encoding.
+                </p>
+              </div>
+
+              <div className="bg-white rounded-2xl p-8 shadow-sm border border-gray-100 flex flex-col items-center text-center hover:shadow-md transition">
+                <div className="bg-blue-100 p-4 rounded-full mb-5">
+                  <ShieldCheck className="w-8 h-8 text-blue-700" />
+                </div>
+                <h3 className="text-xl font-bold text-blue-900 mb-2">Role-Based Access</h3>
+                <p className="text-gray-500 text-sm leading-relaxed">
+                  Super Admins, Registrars, and Deans each have dedicated dashboards ensuring the right people see the right data.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
               {[
-                { title: 'Graduate Surveys', desc: 'Comprehensive questionnaires for data collection' },
-                { title: 'Employment Tracking', desc: 'Real-time job and career information' },
-                { title: 'Announcements', desc: 'Keep graduates informed and engaged' },
-                { title: 'Course Alignment', desc: 'Measure education-to-career fit' },
-                { title: 'Analytics Dashboard', desc: 'Visual insights and reports' },
-                { title: 'Secure Access', desc: 'Protected graduate information' },
-                { title: 'Easy Updates', desc: 'Simple profile management' },
-                { title: 'Engagement Tools', desc: 'Foster lasting connections' }
-              ].map((feature, index) => (
-                <div key={index} className="bg-white/10 backdrop-blur-sm p-6 rounded-xl border border-white/20 hover:bg-white/15 transition">
-                  <h3 className="text-lg font-bold text-white mb-2">{feature.title}</h3>
-                  <p className="text-blue-100 text-sm">{feature.desc}</p>
+                { value: '4', label: 'Degree Programs Tracked', sub: 'BSCS, ACT, BSED/BEED, BSHM' },
+                { value: '3', label: 'Admin Role Levels', sub: 'Super Admin · Registrar · Dean' },
+                { value: '100%', label: 'Online Survey Process', sub: 'No paper forms needed' },
+                { value: '1', label: 'Centralized Platform', sub: 'Surveys, data & reports in one place' },
+              ].map((stat, i) => (
+                <div key={i} className="bg-blue-900 rounded-2xl p-6 text-center">
+                  <p className="text-4xl font-extrabold text-yellow-400 mb-1">{stat.value}</p>
+                  <p className="text-white font-semibold text-sm mb-1">{stat.label}</p>
+                  <p className="text-blue-300 text-xs">{stat.sub}</p>
                 </div>
               ))}
             </div>
@@ -149,7 +178,7 @@ function HomePage() {
             <div className="text-center mb-16">
               <h2 className="text-4xl font-bold text-blue-900 mb-4">How It Works</h2>
               <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-                With GradTrack, your school can stop juggling incomplete data and outdated information. Get everything you need to track and validate your school's impact—all in one place.
+                GradTrack connects graduates and college administrators through a simple, structured process — from survey creation to data-driven decision making.
               </p>
             </div>
 
@@ -162,9 +191,9 @@ function HomePage() {
                     </svg>
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold text-blue-900 mb-2">Complete Graduate Survey</h3>
+                    <h3 className="text-xl font-bold text-blue-900 mb-2">Admin Creates a Survey</h3>
                     <p className="text-gray-600">
-                      Graduates answer comprehensive surveys tailored to gather essential employment and career information.
+                      The Registrar or Super Admin builds a tracer survey with custom questions — text, multiple choice, radio, date, and more.
                     </p>
                   </div>
                 </div>
@@ -172,13 +201,13 @@ function HomePage() {
                 <div className="flex items-start space-x-4 group">
                   <div className="flex-shrink-0 w-16 h-16 bg-blue-600 rounded-xl flex items-center justify-center group-hover:bg-yellow-500 transition">
                     <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                     </svg>
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold text-blue-900 mb-2">Submit Employment Information</h3>
+                    <h3 className="text-xl font-bold text-blue-900 mb-2">Graduate Fills Out the Survey</h3>
                     <p className="text-gray-600">
-                      Graduates provide detailed job information, including position, company, and industry to track career paths.
+                      Graduates access the survey from the home page, answer questions about their employment status, job title, company, and industry.
                     </p>
                   </div>
                 </div>
@@ -190,9 +219,9 @@ function HomePage() {
                     </svg>
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold text-blue-900 mb-2">Analyze Course Alignment</h3>
+                    <h3 className="text-xl font-bold text-blue-900 mb-2">System Analyzes Responses</h3>
                     <p className="text-gray-600">
-                      The system automatically analyzes if graduates' jobs align with their taken courses, providing valuable insights.
+                      GradTrack automatically checks course-to-career alignment and aggregates employment data into charts and reports for each department.
                     </p>
                   </div>
                 </div>
@@ -204,9 +233,9 @@ function HomePage() {
                     </svg>
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold text-blue-900 mb-2">Stay Connected with Announcements</h3>
+                    <h3 className="text-xl font-bold text-blue-900 mb-2">Deans & Admins Act on Data</h3>
                     <p className="text-gray-600">
-                      Graduates can view important announcements, events, and updates from the college, maintaining a strong alumni network.
+                      Deans review survey status and outcomes for their college. Admins post announcements and use insights to improve academic programs.
                     </p>
                   </div>
                 </div>
@@ -221,13 +250,13 @@ function HomePage() {
               <div>
                 <div className="flex items-center space-x-3 mb-4">
                   <img
-                    src="/logo.png"
+                    src="/Gradtrack_small.png"
                     alt="Norzagaray College"
                     className="h-12 w-12 object-contain"
                   />
                   <div>
-                    <h3 className="font-bold text-lg">Norzagaray College</h3>
-                    <p className="text-blue-200 text-xs">GradTrack Alumni System</p>
+                    <h3 className="font-bold text-lg">GradTrack</h3>
+                    <p className="text-blue-200 text-xs">Graduate Tracer System</p>
                   </div>
                 </div>
                 <p className="text-blue-300 text-sm leading-relaxed">
@@ -239,7 +268,7 @@ function HomePage() {
                 <h4 className="font-bold text-lg mb-4">Quick Links</h4>
                 <ul className="space-y-2">
                   <li><a href="#about" className="text-blue-200 hover:text-yellow-400 transition text-sm">About Us</a></li>
-                  <li><a href="#features" className="text-blue-200 hover:text-yellow-400 transition text-sm">Features</a></li>
+                  <li><a href="#why-gradtrack" className="text-blue-200 hover:text-yellow-400 transition text-sm">Features</a></li>
                   <li><a href="#" className="text-blue-200 hover:text-yellow-400 transition text-sm">FAQs</a></li>
                 </ul>
               </div>
