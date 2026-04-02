@@ -1,6 +1,23 @@
 # GradTrack System
 
-Graduate tracking and survey management system.
+Graduate tracking and survey management system with AI-powered analytics.
+
+## ✨ New Feature: AI-Powered Analytics
+
+The Reports & Analytics section now includes AI-generated descriptive insights powered by Groq's LLaMA model. Get comprehensive narrative analysis of graduate employment data automatically.
+
+**Setup:** See `backend/AI_ANALYTICS_SETUP.md` for configuration instructions.
+
+## Features
+
+- 📊 Graduate tracking and management
+- 📝 Dynamic survey creation and distribution
+- 📈 Comprehensive analytics and reporting
+- 🤖 **AI-powered descriptive analytics** (NEW)
+- 👥 Multi-role access control (Admin, Registrar, Dean)
+- 📧 Email notifications
+- 📱 Responsive design
+- 🔒 Secure authentication
 
 ## Project Structure
 
@@ -47,6 +64,17 @@ composer install
 ```bash
 cp .env.example .env
 # Edit .env with your database credentials
+# Add GROQ_API_KEY for AI analytics (optional)
+```
+
+**Optional: Setup AI Analytics**
+```bash
+# Windows
+setup-ai.bat
+
+# Linux/Mac
+chmod +x setup-ai.sh
+./setup-ai.sh
 ```
 
 4. Start XAMPP or PHP server:

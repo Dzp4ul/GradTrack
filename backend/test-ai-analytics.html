@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Analytics Test - GradTrack</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 16px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+        .content {
+            padding: 30px;
+        }
+        .test-button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 16px;
+            font-weight: 600;
+            border-radius: 8px;
+            cursor: pointer;
+            width: 100%;
+            transition: transform 0.2s;
+        }
+        .test-button:hover {
+            transform: translateY(-2px);
+        }
+        .test-button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        .status.loading {
+            background: #e0f2fe;
+            color: #0369a1;
+            border: 1px solid #7dd3fc;
+        }
+        .status.success {
+            background: #dcfce7;
+            color: #166534;
+            border: 1px solid #86efac;
+        }
+        .status.error {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fca5a5;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 20px;
+            background: #f8fafc;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+        .result h3 {
+            color: #1e293b;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+        .data-section {
+            margin-bottom: 20px;
+        }
+        .data-section h4 {
+            color: #475569;
+            font-size: 14px;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .data-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .data-item {
+            background: white;
+            padding: 12px;
+            border-radius: 6px;
+            border: 1px solid #e2e8f0;
+        }
+        .data-item label {
+            display: block;
+            font-size: 12px;
+            color: #64748b;
+            margin-bottom: 4px;
+        }
+        .data-item value {
+            display: block;
+            font-size: 18px;
+            font-weight: 600;
+            color: #1e293b;
+        }
+        .ai-analysis {
+            background: white;
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid #e2e8f0;
+            line-height: 1.6;
+            color: #334155;
+        }
+        .ai-analysis p {
+            margin-bottom: 12px;
+        }
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #0369a1;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .instructions {
+            background: #fef3c7;
+            border: 1px solid #fbbf24;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            color: #92400e;
+        }
+        .instructions strong {
+            display: block;
+            margin-bottom: 8px;
+            color: #78350f;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 AI Analytics Test</h1>
+            <p>Test the AI-powered analytics endpoint for GradTrack</p>
+        </div>
+        <div class="content">
+            <div class="instructions">
+                <strong>⚠️ Before Testing:</strong>
+                Make sure you have configured GROQ_API_KEY in your backend/.env file. 
+                If not, run setup-ai.bat (Windows) or setup-ai.sh (Linux/Mac) first.
+            </div>
+
+            <button class="test-button" onclick="testAIAnalytics()" id="testBtn">
+                🚀 Test AI Analytics
+            </button>
+
+            <div id="status"></div>
+            <div id="result"></div>
+        </div>
+    </div>
+
+    <script>
+        async function testAIAnalytics() {
+            const btn = document.getElementById('testBtn');
+            const statusDiv = document.getElementById('status');
+            const resultDiv = document.getElementById('result');
+
+            // Reset
+            resultDiv.innerHTML = '';
+            btn.disabled = true;
+
+            // Show loading
+            statusDiv.className = 'status loading';
+            statusDiv.innerHTML = '<span class="spinner"></span>Testing AI analytics endpoint...';
+
+            try {
+                const response = await fetch('http://localhost:8000/api/reports/ai-analytics.php');
+                const data = await response.json();
+
+                if (data.success) {
+                    statusDiv.className = 'status success';
+                    statusDiv.innerHTML = '✅ Success! AI analytics is working correctly.';
+
+                    // Display results
+                    const overview = data.data.overview;
+                    const aiAnalysis = data.data.ai_analysis;
+
+                    resultDiv.innerHTML = `
+                        <div class="result">
+                            <h3>📊 Test Results</h3>
+                            
+                            <div class="data-section">
+                                <h4>Graduate Data</h4>
+                                <div class="data-grid">
+                                    <div class="data-item">
+                                        <label>Total Graduates</label>
+                                        <value>${overview.total_graduates}</value>
+                                    </div>
+                                    <div class="data-item">
+                                        <label>Employed</label>
+                                        <value>${overview.total_employed}</value>
+                                    </div>
+                                    <div class="data-item">
+                                        <label>Employment Rate</label>
+                                        <value>${overview.employment_rate}%</value>
+                                    </div>
+                                    <div class="data-item">
+                                        <label>Alignment Rate</label>
+                                        <value>${overview.alignment_rate}%</value>
+                                    </div>
+                                </div>
+                                <div class="data-grid">
+                                    <div class="data-item">
+                                        <label>Local Employment</label>
+                                        <value>${overview.total_employed_local}</value>
+                                    </div>
+                                    <div class="data-item">
+                                        <label>Overseas Employment</label>
+                                        <value>${overview.total_employed_abroad}</value>
+                                    </div>
+                                    <div class="data-item">
+                                        <label>Aligned Jobs</label>
+                                        <value>${overview.total_aligned}</value>
+                                    </div>
+                                    <div class="data-item">
+                                        <label>Survey Responses</label>
+                                        <value>${overview.total_survey_responses}</value>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="data-section">
+                                <h4>🤖 AI-Generated Analysis</h4>
+                                <div class="ai-analysis">
+                                    ${aiAnalysis.split('\n\n').map(p => `<p>${p}</p>`).join('')}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    throw new Error(data.error || 'Unknown error');
+                }
+            } catch (error) {
+                statusDiv.className = 'status error';
+                statusDiv.innerHTML = `❌ Error: ${error.message}`;
+                
+                resultDiv.innerHTML = `
+                    <div class="result">
+                        <h3>🔧 Troubleshooting</h3>
+                        <div class="ai-analysis">
+                            <p><strong>Common issues:</strong></p>
+                            <p>1. <strong>GROQ_API_KEY not configured:</strong> Run setup-ai.bat or setup-ai.sh</p>
+                            <p>2. <strong>Server not running:</strong> Make sure Apache/PHP server is running</p>
+                            <p>3. <strong>Wrong URL:</strong> Update the fetch URL if your backend is not at localhost:8000</p>
+                            <p>4. <strong>CORS error:</strong> Check browser console and backend CORS settings</p>
+                            <p>5. <strong>No data:</strong> Make sure you have survey responses in the database</p>
+                        </div>
+                    </div>
+                `;
+            } finally {
+                btn.disabled = false;
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom';
-import { AlertTriangle, CheckCircle, Users, BarChart2, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, CheckCircle } from 'lucide-react';
+import Footer from '../components/Footer';
 
 export default function AboutPage() {
   return (
@@ -10,16 +11,16 @@ export default function AboutPage() {
         <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-20">
             <Link to="/" className="flex items-center space-x-4">
-              <img src="/logo.png" alt="Norzagaray College" className="h-16 w-16 object-contain" />
+              <img src="/Gradtrack_small.png" alt="Norzagaray College" className="h-16 w-16 object-contain" />
               <div>
-                <h1 className="text-xl font-bold text-white">Norzagaray College</h1>
-                <p className="text-sm text-blue-100">Alumni Tracking System</p>
+                <h1 className="text-xl font-bold text-white">GradTrack</h1>
+                <p className="text-sm text-blue-100">Graduate Tracer System</p>
               </div>
             </Link>
             <div className="flex items-center space-x-6">
               <Link to="/about" className="text-yellow-400 font-medium">About</Link>
               <Link to="/#why-gradtrack" className="text-white hover:text-yellow-400 font-medium transition">Features</Link>
-              <Link to="/" className="text-white hover:text-yellow-400 font-medium transition">FAQ</Link>
+              <Link to="/faq" className="text-white hover:text-yellow-400 font-medium transition">FAQ</Link>
               <Link to="/survey" className="bg-yellow-500 hover:bg-yellow-600 text-blue-900 px-6 py-2.5 rounded-lg font-medium transition shadow-md">
                 Take Survey
               </Link>
@@ -80,39 +81,24 @@ export default function AboutPage() {
         </div>
       </section>
 
-      {/* Who It Serves */}
-      <section className="py-20 bg-blue-900">
-        <div className="max-w-6xl mx-auto px-6">
-          <h2 className="text-3xl font-bold text-white text-center mb-12">Who It Serves</h2>
-          <div className="grid md:grid-cols-3 gap-8">
-            {[
-              {
-                icon: <Users className="w-8 h-8 text-white" />,
-                bg: 'bg-blue-700',
-                title: 'Graduates',
-                desc: 'Complete tracer surveys online and submit employment details — no paper forms, no manual process.',
-              },
-              {
-                icon: <BarChart2 className="w-8 h-8 text-blue-900" />,
-                bg: 'bg-yellow-400',
-                title: 'Registrar & Admin',
-                desc: 'Manage graduate records, create surveys, view responses, and generate employment reports.',
-              },
-              {
-                icon: <ShieldCheck className="w-8 h-8 text-white" />,
-                bg: 'bg-blue-700',
-                title: 'Deans',
-                desc: 'Monitor survey completion status and review graduate outcomes specific to their college and programs.',
-              },
-            ].map((item, i) => (
-              <div key={i} className="bg-white/10 rounded-2xl p-8 text-center border border-white/20 hover:bg-white/15 transition">
-                <div className={`inline-flex ${item.bg} p-4 rounded-2xl mb-5`}>
-                  {item.icon}
-                </div>
-                <h3 className="text-xl font-bold text-white mb-3">{item.title}</h3>
-                <p className="text-blue-200 text-sm leading-relaxed">{item.desc}</p>
-              </div>
-            ))}
+      {/* The Impact */}
+      <section className="bg-gray-100 border-b-4 border-yellow-500 overflow-hidden">
+        <div className="max-w-6xl mx-auto px-6 grid md:grid-cols-2 gap-12 items-stretch">
+          <div className="flex flex-col justify-center py-16">
+            <h2 className="text-3xl font-bold mb-4">
+              <span className="text-yellow-500">The Impact: </span>
+              <span className="text-blue-900">Clear Results That Support Your Work</span>
+            </h2>
+            <p className="text-gray-600 leading-relaxed text-lg">
+              GradTrack gives Norzagaray College a reliable way to track graduate outcomes and share results with faculty, administrators, and accrediting bodies. Collect employment data, review survey results, and use accurate information to support program decisions and meet reporting requirements.
+            </p>
+          </div>
+          <div className="flex items-end justify-end">
+            <img
+              src="/download (2).png"
+              alt="Graduate celebrating"
+              className="w-auto object-contain object-bottom" style={{ height: '110%', maxHeight: '500px', marginBottom: '-4px' }}
+            />
           </div>
         </div>
       </section>
@@ -128,11 +114,7 @@ export default function AboutPage() {
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="bg-blue-950 text-white py-8 text-center">
-        <p className="text-blue-200 text-sm">&copy; 2026 Norzagaray College. All rights reserved.</p>
-        <p className="text-blue-300 text-xs mt-1">Empowering graduates, strengthening connections</p>
-      </footer>
+      <Footer />
 
     </div>
   );
