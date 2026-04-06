@@ -278,6 +278,21 @@ function SurveyVerification() {
             ← Back to Home
           </button>
         </div>
+
+        <div className="mt-4 text-center">
+          <button
+            type="button"
+            onClick={() => setMsgBox({
+              isOpen: true,
+              type: 'info',
+              title: 'Forgot Your Student Number?',
+              message: 'Please contact the Registrar Office to retrieve your student number. You can also check your old school ID, diploma, or transcript of records.'
+            })}
+            className="text-sm text-gray-600 hover:text-blue-600 underline"
+          >
+            Forgot your student number?
+          </button>
+        </div>
       </div>
 
       <MessageBox

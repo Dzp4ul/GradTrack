@@ -6,6 +6,7 @@ interface DeanGraduateRow {
   id: number;
   student_id: string | null;
   first_name: string;
+  middle_name: string | null;
   last_name: string;
   email: string | null;
   year_graduated: number | null;
@@ -164,7 +165,9 @@ export default function DeanSurveyStatus() {
                   <tr key={row.id} className="border-b last:border-0 hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 font-mono text-xs">{row.student_id || '-'}</td>
                     <td className="px-4 py-3">
-                      <p className="font-medium text-[#1b2a4a]">{row.first_name} {row.last_name}</p>
+                      <p className="font-medium text-[#1b2a4a]">
+                        {row.last_name}, {row.first_name} {row.middle_name ? row.middle_name.charAt(0) + '.' : ''}
+                      </p>
                       <p className="text-xs text-gray-400">{row.email || '-'}</p>
                     </td>
                     <td className="px-4 py-3">

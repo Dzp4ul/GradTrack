@@ -97,6 +97,7 @@ try {
             g.id,
             g.student_id,
             g.first_name,
+            g.middle_name,
             g.last_name,
             g.email,
             g.year_graduated,

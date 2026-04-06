@@ -63,7 +63,7 @@ interface PredictiveData {
     year: number;
     predicted_employment_rate: number;
     predicted_alignment_rate: number;
-    confidence: number;
+    margin_of_error: number;
   }>;
   regression_analysis: {
     employment: {
@@ -303,7 +303,7 @@ export default function Reports() {
                             <th className="text-left px-4 py-3 font-semibold text-gray-600">Year</th>
                             <th className="text-center px-4 py-3 font-semibold text-gray-600">Predicted Employment Rate</th>
                             <th className="text-center px-4 py-3 font-semibold text-gray-600">Predicted Alignment Rate</th>
-                            <th className="text-center px-4 py-3 font-semibold text-gray-600">Confidence (R²)</th>
+                            <th className="text-center px-4 py-3 font-semibold text-gray-600">Margin of Error (±%)</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -326,7 +326,7 @@ export default function Reports() {
                                   )}
                                 </span>
                               </td>
-                              <td className="px-4 py-3 text-center">{pred.confidence}%</td>
+                              <td className="px-4 py-3 text-center">±{pred.margin_of_error}%</td>
                             </tr>
                           ))}
                         </tbody>

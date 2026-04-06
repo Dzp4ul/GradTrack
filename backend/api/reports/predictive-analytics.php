@@ -82,8 +82,9 @@ try {
         $year['employment_rate'] = $year['total_graduates'] > 0 
             ? round(($year['employed'] / $year['total_graduates']) * 100, 2) 
             : 0;
-        $year['alignment_rate'] = $year['employed'] > 0 
-            ? round(($year['aligned'] / $year['employed']) * 100, 2) 
+        // Alignment rate: percentage of total graduates with aligned jobs
+        $year['alignment_rate'] = $year['total_graduates'] > 0 
+            ? round(($year['aligned'] / $year['total_graduates']) * 100, 2) 
             : 0;
     }
     
@@ -108,8 +109,9 @@ try {
         $m = ($n * $sumXY - $sumX * $sumY) / ($n * $sumX2 - $sumX * $sumX);
         $b = ($sumY - $m * $sumX) / $n;
         
-        // Calculate R-squared
+        // Calculate R-squared and standard error
         $meanY = $sumY / $n;
+        $meanX = $sumX / $n;
         $ssTotal = 0;
         $ssResidual = 0;
         
@@ -123,10 +125,23 @@ try {
         
         $rSquared = $ssTotal > 0 ? 1 - ($ssResidual / $ssTotal) : 0;
         
+        // Calculate standard error of estimate
+        $standardError = $n > 2 ? sqrt($ssResidual / ($n - 2)) : 0;
+        
+        // Calculate sum of squared deviations for X (needed for prediction interval)
+        $sumXDevSquared = 0;
+        foreach ($data as $i => $point) {
+            $sumXDevSquared += pow($i - $meanX, 2);
+        }
+        
         return [
             'slope' => $m,
             'intercept' => $b,
-            'r_squared' => $rSquared
+            'r_squared' => $rSquared,
+            'standard_error' => $standardError,
+            'mean_x' => $meanX,
+            'sum_x_dev_squared' => $sumXDevSquared,
+            'n' => $n
         ];
     }
     
@@ -136,14 +151,30 @@ try {
     
     // Generate predictions for next 3 years
     $lastYear = end($yearData)['year'];
+    $lastIndex = count($yearData) - 1;
     $predictions = [];
+    
+    // t-value for 95% confidence interval
+    $n = $employmentRegression['n'];
+    $tValue = $n <= 30 ? 2.0 : 1.96;
     
     for ($i = 1; $i <= 3; $i++) {
         $futureYear = $lastYear + $i;
-        $futureIndex = count($yearData) + $i - 1;
+        $futureIndex = $lastIndex + $i;
         
         $predictedEmployment = $employmentRegression['slope'] * $futureIndex + $employmentRegression['intercept'];
         $predictedAlignment = $alignmentRegression['slope'] * $futureIndex + $alignmentRegression['intercept'];
+        
+        // Calculate prediction interval (increases with distance from mean)
+        $distanceFromMean = $futureIndex - $employmentRegression['mean_x'];
+        $predictionVariance = 1 + (1 / $n) + (pow($distanceFromMean, 2) / $employmentRegression['sum_x_dev_squared']);
+        $predictionStdError = $employmentRegression['standard_error'] * sqrt($predictionVariance);
+        $marginOfError = $tValue * $predictionStdError;
+        
+        // Cap margin of error at reasonable maximum (50% for small samples)
+        // This prevents unrealistic margins when data is limited
+        $maxMargin = $n < 5 ? 50 : 30;
+        $marginOfError = min($marginOfError, $maxMargin);
         
         // Clamp values between 0 and 100
         $predictedEmployment = max(0, min(100, $predictedEmployment));
@@ -153,7 +184,7 @@ try {
             'year' => $futureYear,
             'predicted_employment_rate' => round($predictedEmployment, 2),
             'predicted_alignment_rate' => round($predictedAlignment, 2),
-            'confidence' => round($employmentRegression['r_squared'] * 100, 2)
+            'margin_of_error' => round($marginOfError, 2)
         ];
     }
     

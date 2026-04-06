@@ -63,7 +63,7 @@ interface PredictiveData {
     year: number;
     predicted_employment_rate: number;
     predicted_alignment_rate: number;
-    confidence: number;
+    margin_of_error: number;
   }>;
   regression_analysis: {
     employment: {
@@ -201,6 +201,23 @@ export default function Reports() {
       .finally(() => setLoading(false));
   };
 
+  const handleExport = () => {
+    const typeMap: Record<string, string> = {
+      overview: 'overview',
+      program: 'by_program',
+      year: 'by_year',
+      employment: 'employment_status',
+      salary: 'salary_distribution',
+    };
+
+    const exportType = typeMap[tab] || 'overview';
+    const url = selectedYear !== 'all' 
+      ? `${API_BASE}/reports/export.php?type=${exportType}&year=${selectedYear}&format=csv`
+      : `${API_BASE}/reports/export.php?type=${exportType}&format=csv`;
+    
+    window.open(url, '_blank');
+  };
+
   const tabs = [
     { key: 'overview', label: 'Overview' },
     { key: 'program', label: 'By Program' },
@@ -235,9 +252,14 @@ export default function Reports() {
               </select>
             </div>
           )}
-          <button className="flex items-center gap-2 border px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
-            <Download className="w-4 h-4" /> Export
-          </button>
+          {tab !== 'surveys' && tab !== 'predictive' && (
+            <button 
+              onClick={handleExport}
+              className="flex items-center gap-2 border px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+            >
+              <Download className="w-4 h-4" /> Export CSV
+            </button>
+          )}
         </div>
       </div>
 
@@ -837,7 +859,7 @@ export default function Reports() {
                             <th className="text-left px-4 py-3 font-semibold text-gray-600">Year</th>
                             <th className="text-center px-4 py-3 font-semibold text-gray-600">Predicted Employment Rate</th>
                             <th className="text-center px-4 py-3 font-semibold text-gray-600">Predicted Alignment Rate</th>
-                            <th className="text-center px-4 py-3 font-semibold text-gray-600">Confidence (R²)</th>
+                            <th className="text-center px-4 py-3 font-semibold text-gray-600">Margin of Error</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -846,7 +868,7 @@ export default function Reports() {
                               <td className="px-4 py-3 font-medium">{pred.year}</td>
                               <td className="px-4 py-3 text-center">
                                 <span className="inline-flex items-center gap-1">
-                                  {pred.predicted_employment_rate}%
+                                  <span>{pred.predicted_employment_rate}%</span>
                                   {predictiveData.regression_analysis.employment.trend === 'increasing' && (
                                     <TrendingUp className="w-4 h-4 text-green-600" />
                                   )}
@@ -854,13 +876,13 @@ export default function Reports() {
                               </td>
                               <td className="px-4 py-3 text-center">
                                 <span className="inline-flex items-center gap-1">
-                                  {pred.predicted_alignment_rate}%
+                                  <span>{pred.predicted_alignment_rate}%</span>
                                   {predictiveData.regression_analysis.alignment.trend === 'increasing' && (
                                     <TrendingUp className="w-4 h-4 text-green-600" />
                                   )}
                                 </span>
                               </td>
-                              <td className="px-4 py-3 text-center">{pred.confidence}%</td>
+                              <td className="px-4 py-3 text-center font-semibold text-orange-600">{pred.predicted_employment_rate}% ± {pred.margin_of_error}%</td>
                             </tr>
                           ))}
                         </tbody>
