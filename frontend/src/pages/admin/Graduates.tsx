@@ -12,6 +12,7 @@ interface Graduate {
   id: number;
   student_id: string;
   first_name: string;
+  middle_name?: string;
   last_name: string;
   email: string;
   phone: string;
@@ -30,6 +31,7 @@ interface FormData {
   id?: number;
   student_id: string;
   first_name: string;
+  middle_name: string;
   last_name: string;
   email: string;
   phone: string;
@@ -47,7 +49,7 @@ interface FormData {
 }
 
 const emptyForm: FormData = {
-  student_id: '', first_name: '', last_name: '', email: '', phone: '',
+  student_id: '', first_name: '', middle_name: '', last_name: '', email: '', phone: '',
   program_id: '', year_graduated: '', address: '', employment_status: 'unemployed',
   is_aligned: 'not_aligned', company_name: '', job_title: '', industry: '',
   date_hired: '', monthly_salary: '', time_to_employment: '',
@@ -157,9 +159,8 @@ export default function Graduates() {
   const [graduates, setGraduates] = useState<Graduate[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [filterProgram, setFilterProgram] = useState('');
+  const [activeTab, setActiveTab] = useState('1');
   const [filterYear, setFilterYear] = useState('');
-  const [filterStatus, setFilterStatus] = useState('');
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
@@ -177,9 +178,8 @@ export default function Graduates() {
     params.append('page', targetPage.toString());
     params.append('limit', limit.toString());
     if (search) params.append('search', search);
-    if (filterProgram) params.append('program_id', filterProgram);
+    if (activeTab) params.append('program_id', activeTab);
     if (filterYear) params.append('year_graduated', filterYear);
-    if (filterStatus) params.append('employment_status', filterStatus);
     return params;
   };
 
@@ -212,10 +212,10 @@ export default function Graduates() {
 
   useEffect(() => {
     fetchGraduates();
-  }, [page, search, filterProgram, filterYear, filterStatus]);
+  }, [page, search, activeTab, filterYear]);
 
   const openAdd = () => {
-    setFormData(emptyForm);
+    setFormData({ ...emptyForm, program_id: activeTab });
     setIsEditing(false);
     setShowModal(true);
   };
@@ -225,6 +225,7 @@ export default function Graduates() {
       id: g.id,
       student_id: g.student_id || '',
       first_name: g.first_name,
+      middle_name: g.middle_name || '',
       last_name: g.last_name,
       email: g.email || '',
       phone: g.phone || '',
@@ -516,61 +517,58 @@ export default function Graduates() {
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border p-4 space-y-3">
-        <div className="flex items-center gap-3">
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search by name, student ID, or email..."
-              value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-              className="w-full pl-10 pr-4 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className={`flex items-center gap-2 px-4 py-2.5 border rounded-lg text-sm transition-colors ${showFilters ? 'bg-blue-50 border-blue-300 text-blue-700' : 'hover:bg-gray-50'}`}
-          >
-            <Filter className="w-4 h-4" /> Filters
-          </button>
+      <div className="bg-white rounded-xl shadow-sm border">
+        <div className="flex items-center gap-1 px-4 pt-4 border-b">
+          {PROGRAM_OPTIONS.map((program) => (
+            <button
+              key={program.id}
+              onClick={() => { setActiveTab(program.id); setPage(1); }}
+              className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
+                activeTab === program.id
+                  ? 'border-[#1b2a4a] text-[#1b2a4a]'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {program.code}
+            </button>
+          ))}
         </div>
 
-        {showFilters && (
-          <div className="flex flex-wrap gap-3 pt-2 border-t">
-            <select
-              value={filterProgram}
-              onChange={(e) => { setFilterProgram(e.target.value); setPage(1); }}
-              className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        <div className="p-4 space-y-3">
+          <div className="flex items-center gap-3">
+            <div className="relative flex-1">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search by name, student ID, or email..."
+                value={search}
+                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                className="w-full pl-10 pr-4 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <button
+              onClick={() => setShowFilters(!showFilters)}
+              className={`flex items-center gap-2 px-4 py-2.5 border rounded-lg text-sm transition-colors ${showFilters ? 'bg-blue-50 border-blue-300 text-blue-700' : 'hover:bg-gray-50'}`}
             >
-              <option value="">All Programs</option>
-              {PROGRAM_OPTIONS.map((program) => (
-                <option key={program.id} value={program.id}>{program.name}</option>
-              ))}
-            </select>
-            <select
-              value={filterYear}
-              onChange={(e) => { setFilterYear(e.target.value); setPage(1); }}
-              className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">All Years</option>
-              {[2022, 2021, 2020, 2019].map((y) => (
-                <option key={y} value={y}>{y}</option>
-              ))}
-            </select>
-            <select
-              value={filterStatus}
-              onChange={(e) => { setFilterStatus(e.target.value); setPage(1); }}
-              className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">All Status</option>
-              <option value="employed">Employed</option>
-              <option value="self_employed">Self-Employed</option>
-              <option value="freelance">Freelance</option>
-              <option value="unemployed">Unemployed</option>
-            </select>
+              <Filter className="w-4 h-4" /> Filters
+            </button>
           </div>
-        )}
+
+          {showFilters && (
+            <div className="flex flex-wrap gap-3 pt-2 border-t">
+              <select
+                value={filterYear}
+                onChange={(e) => { setFilterYear(e.target.value); setPage(1); }}
+                className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">All Years</option>
+                {[2024, 2023, 2022, 2021, 2020, 2019].map((y) => (
+                  <option key={y} value={y}>{y}</option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
@@ -582,23 +580,22 @@ export default function Graduates() {
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Name</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Program</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Year</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600">Status</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600">Alignment</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600">Job</th>
                 <th className="text-center px-4 py-3 font-semibold text-gray-600">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-400">Loading...</td></tr>
+                <tr><td colSpan={5} className="text-center py-12 text-gray-400">Loading...</td></tr>
               ) : graduates.length === 0 ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-400">No graduates found</td></tr>
+                <tr><td colSpan={5} className="text-center py-12 text-gray-400">No graduates found</td></tr>
               ) : (
                 graduates.map((g) => (
                   <tr key={g.id} className="border-b last:border-0 hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 font-mono text-xs">{g.student_id}</td>
                     <td className="px-4 py-3">
-                      <p className="font-medium text-[#1b2a4a]">{g.first_name} {g.last_name}</p>
+                      <p className="font-medium text-[#1b2a4a]">
+                        {g.last_name}, {g.first_name}{g.middle_name ? ` ${g.middle_name.charAt(0)}.` : ''}
+                      </p>
                       <p className="text-xs text-gray-400">{g.email}</p>
                     </td>
                     <td className="px-4 py-3">
@@ -607,24 +604,6 @@ export default function Graduates() {
                       </span>
                     </td>
                     <td className="px-4 py-3">{g.year_graduated || '-'}</td>
-                    <td className="px-4 py-3">
-                      <span className={`text-xs font-medium px-2 py-1 rounded capitalize ${statusColors[g.employment_status] || 'bg-gray-100 text-gray-600'}`}>
-                        {(g.employment_status || 'unknown').replace('_', ' ')}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`text-xs font-medium px-2 py-1 rounded capitalize ${alignColors[g.is_aligned] || 'bg-gray-100 text-gray-600'}`}>
-                        {(g.is_aligned || 'unknown').replace(/_/g, ' ')}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-xs">
-                      {g.job_title ? (
-                        <>
-                          <p className="font-medium">{g.job_title}</p>
-                          <p className="text-gray-400">{g.company_name}</p>
-                        </>
-                      ) : '-'}
-                    </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-center gap-1">
                         <button onClick={() => openEdit(g)} className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors">
@@ -679,76 +658,27 @@ export default function Graduates() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-5 space-y-5">
-              <div>
-                <h3 className="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wide">Personal Information</h3>
-                <div className="grid grid-cols-2 gap-3">
-                  <Input label="Student ID" value={formData.student_id} onChange={(v) => updateField('student_id', v)} />
-                  <Input label="First Name" value={formData.first_name} onChange={(v) => updateField('first_name', v)} required />
-                  <Input label="Last Name" value={formData.last_name} onChange={(v) => updateField('last_name', v)} required />
-                  <Input label="Email" type="email" value={formData.email} onChange={(v) => updateField('email', v)} />
-                  <Input label="Phone" value={formData.phone} onChange={(v) => updateField('phone', v)} />
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Program</label>
-                    <select
-                      value={formData.program_id}
-                      onChange={(e) => updateField('program_id', e.target.value)}
-                      className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="">Select</option>
-                      {PROGRAM_OPTIONS.map((program) => (
-                        <option key={program.id} value={program.id}>{program.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <Input label="Year Graduated" type="number" value={formData.year_graduated} onChange={(v) => updateField('year_graduated', v)} />
-                </div>
-                <div className="mt-3">
-                  <label className="block text-xs font-medium text-gray-600 mb-1">Address</label>
-                  <textarea
-                    value={formData.address}
-                    onChange={(e) => updateField('address', e.target.value)}
-                    rows={2}
+            <form onSubmit={handleSubmit} className="p-5 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <Input label="Student No." value={formData.student_id} onChange={(v) => updateField('student_id', v)} required />
+                <Input label="First Name" value={formData.first_name} onChange={(v) => updateField('first_name', v)} required />
+                <Input label="Middle Name" value={formData.middle_name} onChange={(v) => updateField('middle_name', v)} />
+                <Input label="Last Name" value={formData.last_name} onChange={(v) => updateField('last_name', v)} required />
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Program</label>
+                  <select
+                    value={formData.program_id}
+                    onChange={(e) => updateField('program_id', e.target.value)}
+                    required
                     className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+                  >
+                    <option value="">Select</option>
+                    {PROGRAM_OPTIONS.map((program) => (
+                      <option key={program.id} value={program.id}>{program.name}</option>
+                    ))}
+                  </select>
                 </div>
-              </div>
-
-              <div>
-                <h3 className="text-sm font-semibold text-gray-600 mb-3 uppercase tracking-wide">Employment Information</h3>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Employment Status</label>
-                    <select
-                      value={formData.employment_status}
-                      onChange={(e) => updateField('employment_status', e.target.value)}
-                      className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="unemployed">Unemployed</option>
-                      <option value="employed">Employed</option>
-                      <option value="self_employed">Self-Employed</option>
-                      <option value="freelance">Freelance</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-600 mb-1">Alignment</label>
-                    <select
-                      value={formData.is_aligned}
-                      onChange={(e) => updateField('is_aligned', e.target.value)}
-                      className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="not_aligned">Not Aligned</option>
-                      <option value="partially_aligned">Partially Aligned</option>
-                      <option value="aligned">Aligned</option>
-                    </select>
-                  </div>
-                  <Input label="Company Name" value={formData.company_name} onChange={(v) => updateField('company_name', v)} />
-                  <Input label="Job Title" value={formData.job_title} onChange={(v) => updateField('job_title', v)} />
-                  <Input label="Industry" value={formData.industry} onChange={(v) => updateField('industry', v)} />
-                  <Input label="Date Hired" type="date" value={formData.date_hired} onChange={(v) => updateField('date_hired', v)} />
-                  <Input label="Monthly Salary" type="number" value={formData.monthly_salary} onChange={(v) => updateField('monthly_salary', v)} />
-                  <Input label="Time to Employment (months)" type="number" value={formData.time_to_employment} onChange={(v) => updateField('time_to_employment', v)} />
-                </div>
+                <Input label="Year Graduated" type="number" value={formData.year_graduated} onChange={(v) => updateField('year_graduated', v)} required />
               </div>
 
               <div className="flex justify-end gap-3 pt-2">

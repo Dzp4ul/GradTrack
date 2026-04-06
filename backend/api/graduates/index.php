@@ -52,12 +52,13 @@ try {
                 $params = [];
 
                 if (isset($_GET['search']) && !empty($_GET['search'])) {
-                    $where[] = "(g.first_name LIKE :search OR g.last_name LIKE :search2 OR g.student_id LIKE :search3 OR g.email LIKE :search4)";
+                    $where[] = "(g.first_name LIKE :search OR g.middle_name LIKE :search2 OR g.last_name LIKE :search3 OR g.student_id LIKE :search4 OR g.email LIKE :search5)";
                     $searchTerm = '%' . $_GET['search'] . '%';
                     $params[':search'] = $searchTerm;
                     $params[':search2'] = $searchTerm;
                     $params[':search3'] = $searchTerm;
                     $params[':search4'] = $searchTerm;
+                    $params[':search5'] = $searchTerm;
                 }
                 if (isset($_GET['program_id']) && !empty($_GET['program_id'])) {
                     $where[] = "g.program_id = :program_id";
@@ -116,12 +117,13 @@ try {
             $data = json_decode(file_get_contents("php://input"), true);
 
             $stmt = $db->prepare("
-                INSERT INTO graduates (student_id, first_name, last_name, email, phone, program_id, year_graduated, address)
-                VALUES (:student_id, :first_name, :last_name, :email, :phone, :program_id, :year_graduated, :address)
+                INSERT INTO graduates (student_id, first_name, middle_name, last_name, email, phone, program_id, year_graduated, address)
+                VALUES (:student_id, :first_name, :middle_name, :last_name, :email, :phone, :program_id, :year_graduated, :address)
             ");
             $stmt->execute([
                 ':student_id' => $data['student_id'] ?? null,
                 ':first_name' => $data['first_name'],
+                ':middle_name' => $data['middle_name'] ?? null,
                 ':last_name' => $data['last_name'],
                 ':email' => $data['email'] ?? null,
                 ':phone' => $data['phone'] ?? null,
@@ -161,7 +163,7 @@ try {
 
             $stmt = $db->prepare("
                 UPDATE graduates SET 
-                    student_id = :student_id, first_name = :first_name, last_name = :last_name,
+                    student_id = :student_id, first_name = :first_name, middle_name = :middle_name, last_name = :last_name,
                     email = :email, phone = :phone, program_id = :program_id,
                     year_graduated = :year_graduated, address = :address
                 WHERE id = :id
@@ -170,6 +172,7 @@ try {
                 ':id' => $data['id'],
                 ':student_id' => $data['student_id'] ?? null,
                 ':first_name' => $data['first_name'],
+                ':middle_name' => $data['middle_name'] ?? null,
                 ':last_name' => $data['last_name'],
                 ':email' => $data['email'] ?? null,
                 ':phone' => $data['phone'] ?? null,

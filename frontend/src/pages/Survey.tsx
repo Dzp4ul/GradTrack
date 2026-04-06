@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { ShieldCheck, ChevronRight, ChevronLeft, ClipboardList, Save } from 'lucide-react';
 import { philippineRegions, philippineProvinces, philippineCities, philippineBarangays } from '../data/philippineAddress';
 import MessageBox from '../components/MessageBox';
@@ -24,6 +24,9 @@ interface Survey {
 }
 
 function Survey() {
+  const [searchParams] = useSearchParams();
+  const surveyIdFromUrl = searchParams.get('survey_id');
+  
   const [agreed, setAgreed] = useState(false);
   const [agreedCheckbox, setAgreedCheckbox] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -32,10 +35,97 @@ function Survey() {
   const [responses, setResponses] = useState<Record<number, any>>({});
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [msgBox, setMsgBox] = useState<{ isOpen: boolean; type: 'success' | 'error' | 'warning' | 'info'; message: string; title?: string }>({ isOpen: false, type: 'info', message: '' });
+  const [token, setToken] = useState<string | null>(null);
+  const [graduateId, setGraduateId] = useState<number | null>(null);
+  const [graduateName, setGraduateName] = useState<string>('');
+  const [tokenValidated, setTokenValidated] = useState(false);
 
   useEffect(() => {
-    fetchActiveSurvey();
+    validateTokenAndFetchSurvey();
   }, []);
+
+  const validateTokenAndFetchSurvey = async () => {
+    // Get token from sessionStorage
+    const storedToken = sessionStorage.getItem('survey_token');
+    const storedGraduateId = sessionStorage.getItem('graduate_id');
+    const storedGraduateName = sessionStorage.getItem('graduate_name');
+
+    console.log('Checking token:', storedToken);
+    console.log('Survey ID from URL:', surveyIdFromUrl);
+
+    if (!storedToken) {
+      // No token, redirect to verification with survey_id
+      console.log('No token found, redirecting to verification');
+      const redirectUrl = surveyIdFromUrl 
+        ? `/survey-verify?survey_id=${surveyIdFromUrl}`
+        : '/survey-verify';
+      
+      setMsgBox({
+        isOpen: true,
+        type: 'warning',
+        message: 'Please verify your identity first',
+        title: 'Verification Required'
+      });
+      setTimeout(() => {
+        window.location.href = redirectUrl;
+      }, 2000);
+      return;
+    }
+
+    try {
+      console.log('Validating token with backend...');
+      // Validate token with backend
+      const tokenResponse = await fetch(`${API_ROOT}/surveys/validate-token.php`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: storedToken })
+      });
+
+      const tokenResult = await tokenResponse.json();
+      console.log('Token validation result:', tokenResult);
+
+      if (!tokenResult.success) {
+        console.log('Token validation failed');
+        setMsgBox({
+          isOpen: true,
+          type: 'error',
+          message: tokenResult.message || 'Invalid or expired token',
+          title: 'Access Denied'
+        });
+        sessionStorage.removeItem('survey_token');
+        sessionStorage.removeItem('graduate_id');
+        sessionStorage.removeItem('graduate_name');
+        
+        const redirectUrl = surveyIdFromUrl 
+          ? `/survey-verify?survey_id=${surveyIdFromUrl}`
+          : '/survey-verify';
+        
+        setTimeout(() => {
+          window.location.href = redirectUrl;
+        }, 2000);
+        return;
+      }
+
+      // Token is valid
+      console.log('Token is valid!');
+      setToken(storedToken);
+      setGraduateId(parseInt(storedGraduateId || '0'));
+      setGraduateName(storedGraduateName || '');
+      setTokenValidated(true);
+
+      // Fetch survey
+      await fetchActiveSurvey();
+    } catch (error) {
+      console.error('Token validation error:', error);
+      setMsgBox({
+        isOpen: true,
+        type: 'error',
+        message: 'Error validating access. Please try again.',
+        title: 'Validation Error'
+      });
+      setLoading(false);
+    }
+  };
 
   // Load draft from localStorage
   useEffect(() => {
@@ -128,7 +218,7 @@ function Survey() {
   };
 
   const handleSubmit = async () => {
-    if (!activeSurvey) return;
+    if (!activeSurvey || !token || !graduateId) return;
 
     try {
       const response = await fetch(`${API_ROOT}/surveys/responses.php`, {
@@ -136,7 +226,8 @@ function Survey() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           survey_id: activeSurvey.id,
-          graduate_id: null,
+          graduate_id: graduateId,
+          token: token,
           responses: responses,
         }),
       });
@@ -145,11 +236,19 @@ function Survey() {
 
       if (result.success) {
         localStorage.removeItem(`survey_draft_${activeSurvey.id}`);
+        sessionStorage.removeItem('survey_token');
+        sessionStorage.removeItem('graduate_id');
+        sessionStorage.removeItem('graduate_name');
         setMsgBox({ isOpen: true, type: 'success', message: 'Survey submitted successfully! Thank you for your participation.', title: 'Success' });
         setResponses({});
         setCurrentSection(0);
         setAgreed(false);
         setLastSaved(null);
+        
+        // Redirect to home after 3 seconds
+        setTimeout(() => {
+          window.location.href = '/';
+        }, 3000);
       } else {
         const errorMsg = result.error || 'Unknown error occurred';
         const hint = result.hint || '';
@@ -486,6 +585,9 @@ function Survey() {
           <div className="flex justify-between items-start mb-4">
             <div>
               <h2 className="text-2xl font-bold text-blue-900">{activeSurvey.title}</h2>
+              {graduateName && (
+                <p className="text-green-600 font-medium mt-1">Welcome, {graduateName}!</p>
+              )}
               {activeSurvey.description && (
                 <p className="text-gray-600 mt-2">{activeSurvey.description}</p>
               )}

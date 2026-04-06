@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Survey Validation System - Flow Diagram</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 40px 20px;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            text-align: center;
+            color: #2d3748;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+        .subtitle {
+            text-align: center;
+            color: #718096;
+            margin-bottom: 40px;
+            font-size: 1.1em;
+        }
+        .flow-section {
+            margin-bottom: 50px;
+        }
+        .flow-section h2 {
+            color: #4a5568;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #667eea;
+        }
+        .flow-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .flow-step {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+            position: relative;
+        }
+        .flow-step::after {
+            content: '↓';
+            position: absolute;
+            bottom: -30px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 2em;
+            color: #667eea;
+        }
+        .flow-step:last-child::after {
+            content: '';
+        }
+        .step-number {
+            display: inline-block;
+            background: rgba(255,255,255,0.3);
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            text-align: center;
+            line-height: 40px;
+            font-weight: bold;
+            margin-right: 15px;
+            font-size: 1.2em;
+        }
+        .step-title {
+            font-size: 1.3em;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .step-description {
+            opacity: 0.9;
+            line-height: 1.6;
+        }
+        .security-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .security-card {
+            background: #f7fafc;
+            padding: 20px;
+            border-radius: 10px;
+            border-left: 4px solid #667eea;
+        }
+        .security-card h3 {
+            color: #2d3748;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }
+        .security-card p {
+            color: #4a5568;
+            font-size: 0.95em;
+            line-height: 1.5;
+        }
+        .code-block {
+            background: #2d3748;
+            color: #68d391;
+            padding: 20px;
+            border-radius: 10px;
+            font-family: 'Courier New', monospace;
+            overflow-x: auto;
+            margin-top: 15px;
+        }
+        .highlight {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .success-box {
+            background: #c6f6d5;
+            border-left: 4px solid #48bb78;
+            padding: 20px;
+            border-radius: 10px;
+            margin-top: 20px;
+        }
+        .success-box h3 {
+            color: #22543d;
+            margin-bottom: 10px;
+        }
+        .success-box ul {
+            color: #276749;
+            margin-left: 20px;
+        }
+        .success-box li {
+            margin-bottom: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 Survey Validation System</h1>
+        <p class="subtitle">Complete Flow Diagram - GradTrack</p>
+
+        <!-- Main Flow -->
+        <div class="flow-section">
+            <h2>📋 Graduate Survey Journey</h2>
+            <div class="flow-container">
+                <div class="flow-step">
+                    <div class="step-title">
+                        <span class="step-number">1</span>
+                        Graduate Receives Survey Link
+                    </div>
+                    <div class="step-description">
+                        Link shared via <span class="highlight">Email</span>, <span class="highlight">SMS</span>, <span class="highlight">Facebook</span>, or <span class="highlight">QR Code</span>
+                        <div class="code-block">https://gradtrack.com/survey-verify?survey_id=1</div>
+                    </div>
+                </div>
+
+                <div class="flow-step">
+                    <div class="step-title">
+                        <span class="step-number">2</span>
+                        Identity Verification Page
+                    </div>
+                    <div class="step-description">
+                        Graduate enters:
+                        <ul style="margin-top: 10px; margin-left: 20px;">
+                            <li>Student Number (e.g., 2020-12345)</li>
+                            <li>Last Name (e.g., Doe)</li>
+                            <li>Program (optional - BSCS, BSHM, etc.)</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="flow-step">
+                    <div class="step-title">
+                        <span class="step-number">3</span>
+                        Backend Validation
+                    </div>
+                    <div class="step-description">
+                        System checks registrar database:
+                        <div class="code-block">
+SELECT * FROM graduates<br>
+WHERE student_id = '2020-12345'<br>
+AND last_name LIKE '%Doe%'<br>
+AND program matches
+                        </div>
+                        ✅ Found → Generate token<br>
+                        ❌ Not found → Show error
+                    </div>
+                </div>
+
+                <div class="flow-step">
+                    <div class="step-title">
+                        <span class="step-number">4</span>
+                        Token Generation
+                    </div>
+                    <div class="step-description">
+                        System generates unique 64-character token:
+                        <div class="code-block">
+Token: a7f3c9e2b8d4f1a6c5e9b2d8f4a1c7e3...<br>
+Expires: 30 minutes<br>
+Stored in: survey_tokens table
+                        </div>
+                        Token saved in sessionStorage (browser)
+                    </div>
+                </div>
+
+                <div class="flow-step">
+                    <div class="step-title">
+                        <span class="step-number">5</span>
+                        Survey Form Access
+                    </div>
+                    <div class="step-description">
+                        Graduate redirected to survey form<br>
+                        Welcome message: <span class="highlight">"Welcome, John Doe!"</span><br>
+                        Token validated on every page load
+                    </div>
+                </div>
+
+                <div class="flow-step">
+                    <div class="step-title">
+                        <span class="step-number">6</span>
+                        Survey Completion
+                    </div>
+                    <div class="step-description">
+                        Graduate answers all questions<br>
+                        Progress auto-saved to localStorage<br>
+                        Can navigate between sections
+                    </div>
+                </div>
+
+                <div class="flow-step">
+                    <div class="step-title">
+                        <span class="step-number">7</span>
+                        Survey Submission
+                    </div>
+                    <div class="step-description">
+                        System validates token again<br>
+                        Saves responses to database<br>
+                        Marks token as <span class="highlight">SUBMITTED</span><br>
+                        Records IP address and timestamp
+                    </div>
+                </div>
+
+                <div class="flow-step">
+                    <div class="step-title">
+                        <span class="step-number">8</span>
+                        Completion & Prevention
+                    </div>
+                    <div class="step-description">
+                        ✅ Success message displayed<br>
+                        🔒 Token cleared from browser<br>
+                        🚫 Future submissions blocked<br>
+                        If graduate tries again: <span class="highlight">"Survey already submitted"</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Security Features -->
+        <div class="flow-section">
+            <h2>🛡️ Security Layers</h2>
+            <div class="security-grid">
+                <div class="security-card">
+                    <h3>Layer 1: Identity</h3>
+                    <p>Validates student number, last name, and program against registrar database. Only verified graduates can proceed.</p>
+                </div>
+                <div class="security-card">
+                    <h3>Layer 2: Token</h3>
+                    <p>Generates unique 64-character cryptographic token. Expires after 30 minutes for security.</p>
+                </div>
+                <div class="security-card">
+                    <h3>Layer 3: Duplicate Check</h3>
+                    <p>Database constraint prevents same graduate from submitting multiple times to same survey.</p>
+                </div>
+                <div class="security-card">
+                    <h3>Layer 4: Audit Trail</h3>
+                    <p>Records IP address, timestamp, and submission status for every attempt. Full audit trail.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Database Structure -->
+        <div class="flow-section">
+            <h2>💾 Database Structure</h2>
+            <div class="code-block">
+survey_tokens table:
++----+------------+-------------+----------------------------------+---------------------+---------------------+
+| id | survey_id  | graduate_id | token                            | expires_at          | submitted_at        |
++----+------------+-------------+----------------------------------+---------------------+---------------------+
+| 1  | 1          | 101         | a7f3c9e2b8d4f1a6c5e9b2d8f4a1c7e3 | 2024-12-15 15:30:00 | NULL                |
+| 2  | 1          | 102         | b8e4d0f3c9a5e2b7d1f6a3c8e4b9d2f5 | 2024-12-15 15:45:00 | NULL                |
+| 3  | 1          | 103         | c9f5e1a4d0b6f3c8e2a7d4b1f8c5e0a3 | 2024-12-15 16:00:00 | 2024-12-15 14:30:00 |
++----+------------+-------------+----------------------------------+---------------------+---------------------+
+                                                                                              ↑
+                                                                                    Graduate 103 already submitted
+            </div>
+        </div>
+
+        <!-- Success Indicators -->
+        <div class="success-box">
+            <h3>✅ System Working Correctly When:</h3>
+            <ul>
+                <li>Valid credentials redirect to survey form</li>
+                <li>Invalid credentials show error message</li>
+                <li>Survey displays graduate's name</li>
+                <li>After submission, cannot submit again</li>
+                <li>Token expires after 30 minutes</li>
+                <li>All submissions tracked in database</li>
+            </ul>
+        </div>
+
+        <!-- API Endpoints -->
+        <div class="flow-section">
+            <h2>🔌 API Endpoints</h2>
+            <div class="security-grid">
+                <div class="security-card">
+                    <h3>POST /surveys/verify.php</h3>
+                    <p>Verifies graduate identity and generates token</p>
+                </div>
+                <div class="security-card">
+                    <h3>POST /surveys/validate-token.php</h3>
+                    <p>Validates token before showing survey</p>
+                </div>
+                <div class="security-card">
+                    <h3>POST /surveys/responses.php</h3>
+                    <p>Submits survey and marks token as used</p>
+                </div>
+                <div class="security-card">
+                    <h3>GET /surveys/programs.php</h3>
+                    <p>Returns list of programs for dropdown</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

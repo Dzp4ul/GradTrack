@@ -5,6 +5,7 @@ import FAQPage from './pages/FAQPage';
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
 import SignIn from './pages/SignIn';
 import Survey from './pages/Survey';
+import SurveyVerification from './pages/SurveyVerification';
 import AdminLayout from './pages/admin/AdminLayout';
 import Dashboard from './pages/admin/Dashboard';
 import Graduates from './pages/admin/Graduates';
@@ -50,6 +51,7 @@ function App() {
         <Route path="/about" element={<AboutPage />} />
         <Route path="/faq" element={<FAQPage />} />
         <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+        <Route path="/survey-verify" element={<SurveyVerification />} />
         <Route path="/survey" element={<Survey />} />
         
         {/* Admin Sign In - Separate route for admin only */}

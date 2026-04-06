@@ -16,23 +16,100 @@ $conn = $database->getConnection();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $data = json_decode(file_get_contents("php://input"), true);
+    
+    $token = $data['token'] ?? null;
+    $surveyId = $data['survey_id'] ?? null;
+    $graduateId = $data['graduate_id'] ?? null;
+    $responses = $data['responses'] ?? [];
 
     try {
         $conn->beginTransaction();
+        
+        // If token provided, validate it
+        if ($token) {
+            $tokenQuery = "SELECT * FROM survey_tokens 
+                          WHERE token = :token 
+                          AND survey_id = :survey_id
+                          AND submitted_at IS NULL";
+            $tokenStmt = $conn->prepare($tokenQuery);
+            $tokenStmt->bindParam(':token', $token);
+            $tokenStmt->bindParam(':survey_id', $surveyId);
+            $tokenStmt->execute();
+            $tokenData = $tokenStmt->fetch(PDO::FETCH_ASSOC);
+            
+            if (!$tokenData) {
+                $conn->rollBack();
+                http_response_code(403);
+                echo json_encode([
+                    "success" => false,
+                    "error" => "Invalid or expired token"
+                ]);
+                exit();
+            }
+            
+            // Check if token expired
+            if (strtotime($tokenData['expires_at']) < time()) {
+                $conn->rollBack();
+                http_response_code(403);
+                echo json_encode([
+                    "success" => false,
+                    "error" => "Token has expired"
+                ]);
+                exit();
+            }
+            
+            // Use graduate_id from token
+            $graduateId = $tokenData['graduate_id'];
+            
+            // Get client IP
+            $ipAddress = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? null;
+        }
+        
+        // Check for duplicate submission
+        if ($graduateId && $surveyId) {
+            $dupQuery = "SELECT id FROM survey_responses 
+                        WHERE survey_id = :survey_id 
+                        AND graduate_id = :graduate_id";
+            $dupStmt = $conn->prepare($dupQuery);
+            $dupStmt->bindParam(':survey_id', $surveyId);
+            $dupStmt->bindParam(':graduate_id', $graduateId);
+            $dupStmt->execute();
+            
+            if ($dupStmt->fetch()) {
+                $conn->rollBack();
+                http_response_code(409);
+                echo json_encode([
+                    "success" => false,
+                    "error" => "Survey already submitted"
+                ]);
+                exit();
+            }
+        }
         
         // Insert survey response
         $query = "INSERT INTO survey_responses (survey_id, graduate_id, responses, submitted_at)
                   VALUES (:survey_id, :graduate_id, :responses, NOW())";
 
         $stmt = $conn->prepare($query);
-        $responsesJson = json_encode($data['responses']);
+        $responsesJson = json_encode($responses);
 
-        $stmt->bindParam(':survey_id', $data['survey_id']);
-        $stmt->bindParam(':graduate_id', $data['graduate_id']);
+        $stmt->bindParam(':survey_id', $surveyId);
+        $stmt->bindParam(':graduate_id', $graduateId);
         $stmt->bindParam(':responses', $responsesJson);
 
         $stmt->execute();
         $responseId = $conn->lastInsertId();
+        
+        // Mark token as submitted if token was used
+        if ($token && isset($tokenData)) {
+            $updateTokenQuery = "UPDATE survey_tokens 
+                                SET submitted_at = NOW(), ip_address = :ip_address 
+                                WHERE token = :token";
+            $updateTokenStmt = $conn->prepare($updateTokenQuery);
+            $updateTokenStmt->bindParam(':ip_address', $ipAddress);
+            $updateTokenStmt->bindParam(':token', $token);
+            $updateTokenStmt->execute();
+        }
         
         $conn->commit();
 
