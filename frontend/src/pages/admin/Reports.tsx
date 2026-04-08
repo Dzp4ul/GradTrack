@@ -4,7 +4,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend, LineChart, Line,
 } from 'recharts';
-import { Download, Users, Briefcase, Target, FileText, ClipboardList, Sparkles, TrendingUp } from 'lucide-react';
+import { Download, Users, Briefcase, Target, FileText, ClipboardList, Sparkles } from 'lucide-react';
 import { API_ROOT } from '../../config/api';
 
 const API_BASE = API_ROOT;
@@ -50,38 +50,6 @@ interface SalaryData {
   count: number;
 }
 
-interface PredictiveData {
-  historical_data: Array<{
-    year: number;
-    total_graduates: number;
-    employed: number;
-    aligned: number;
-    employment_rate: number;
-    alignment_rate: number;
-  }>;
-  predictions: Array<{
-    year: number;
-    predicted_employment_rate: number;
-    predicted_alignment_rate: number;
-    margin_of_error: number;
-  }>;
-  regression_analysis: {
-    employment: {
-      slope: number;
-      intercept: number;
-      r_squared: number;
-      trend: string;
-    };
-    alignment: {
-      slope: number;
-      intercept: number;
-      r_squared: number;
-      trend: string;
-    };
-  };
-  ai_analysis: string;
-}
-
 const COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
 
 // Program-specific colors
@@ -94,13 +62,12 @@ const PROGRAM_COLORS: Record<string, string> = {
 };
 
 export default function Reports() {
-  const [tab, setTab] = useState<'overview' | 'program' | 'year' | 'employment' | 'salary' | 'surveys' | 'predictive'>('overview');
+  const [tab, setTab] = useState<'overview' | 'program' | 'year' | 'employment' | 'salary' | 'surveys'>('overview');
   const [overview, setOverview] = useState<Overview | null>(null);
   const [programData, setProgramData] = useState<ProgramReport[]>([]);
   const [yearData, setYearData] = useState<YearReport[]>([]);
   const [statusData, setStatusData] = useState<StatusData[]>([]);
   const [salaryData, setSalaryData] = useState<SalaryData[]>([]);
-  const [predictiveData, setPredictiveData] = useState<PredictiveData | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedYear, setSelectedYear] = useState<string>('all');
   const [availableYears, setAvailableYears] = useState<string[]>([]);
@@ -162,9 +129,7 @@ export default function Reports() {
       employment: 'employment_status', salary: 'salary_distribution',
     };
     
-    if (tab === 'predictive') {
-      fetchPredictiveAnalytics();
-    } else if (tab !== 'surveys') {
+    if (tab !== 'surveys') {
       fetchReport(typeMap[tab], selectedYear);
     }
     
@@ -186,19 +151,6 @@ export default function Reports() {
         setAiAnalysis('AI analysis temporarily unavailable.');
       })
       .finally(() => setAiLoading(false));
-  };
-
-  const fetchPredictiveAnalytics = () => {
-    setLoading(true);
-    fetch(`${API_BASE}/reports/predictive-analytics.php`)
-      .then((r) => r.json())
-      .then((res) => {
-        if (res.success) {
-          setPredictiveData(res.data);
-        }
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
   };
 
   const handleExport = () => {
@@ -224,7 +176,6 @@ export default function Reports() {
     { key: 'year', label: 'By Year' },
     { key: 'employment', label: 'Employment Status' },
     { key: 'salary', label: 'Salary Distribution' },
-    { key: 'predictive', label: 'Predictive Analytics' },
     { key: 'surveys', label: 'Survey Analytics' },
   ] as const;
 
@@ -252,7 +203,7 @@ export default function Reports() {
               </select>
             </div>
           )}
-          {tab !== 'surveys' && tab !== 'predictive' && (
+          {tab !== 'surveys' && (
             <button 
               onClick={handleExport}
               className="flex items-center gap-2 border px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
@@ -811,152 +762,6 @@ export default function Reports() {
                         <p className="text-xs text-gray-500 mt-1">{s.salary_range}</p>
                       </div>
                     ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Predictive Analytics */}
-              {tab === 'predictive' && predictiveData && (
-                <div className="space-y-6">
-                  <div className="border rounded-xl p-5">
-                    <h3 className="text-lg font-semibold text-[#1b2a4a] mb-4">Employment Rate Forecast (Next 3 Years)</h3>
-                    <ResponsiveContainer width="100%" height={300}>
-                      <LineChart data={[
-                        ...predictiveData.historical_data.map(d => ({
-                          year: d.year,
-                          employment_rate: d.employment_rate,
-                          type: 'Historical'
-                        })),
-                        ...predictiveData.predictions.map(d => ({
-                          year: d.year,
-                          employment_rate: d.predicted_employment_rate,
-                          type: 'Predicted'
-                        }))
-                      ]}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="year" />
-                        <YAxis domain={[0, 100]} />
-                        <Tooltip />
-                        <Legend />
-                        <Line 
-                          type="monotone" 
-                          dataKey="employment_rate" 
-                          stroke="#3b82f6" 
-                          strokeWidth={2}
-                          dot={{ r: 4 }}
-                          name="Employment Rate (%)"
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-
-                  <div className="border rounded-xl p-5">
-                    <h3 className="text-lg font-semibold text-[#1b2a4a] mb-4">Predictions for Next 3 Years</h3>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead className="bg-gray-50">
-                          <tr>
-                            <th className="text-left px-4 py-3 font-semibold text-gray-600">Year</th>
-                            <th className="text-center px-4 py-3 font-semibold text-gray-600">Predicted Employment Rate</th>
-                            <th className="text-center px-4 py-3 font-semibold text-gray-600">Predicted Alignment Rate</th>
-                            <th className="text-center px-4 py-3 font-semibold text-gray-600">Margin of Error</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {predictiveData.predictions.map((pred) => (
-                            <tr key={pred.year} className="border-t hover:bg-gray-50">
-                              <td className="px-4 py-3 font-medium">{pred.year}</td>
-                              <td className="px-4 py-3 text-center">
-                                <span className="inline-flex items-center gap-1">
-                                  <span>{pred.predicted_employment_rate}%</span>
-                                  {predictiveData.regression_analysis.employment.trend === 'increasing' && (
-                                    <TrendingUp className="w-4 h-4 text-green-600" />
-                                  )}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3 text-center">
-                                <span className="inline-flex items-center gap-1">
-                                  <span>{pred.predicted_alignment_rate}%</span>
-                                  {predictiveData.regression_analysis.alignment.trend === 'increasing' && (
-                                    <TrendingUp className="w-4 h-4 text-green-600" />
-                                  )}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3 text-center font-semibold text-orange-600">{pred.predicted_employment_rate}% ± {pred.margin_of_error}%</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="border rounded-xl p-5 bg-blue-50">
-                      <h4 className="text-sm font-semibold text-blue-900 mb-3">Employment Rate Trend</h4>
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Trend:</span>
-                          <span className="font-semibold capitalize text-blue-900">
-                            {predictiveData.regression_analysis.employment.trend}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Slope:</span>
-                          <span className="font-semibold text-blue-900">
-                            {predictiveData.regression_analysis.employment.slope.toFixed(4)}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">R² (Accuracy):</span>
-                          <span className="font-semibold text-blue-900">
-                            {(predictiveData.regression_analysis.employment.r_squared * 100).toFixed(2)}%
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="border rounded-xl p-5 bg-orange-50">
-                      <h4 className="text-sm font-semibold text-orange-900 mb-3">Alignment Rate Trend</h4>
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Trend:</span>
-                          <span className="font-semibold capitalize text-orange-900">
-                            {predictiveData.regression_analysis.alignment.trend}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">Slope:</span>
-                          <span className="font-semibold text-orange-900">
-                            {predictiveData.regression_analysis.alignment.slope.toFixed(4)}
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-gray-600">R² (Accuracy):</span>
-                          <span className="font-semibold text-orange-900">
-                            {(predictiveData.regression_analysis.alignment.r_squared * 100).toFixed(2)}%
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="border-2 border-green-200 rounded-xl p-6 bg-gradient-to-br from-green-50 via-emerald-50 to-white shadow-lg">
-                    <div className="flex items-start gap-4">
-                      <div className="p-3 bg-gradient-to-br from-green-600 to-emerald-600 rounded-lg shadow-md">
-                        <TrendingUp className="w-6 h-6 text-white" />
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-3">
-                          <h3 className="text-lg font-bold text-[#1b2a4a]">AI-Powered Predictive Insights</h3>
-                          <span className="px-2 py-0.5 bg-green-100 text-green-700 text-xs font-semibold rounded-full">Linear Regression</span>
-                        </div>
-                        <div className="space-y-3 text-sm text-gray-700 leading-relaxed">
-                          {predictiveData.ai_analysis.split('\n\n').map((paragraph, idx) => (
-                            <p key={idx} className="text-justify">{paragraph}</p>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
                   </div>
                 </div>
               )}
