@@ -14,7 +14,6 @@ import SurveyDetail from './pages/admin/SurveyDetail';
 import SurveyResponses from './pages/admin/SurveyResponses';
 import SurveyAnalytics from './pages/admin/SurveyAnalytics';
 import Reports from './pages/admin/Reports';
-import Announcements from './pages/admin/Announcements';
 import Settings from './pages/admin/Settings';
 import DeanSurveyStatus from './pages/admin/DeanSurveyStatus';
 import UserManagement from './pages/admin/UserManagement';
@@ -120,14 +119,6 @@ function App() {
             element={
               <ProtectedRoute allowedRoles={ADMIN_ROLES}>
                 <Reports />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="announcements"
-            element={
-              <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-                <Announcements />
               </ProtectedRoute>
             }
           />

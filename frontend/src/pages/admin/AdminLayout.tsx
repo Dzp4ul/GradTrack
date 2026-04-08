@@ -7,7 +7,6 @@ import {
   ClipboardList,
   BarChart3,
   Users,
-  Megaphone,
   Settings,
   Menu,
   X,
@@ -30,7 +29,6 @@ const adminNavItems: NavItem[] = [
   { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true },
   { to: '/admin/surveys', icon: ClipboardList, label: 'Survey Management' },
   { to: '/admin/reports', icon: BarChart3, label: 'Reports & Analytics' },
-  { to: '/admin/announcements', icon: Megaphone, label: 'Announcements' },
 ];
 
 const superAdminNavItems: NavItem[] = [
