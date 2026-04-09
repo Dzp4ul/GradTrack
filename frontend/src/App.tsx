@@ -6,6 +6,8 @@ import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
 import SignIn from './pages/SignIn';
 import Survey from './pages/Survey';
 import SurveyVerification from './pages/SurveyVerification';
+import GraduateSignIn from './pages/GraduateSignIn';
+import GraduatePortal from './pages/GraduatePortal';
 import AdminLayout from './pages/admin/AdminLayout';
 import Dashboard from './pages/admin/Dashboard';
 import Graduates from './pages/admin/Graduates';
@@ -19,6 +21,8 @@ import DeanSurveyStatus from './pages/admin/DeanSurveyStatus';
 import UserManagement from './pages/admin/UserManagement';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ProtectedRoute } from './lib/ProtectedRoute';
+import { GraduateAuthProvider } from './contexts/GraduateAuthContext';
+import { GraduateProtectedRoute } from './lib/GraduateProtectedRoute';
 
 const SUPER_ADMIN_ROLES = ['super_admin'];
 const ADMIN_ROLES = ['admin'];
@@ -45,101 +49,113 @@ function AdminHome() {
 function App() {
   return (
     <AuthProvider>
-      <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/about" element={<AboutPage />} />
-        <Route path="/faq" element={<FAQPage />} />
-        <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
-        <Route path="/survey-verify" element={<SurveyVerification />} />
-        <Route path="/survey" element={<Survey />} />
-        
-        {/* Admin Sign In - Separate route for admin only */}
-        <Route path="/admin/signin" element={<SignIn />} />
+      <GraduateAuthProvider>
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/about" element={<AboutPage />} />
+          <Route path="/faq" element={<FAQPage />} />
+          <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+          <Route path="/survey-verify" element={<SurveyVerification />} />
+          <Route path="/survey" element={<Survey />} />
 
-        {/* Admin Routes - Protected */}
-        <Route
-          path="/admin"
-          element={
-            <ProtectedRoute>
-              <AdminLayout />
-            </ProtectedRoute>
-          }
-        >
-          <Route index element={<AdminHome />} />
+          <Route path="/graduate/signin" element={<GraduateSignIn />} />
           <Route
-            path="graduates"
+            path="/graduate/portal"
             element={
-              <ProtectedRoute allowedRoles={['registrar']}>
-                <Graduates />
-              </ProtectedRoute>
+              <GraduateProtectedRoute>
+                <GraduatePortal />
+              </GraduateProtectedRoute>
             }
           />
+
+          {/* Admin Sign In - Separate route for admin only */}
+          <Route path="/admin/signin" element={<SignIn />} />
+
+          {/* Admin Routes - Protected */}
           <Route
-            path="survey-status"
+            path="/admin"
             element={
-              <ProtectedRoute allowedRoles={DEAN_ROLES}>
-                <DeanSurveyStatus />
+              <ProtectedRoute>
+                <AdminLayout />
               </ProtectedRoute>
             }
-          />
-          <Route
-            path="surveys"
-            element={
-              <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-                <Surveys />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="surveys/:id"
-            element={
-              <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-                <SurveyDetail />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="surveys/:surveyId/responses"
-            element={
-              <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-                <SurveyResponses />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="surveys/:surveyId/analytics"
-            element={
-              <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-                <SurveyAnalytics />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="reports"
-            element={
-              <ProtectedRoute allowedRoles={ADMIN_ROLES}>
-                <Reports />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="settings"
-            element={
-              <ProtectedRoute allowedRoles={SUPER_ADMIN_ROLES}>
-                <Settings />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="user-management"
-            element={
-              <ProtectedRoute allowedRoles={SUPER_ADMIN_ROLES}>
-                <UserManagement />
-              </ProtectedRoute>
-            }
-          />
-        </Route>
-      </Routes>
+          >
+            <Route index element={<AdminHome />} />
+            <Route
+              path="graduates"
+              element={
+                <ProtectedRoute allowedRoles={['registrar']}>
+                  <Graduates />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="survey-status"
+              element={
+                <ProtectedRoute allowedRoles={DEAN_ROLES}>
+                  <DeanSurveyStatus />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="surveys"
+              element={
+                <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+                  <Surveys />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="surveys/:id"
+              element={
+                <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+                  <SurveyDetail />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="surveys/:surveyId/responses"
+              element={
+                <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+                  <SurveyResponses />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="surveys/:surveyId/analytics"
+              element={
+                <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+                  <SurveyAnalytics />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="reports"
+              element={
+                <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+                  <Reports />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="settings"
+              element={
+                <ProtectedRoute allowedRoles={SUPER_ADMIN_ROLES}>
+                  <Settings />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="user-management"
+              element={
+                <ProtectedRoute allowedRoles={SUPER_ADMIN_ROLES}>
+                  <UserManagement />
+                </ProtectedRoute>
+              }
+            />
+          </Route>
+        </Routes>
+      </GraduateAuthProvider>
     </AuthProvider>
   );
 }

@@ -24,6 +24,7 @@ function HomePage() {
               <Link to="/about" className="text-white hover:text-yellow-400 font-medium transition">About</Link>
               <a href="#why-gradtrack" className="text-white hover:text-yellow-400 font-medium transition">Features</a>
               <Link to="/faq" className="text-white hover:text-yellow-400 font-medium transition">FAQ's</Link>
+              <Link to="/graduate/signin" className="text-white hover:text-yellow-400 font-medium transition">Graduate Portal</Link>
               <Link to="/survey" className="bg-yellow-500 hover:bg-yellow-600 text-blue-900 px-6 py-2.5 rounded-lg font-medium transition shadow-md hover:shadow-lg">
                 Take Survey
               </Link>
@@ -54,6 +55,9 @@ function HomePage() {
                 <div className="flex space-x-4">
                   <Link to="/survey" className="bg-yellow-500 hover:bg-yellow-600 text-blue-900 px-8 py-4 rounded-lg font-bold text-lg transition shadow-xl hover:shadow-2xl hover:scale-105 transform">
                     Take Survey
+                  </Link>
+                  <Link to="/graduate/signin" className="bg-white text-blue-900 hover:bg-gray-100 px-8 py-4 rounded-lg font-bold text-lg transition shadow-xl hover:shadow-2xl">
+                    Graduate Portal
                   </Link>
                   <a href="#about" className="bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white px-8 py-4 rounded-lg font-bold text-lg transition border-2 border-white/30">
                     Learn More

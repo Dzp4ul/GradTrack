@@ -117,7 +117,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         echo json_encode([
             "success" => true,
             "message" => "Survey response saved successfully",
-            "id" => $responseId
+            "id" => $responseId,
+            "survey_response_id" => $responseId
         ]);
     } catch(PDOException $e) {
         $conn->rollBack();

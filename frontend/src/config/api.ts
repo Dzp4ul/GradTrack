@@ -9,6 +9,12 @@ export const API_ENDPOINTS = {
     LOGOUT: `${API_ROOT}/auth/logout.php`,
     CHECK: `${API_ROOT}/auth/check.php`,
   },
+  GRADUATE_AUTH: {
+    LOGIN: `${API_ROOT}/graduate-auth/login.php`,
+    LOGOUT: `${API_ROOT}/graduate-auth/logout.php`,
+    CHECK: `${API_ROOT}/graduate-auth/check.php`,
+    REGISTER_FROM_SURVEY: `${API_ROOT}/graduate-auth/register-from-survey.php`,
+  },
   GRADUATES: `${API_ROOT}/graduates/index.php`,
   SURVEYS: `${API_ROOT}/surveys/index.php`,
   SURVEY_TEMPLATES: `${API_ROOT}/surveys/templates.php`,
@@ -21,4 +27,18 @@ export const API_ENDPOINTS = {
   SETTINGS: `${API_ROOT}/settings/index.php`,
   USERS: `${API_ROOT}/users/index.php`,
   DEAN_SURVEY_STATUS: `${API_ROOT}/dean/survey-status.php`,
+  MENTORSHIP: {
+    MENTORS: `${API_ROOT}/mentorship/mentors.php`,
+    REQUESTS: `${API_ROOT}/mentorship/requests.php`,
+    MESSAGES: `${API_ROOT}/mentorship/messages.php`,
+    FEEDBACK: `${API_ROOT}/mentorship/feedback.php`,
+  },
+  JOBS: {
+    POSTS: `${API_ROOT}/jobs/posts.php`,
+    APPLICATIONS: `${API_ROOT}/jobs/applications.php`,
+  },
+  ALUMNI_RATING: {
+    SUMMARY: `${API_ROOT}/alumni-rating/index.php`,
+    DOCUMENTS: `${API_ROOT}/alumni-rating/documents.php`,
+  },
 };

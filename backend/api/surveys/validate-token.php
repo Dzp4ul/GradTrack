@@ -30,10 +30,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     try {
         // Validate token
-        $query = "SELECT st.*, g.first_name, g.last_name, g.student_id, 
-                  s.title as survey_title, s.status as survey_status
+        $query = "SELECT st.*, g.first_name, g.middle_name, g.last_name, g.student_id,
+              g.email, g.phone, g.year_graduated, g.address, g.program_id,
+              p.name AS program_name, p.code AS program_code,
+              s.title as survey_title, s.status as survey_status
                   FROM survey_tokens st
                   JOIN graduates g ON st.graduate_id = g.id
+              LEFT JOIN programs p ON g.program_id = p.id
                   JOIN surveys s ON st.survey_id = s.id
                   WHERE st.token = :token";
         
@@ -97,7 +100,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 "graduate_name" => $tokenData['first_name'] . ' ' . $tokenData['last_name'],
                 "student_id" => $tokenData['student_id'],
                 "survey_title" => $tokenData['survey_title'],
-                "expires_at" => $tokenData['expires_at']
+                "expires_at" => $tokenData['expires_at'],
+                "profile" => [
+                    "first_name" => $tokenData['first_name'],
+                    "middle_name" => $tokenData['middle_name'],
+                    "last_name" => $tokenData['last_name'],
+                    "email" => $tokenData['email'],
+                    "phone" => $tokenData['phone'],
+                    "year_graduated" => $tokenData['year_graduated'],
+                    "address" => $tokenData['address'],
+                    "program_id" => $tokenData['program_id'],
+                    "program_name" => $tokenData['program_name'],
+                    "program_code" => $tokenData['program_code']
+                ]
             ]
         ]);
         

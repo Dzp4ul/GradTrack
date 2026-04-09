@@ -2,6 +2,15 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 
+function normalize_nullable_text($value) {
+    if (!isset($value)) {
+        return null;
+    }
+
+    $trimmed = trim((string)$value);
+    return $trimmed === '' ? null : $trimmed;
+}
+
 $database = new Database();
 $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
@@ -116,20 +125,36 @@ try {
         case 'POST':
             $data = json_decode(file_get_contents("php://input"), true);
 
+            $studentId = normalize_nullable_text($data['student_id'] ?? null);
+            $email = normalize_nullable_text($data['email'] ?? null);
+            $phone = normalize_nullable_text($data['phone'] ?? null);
+            $middleName = normalize_nullable_text($data['middle_name'] ?? null);
+            $address = normalize_nullable_text($data['address'] ?? null);
+
+            if ($email !== null) {
+                $emailCheckStmt = $db->prepare("SELECT id FROM graduates WHERE email = :email LIMIT 1");
+                $emailCheckStmt->execute([':email' => $email]);
+                if ($emailCheckStmt->fetch(PDO::FETCH_ASSOC)) {
+                    http_response_code(409);
+                    echo json_encode(["success" => false, "error" => "Email already exists. Please use a different email or leave it blank."]);
+                    break;
+                }
+            }
+
             $stmt = $db->prepare("
                 INSERT INTO graduates (student_id, first_name, middle_name, last_name, email, phone, program_id, year_graduated, address)
                 VALUES (:student_id, :first_name, :middle_name, :last_name, :email, :phone, :program_id, :year_graduated, :address)
             ");
             $stmt->execute([
-                ':student_id' => $data['student_id'] ?? null,
+                ':student_id' => $studentId,
                 ':first_name' => $data['first_name'],
-                ':middle_name' => $data['middle_name'] ?? null,
+                ':middle_name' => $middleName,
                 ':last_name' => $data['last_name'],
-                ':email' => $data['email'] ?? null,
-                ':phone' => $data['phone'] ?? null,
+                ':email' => $email,
+                ':phone' => $phone,
                 ':program_id' => $data['program_id'] ?? null,
                 ':year_graduated' => $data['year_graduated'] ?? null,
-                ':address' => $data['address'] ?? null,
+                ':address' => $address,
             ]);
             $graduateId = $db->lastInsertId();
 
@@ -161,6 +186,22 @@ try {
                 break;
             }
 
+            $studentId = normalize_nullable_text($data['student_id'] ?? null);
+            $email = normalize_nullable_text($data['email'] ?? null);
+            $phone = normalize_nullable_text($data['phone'] ?? null);
+            $middleName = normalize_nullable_text($data['middle_name'] ?? null);
+            $address = normalize_nullable_text($data['address'] ?? null);
+
+            if ($email !== null) {
+                $emailCheckStmt = $db->prepare("SELECT id FROM graduates WHERE email = :email AND id <> :id LIMIT 1");
+                $emailCheckStmt->execute([':email' => $email, ':id' => $data['id']]);
+                if ($emailCheckStmt->fetch(PDO::FETCH_ASSOC)) {
+                    http_response_code(409);
+                    echo json_encode(["success" => false, "error" => "Email already exists. Please use a different email or leave it blank."]);
+                    break;
+                }
+            }
+
             $stmt = $db->prepare("
                 UPDATE graduates SET 
                     student_id = :student_id, first_name = :first_name, middle_name = :middle_name, last_name = :last_name,
@@ -170,15 +211,15 @@ try {
             ");
             $stmt->execute([
                 ':id' => $data['id'],
-                ':student_id' => $data['student_id'] ?? null,
+                ':student_id' => $studentId,
                 ':first_name' => $data['first_name'],
-                ':middle_name' => $data['middle_name'] ?? null,
+                ':middle_name' => $middleName,
                 ':last_name' => $data['last_name'],
-                ':email' => $data['email'] ?? null,
-                ':phone' => $data['phone'] ?? null,
+                ':email' => $email,
+                ':phone' => $phone,
                 ':program_id' => $data['program_id'] ?? null,
                 ':year_graduated' => $data['year_graduated'] ?? null,
-                ':address' => $data['address'] ?? null,
+                ':address' => $address,
             ]);
 
             // Update employment
