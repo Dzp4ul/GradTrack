@@ -1,9 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Briefcase,
   Target,
-  Clock,
   AlertTriangle,
   CheckCircle2,
   ClipboardList,
@@ -89,6 +88,90 @@ export default function Dashboard() {
       .finally(() => setLoading(false));
   }, []);
 
+  const trendData = useMemo(() => {
+    if (!data?.employment_trends?.length) return [];
+    if (data.employment_trends.length > 1) return data.employment_trends;
+
+    const current = data.employment_trends[0];
+    return [
+      {
+        year: current.year - 1,
+        employment_rate: current.employment_rate,
+        alignment_rate: current.alignment_rate,
+      },
+      current,
+    ];
+  }, [data?.employment_trends]);
+
+  const alignmentDistribution = useMemo(() => {
+    if (!data?.alignment_distribution?.length) {
+      return [
+        { name: 'Aligned', value: 0, percentage: 0 },
+        { name: 'Not Aligned', value: 0, percentage: 0 },
+      ];
+    }
+
+    const aligned = data.alignment_distribution.find((item) =>
+      item.name.toLowerCase().includes('aligned') && !item.name.toLowerCase().includes('not') && !item.name.toLowerCase().includes('partial')
+    );
+    const notAlignedTotal = data.alignment_distribution
+      .filter((item) => item.name.toLowerCase().includes('not') || item.name.toLowerCase().includes('partial'))
+      .reduce((sum, item) => sum + item.value, 0);
+
+    const alignedValue = aligned?.value ?? 0;
+    const total = alignedValue + notAlignedTotal;
+
+    if (total === 0) {
+      return [
+        { name: 'Aligned', value: 0, percentage: 0 },
+        { name: 'Not Aligned', value: 0, percentage: 0 },
+      ];
+    }
+
+    return [
+      {
+        name: 'Aligned',
+        value: alignedValue,
+        percentage: Number(((alignedValue / total) * 100).toFixed(1)),
+      },
+      {
+        name: 'Not Aligned',
+        value: notAlignedTotal,
+        percentage: Number(((notAlignedTotal / total) * 100).toFixed(1)),
+      },
+    ];
+  }, [data?.alignment_distribution]);
+
+  const recommendedActions = useMemo(() => {
+    if (!data) return [];
+
+    const actions: string[] = [];
+
+    if (data.at_risk_programs.length > 0) {
+      actions.push(`Prioritize coaching and employer-linkage support for ${data.at_risk_programs.join(', ')}`);
+    }
+
+    if (data.alignment_rate < 70) {
+      actions.push('Review curriculum-to-job mapping with industry partners this semester');
+    }
+
+    if (data.employment_rate < 80) {
+      actions.push('Launch a targeted placement drive for graduating cohorts with low hiring rates');
+    }
+
+    actions.push('Track monthly program-level outcomes and flag sudden declines early');
+
+    return actions.slice(0, 4);
+  }, [data]);
+
+  const topJobs = useMemo(() => {
+    if (!data?.top_jobs?.length) return [];
+
+    return [...data.top_jobs]
+      .sort((a, b) => b.graduate_count - a.graduate_count)
+      .slice(0, 5);
+  }, [data?.top_jobs]);
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-96">
@@ -137,18 +220,22 @@ export default function Dashboard() {
           <p className="text-xs text-gray-400 mt-1">{data.alignment_rate}% Aligned to Course</p>
         </div>
 
-        {/* Avg Time to Employment */}
+        {/* At-Risk Programs */}
         <div className="bg-white rounded-xl shadow-sm border p-5">
           <div className="flex items-center gap-2 mb-3">
-            <div className="p-2 bg-cyan-100 rounded-lg">
-              <Clock className="w-5 h-5 text-cyan-600" />
+            <div className="p-2 bg-amber-100 rounded-lg">
+              <AlertTriangle className="w-5 h-5 text-amber-600" />
             </div>
-            <span className="text-sm font-medium text-gray-600">Avg. Time to Employment</span>
+            <span className="text-sm font-medium text-gray-600">At-Risk Programs</span>
           </div>
           <p className="text-4xl font-bold text-[#1b2a4a]">
-            {data.avg_time_to_employment} <span className="text-lg font-normal text-gray-500">Months</span>
+            {data.at_risk_programs.length}
           </p>
-          <p className="text-xs text-gray-400 mt-1">Average Time</p>
+          <p className="text-xs text-gray-400 mt-1">
+            {data.at_risk_programs.length > 0
+              ? `${data.at_risk_programs.join(', ')} need attention`
+              : 'No programs currently flagged'}
+          </p>
         </div>
 
         {/* Survey Analytics - New Card */}
@@ -198,14 +285,14 @@ export default function Dashboard() {
         <div className="bg-white rounded-xl shadow-sm border p-5">
           <h3 className="text-lg font-semibold text-[#1b2a4a] mb-4">Employment Trends</h3>
           <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={data.employment_trends}>
+            <LineChart data={trendData}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="year" tick={{ fontSize: 12 }} />
               <YAxis domain={[40, 90]} tick={{ fontSize: 12 }} tickFormatter={(v) => `${v}%`} />
               <Tooltip formatter={(value) => `${value}%`} contentStyle={{ borderRadius: 8 }} />
               <Legend />
               <Line
-                type="monotone"
+                type="linear"
                 dataKey="employment_rate"
                 name="Employment Rate"
                 stroke="#2563eb"
@@ -214,7 +301,7 @@ export default function Dashboard() {
                 activeDot={{ r: 7 }}
               />
               <Line
-                type="monotone"
+                type="linear"
                 dataKey="alignment_rate"
                 name="Alignment Rate"
                 stroke="#f97316"
@@ -237,7 +324,7 @@ export default function Dashboard() {
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
-                    data={data.alignment_distribution}
+                    data={alignmentDistribution}
                     cx="50%"
                     cy="50%"
                     innerRadius={35}
@@ -245,7 +332,7 @@ export default function Dashboard() {
                     paddingAngle={3}
                     dataKey="value"
                   >
-                    {data.alignment_distribution.map((_, i) => (
+                    {alignmentDistribution.map((_, i) => (
                       <Cell key={i} fill={PIE_COLORS[i]} />
                     ))}
                   </Pie>
@@ -254,7 +341,7 @@ export default function Dashboard() {
               </ResponsiveContainer>
             </div>
             <div className="space-y-2 text-sm">
-              {data.alignment_distribution.map((item, i) => (
+              {alignmentDistribution.map((item, i) => (
                 <div key={item.name} className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full" style={{ backgroundColor: PIE_COLORS[i] }} />
                   <span className="text-gray-700">
@@ -270,7 +357,7 @@ export default function Dashboard() {
         <div className="bg-white rounded-xl shadow-sm border p-5">
           <h3 className="text-lg font-semibold text-[#1b2a4a] mb-4">Recommended Actions</h3>
           <div className="space-y-3">
-            {data.recommended_actions.map((action, i) => (
+            {recommendedActions.map((action, i) => (
               <div key={i} className="flex items-start gap-3">
                 <CheckCircle2 className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
                 <span className="text-sm text-gray-700">{action}</span>
@@ -283,14 +370,14 @@ export default function Dashboard() {
         <div className="bg-white rounded-xl shadow-sm border p-5">
           <h3 className="text-lg font-semibold text-[#1b2a4a] mb-4">Top Job Listings</h3>
           <div className="space-y-3">
-            {data.top_jobs.map((job, i) => (
+            {topJobs.map((job, i) => (
               <div key={i} className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-lg bg-[#1b2a4a] flex items-center justify-center flex-shrink-0">
                   <span className="text-white text-sm font-bold">{i + 1}</span>
                 </div>
                 <div>
                   <p className="text-sm font-semibold text-[#1b2a4a]">{job.job_title}</p>
-                  <p className="text-xs text-gray-500">{job.company_name}</p>
+                  <p className="text-xs text-gray-500">{job.company_name} • {job.graduate_count} graduates</p>
                 </div>
               </div>
             ))}

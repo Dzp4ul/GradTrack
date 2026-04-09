@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Search, Plus, Edit2, Trash2, X, ChevronLeft, ChevronRight, Filter, Upload, Download,
+  Search, Plus, Edit2, Trash2, X, ChevronLeft, ChevronRight, Upload, Download,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import MessageBox from '../../components/MessageBox';
@@ -62,6 +62,8 @@ const PROGRAM_OPTIONS = [
   { id: '4', code: 'BEED', name: 'Bachelor of Elementary Education (BEED)' },
   { id: '5', code: 'ACT', name: 'Associate in Computer Technology (ACT)' },
 ];
+
+const YEAR_TAB_OPTIONS = ['2021', '2022', '2023', '2024', '2025'];
 
 const statusColors: Record<string, string> = {
   employed: 'bg-green-100 text-green-700',
@@ -167,7 +169,6 @@ export default function Graduates() {
   const [showModal, setShowModal] = useState(false);
   const [formData, setFormData] = useState<FormData>(emptyForm);
   const [isEditing, setIsEditing] = useState(false);
-  const [showFilters, setShowFilters] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -534,6 +535,32 @@ export default function Graduates() {
           ))}
         </div>
 
+        <div className="flex items-center gap-1 px-4 pt-2 border-b overflow-x-auto">
+          <button
+            onClick={() => { setFilterYear(''); setPage(1); }}
+            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px whitespace-nowrap ${
+              filterYear === ''
+                ? 'border-[#1b2a4a] text-[#1b2a4a]'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            All Years
+          </button>
+          {YEAR_TAB_OPTIONS.map((year) => (
+            <button
+              key={year}
+              onClick={() => { setFilterYear(year); setPage(1); }}
+              className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px whitespace-nowrap ${
+                filterYear === year
+                  ? 'border-[#1b2a4a] text-[#1b2a4a]'
+                  : 'border-transparent text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {year}
+            </button>
+          ))}
+        </div>
+
         <div className="p-4 space-y-3">
           <div className="flex items-center gap-3">
             <div className="relative flex-1">
@@ -546,28 +573,20 @@ export default function Graduates() {
                 className="w-full pl-10 pr-4 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
-            <button
-              onClick={() => setShowFilters(!showFilters)}
-              className={`flex items-center gap-2 px-4 py-2.5 border rounded-lg text-sm transition-colors ${showFilters ? 'bg-blue-50 border-blue-300 text-blue-700' : 'hover:bg-gray-50'}`}
-            >
-              <Filter className="w-4 h-4" /> Filters
-            </button>
           </div>
 
-          {showFilters && (
-            <div className="flex flex-wrap gap-3 pt-2 border-t">
-              <select
-                value={filterYear}
-                onChange={(e) => { setFilterYear(e.target.value); setPage(1); }}
-                className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">All Years</option>
-                {[2024, 2023, 2022, 2021, 2020, 2019].map((y) => (
-                  <option key={y} value={y}>{y}</option>
-                ))}
-              </select>
-            </div>
-          )}
+          <div className="flex flex-wrap gap-3 pt-2 border-t">
+            <select
+              value={filterYear}
+              onChange={(e) => { setFilterYear(e.target.value); setPage(1); }}
+              className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">All Years</option>
+              {YEAR_TAB_OPTIONS.map((year) => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
