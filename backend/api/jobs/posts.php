@@ -116,7 +116,7 @@ try {
 
     if ($method === 'POST') {
         $user = gradtrack_require_graduate_auth($db);
-        gradtrack_require_alumni_score($db, $user, 50, 'Job posting');
+        gradtrack_require_feature_access($db, $user, 'job_posting');
         $data = json_decode(file_get_contents('php://input'), true);
 
         $title = isset($data['title']) ? trim((string) $data['title']) : '';
@@ -171,7 +171,7 @@ try {
 
     if ($method === 'PUT') {
         $user = gradtrack_require_graduate_auth($db);
-        gradtrack_require_alumni_score($db, $user, 50, 'Job posting');
+        gradtrack_require_feature_access($db, $user, 'job_posting');
         $data = json_decode(file_get_contents('php://input'), true);
 
         $jobId = isset($data['id']) ? (int) $data['id'] : 0;

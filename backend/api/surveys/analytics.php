@@ -195,19 +195,62 @@ function analyzeEmploymentData($responses, $questions) {
     $alignmentQuestionId = null;
     $salaryQuestionId = null;
     $timeToJobQuestionId = null;
+    $employmentPriority = -1;
+    $alignmentPriority = -1;
+    $salaryPriority = -1;
+    $timeToJobPriority = -1;
     
     foreach ($questions as $q) {
-        $text = strtolower($q['question_text']);
-        if (strpos($text, 'presently employed') !== false || strpos($text, 'employment status') !== false) {
+        $text = strtolower(trim($q['question_text']));
+
+        // Prefer direct employment-status questions over fields that merely mention employment.
+        $currentEmploymentPriority = -1;
+        if (strpos($text, 'are you presently employed') !== false) {
+            $currentEmploymentPriority = 100;
+        } elseif (strpos($text, 'present employment status') !== false) {
+            $currentEmploymentPriority = 90;
+        } elseif (strpos($text, 'employment status') !== false) {
+            $currentEmploymentPriority = 80;
+        } elseif (strpos($text, 'presently employed') !== false) {
+            $currentEmploymentPriority = 10;
+        }
+        if ($currentEmploymentPriority > $employmentPriority) {
+            $employmentPriority = $currentEmploymentPriority;
             $employmentQuestionId = (string)$q['id'];
         }
-        if (strpos($text, 'related to your course') !== false || strpos($text, 'job related') !== false) {
+
+        $currentAlignmentPriority = -1;
+        if (strpos($text, 'is your first job related') !== false) {
+            $currentAlignmentPriority = 100;
+        } elseif (strpos($text, 'job related to') !== false || strpos($text, 'related to your course') !== false) {
+            $currentAlignmentPriority = 90;
+        } elseif (strpos($text, 'curriculum relevant') !== false) {
+            $currentAlignmentPriority = 50;
+        }
+        if ($currentAlignmentPriority > $alignmentPriority) {
+            $alignmentPriority = $currentAlignmentPriority;
             $alignmentQuestionId = (string)$q['id'];
         }
-        if (strpos($text, 'salary') !== false) {
+
+        $currentSalaryPriority = -1;
+        if (strpos($text, 'initial gross monthly') !== false || strpos($text, 'gross monthly earning') !== false) {
+            $currentSalaryPriority = 100;
+        } elseif (strpos($text, 'salary') !== false) {
+            $currentSalaryPriority = 80;
+        }
+        if ($currentSalaryPriority > $salaryPriority) {
+            $salaryPriority = $currentSalaryPriority;
             $salaryQuestionId = (string)$q['id'];
         }
-        if (strpos($text, 'how long') !== false && strpos($text, 'job') !== false) {
+
+        $currentTimeToJobPriority = -1;
+        if (strpos($text, 'how long did it take') !== false && strpos($text, 'first job') !== false) {
+            $currentTimeToJobPriority = 100;
+        } elseif (strpos($text, 'how long') !== false && strpos($text, 'job') !== false) {
+            $currentTimeToJobPriority = 80;
+        }
+        if ($currentTimeToJobPriority > $timeToJobPriority) {
+            $timeToJobPriority = $currentTimeToJobPriority;
             $timeToJobQuestionId = (string)$q['id'];
         }
     }
@@ -227,10 +270,26 @@ function analyzeEmploymentData($responses, $questions) {
         
         // Employment status
         if (isset($data[$employmentQuestionId])) {
-            $status = strtolower($data[$employmentQuestionId]);
-            if (strpos($status, 'yes') !== false || strpos($status, 'employed') !== false) {
+            $status = strtolower(trim((string)$data[$employmentQuestionId]));
+            $isUnemployed = (strpos($status, 'unemployed') !== false)
+                || $status === 'no'
+                || (strpos($status, 'not employed') !== false);
+            $isEmployed = !$isUnemployed && (
+                (strpos($status, 'yes') !== false)
+                || (strpos($status, 'employed') !== false)
+                || (strpos($status, 'regular') !== false)
+                || (strpos($status, 'permanent') !== false)
+                || (strpos($status, 'temporary') !== false)
+                || (strpos($status, 'casual') !== false)
+                || (strpos($status, 'contractual') !== false)
+                || (strpos($status, 'self-employed') !== false)
+                || (strpos($status, 'self employed') !== false)
+                || (strpos($status, 'freelance') !== false)
+            );
+
+            if ($isEmployed) {
                 $employed++;
-            } else {
+            } elseif ($isUnemployed || $status !== '') {
                 $unemployed++;
             }
         }

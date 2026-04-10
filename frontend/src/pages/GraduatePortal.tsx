@@ -128,14 +128,27 @@ interface AlumniRating {
   badges: AlumniBadge[];
   recommendations: AlumniRecommendation[];
   breakdown: Record<string, AlumniBreakdownItem>;
+  status_flags: {
+    is_survey_complete: boolean;
+    is_employed: boolean;
+    is_aligned: boolean;
+    has_survey_completed_badge: boolean;
+    is_verified_graduate: boolean;
+    is_active_mentor: boolean;
+  };
   permissions: {
     can_post_jobs: boolean;
     can_use_mentorship: boolean;
     can_register_mentor: boolean;
-    job_post_threshold: number;
-    mentor_threshold: number;
-    points_to_unlock_job_posting: number;
-    points_to_unlock_mentorship: number;
+    requirements: {
+      job_posting: {
+        is_employed: boolean;
+      };
+      mentorship: {
+        is_employed: boolean;
+        is_aligned: boolean;
+      };
+    };
   };
 }
 
@@ -273,7 +286,7 @@ export default function GraduatePortal() {
   }, []);
 
   const canPostJobs = !!ratingSummary?.permissions?.can_post_jobs;
-  const canUseMentorship = true;
+  const canUseMentorship = !!ratingSummary?.permissions?.can_use_mentorship;
   const canRegisterMentor = !!ratingSummary?.permissions?.can_register_mentor;
 
   const filteredMentors = useMemo(() => {
@@ -307,7 +320,7 @@ export default function GraduatePortal() {
 
   const sendMentorshipRequest = async (mentorId: number) => {
     if (!canUseMentorship) {
-      notify('warning', 'Mentorship access is unlocked at 70% alumni rating. Improve your profile and participation first.');
+      notify('warning', 'Mentorship is locked. Set your employment status to employed and alignment to aligned.');
       return;
     }
 
@@ -330,7 +343,7 @@ export default function GraduatePortal() {
 
   const updateMentorshipStatus = async (id: number, status: string) => {
     if (!canUseMentorship) {
-      notify('warning', 'Mentorship access is currently locked. Reach 70% alumni rating to proceed.');
+      notify('warning', 'Mentorship access is currently locked due to unmet eligibility rules.');
       return;
     }
 
@@ -348,7 +361,7 @@ export default function GraduatePortal() {
 
   const submitFeedback = async (requestId: number) => {
     if (!canUseMentorship) {
-      notify('warning', 'Mentorship access is currently locked. Reach 70% alumni rating to submit feedback.');
+      notify('warning', 'Mentorship access is currently locked due to unmet eligibility rules.');
       return;
     }
 
@@ -381,7 +394,7 @@ export default function GraduatePortal() {
     e.preventDefault();
 
     if (!canRegisterMentor) {
-      notify('warning', 'Mentor registration requires at least 70% alumni rating.');
+      notify('warning', 'Mentor profile creation is locked until your employment is set to employed and aligned with your course.');
       return;
     }
 
@@ -434,7 +447,7 @@ export default function GraduatePortal() {
     e.preventDefault();
 
     if (!canPostJobs) {
-      notify('warning', 'Job posting is unlocked at 50% alumni rating. Complete your profile and records first.');
+      notify('warning', 'Job posting is locked until your employment status is set to employed.');
       return;
     }
 
@@ -616,10 +629,10 @@ export default function GraduatePortal() {
                         </div>
                         <div className="grid sm:grid-cols-2 gap-2 text-sm min-w-[280px]">
                           <div className={`rounded-lg px-3 py-2 border ${canPostJobs ? 'bg-green-50 border-green-200 text-green-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
-                            {canPostJobs ? 'Job posting unlocked' : `Job posting locked (need ${ratingSummary.permissions.points_to_unlock_job_posting} more point${ratingSummary.permissions.points_to_unlock_job_posting === 1 ? '' : 's'})`}
+                            {canPostJobs ? 'Job posting unlocked' : 'Job posting locked until employment status is set to employed.'}
                           </div>
                           <div className={`rounded-lg px-3 py-2 border ${canUseMentorship ? 'bg-green-50 border-green-200 text-green-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
-                            {canUseMentorship ? 'Mentorship features unlocked' : `Mentorship locked (need ${ratingSummary.permissions.points_to_unlock_mentorship} more point${ratingSummary.permissions.points_to_unlock_mentorship === 1 ? '' : 's'})`}
+                            {canUseMentorship ? 'Mentorship features unlocked' : 'Mentorship locked until employment is employed and aligned to your course.'}
                           </div>
                         </div>
                       </div>
@@ -666,26 +679,6 @@ export default function GraduatePortal() {
                         </div>
                       </div>
 
-                      <div className="bg-white rounded-xl border border-gray-200 p-5">
-                        <div className="flex items-center gap-2 mb-3">
-                          <Award className="w-5 h-5 text-amber-600" />
-                          <h3 className="text-lg font-bold text-blue-900">Recognition Badges</h3>
-                        </div>
-                        <div className="space-y-2">
-                          {ratingSummary.badges.length === 0 && (
-                            <p className="text-sm text-gray-600">No badges yet. Complete the recommendations to unlock recognition.</p>
-                          )}
-                          {ratingSummary.badges.map((badge) => (
-                            <div key={badge.code} className="rounded-lg border border-amber-200 bg-amber-50 p-3">
-                              <p className="font-semibold text-amber-900 flex items-center gap-2">
-                                <CheckCircle2 className="w-4 h-4" />
-                                {badge.name}
-                              </p>
-                              <p className="text-sm text-amber-800 mt-1">{badge.description}</p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
                     </div>
                   </>
                 )}
@@ -876,6 +869,28 @@ export default function GraduatePortal() {
 
             {activeTab === 'mentor_profile' && (
               <section className="max-w-3xl mx-auto">
+                <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Award className="w-5 h-5 text-amber-600" />
+                    <h3 className="text-lg font-bold text-blue-900">Profile Badges</h3>
+                  </div>
+                  <div className="space-y-2">
+                    {ratingSummary?.badges?.length ? (
+                      ratingSummary.badges.map((badge) => (
+                        <div key={badge.code} className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                          <p className="font-semibold text-amber-900 flex items-center gap-2">
+                            <CheckCircle2 className="w-4 h-4" />
+                            {badge.name}
+                          </p>
+                          <p className="text-sm text-amber-800 mt-1">{badge.description}</p>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-sm text-gray-600">No profile badges yet. Complete eligibility milestones to earn badges.</p>
+                    )}
+                  </div>
+                </div>
+
                 {!hasMentorProfile && !showMentorProfileForm && (
                   <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
                     <h2 className="text-xl font-bold text-blue-900">Become a Mentor</h2>
@@ -899,7 +914,7 @@ export default function GraduatePortal() {
                   </h2>
                   {!canRegisterMentor && (
                     <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                      Mentor registration requires at least 70% alumni rating.
+                      Mentor registration requires: employed status and aligned course match.
                     </div>
                   )}
                   <fieldset disabled={!canRegisterMentor} className="space-y-3">
@@ -981,7 +996,7 @@ export default function GraduatePortal() {
                   <h2 className="text-xl font-bold text-blue-900">Post / Update Job Opportunity</h2>
                   {!canPostJobs && (
                     <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                      Job posting requires at least 50% alumni rating.
+                      Job posting requires: employed status.
                     </div>
                   )}
                   <fieldset disabled={!canPostJobs} className="space-y-3">

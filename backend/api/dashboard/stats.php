@@ -6,8 +6,8 @@ $database = new Database();
 $db = $database->getConnection();
 
 try {
-    // Get survey responses
-    $stmt = $db->query("SELECT responses FROM survey_responses");
+    // Get survey responses with canonical graduate program/year context
+    $stmt = $db->query("\n        SELECT sr.responses, g.year_graduated, p.code AS graduate_program_code, p.name AS graduate_program_name\n        FROM survey_responses sr\n        LEFT JOIN graduates g ON g.id = sr.graduate_id\n        LEFT JOIN programs p ON p.id = g.program_id\n    ");
     $surveyResponses = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
     // Get active survey questions to map responses
@@ -28,6 +28,8 @@ try {
     $timeToEmploymentCount = 0;
     $programData = [];
     $jobTitles = [];
+    $latestGraduationYear = 0;
+    $yearlyStats = [];
     
     foreach ($surveyResponses as $response) {
         $data = json_decode($response['responses'], true);
@@ -36,7 +38,29 @@ try {
         
         // Find employment status and job alignment
         $isEmployed = false;
-        $degreeProgram = '';
+        $degreeProgramCode = '';
+        $degreeProgramName = '';
+        if (!empty($response['graduate_program_code'])) {
+            $degreeProgramCode = strtoupper(trim((string)$response['graduate_program_code']));
+            $degreeProgramName = (string)$response['graduate_program_name'];
+        }
+
+        $responseYear = isset($response['year_graduated']) ? (int)$response['year_graduated'] : 0;
+        if ($responseYear > $latestGraduationYear) {
+            $latestGraduationYear = $responseYear;
+        }
+        if ($responseYear > 0) {
+            if (!isset($yearlyStats[$responseYear])) {
+                $yearlyStats[$responseYear] = [
+                    'total' => 0,
+                    'employed' => 0,
+                    'aligned' => 0,
+                ];
+            }
+            $yearlyStats[$responseYear]['total']++;
+        }
+
+        $fallbackProgramAnswer = '';
         $jobRelated = '';
         
         foreach ($data as $questionId => $answer) {
@@ -45,18 +69,18 @@ try {
             // Check for employment status
             if (strpos($questionText, 'employment status') !== false || strpos($questionText, 'presently employed') !== false || strpos($questionText, 'are you employed') !== false) {
                 if (is_string($answer)) {
-                    $answerLower = strtolower($answer);
-                    if ($answerLower === 'yes' || $answerLower === 'employed') {
+                    $answerLower = strtolower(trim($answer));
+                    $isUnemployed = (strpos($answerLower, 'unemployed') !== false) || ($answerLower === 'no');
+                    if (!$isUnemployed && ($answerLower === 'yes' || $answerLower === 'employed' || strpos($answerLower, 'employed') !== false)) {
                         $isEmployed = true;
-                        $employedCount++;
                     }
                 }
             }
             
-            // Check for degree program
+            // Check for degree program (fallback when graduate program relation is missing)
             if (strpos($questionText, 'degree program') !== false || strpos($questionText, 'program') !== false) {
                 if (is_string($answer) && !empty($answer)) {
-                    $degreeProgram = $answer;
+                    $fallbackProgramAnswer = trim($answer);
                 }
             }
             
@@ -65,11 +89,21 @@ try {
                 $jobRelated = strtolower(trim($answer));
             }
         }
+
+        if ($isEmployed) {
+            $employedCount++;
+            if ($responseYear > 0 && isset($yearlyStats[$responseYear])) {
+                $yearlyStats[$responseYear]['employed']++;
+            }
+        }
         
         // Count alignment based on survey response
         if ($isEmployed) {
             if (strpos($jobRelated, 'yes') !== false || strpos($jobRelated, 'directly related') !== false) {
                 $alignedCount++;
+                if ($responseYear > 0 && isset($yearlyStats[$responseYear])) {
+                    $yearlyStats[$responseYear]['aligned']++;
+                }
             } else if (strpos($jobRelated, 'partially') !== false) {
                 $partiallyAlignedCount++;
             } else if (!empty($jobRelated)) {
@@ -77,16 +111,32 @@ try {
             }
         }
         
+        // Resolve fallback program code/name from survey answer if canonical graduate program is not available
+        if (empty($degreeProgramCode) && !empty($fallbackProgramAnswer)) {
+            $degreeProgramCode = getProgramCode($fallbackProgramAnswer);
+            $degreeProgramName = $fallbackProgramAnswer;
+        }
+
         // Track program data
-        if (!empty($degreeProgram)) {
-            if (!isset($programData[$degreeProgram])) {
-                $programData[$degreeProgram] = ['total' => 0, 'employed' => 0, 'aligned' => 0];
+        if (!empty($degreeProgramCode)) {
+            if (!isset($programData[$degreeProgramCode])) {
+                $programData[$degreeProgramCode] = [
+                    'code' => $degreeProgramCode,
+                    'name' => $degreeProgramName ?: $degreeProgramCode,
+                    'total' => 0,
+                    'employed' => 0,
+                    'aligned' => 0
+                ];
             }
-            $programData[$degreeProgram]['total']++;
+            if (empty($programData[$degreeProgramCode]['name']) || $programData[$degreeProgramCode]['name'] === $degreeProgramCode) {
+                $programData[$degreeProgramCode]['name'] = $degreeProgramName ?: $degreeProgramCode;
+            }
+
+            $programData[$degreeProgramCode]['total']++;
             if ($isEmployed) {
-                $programData[$degreeProgram]['employed']++;
+                $programData[$degreeProgramCode]['employed']++;
                 if (strpos($jobRelated, 'yes') !== false || strpos($jobRelated, 'directly related') !== false) {
-                    $programData[$degreeProgram]['aligned']++;
+                    $programData[$degreeProgramCode]['aligned']++;
                 }
             }
         }
@@ -113,13 +163,12 @@ try {
 
     // Build program stats from survey data
     $programStats = [];
-    foreach ($programData as $program => $stats) {
-        $employabilityIndex = $stats['total'] > 0 ? round(($stats['employed'] / $stats['total']) * 100, 0) : 0;
-        $alignmentIndex = $stats['employed'] > 0 ? round(($stats['aligned'] / $stats['employed']) * 100, 0) : 0;
-        $code = getProgramCode($program);
+    foreach ($programData as $stats) {
+        $employabilityIndex = $stats['total'] > 0 ? round(($stats['employed'] / $stats['total']) * 100, 1) : 0;
+        $alignmentIndex = $stats['employed'] > 0 ? round(($stats['aligned'] / $stats['employed']) * 100, 1) : 0;
         $programStats[] = [
-            'code' => $code ?: 'PROG',
-            'name' => $program,
+            'code' => $stats['code'] ?: 'PROG',
+            'name' => $stats['name'] ?: ($stats['code'] ?: 'Program'),
             'total_graduates' => $stats['total'],
             'employed_count' => $stats['employed'],
             'aligned_count' => $stats['aligned'],
@@ -137,33 +186,56 @@ try {
     });
     $atRiskPrograms = array_values($atRiskPrograms);
 
-    // Employment trends - update current year with real data
+    // Employment trends - build a 5-year window ending at latest graduation year
     $stmt = $db->query("SELECT year, employment_rate, alignment_rate FROM employment_trends ORDER BY year ASC");
-    $trends = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    // Update or add current year data
-    $currentYear = date('Y');
-    $currentYearExists = false;
-    foreach ($trends as &$trend) {
-        if ($trend['year'] == $currentYear) {
-            $trend['employment_rate'] = $employmentRate;
-            $trend['alignment_rate'] = $alignmentRate;
-            $currentYearExists = true;
-            break;
+    $trendRows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $trendDefaultsByYear = [];
+    foreach ($trendRows as $row) {
+        $year = (int)$row['year'];
+        if ($year <= 0) {
+            continue;
         }
+        $trendDefaultsByYear[$year] = [
+            'employment_rate' => (float)$row['employment_rate'],
+            'alignment_rate' => (float)$row['alignment_rate'],
+        ];
     }
-    
-    if (!$currentYearExists) {
-        $trends[] = ['year' => $currentYear, 'employment_rate' => $employmentRate, 'alignment_rate' => $alignmentRate];
+
+    $trendYear = $latestGraduationYear > 0 ? $latestGraduationYear : (int)date('Y');
+    $startYear = $trendYear - 4;
+    $trends = [];
+
+    for ($year = $startYear; $year <= $trendYear; $year++) {
+        $total = isset($yearlyStats[$year]) ? (int)$yearlyStats[$year]['total'] : 0;
+        $employed = isset($yearlyStats[$year]) ? (int)$yearlyStats[$year]['employed'] : 0;
+        $aligned = isset($yearlyStats[$year]) ? (int)$yearlyStats[$year]['aligned'] : 0;
+
+        if ($total > 0) {
+            $yearEmploymentRate = round(($employed / $total) * 100, 1);
+            $yearAlignmentRate = $employed > 0 ? round(($aligned / $employed) * 100, 1) : 0;
+        } else if (isset($trendDefaultsByYear[$year])) {
+            $yearEmploymentRate = $trendDefaultsByYear[$year]['employment_rate'];
+            $yearAlignmentRate = $trendDefaultsByYear[$year]['alignment_rate'];
+        } else {
+            $yearEmploymentRate = 0;
+            $yearAlignmentRate = 0;
+        }
+
+        $trends[] = [
+            'year' => $year,
+            'employment_rate' => $yearEmploymentRate,
+            'alignment_rate' => $yearAlignmentRate,
+        ];
     }
-    
+
     // If no trends data, create sample data
     if (empty($trends)) {
         $trends = [
-            ['year' => $currentYear - 3, 'employment_rate' => 75, 'alignment_rate' => 65],
-            ['year' => $currentYear - 2, 'employment_rate' => 78, 'alignment_rate' => 68],
-            ['year' => $currentYear - 1, 'employment_rate' => 80, 'alignment_rate' => 70],
-            ['year' => $currentYear, 'employment_rate' => $employmentRate, 'alignment_rate' => $alignmentRate],
+            ['year' => $trendYear - 3, 'employment_rate' => 75, 'alignment_rate' => 65],
+            ['year' => $trendYear - 2, 'employment_rate' => 78, 'alignment_rate' => 68],
+            ['year' => $trendYear - 1, 'employment_rate' => 80, 'alignment_rate' => 70],
+            ['year' => $trendYear, 'employment_rate' => $employmentRate, 'alignment_rate' => $alignmentRate],
         ];
     }
 

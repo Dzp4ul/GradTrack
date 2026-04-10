@@ -93,8 +93,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 ]);
                 exit();
             }
+
+            // Step 4: Block if a response already exists for this graduate/survey
+            $responseCheckQuery = "SELECT id FROM survey_responses
+                                  WHERE survey_id = :survey_id
+                                  AND graduate_id = :graduate_id
+                                  LIMIT 1";
+            $responseCheckStmt = $conn->prepare($responseCheckQuery);
+            $responseCheckStmt->bindParam(':survey_id', $surveyId);
+            $responseCheckStmt->bindParam(':graduate_id', $graduate['id']);
+            $responseCheckStmt->execute();
+
+            if ($responseCheckStmt->fetch()) {
+                http_response_code(409);
+                echo json_encode([
+                    "success" => false,
+                    "error" => "Survey already submitted",
+                    "message" => "You have already completed this survey"
+                ]);
+                exit();
+            }
             
-            // Step 4: Check if already submitted
+            // Step 5: Check if already submitted via token record
             $checkQuery = "SELECT * FROM survey_tokens 
                           WHERE survey_id = :survey_id 
                           AND graduate_id = :graduate_id 
@@ -114,7 +134,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 exit();
             }
             
-            // Step 5: Generate or retrieve token
+            // Step 6: Generate or retrieve token
             $tokenQuery = "SELECT token, expires_at FROM survey_tokens 
                           WHERE survey_id = :survey_id 
                           AND graduate_id = :graduate_id 

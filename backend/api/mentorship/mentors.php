@@ -107,7 +107,7 @@ try {
 
     if ($method === 'POST') {
         $user = gradtrack_require_graduate_auth($db);
-        gradtrack_require_alumni_score($db, $user, 70, 'Mentor registration');
+        gradtrack_require_feature_access($db, $user, 'mentor_registration');
         $data = json_decode(file_get_contents('php://input'), true);
 
         $currentJobTitle = isset($data['current_job_title']) ? trim((string) $data['current_job_title']) : null;

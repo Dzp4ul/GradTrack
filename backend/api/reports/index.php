@@ -8,6 +8,23 @@ $db = $database->getConnection();
 try {
     $reportType = isset($_GET['type']) ? $_GET['type'] : 'overview';
     $filterYear = isset($_GET['year']) && $_GET['year'] !== 'all' ? $_GET['year'] : null;
+    $filterDepartment = isset($_GET['department']) && $_GET['department'] !== 'all'
+        ? strtoupper(trim((string)$_GET['department']))
+        : null;
+
+    $role = $_SESSION['role'] ?? '';
+    $roleProgramScopes = [
+        'dean_cs' => ['BSCS', 'ACT'],
+        'dean_coed' => ['BSED', 'BEED'],
+        'dean_hm' => ['BSHM'],
+    ];
+    $allowedProgramCodes = $roleProgramScopes[$role] ?? null;
+
+    if ($filterDepartment !== null && is_array($allowedProgramCodes) && !in_array($filterDepartment, $allowedProgramCodes, true)) {
+        http_response_code(403);
+        echo json_encode(["success" => false, "error" => "Unauthorized department filter"]);
+        exit;
+    }
 
     switch ($reportType) {
         case 'overview':
@@ -23,8 +40,8 @@ try {
                 $questionMap[$q['id']] = strtolower($q['question_text']);
             }
             
-            // Parse survey responses
-            $stmt = $db->query("SELECT responses FROM survey_responses");
+            // Parse survey responses with canonical graduate year/program context
+            $stmt = $db->query("SELECT sr.responses, g.year_graduated, p.code AS program_code FROM survey_responses sr LEFT JOIN graduates g ON g.id = sr.graduate_id LEFT JOIN programs p ON p.id = g.program_id");
             $surveyResponses = $stmt->fetchAll(PDO::FETCH_ASSOC);
             
             $employedCount = 0;
@@ -33,6 +50,14 @@ try {
             $alignedCount = 0;
             
             foreach ($surveyResponses as $response) {
+                $rowProgramCode = strtoupper((string)($response['program_code'] ?? ''));
+                if ($filterDepartment !== null && $rowProgramCode !== $filterDepartment) {
+                    continue;
+                }
+                if (is_array($allowedProgramCodes) && ($rowProgramCode === '' || !in_array($rowProgramCode, $allowedProgramCodes, true))) {
+                    continue;
+                }
+
                 $data = json_decode($response['responses'], true);
                 if (!is_array($data)) continue;
                 
@@ -45,9 +70,12 @@ try {
                     
                     // Check for employment status
                     if (strpos($questionText, 'employment status') !== false || strpos($questionText, 'presently employed') !== false) {
-                        if (is_string($answer) && (strtolower($answer) === 'employed' || strtolower($answer) === 'yes')) {
-                            $isEmployed = true;
-                            $employedCount++;
+                        if (is_string($answer)) {
+                            $answerLower = strtolower(trim($answer));
+                            $isUnemployed = (strpos($answerLower, 'unemployed') !== false) || ($answerLower === 'no');
+                            if (!$isUnemployed && ($answerLower === 'employed' || $answerLower === 'yes' || strpos($answerLower, 'employed') !== false)) {
+                                $isEmployed = true;
+                            }
                         }
                     }
                     
@@ -62,6 +90,10 @@ try {
                     if (strpos($questionText, 'job related to') !== false || strpos($questionText, 'related to your course') !== false) {
                         $jobRelated = strtolower(trim($answer));
                     }
+                }
+
+                if ($isEmployed) {
+                    $employedCount++;
                 }
                 
                 // Count local vs abroad employment
@@ -114,17 +146,27 @@ try {
                 $questionMap[$q['id']] = strtolower($q['question_text']);
             }
             
-            $stmt = $db->query("SELECT responses FROM survey_responses");
+            $stmt = $db->query("SELECT sr.responses, g.year_graduated, p.code AS program_code FROM survey_responses sr LEFT JOIN graduates g ON g.id = sr.graduate_id LEFT JOIN programs p ON p.id = g.program_id");
             $surveyResponses = $stmt->fetchAll(PDO::FETCH_ASSOC);
             
             $programData = [];
             
             foreach ($surveyResponses as $response) {
+                $rowProgramCode = strtoupper((string)($response['program_code'] ?? ''));
+                if ($filterDepartment !== null && $rowProgramCode !== $filterDepartment) {
+                    continue;
+                }
+                if (is_array($allowedProgramCodes) && ($rowProgramCode === '' || !in_array($rowProgramCode, $allowedProgramCodes, true))) {
+                    continue;
+                }
+
                 $data = json_decode($response['responses'], true);
                 if (!is_array($data)) continue;
                 
                 $degreeProgram = '';
-                $yearGraduated = '';
+                $yearGraduated = isset($response['year_graduated']) && $response['year_graduated'] !== null
+                    ? (string)$response['year_graduated']
+                    : '';
                 $isEmployed = false;
                 $jobRelated = '';
                 
@@ -164,7 +206,7 @@ try {
                 }
                 
                 if (!empty($degreeProgram)) {
-                    $code = getProgramCode($degreeProgram);
+                    $code = !empty($rowProgramCode) ? $rowProgramCode : getProgramCode($degreeProgram);
                     
                     if (!isset($programData[$code])) {
                         $programData[$code] = [
@@ -208,16 +250,26 @@ try {
                 $questionMap[$q['id']] = strtolower($q['question_text']);
             }
             
-            $stmt = $db->query("SELECT responses FROM survey_responses");
+            $stmt = $db->query("SELECT sr.responses, g.year_graduated, p.code AS program_code FROM survey_responses sr LEFT JOIN graduates g ON g.id = sr.graduate_id LEFT JOIN programs p ON p.id = g.program_id");
             $surveyResponses = $stmt->fetchAll(PDO::FETCH_ASSOC);
             
             $yearData = [];
             
             foreach ($surveyResponses as $response) {
+                $rowProgramCode = strtoupper((string)($response['program_code'] ?? ''));
+                if ($filterDepartment !== null && $rowProgramCode !== $filterDepartment) {
+                    continue;
+                }
+                if (is_array($allowedProgramCodes) && ($rowProgramCode === '' || !in_array($rowProgramCode, $allowedProgramCodes, true))) {
+                    continue;
+                }
+
                 $data = json_decode($response['responses'], true);
                 if (!is_array($data)) continue;
                 
-                $yearGraduated = '';
+                $yearGraduated = isset($response['year_graduated']) && $response['year_graduated'] !== null
+                    ? (string)$response['year_graduated']
+                    : '';
                 $isEmployed = false;
                 $jobRelated = '';
                 
@@ -282,7 +334,7 @@ try {
                 $questionMap[$q['id']] = strtolower($q['question_text']);
             }
             
-            $stmt = $db->query("SELECT responses FROM survey_responses");
+            $stmt = $db->query("SELECT sr.responses, g.year_graduated, p.code AS program_code FROM survey_responses sr LEFT JOIN graduates g ON g.id = sr.graduate_id LEFT JOIN programs p ON p.id = g.program_id");
             $surveyResponses = $stmt->fetchAll(PDO::FETCH_ASSOC);
             
             $statusCount = [
@@ -292,12 +344,22 @@ try {
             ];
             
             foreach ($surveyResponses as $response) {
+                $rowProgramCode = strtoupper((string)($response['program_code'] ?? ''));
+                if ($filterDepartment !== null && $rowProgramCode !== $filterDepartment) {
+                    continue;
+                }
+                if (is_array($allowedProgramCodes) && ($rowProgramCode === '' || !in_array($rowProgramCode, $allowedProgramCodes, true))) {
+                    continue;
+                }
+
                 $data = json_decode($response['responses'], true);
                 if (!is_array($data)) continue;
                 
                 $isEmployed = false;
                 $workLocation = '';
-                $yearGraduated = '';
+                $yearGraduated = isset($response['year_graduated']) && $response['year_graduated'] !== null
+                    ? (string)$response['year_graduated']
+                    : '';
                 
                 foreach ($data as $questionId => $answer) {
                     $questionText = isset($questionMap[$questionId]) ? $questionMap[$questionId] : '';
@@ -367,7 +429,7 @@ try {
                 $questionMap[$q['id']] = strtolower($q['question_text']);
             }
             
-            $stmt = $db->query("SELECT responses FROM survey_responses");
+            $stmt = $db->query("SELECT sr.responses, g.year_graduated, p.code AS program_code FROM survey_responses sr LEFT JOIN graduates g ON g.id = sr.graduate_id LEFT JOIN programs p ON p.id = g.program_id");
             $surveyResponses = $stmt->fetchAll(PDO::FETCH_ASSOC);
             
             // Initialize salary ranges
@@ -381,10 +443,20 @@ try {
             ];
             
             foreach ($surveyResponses as $response) {
+                $rowProgramCode = strtoupper((string)($response['program_code'] ?? ''));
+                if ($filterDepartment !== null && $rowProgramCode !== $filterDepartment) {
+                    continue;
+                }
+                if (is_array($allowedProgramCodes) && ($rowProgramCode === '' || !in_array($rowProgramCode, $allowedProgramCodes, true))) {
+                    continue;
+                }
+
                 $data = json_decode($response['responses'], true);
                 if (!is_array($data)) continue;
                 
-                $yearGraduated = '';
+                $yearGraduated = isset($response['year_graduated']) && $response['year_graduated'] !== null
+                    ? (string)$response['year_graduated']
+                    : '';
                 $salaryAnswer = '';
                 
                 foreach ($data as $questionId => $answer) {
@@ -416,16 +488,16 @@ try {
                     
                     if (strpos($answerLower, 'below') !== false && strpos($answerLower, '5,000') !== false) {
                         $salaryRanges['Below ₱5,000']++;
-                    } elseif (strpos($answerLower, '5,000') !== false && strpos($answerLower, '10,000') !== false) {
-                        $salaryRanges['₱5,000 - ₱10,000']++;
-                    } elseif (strpos($answerLower, '10,000') !== false && strpos($answerLower, '15,000') !== false) {
-                        $salaryRanges['₱10,000 - ₱15,000']++;
-                    } elseif (strpos($answerLower, '15,000') !== false && strpos($answerLower, '20,000') !== false) {
-                        $salaryRanges['₱15,000 - ₱20,000']++;
-                    } elseif (strpos($answerLower, '20,000') !== false && strpos($answerLower, '25,000') !== false) {
-                        $salaryRanges['₱20,000 - ₱25,000']++;
                     } elseif (strpos($answerLower, '25,000') !== false && strpos($answerLower, 'above') !== false) {
                         $salaryRanges['₱25,000 and above']++;
+                    } elseif (strpos($answerLower, '20,000') !== false && strpos($answerLower, '25,000') !== false) {
+                        $salaryRanges['₱20,000 - ₱25,000']++;
+                    } elseif (strpos($answerLower, '15,000') !== false && strpos($answerLower, '20,000') !== false) {
+                        $salaryRanges['₱15,000 - ₱20,000']++;
+                    } elseif (strpos($answerLower, '10,000') !== false && strpos($answerLower, '15,000') !== false) {
+                        $salaryRanges['₱10,000 - ₱15,000']++;
+                    } elseif (strpos($answerLower, '5,000') !== false && strpos($answerLower, '10,000') !== false) {
+                        $salaryRanges['₱5,000 - ₱10,000']++;
                     }
                 }
             }

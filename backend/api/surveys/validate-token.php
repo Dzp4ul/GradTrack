@@ -77,6 +77,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ]);
             exit();
         }
+
+        // Block legacy duplicates where a response exists but token row was never marked submitted.
+        $responseCheckQuery = "SELECT id FROM survey_responses
+                              WHERE survey_id = :survey_id
+                              AND graduate_id = :graduate_id
+                              LIMIT 1";
+        $responseCheckStmt = $conn->prepare($responseCheckQuery);
+        $responseCheckStmt->bindParam(':survey_id', $tokenData['survey_id']);
+        $responseCheckStmt->bindParam(':graduate_id', $tokenData['graduate_id']);
+        $responseCheckStmt->execute();
+
+        if ($responseCheckStmt->fetch()) {
+            http_response_code(409);
+            echo json_encode([
+                "success" => false,
+                "error" => "Survey already submitted",
+                "message" => "You have already completed this survey"
+            ]);
+            exit();
+        }
         
         // Check if survey is still active
         if ($tokenData['survey_status'] !== 'active') {

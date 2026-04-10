@@ -47,6 +47,170 @@ if (!function_exists('gradtrack_rating_percent')) {
     }
 }
 
+if (!function_exists('gradtrack_rating_normalize_text')) {
+    function gradtrack_rating_normalize_text($value): string
+    {
+        if ($value === null) {
+            return '';
+        }
+
+        return strtolower(trim((string) $value));
+    }
+}
+
+if (!function_exists('gradtrack_rating_is_employed_status')) {
+    function gradtrack_rating_is_employed_status(string $status): bool
+    {
+        return in_array($status, ['employed', 'self_employed', 'freelance', 'yes', 'employed_local', 'employed_abroad'], true);
+    }
+}
+
+if (!function_exists('gradtrack_rating_is_aligned_status')) {
+    function gradtrack_rating_is_aligned_status(string $status): bool
+    {
+        return in_array($status, ['aligned', 'yes', 'true', '1', 'directly related'], true);
+    }
+}
+
+if (!function_exists('gradtrack_rating_is_survey_complete')) {
+    function gradtrack_rating_is_survey_complete(array $surveyMeta): bool
+    {
+        return ($surveyMeta['required_total'] ?? 0) > 0
+            && (int) ($surveyMeta['required_answered'] ?? 0) >= (int) ($surveyMeta['required_total'] ?? 0);
+    }
+}
+
+if (!function_exists('gradtrack_rating_answer_to_text')) {
+    function gradtrack_rating_answer_to_text($answer): string
+    {
+        if ($answer === null) {
+            return '';
+        }
+
+        if (is_array($answer)) {
+            $joined = implode(' ', array_map(function ($item) {
+                return is_scalar($item) ? (string) $item : '';
+            }, $answer));
+            return strtolower(trim($joined));
+        }
+
+        return strtolower(trim((string) $answer));
+    }
+}
+
+if (!function_exists('gradtrack_rating_parse_employment_from_answer')) {
+    function gradtrack_rating_parse_employment_from_answer(string $answerText): ?bool
+    {
+        if ($answerText === '') {
+            return null;
+        }
+
+        if (strpos($answerText, 'unemployed') !== false || $answerText === 'no' || strpos($answerText, 'not employed') !== false) {
+            return false;
+        }
+
+        if (strpos($answerText, 'employed') !== false || $answerText === 'yes' || strpos($answerText, 'self-employed') !== false || strpos($answerText, 'freelance') !== false) {
+            return true;
+        }
+
+        return null;
+    }
+}
+
+if (!function_exists('gradtrack_rating_parse_alignment_from_answer')) {
+    function gradtrack_rating_parse_alignment_from_answer(string $answerText): ?bool
+    {
+        if ($answerText === '') {
+            return null;
+        }
+
+        if (strpos($answerText, 'not aligned') !== false || strpos($answerText, 'not related') !== false || $answerText === 'no' || strpos($answerText, 'partially') !== false) {
+            return false;
+        }
+
+        if (strpos($answerText, 'aligned') !== false || strpos($answerText, 'directly related') !== false || strpos($answerText, 'related') !== false || $answerText === 'yes') {
+            return true;
+        }
+
+        return null;
+    }
+}
+
+if (!function_exists('gradtrack_rating_get_latest_employment')) {
+    function gradtrack_rating_get_latest_employment(PDO $db, int $graduateId): ?array
+    {
+        $stmt = $db->prepare('SELECT employment_status, is_aligned
+                              FROM employment
+                              WHERE graduate_id = :graduate_id
+                              ORDER BY id DESC
+                              LIMIT 1');
+        $stmt->bindParam(':graduate_id', $graduateId);
+        $stmt->execute();
+
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ?: null;
+    }
+}
+
+if (!function_exists('gradtrack_rating_get_verification_flags')) {
+    function gradtrack_rating_get_verification_flags(PDO $db, int $accountId): array
+    {
+        $verifiedDocStmt = $db->prepare('SELECT id
+                                         FROM alumni_supporting_documents
+                                         WHERE graduate_account_id = :account_id
+                                           AND is_active = 1
+                                           AND is_verified = 1
+                                         LIMIT 1');
+        $verifiedDocStmt->bindParam(':account_id', $accountId);
+        $verifiedDocStmt->execute();
+        $hasVerifiedDocument = (bool) $verifiedDocStmt->fetch(PDO::FETCH_ASSOC);
+
+        $activeMentorStmt = $db->prepare("SELECT mr.id
+                                          FROM mentorship_requests mr
+                                          JOIN mentors m ON mr.mentor_id = m.id
+                                          WHERE mr.status = 'completed'
+                                            AND (
+                                                m.graduate_account_id = :account_id
+                                                OR mr.mentee_account_id = :account_id
+                                            )
+                                          LIMIT 1");
+        $activeMentorStmt->bindParam(':account_id', $accountId);
+        $activeMentorStmt->execute();
+        $isActiveMentor = (bool) $activeMentorStmt->fetch(PDO::FETCH_ASSOC);
+
+        return [
+            'is_verified_graduate' => $hasVerifiedDocument,
+            'is_active_mentor' => $isActiveMentor,
+        ];
+    }
+}
+
+if (!function_exists('gradtrack_rating_build_permissions')) {
+    function gradtrack_rating_build_permissions(array $status): array
+    {
+        $isEmployed = (bool) ($status['is_employed'] ?? false);
+        $isAligned = (bool) ($status['is_aligned'] ?? false);
+
+        $canPostJobs = $isEmployed;
+        $canUseMentorship = $isEmployed && $isAligned;
+
+        return [
+            'can_post_jobs' => $canPostJobs,
+            'can_use_mentorship' => $canUseMentorship,
+            'can_register_mentor' => $canUseMentorship,
+            'requirements' => [
+                'job_posting' => [
+                    'is_employed' => true,
+                ],
+                'mentorship' => [
+                    'is_employed' => true,
+                    'is_aligned' => true,
+                ],
+            ],
+        ];
+    }
+}
+
 if (!function_exists('gradtrack_get_alumni_rating')) {
     function gradtrack_get_alumni_rating(PDO $db, array $user): array
     {
@@ -54,10 +218,6 @@ if (!function_exists('gradtrack_get_alumni_rating')) {
         $accountId = (int) ($user['account_id'] ?? 0);
 
         $maxSurvey = 35.0;
-        $maxProfile = 25.0;
-        $maxCareer = 15.0;
-        $maxDocuments = 15.0;
-        $maxEngagement = 10.0;
 
         $surveyEarned = 0.0;
         $surveyMeta = [
@@ -65,7 +225,9 @@ if (!function_exists('gradtrack_get_alumni_rating')) {
             'required_answered' => 0,
             'optional_total' => 0,
             'optional_answered' => 0,
-            'latest_survey_response_id' => null
+            'latest_survey_response_id' => null,
+            'employment_signal' => null,
+            'alignment_signal' => null,
         ];
 
         $latestSurveyStmt = $db->prepare('SELECT id, survey_id, responses FROM survey_responses WHERE graduate_id = :graduate_id ORDER BY submitted_at DESC, id DESC LIMIT 1');
@@ -78,7 +240,7 @@ if (!function_exists('gradtrack_get_alumni_rating')) {
             $decodedResponses = json_decode((string) $latestSurvey['responses'], true);
             $responses = is_array($decodedResponses) ? $decodedResponses : [];
 
-            $questionStmt = $db->prepare('SELECT id, is_required FROM survey_questions WHERE survey_id = :survey_id');
+            $questionStmt = $db->prepare('SELECT id, is_required, question_text FROM survey_questions WHERE survey_id = :survey_id');
             $questionStmt->bindParam(':survey_id', $latestSurvey['survey_id']);
             $questionStmt->execute();
             $questions = $questionStmt->fetchAll(PDO::FETCH_ASSOC);
@@ -88,6 +250,34 @@ if (!function_exists('gradtrack_get_alumni_rating')) {
                 $isRequired = (int) $question['is_required'] === 1;
                 $answer = $responses[$questionId] ?? null;
                 $isAnswered = gradtrack_rating_answered($answer);
+                $questionText = strtolower((string) ($question['question_text'] ?? ''));
+                $answerText = gradtrack_rating_answer_to_text($answer);
+
+                if ($answerText !== '') {
+                    if (
+                        strpos($questionText, 'employment status') !== false
+                        || strpos($questionText, 'presently employed') !== false
+                        || strpos($questionText, 'are you employed') !== false
+                        || strpos($questionText, 'present employment') !== false
+                    ) {
+                        $parsedEmployment = gradtrack_rating_parse_employment_from_answer($answerText);
+                        if ($parsedEmployment !== null) {
+                            $surveyMeta['employment_signal'] = $parsedEmployment;
+                        }
+                    }
+
+                    if (
+                        strpos($questionText, 'job related') !== false
+                        || strpos($questionText, 'related to your course') !== false
+                        || strpos($questionText, 'job alignment') !== false
+                        || strpos($questionText, 'aligned') !== false
+                    ) {
+                        $parsedAlignment = gradtrack_rating_parse_alignment_from_answer($answerText);
+                        if ($parsedAlignment !== null) {
+                            $surveyMeta['alignment_signal'] = $parsedAlignment;
+                        }
+                    }
+                }
 
                 if ($isRequired) {
                     $surveyMeta['required_total']++;
@@ -113,298 +303,107 @@ if (!function_exists('gradtrack_get_alumni_rating')) {
             $surveyEarned = round($maxSurvey * $surveyRatio, 2);
         }
 
-        $profileWeights = [
-            'student_id' => 2.0,
-            'first_name' => 3.0,
-            'middle_name' => 1.0,
-            'last_name' => 3.0,
-            'email' => 4.0,
-            'phone' => 3.0,
-            'address' => 3.0,
-            'program_id' => 3.0,
-            'year_graduated' => 3.0,
+        // Keep credibility score for dashboard display only.
+        $surveyPercent = gradtrack_rating_percent($surveyEarned, $maxSurvey);
+        $score = (int) round($surveyPercent);
+
+        $isSurveyComplete = gradtrack_rating_is_survey_complete($surveyMeta);
+
+        $employment = gradtrack_rating_get_latest_employment($db, $graduateId);
+        $employmentStatus = gradtrack_rating_normalize_text($employment['employment_status'] ?? '');
+        $alignmentStatus = gradtrack_rating_normalize_text($employment['is_aligned'] ?? '');
+
+        $employmentFromTable = gradtrack_rating_is_employed_status($employmentStatus);
+        $alignmentFromTable = gradtrack_rating_is_aligned_status($alignmentStatus);
+
+        $employmentFromSurvey = $surveyMeta['employment_signal'];
+        $alignmentFromSurvey = $surveyMeta['alignment_signal'];
+
+        $isEmployed = is_bool($employmentFromSurvey) ? $employmentFromSurvey : $employmentFromTable;
+        $isAligned = is_bool($alignmentFromSurvey) ? $alignmentFromSurvey : $alignmentFromTable;
+
+        $verificationFlags = gradtrack_rating_get_verification_flags($db, $accountId);
+        $hasSurveyCompletedBadge = $surveyPercent >= 70;
+
+        $statusFlags = [
+            'is_survey_complete' => $isSurveyComplete,
+            'is_employed' => $isEmployed,
+            'is_aligned' => $isAligned,
+            'has_survey_completed_badge' => $hasSurveyCompletedBadge,
+            'is_verified_graduate' => (bool) ($verificationFlags['is_verified_graduate'] ?? false),
+            'is_active_mentor' => (bool) ($verificationFlags['is_active_mentor'] ?? false),
         ];
-
-        $profileEarned = 0.0;
-        $missingProfileFields = [];
-        $profileStmt = $db->prepare('SELECT g.student_id, g.first_name, g.middle_name, g.last_name, COALESCE(g.email, ga.email) AS email, g.phone, g.address, g.program_id, g.year_graduated
-                                     FROM graduates g
-                                     LEFT JOIN graduate_accounts ga ON ga.graduate_id = g.id
-                                     WHERE g.id = :graduate_id
-                                     LIMIT 1');
-        $profileStmt->bindParam(':graduate_id', $graduateId);
-        $profileStmt->execute();
-        $profile = $profileStmt->fetch(PDO::FETCH_ASSOC) ?: [];
-
-        foreach ($profileWeights as $field => $weight) {
-            if (gradtrack_rating_non_empty($profile[$field] ?? null)) {
-                $profileEarned += $weight;
-            } else {
-                $missingProfileFields[] = $field;
-            }
-        }
-
-        $careerEarned = 0.0;
-        $careerMeta = [
-            'has_record' => false,
-            'employment_status' => null
-        ];
-        $careerWeights = [
-            'employment_status' => 2.0,
-            'company_name' => 3.0,
-            'job_title' => 3.0,
-            'industry' => 2.0,
-            'date_hired' => 2.0,
-            'is_aligned' => 2.0,
-            'monthly_salary' => 1.0,
-        ];
-
-        $careerStmt = $db->prepare('SELECT employment_status, company_name, job_title, industry, date_hired, is_aligned, monthly_salary
-                                    FROM employment
-                                    WHERE graduate_id = :graduate_id
-                                    ORDER BY updated_at DESC, id DESC
-                                    LIMIT 1');
-        $careerStmt->bindParam(':graduate_id', $graduateId);
-        $careerStmt->execute();
-        $career = $careerStmt->fetch(PDO::FETCH_ASSOC);
-
-        if ($career) {
-            $careerMeta['has_record'] = true;
-            $careerMeta['employment_status'] = $career['employment_status'];
-
-            foreach ($careerWeights as $field => $weight) {
-                if (gradtrack_rating_non_empty($career[$field] ?? null)) {
-                    $careerEarned += $weight;
-                }
-            }
-        }
-
-        $docsStmt = $db->prepare('SELECT document_type, is_verified
-                                  FROM alumni_supporting_documents
-                                  WHERE graduate_account_id = :account_id
-                                    AND is_active = 1');
-        $docsStmt->bindParam(':account_id', $accountId);
-        $docsStmt->execute();
-        $docs = $docsStmt->fetchAll(PDO::FETCH_ASSOC);
-
-        $totalDocs = count($docs);
-        $docTypes = [];
-        $verifiedDocs = 0;
-
-        foreach ($docs as $doc) {
-            $docTypes[(string) $doc['document_type']] = true;
-            if ((int) $doc['is_verified'] === 1) {
-                $verifiedDocs++;
-            }
-        }
-
-        $distinctDocTypes = count($docTypes);
-        $documentEarned = min(
-            $maxDocuments,
-            (min($totalDocs, 3) * 2.0)
-            + (min($distinctDocTypes, 4) * 2.0)
-            + ($verifiedDocs > 0 ? 1.0 : 0.0)
-        );
-
-        $jobPostsCountStmt = $db->prepare('SELECT COUNT(*) AS cnt FROM job_posts WHERE posted_by_account_id = :account_id');
-        $jobPostsCountStmt->bindParam(':account_id', $accountId);
-        $jobPostsCountStmt->execute();
-        $jobPostsCount = (int) ($jobPostsCountStmt->fetch(PDO::FETCH_ASSOC)['cnt'] ?? 0);
-
-        $jobApplicationsCountStmt = $db->prepare('SELECT COUNT(*) AS cnt FROM job_applications WHERE applicant_account_id = :account_id');
-        $jobApplicationsCountStmt->bindParam(':account_id', $accountId);
-        $jobApplicationsCountStmt->execute();
-        $jobApplicationsCount = (int) ($jobApplicationsCountStmt->fetch(PDO::FETCH_ASSOC)['cnt'] ?? 0);
-
-        $completedMentorshipStmt = $db->prepare("SELECT COUNT(*) AS cnt
-                                                FROM mentorship_requests mr
-                                                LEFT JOIN mentors m ON mr.mentor_id = m.id
-                                                WHERE mr.status = 'completed'
-                                                  AND (mr.mentee_account_id = :account_id OR m.graduate_account_id = :account_id)");
-        $completedMentorshipStmt->bindParam(':account_id', $accountId);
-        $completedMentorshipStmt->execute();
-        $completedMentorshipCount = (int) ($completedMentorshipStmt->fetch(PDO::FETCH_ASSOC)['cnt'] ?? 0);
-
-        $feedbackGivenStmt = $db->prepare('SELECT COUNT(*) AS cnt FROM mentorship_feedback WHERE mentee_account_id = :account_id');
-        $feedbackGivenStmt->bindParam(':account_id', $accountId);
-        $feedbackGivenStmt->execute();
-        $feedbackGivenCount = (int) ($feedbackGivenStmt->fetch(PDO::FETCH_ASSOC)['cnt'] ?? 0);
-
-        $surveyCountStmt = $db->prepare('SELECT COUNT(*) AS cnt FROM survey_responses WHERE graduate_id = :graduate_id');
-        $surveyCountStmt->bindParam(':graduate_id', $graduateId);
-        $surveyCountStmt->execute();
-        $surveyCount = (int) ($surveyCountStmt->fetch(PDO::FETCH_ASSOC)['cnt'] ?? 0);
-
-        $loginStmt = $db->prepare('SELECT last_login_at FROM graduate_accounts WHERE id = :account_id LIMIT 1');
-        $loginStmt->bindParam(':account_id', $accountId);
-        $loginStmt->execute();
-        $lastLoginAt = $loginStmt->fetch(PDO::FETCH_ASSOC)['last_login_at'] ?? null;
-
-        $engagementEarned = 0.0;
-        $engagementEarned += min($jobPostsCount, 3) * 1.0;
-        $engagementEarned += min($jobApplicationsCount, 2) * 1.0;
-        $engagementEarned += min($completedMentorshipCount, 2) * 1.5;
-        $engagementEarned += $feedbackGivenCount > 0 ? 1.0 : 0.0;
-        $engagementEarned += $lastLoginAt ? 1.0 : 0.0;
-        $engagementEarned += min($surveyCount, 2) * 0.5;
-        $engagementEarned = min($maxEngagement, $engagementEarned);
-
-        $mentorStatsStmt = $db->prepare("SELECT COUNT(mf.id) AS feedback_count,
-                                                COALESCE(AVG(mf.rating), 0) AS avg_rating
-                                         FROM mentors m
-                                         LEFT JOIN mentorship_requests mr ON mr.mentor_id = m.id AND mr.status = 'completed'
-                                         LEFT JOIN mentorship_feedback mf ON mf.mentorship_request_id = mr.id
-                                         WHERE m.graduate_account_id = :account_id");
-        $mentorStatsStmt->bindParam(':account_id', $accountId);
-        $mentorStatsStmt->execute();
-        $mentorStats = $mentorStatsStmt->fetch(PDO::FETCH_ASSOC) ?: ['feedback_count' => 0, 'avg_rating' => 0];
-
-        $totalScore = $surveyEarned + $profileEarned + $careerEarned + $documentEarned + $engagementEarned;
-        $score = (int) round(min(100.0, $totalScore));
 
         $breakdown = [
             'survey_completeness' => [
                 'label' => 'Tracer Survey Completeness',
                 'max_points' => $maxSurvey,
                 'earned_points' => round($surveyEarned, 2),
-                'percent' => gradtrack_rating_percent($surveyEarned, $maxSurvey),
+                'percent' => $surveyPercent,
                 'meta' => $surveyMeta,
-            ],
-            'profile_completeness' => [
-                'label' => 'Profile Completeness',
-                'max_points' => $maxProfile,
-                'earned_points' => round($profileEarned, 2),
-                'percent' => gradtrack_rating_percent($profileEarned, $maxProfile),
-                'meta' => [
-                    'missing_fields' => $missingProfileFields,
-                ],
-            ],
-            'career_details' => [
-                'label' => 'Employment / Career Details',
-                'max_points' => $maxCareer,
-                'earned_points' => round($careerEarned, 2),
-                'percent' => gradtrack_rating_percent($careerEarned, $maxCareer),
-                'meta' => $careerMeta,
-            ],
-            'supporting_documents' => [
-                'label' => 'Training / Certificates / Supporting Documents',
-                'max_points' => $maxDocuments,
-                'earned_points' => round($documentEarned, 2),
-                'percent' => gradtrack_rating_percent($documentEarned, $maxDocuments),
-                'meta' => [
-                    'total_documents' => $totalDocs,
-                    'distinct_document_types' => $distinctDocTypes,
-                    'verified_documents' => $verifiedDocs,
-                    'max_counted_documents' => 3,
-                ],
-            ],
-            'engagement' => [
-                'label' => 'Participation / Engagement Activity',
-                'max_points' => $maxEngagement,
-                'earned_points' => round($engagementEarned, 2),
-                'percent' => gradtrack_rating_percent($engagementEarned, $maxEngagement),
-                'meta' => [
-                    'job_posts' => $jobPostsCount,
-                    'job_applications' => $jobApplicationsCount,
-                    'completed_mentorships' => $completedMentorshipCount,
-                    'feedback_given' => $feedbackGivenCount,
-                    'survey_submissions' => $surveyCount,
-                    'has_logged_in' => $lastLoginAt !== null,
-                ],
             ],
         ];
 
         $recommendations = [];
-        foreach ($breakdown as $key => $item) {
-            $missing = round((float) $item['max_points'] - (float) $item['earned_points'], 2);
-            if ($missing <= 0) {
-                continue;
-            }
 
-            $action = 'Keep maintaining your records.';
-            if ($key === 'survey_completeness') {
-                $action = 'Complete required and optional tracer survey questions.';
-            } elseif ($key === 'profile_completeness') {
-                $action = 'Fill missing profile fields such as contact details, address, program, and graduation year.';
-            } elseif ($key === 'career_details') {
-                $action = 'Add/update your latest employment status, role, company, and alignment details.';
-            } elseif ($key === 'supporting_documents') {
-                $action = 'Upload certificates, seminar proofs, training records, or awards (max score is capped).';
-            } elseif ($key === 'engagement') {
-                $action = 'Engage by posting jobs, applying to opportunities, and completing mentorship activities.';
-            }
-
+        if (!$isSurveyComplete) {
             $recommendations[] = [
-                'area_key' => $key,
-                'area' => $item['label'],
-                'missing_points' => $missing,
-                'current_points' => (float) $item['earned_points'],
-                'max_points' => (float) $item['max_points'],
-                'action' => $action,
+                'area_key' => 'survey_completeness',
+                'area' => 'Tracer Survey Completion',
+                'missing_points' => round($maxSurvey - $surveyEarned, 2),
+                'current_points' => (float) round($surveyEarned, 2),
+                'max_points' => (float) $maxSurvey,
+                'action' => 'Complete all required tracer survey fields to unlock platform features.',
             ];
         }
 
-        usort($recommendations, function ($a, $b) {
-            return $b['missing_points'] <=> $a['missing_points'];
-        });
+        if (!$isEmployed) {
+            $recommendations[] = [
+                'area_key' => 'employment_status',
+                'area' => 'Employment Status',
+                'missing_points' => 0.0,
+                'current_points' => 0.0,
+                'max_points' => 0.0,
+                'action' => 'Update your employment information and indicate that you are employed.',
+            ];
+        }
 
-        $permissions = [
-            'can_post_jobs' => $score >= 50,
-            'can_use_mentorship' => $score >= 70,
-            'can_register_mentor' => $score >= 70,
-            'job_post_threshold' => 50,
-            'mentor_threshold' => 70,
-            'points_to_unlock_job_posting' => max(0, 50 - $score),
-            'points_to_unlock_mentorship' => max(0, 70 - $score),
-        ];
+        if (!$isAligned) {
+            $recommendations[] = [
+                'area_key' => 'course_alignment',
+                'area' => 'Course Alignment',
+                'missing_points' => 0.0,
+                'current_points' => 0.0,
+                'max_points' => 0.0,
+                'action' => 'Set your employment alignment to aligned for mentorship eligibility.',
+            ];
+        }
+
+        $permissions = gradtrack_rating_build_permissions($statusFlags);
 
         $badges = [];
 
-        if ($breakdown['profile_completeness']['percent'] >= 90) {
+        if ($hasSurveyCompletedBadge) {
             $badges[] = [
-                'code' => 'profile_complete',
-                'name' => 'Profile Complete',
-                'description' => 'Profile is at least 90% complete.',
+                'code' => 'survey_completed_70',
+                'name' => 'Survey Completed (70%)',
+                'description' => 'Awarded when your survey completion reaches at least 70%.',
             ];
         }
 
-        if ($verifiedDocs > 0 || $documentEarned >= 10) {
+        if ($statusFlags['is_verified_graduate']) {
             $badges[] = [
-                'code' => 'verified_contributor',
-                'name' => 'Verified Contributor',
-                'description' => 'Uploaded supporting records with strong document coverage.',
+                'code' => 'verified_graduate',
+                'name' => 'Verified Graduate',
+                'description' => 'Granted after admin verification of your graduate credentials.',
             ];
         }
 
-        if ($score >= 70 && $breakdown['survey_completeness']['percent'] >= 75 && $breakdown['profile_completeness']['percent'] >= 80) {
+        if ($statusFlags['is_active_mentor']) {
             $badges[] = [
-                'code' => 'active_alumni',
-                'name' => 'Active Alumni',
-                'description' => 'Consistently complete and high-quality alumni participation.',
-            ];
-        }
-
-        if ((int) $mentorStats['feedback_count'] >= 3 && (float) $mentorStats['avg_rating'] >= 4.5) {
-            $badges[] = [
-                'code' => 'top_mentor',
-                'name' => 'Top Mentor',
-                'description' => 'Maintained excellent mentor feedback over multiple sessions.',
-            ];
-        }
-
-        if ($jobPostsCount >= 2) {
-            $badges[] = [
-                'code' => 'career_supporter',
-                'name' => 'Career Supporter',
-                'description' => 'Shared opportunities with the alumni community.',
-            ];
-        }
-
-        if ($breakdown['engagement']['percent'] >= 80) {
-            $badges[] = [
-                'code' => 'highly_engaged',
-                'name' => 'Highly Engaged',
-                'description' => 'Sustained participation in jobs, mentorship, and alumni activities.',
+                'code' => 'active_mentor',
+                'name' => 'Active Mentor',
+                'description' => 'Granted after successful participation in mentorship.',
             ];
         }
 
@@ -412,39 +411,59 @@ if (!function_exists('gradtrack_get_alumni_rating')) {
             'score' => $score,
             'breakdown' => $breakdown,
             'badges' => $badges,
+            'status_flags' => $statusFlags,
             'permissions' => $permissions,
             'recommendations' => $recommendations,
             'weights' => [
                 'survey_completeness' => $maxSurvey,
-                'profile_completeness' => $maxProfile,
-                'career_details' => $maxCareer,
-                'supporting_documents' => $maxDocuments,
-                'engagement' => $maxEngagement,
             ],
         ];
     }
 }
 
-if (!function_exists('gradtrack_require_alumni_score')) {
-    function gradtrack_require_alumni_score(PDO $db, array $user, int $minimumScore, string $featureLabel): array
+if (!function_exists('gradtrack_require_feature_access')) {
+    function gradtrack_require_feature_access(PDO $db, array $user, string $featureKey): array
     {
         $rating = gradtrack_get_alumni_rating($db, $user);
-        $score = (int) ($rating['score'] ?? 0);
+        $permissions = $rating['permissions'] ?? [];
+        $statusFlags = $rating['status_flags'] ?? [];
 
-        if ($score < $minimumScore) {
+        $featureMap = [
+            'job_posting' => ['permission' => 'can_post_jobs', 'label' => 'Job posting'],
+            'mentorship' => ['permission' => 'can_use_mentorship', 'label' => 'Mentorship'],
+            'mentor_registration' => ['permission' => 'can_register_mentor', 'label' => 'Mentor registration'],
+        ];
+
+        if (!isset($featureMap[$featureKey])) {
+            throw new InvalidArgumentException('Unknown feature access key: ' . $featureKey);
+        }
+
+        $featureLabel = $featureMap[$featureKey]['label'];
+        $permissionKey = $featureMap[$featureKey]['permission'];
+        $isAllowed = (bool) ($permissions[$permissionKey] ?? false);
+
+        if (!$isAllowed) {
             http_response_code(403);
             echo json_encode([
                 'success' => false,
-                'error' => 'Insufficient alumni rating score for this feature',
+                'error' => 'Feature is locked until required eligibility rules are met',
                 'feature' => $featureLabel,
-                'current_score' => $score,
-                'required_score' => $minimumScore,
+                'feature_key' => $featureKey,
                 'rating' => $rating,
+                'status_flags' => $statusFlags,
                 'next_steps' => array_slice($rating['recommendations'] ?? [], 0, 3),
             ]);
             exit;
         }
 
         return $rating;
+    }
+}
+
+if (!function_exists('gradtrack_require_alumni_score')) {
+    function gradtrack_require_alumni_score(PDO $db, array $user, int $minimumScore, string $featureLabel): array
+    {
+        $feature = $minimumScore >= 70 ? 'mentor_registration' : 'job_posting';
+        return gradtrack_require_feature_access($db, $user, $feature);
     }
 }

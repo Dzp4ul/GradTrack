@@ -269,7 +269,10 @@ export default function Dashboard() {
               <XAxis dataKey="code" tick={{ fontSize: 13, fontWeight: 600 }} />
               <YAxis domain={[0, 100]} tick={{ fontSize: 12 }} />
               <Tooltip
-                formatter={(value) => [`${value}%`, 'Employability Index']}
+                formatter={(value) => {
+                  const numericValue = typeof value === 'number' ? value : Number(value);
+                  return [`${numericValue.toFixed(1)}%`, 'Employability Index'];
+                }}
                 contentStyle={{ borderRadius: 8, border: '1px solid #e5e7eb' }}
               />
               <Bar dataKey="employability_index" radius={[6, 6, 0, 0]}>

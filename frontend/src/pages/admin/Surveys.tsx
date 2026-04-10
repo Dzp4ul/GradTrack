@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
-  Plus, Edit2, Trash2, X, ClipboardList, Eye, ChevronDown, ChevronUp, ShieldCheck, BarChart3, FileText, Briefcase, Star, Users, Award, Info,
+  Plus, Edit2, Trash2, X, ClipboardList, ChevronDown, ChevronUp, ShieldCheck, BarChart3, FileText, Briefcase, Star, Users, Award, Info,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import MessageBox from '../../components/MessageBox';
@@ -66,8 +66,6 @@ export default function Surveys() {
   const [surveys, setSurveys] = useState<Survey[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
-  const [showView, setShowView] = useState(false);
-  const [viewSurvey, setViewSurvey] = useState<Survey | null>(null);
   const [formData, setFormData] = useState<FormData>(emptyForm);
   const [isEditing, setIsEditing] = useState(false);
   const [expandedQ, setExpandedQ] = useState<number | null>(null);
@@ -285,22 +283,6 @@ export default function Surveys() {
       });
   };
 
-  const openView = (s: Survey) => {
-    fetch(`${API_BASE}/surveys/index.php?id=${s.id}`)
-      .then((r) => r.json())
-      .then((res) => {
-        if (res.success) {
-          const d = res.data;
-          d.questions = (d.questions || []).map((q: Question) => ({
-            ...q,
-            options: typeof q.options === 'string' ? JSON.parse(q.options) : q.options,
-          }));
-          setViewSurvey(d);
-          setShowView(true);
-        }
-      });
-  };
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const method = isEditing ? 'PUT' : 'POST';
@@ -413,15 +395,6 @@ export default function Surveys() {
                   <div className="flex items-center gap-2 ml-4 flex-shrink-0">
                     <button onClick={() => navigate(`/admin/surveys/${s.id}`)} className="p-2 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors font-medium" title="View Details">
                       <Info className="w-5 h-5" />
-                    </button>
-                    <button onClick={() => navigate(`/admin/surveys/${s.id}/analytics`)} className="p-2 rounded-lg hover:bg-purple-50 text-purple-600 transition-colors font-medium" title="View Analytics">
-                      <BarChart3 className="w-5 h-5" />
-                    </button>
-                    <button onClick={() => navigate(`/admin/surveys/${s.id}/responses`)} className="p-2 rounded-lg hover:bg-green-50 text-green-600 transition-colors font-medium" title="View Responses">
-                      <Eye className="w-5 h-5" />
-                    </button>
-                    <button onClick={() => openView(s)} className="p-2 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors font-medium" title="Preview">
-                      <ClipboardList className="w-5 h-5" />
                     </button>
                     <button onClick={() => openEdit(s)} className="p-2 rounded-lg hover:bg-yellow-50 text-yellow-600 transition-colors font-medium" title="Edit">
                       <Edit2 className="w-5 h-5" />
@@ -553,44 +526,6 @@ export default function Surveys() {
                   );
                 })}
               </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* View Modal */}
-      {showView && viewSurvey && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto m-4">
-            <div className="flex items-center justify-between p-6 border-b sticky top-0 bg-white rounded-t-2xl">
-              <div>
-                <h2 className="text-2xl font-bold text-blue-900">{viewSurvey.title}</h2>
-                <p className="text-sm text-gray-500 mt-1">{viewSurvey.response_count} responses</p>
-              </div>
-              <button onClick={() => setShowView(false)} className="p-2 rounded-lg hover:bg-gray-100">
-                <X className="w-6 h-6" />
-              </button>
-            </div>
-            <div className="p-6 space-y-6">
-              {viewSurvey.description && <p className="text-gray-700 text-base">{viewSurvey.description}</p>}
-              {viewSurvey.questions?.map((q, i) => (
-                <div key={i} className="bg-blue-50 rounded-xl border border-blue-100 p-5">
-                  <p className="text-lg font-semibold text-blue-900 mb-2">
-                    {i + 1}. {q.question_text} {q.is_required ? <span className="text-red-500 ml-1">*</span> : null}
-                  </p>
-                  <p className="text-xs text-gray-500 capitalize font-medium mb-3">{q.question_type.replace('_', ' ')}</p>
-                  {q.options && Array.isArray(q.options) && (
-                    <div className="space-y-2 ml-2">
-                      {q.options.map((opt, oi) => (
-                        <div key={oi} className="flex items-center gap-3 text-gray-700">
-                          <div className="w-4 h-4 rounded-full border-2 border-blue-600 flex-shrink-0" />
-                          {opt}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
             </div>
           </div>
         </div>

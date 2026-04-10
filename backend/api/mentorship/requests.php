@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
+require_once __DIR__ . '/../config/alumni_rating.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -54,6 +55,7 @@ try {
     }
 
     if ($method === 'POST') {
+        gradtrack_require_feature_access($db, $user, 'mentorship');
         $data = json_decode(file_get_contents('php://input'), true);
         $mentorId = isset($data['mentor_id']) ? (int) $data['mentor_id'] : 0;
         $requestMessage = isset($data['request_message']) ? trim((string) $data['request_message']) : null;
