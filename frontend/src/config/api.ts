@@ -15,6 +15,7 @@ export const API_ENDPOINTS = {
     CHECK: `${API_ROOT}/graduate-auth/check.php`,
     REGISTER_FROM_SURVEY: `${API_ROOT}/graduate-auth/register-from-survey.php`,
   },
+  GRADUATE_PROFILE: `${API_ROOT}/graduate-profile/index.php`,
   GRADUATES: `${API_ROOT}/graduates/index.php`,
   SURVEYS: `${API_ROOT}/surveys/index.php`,
   SURVEY_TEMPLATES: `${API_ROOT}/surveys/templates.php`,

@@ -1,23 +1,25 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Award,
   BarChart3,
   Briefcase,
+  ChevronDown,
   CheckCircle2,
   ClipboardList,
   LayoutDashboard,
+  LogOut,
   Menu,
   Settings,
+  User,
   Users,
   X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { API_ENDPOINTS } from '../config/api';
+import { API_BASE_URL, API_ENDPOINTS } from '../config/api';
 import { useGraduateAuth } from '../contexts/GraduateAuthContext';
 import MessageBox from '../components/MessageBox';
 
-type PortalTab = 'dashboard' | 'mentors' | 'requests' | 'jobs' | 'applications' | 'mentor_profile' | 'job_posting';
+type PortalTab = 'dashboard' | 'mentors' | 'requests' | 'jobs' | 'applications' | 'my_profile' | 'mentor_profile' | 'job_posting';
 
 interface Mentor {
   id: number;
@@ -178,7 +180,7 @@ const defaultJobForm: JobForm = {
 };
 
 export default function GraduatePortal() {
-  const { user, logout } = useGraduateAuth();
+  const { user, logout, checkAuth } = useGraduateAuth();
 
   const [activeTab, setActiveTab] = useState<PortalTab>('dashboard');
   const [loading, setLoading] = useState(false);
@@ -196,6 +198,18 @@ export default function GraduatePortal() {
   const [mentorSearch, setMentorSearch] = useState('');
   const [jobSearch, setJobSearch] = useState('');
   const [ratingSummary, setRatingSummary] = useState<AlumniRating | null>(null);
+  const [profileForm, setProfileForm] = useState({
+    first_name: '',
+    middle_name: '',
+    last_name: '',
+    email: '',
+    phone: '',
+    address: '',
+    password: '',
+    confirm_password: '',
+  });
+  const [profileImageFile, setProfileImageFile] = useState<File | null>(null);
+  const [profileImagePreview, setProfileImagePreview] = useState<string>('');
 
   const [msgBox, setMsgBox] = useState<{
     isOpen: boolean;
@@ -204,6 +218,33 @@ export default function GraduatePortal() {
     message: string;
   }>({ isOpen: false, type: 'info', message: '' });
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const profileMenuRef = useRef<HTMLDivElement | null>(null);
+  const profileImageInputRef = useRef<HTMLInputElement | null>(null);
+
+  const resolveProfileImageUrl = (path?: string | null) => {
+    if (!path) return '';
+    if (/^https?:\/\//i.test(path)) return path;
+    return `${API_BASE_URL}/${path.replace(/^\/+/, '')}`;
+  };
+
+  const profileImageUrl = useMemo(() => resolveProfileImageUrl(user?.profile_image_path), [user?.profile_image_path]);
+
+  const userRoleLabel = useMemo(() => {
+    const rawRole = (user?.role || 'graduate') as string;
+    return rawRole
+      .split('_')
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(' ');
+  }, [user?.role]);
+
+  const userInitials = useMemo(() => {
+    const name = (user?.full_name || '').trim();
+    if (!name) return 'G';
+    const parts = name.split(/\s+/).filter(Boolean);
+    if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+    return `${parts[0].charAt(0)}${parts[parts.length - 1].charAt(0)}`.toUpperCase();
+  }, [user?.full_name]);
 
   const notify = (type: 'success' | 'error' | 'warning' | 'info', message: string, title?: string) => {
     setMsgBox({ isOpen: true, type, message, title });
@@ -283,6 +324,34 @@ export default function GraduatePortal() {
 
   useEffect(() => {
     fetchAll();
+  }, []);
+
+  useEffect(() => {
+    setProfileForm((prev) => ({
+      ...prev,
+      first_name: user?.first_name || '',
+      middle_name: user?.middle_name || '',
+      last_name: user?.last_name || '',
+      email: user?.email || '',
+      phone: user?.phone || '',
+      address: user?.address || '',
+    }));
+  }, [user]);
+
+  useEffect(() => {
+    setProfileImagePreview(profileImageUrl);
+  }, [profileImageUrl]);
+
+  useEffect(() => {
+    const onDocumentMouseDown = (event: MouseEvent) => {
+      if (!profileMenuRef.current) return;
+      if (!profileMenuRef.current.contains(event.target as Node)) {
+        setProfileMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', onDocumentMouseDown);
+    return () => document.removeEventListener('mousedown', onDocumentMouseDown);
   }, []);
 
   const canPostJobs = !!ratingSummary?.permissions?.can_post_jobs;
@@ -507,6 +576,49 @@ export default function GraduatePortal() {
     window.location.href = '/graduate/signin';
   };
 
+  const handleMyProfileSave = async (e: FormEvent) => {
+    e.preventDefault();
+
+    if (profileForm.password !== profileForm.confirm_password) {
+      notify('warning', 'Password and confirm password do not match.', 'Profile');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('first_name', profileForm.first_name.trim());
+    formData.append('middle_name', profileForm.middle_name.trim());
+    formData.append('last_name', profileForm.last_name.trim());
+    formData.append('email', profileForm.email.trim());
+    formData.append('phone', profileForm.phone.trim());
+    formData.append('address', profileForm.address.trim());
+
+    if (profileForm.password.trim()) {
+      formData.append('password', profileForm.password);
+    }
+
+    if (profileImageFile) {
+      formData.append('profile_image', profileImageFile);
+    }
+
+    try {
+      await authenticatedFetch(API_ENDPOINTS.GRADUATE_PROFILE, {
+        method: 'POST',
+        body: formData,
+      });
+
+      await checkAuth();
+      setProfileImageFile(null);
+      setProfileForm((prev) => ({
+        ...prev,
+        password: '',
+        confirm_password: '',
+      }));
+      notify('success', 'Profile updated successfully.', 'My Profile');
+    } catch (error) {
+      notify('error', error instanceof Error ? error.message : 'Unable to update profile', 'My Profile');
+    }
+  };
+
   const navItems: Array<{ key: PortalTab; label: string; icon: LucideIcon }> = [
     { key: 'dashboard', label: 'Dashboard', icon: BarChart3 },
     { key: 'mentors', label: 'Find Mentors', icon: Users },
@@ -577,16 +689,64 @@ export default function GraduatePortal() {
               </div>
             </div>
 
-            <div className="flex items-center gap-3">
-              <Link to="/" className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-sm">
-                Home
-              </Link>
+            <div className="relative" ref={profileMenuRef}>
               <button
-                onClick={handleLogout}
-                className="px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-blue-900 rounded-lg font-semibold text-sm"
+                onClick={() => setProfileMenuOpen((prev) => !prev)}
+                className="flex items-center gap-3 bg-white/10 hover:bg-white/20 rounded-full px-3 py-1.5 min-w-[260px]"
+                aria-haspopup="menu"
+                aria-expanded={profileMenuOpen}
               >
-                Sign Out
+                {profileImagePreview ? (
+                  <img src={profileImagePreview} alt="Profile" className="w-9 h-9 rounded-full object-cover border border-white/30" />
+                ) : (
+                  <div className="w-9 h-9 rounded-full bg-white text-blue-900 flex items-center justify-center font-bold text-sm">
+                    {userInitials}
+                  </div>
+                )}
+                <div className="text-left leading-tight flex-1">
+                  <p className="font-semibold text-white text-lg truncate">{user?.full_name || 'Graduate User'}</p>
+                  <p className="text-blue-100 text-sm">{userRoleLabel}</p>
+                </div>
+                <ChevronDown className={`w-4 h-4 text-blue-100 transition-transform ${profileMenuOpen ? 'rotate-180' : ''}`} />
               </button>
+
+              {profileMenuOpen && (
+                <div className="absolute right-0 mt-2 w-[320px] bg-white rounded-2xl shadow-xl overflow-hidden z-50 text-gray-800 border border-gray-200">
+                  <div className="p-4 border-b border-gray-100 flex items-center gap-3">
+                    {profileImagePreview ? (
+                      <img src={profileImagePreview} alt="Profile" className="w-11 h-11 rounded-full object-cover border border-gray-200" />
+                    ) : (
+                      <div className="w-11 h-11 rounded-full bg-blue-900 text-white flex items-center justify-center font-bold">
+                        {userInitials}
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <p className="font-semibold text-xl text-gray-900 truncate">{user?.full_name || 'Graduate User'}</p>
+                      <p className="text-sm text-gray-500 truncate">{user?.email || 'No email available'}</p>
+                      <p className="text-sm text-gray-500">{userRoleLabel}</p>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      setActiveTab('my_profile');
+                      setProfileMenuOpen(false);
+                    }}
+                    className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-2 text-lg"
+                  >
+                    <User className="w-4 h-4" />
+                    My Profile
+                  </button>
+
+                  <button
+                    onClick={handleLogout}
+                    className="w-full px-4 py-3 text-left hover:bg-red-50 flex items-center gap-2 text-lg text-red-600"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Logout
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </header>
@@ -621,10 +781,10 @@ export default function GraduatePortal() {
                     <div className="bg-white rounded-xl border border-gray-200 p-5">
                       <div className="flex flex-wrap items-start justify-between gap-4">
                         <div>
-                          <p className="text-sm text-gray-500">Alumni Participation Rating</p>
+                          <p className="text-sm text-gray-500">Graduate Access Overview</p>
                           <div className="flex items-baseline gap-2 mt-1">
-                            <h2 className="text-4xl font-extrabold text-blue-900">{ratingSummary.score}%</h2>
-                            <span className="text-sm text-gray-500">overall credibility score</span>
+                            <h2 className="text-2xl font-extrabold text-blue-900">Employment-Based Access</h2>
+                            <span className="text-sm text-gray-500">live eligibility status</span>
                           </div>
                         </div>
                         <div className="grid sm:grid-cols-2 gap-2 text-sm min-w-[280px]">
@@ -636,23 +796,24 @@ export default function GraduatePortal() {
                           </div>
                         </div>
                       </div>
-                    </div>
 
-                    <div className="bg-white rounded-xl border border-gray-200 p-5">
-                      <h2 className="text-xl font-bold text-blue-900 mb-4">Rating Breakdown</h2>
-                      <div className="grid lg:grid-cols-2 gap-3">
-                        {Object.entries(ratingSummary.breakdown).map(([key, item]) => (
-                          <div key={key} className="rounded-lg border border-gray-200 p-3">
-                            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{item.label}</p>
-                            <div className="mt-2 flex items-end justify-between">
-                              <p className="text-lg font-bold text-blue-900">{item.earned_points.toFixed(1)} / {item.max_points}</p>
-                              <p className="text-sm text-gray-600">{item.percent}%</p>
-                            </div>
-                            <div className="mt-2 h-2 rounded-full bg-gray-100 overflow-hidden">
-                              <div className="h-full bg-blue-600" style={{ width: `${Math.min(100, item.percent)}%` }} />
-                            </div>
-                          </div>
-                        ))}
+                      <div className="grid sm:grid-cols-3 gap-2 mt-3 text-xs">
+                        <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                          <p className="text-gray-500">Employment status</p>
+                          <p className={ratingSummary.status_flags.is_employed ? 'font-semibold text-green-700' : 'font-semibold text-amber-700'}>
+                            {ratingSummary.status_flags.is_employed ? 'Employed' : 'Not employed'}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                          <p className="text-gray-500">Course alignment</p>
+                          <p className={ratingSummary.status_flags.is_aligned ? 'font-semibold text-green-700' : 'font-semibold text-amber-700'}>
+                            {ratingSummary.status_flags.is_aligned ? 'Aligned' : 'Not aligned'}
+                          </p>
+                        </div>
+                        <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                          <p className="text-gray-500">Recognition badges</p>
+                          <p className="font-semibold text-blue-900">{ratingSummary.badges.length}</p>
+                        </div>
                       </div>
                     </div>
 
@@ -660,22 +821,84 @@ export default function GraduatePortal() {
                       <div className="bg-white rounded-xl border border-gray-200 p-5 xl:col-span-2">
                         <div className="flex items-center gap-2 mb-3">
                           <BarChart3 className="w-5 h-5 text-blue-700" />
-                          <h3 className="text-lg font-bold text-blue-900">How to Improve Your Score</h3>
+                          <h3 className="text-lg font-bold text-blue-900">Feature Access Details</h3>
                         </div>
-                        <div className="space-y-2">
-                          {ratingSummary.recommendations.map((rec) => (
-                            <div key={rec.area_key} className="rounded-lg border border-blue-100 bg-blue-50 p-3">
-                              <p className="text-sm font-semibold text-blue-900">
-                                {rec.area} (+{rec.missing_points.toFixed(1)} points available)
-                              </p>
-                              <p className="text-sm text-blue-800 mt-1">{rec.action}</p>
+
+                        <div className="space-y-3">
+                          <div className="rounded-lg border border-gray-200 p-3">
+                            <p className="text-sm font-semibold text-blue-900 mb-2">Job Posting Requirements</p>
+                            <div className="space-y-1 text-sm">
+                              <div className="flex items-center justify-between">
+                                <span className="text-gray-700">Employment status is employed</span>
+                                <span className={ratingSummary.status_flags.is_employed ? 'text-green-700 font-semibold' : 'text-amber-700 font-semibold'}>
+                                  {ratingSummary.status_flags.is_employed ? 'Met' : 'Not met'}
+                                </span>
+                              </div>
                             </div>
-                          ))}
-                          {ratingSummary.recommendations.length === 0 && (
-                            <div className="rounded-lg border border-green-200 bg-green-50 p-3 text-green-800 text-sm font-medium">
-                              Excellent work. Your profile and participation are fully optimized.
+                          </div>
+
+                          <div className="rounded-lg border border-gray-200 p-3">
+                            <p className="text-sm font-semibold text-blue-900 mb-2">Mentorship Requirements</p>
+                            <div className="space-y-1 text-sm">
+                              <div className="flex items-center justify-between">
+                                <span className="text-gray-700">Employment status is employed</span>
+                                <span className={ratingSummary.status_flags.is_employed ? 'text-green-700 font-semibold' : 'text-amber-700 font-semibold'}>
+                                  {ratingSummary.status_flags.is_employed ? 'Met' : 'Not met'}
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <span className="text-gray-700">Job is aligned with course</span>
+                                <span className={ratingSummary.status_flags.is_aligned ? 'text-green-700 font-semibold' : 'text-amber-700 font-semibold'}>
+                                  {ratingSummary.status_flags.is_aligned ? 'Met' : 'Not met'}
+                                </span>
+                              </div>
                             </div>
-                          )}
+                          </div>
+
+                          <div className="rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-blue-900">
+                            Keep your employment and alignment information updated to maintain access eligibility.
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="bg-white rounded-xl border border-gray-200 p-5">
+                        <div className="flex items-center gap-2 mb-3">
+                          <Award className="w-5 h-5 text-amber-600" />
+                          <h3 className="text-lg font-bold text-blue-900">Account Snapshot</h3>
+                        </div>
+
+                        <div className="space-y-2 text-sm">
+                          <div className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2">
+                            <span className="text-gray-700">Account holder</span>
+                            <span className="font-semibold text-blue-900">{user?.full_name || 'Graduate'}</span>
+                          </div>
+
+                          <div className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2">
+                            <span className="text-gray-700">Program</span>
+                            <span className="font-semibold text-blue-900">{user?.program_code || user?.program_name || 'N/A'}</span>
+                          </div>
+
+                          <div className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2">
+                            <span className="text-gray-700">Year graduated</span>
+                            <span className="font-semibold text-blue-900">{user?.year_graduated || 'N/A'}</span>
+                          </div>
+
+                          <div className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2">
+                            <span className="text-gray-700">Email</span>
+                            <span className="font-semibold text-blue-900">{user?.email || 'N/A'}</span>
+                          </div>
+
+                          <div className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2">
+                            <span className="text-gray-700">Phone</span>
+                            <span className="font-semibold text-blue-900">{user?.phone || 'N/A'}</span>
+                          </div>
+
+                          <div className="flex items-center justify-between rounded-lg border border-gray-200 px-3 py-2">
+                            <span className="text-gray-700">Feature unlock summary</span>
+                            <span className="font-semibold text-blue-900">
+                              {(canPostJobs ? 1 : 0) + (canUseMentorship ? 1 : 0)} / 2 unlocked
+                            </span>
+                          </div>
                         </div>
                       </div>
 
@@ -864,6 +1087,142 @@ export default function GraduatePortal() {
                     ))}
                   </div>
                 </div>
+              </section>
+            )}
+
+            {activeTab === 'my_profile' && (
+              <section className="space-y-5">
+                <div>
+                  <h2 className="text-2xl font-bold text-blue-900">My Profile</h2>
+                  <p className="text-sm text-gray-600">Manage your personal information and account settings.</p>
+                </div>
+
+                <form onSubmit={handleMyProfileSave} className="space-y-4">
+                  <div className="grid xl:grid-cols-4 gap-4">
+                    <div className="bg-white rounded-xl border border-gray-200 p-5 xl:col-span-1">
+                      {profileImagePreview ? (
+                        <img src={profileImagePreview} alt="Profile" className="w-28 h-28 rounded-full object-cover border border-gray-300 mx-auto" />
+                      ) : (
+                        <div className="w-28 h-28 rounded-full bg-blue-100 text-blue-900 font-bold text-3xl flex items-center justify-center mx-auto">
+                          {userInitials}
+                        </div>
+                      )}
+                      <p className="text-center text-blue-900 font-semibold mt-3">{user?.full_name || 'Graduate User'}</p>
+                      <p className="text-center text-sm text-gray-500">{userRoleLabel}</p>
+                      <input
+                        ref={profileImageInputRef}
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/gif"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0] || null;
+                          setProfileImageFile(file);
+                          if (file) {
+                            setProfileImagePreview(URL.createObjectURL(file));
+                          } else {
+                            setProfileImagePreview(profileImageUrl);
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => profileImageInputRef.current?.click()}
+                        className="w-full mt-3 px-3 py-2 rounded-lg border border-blue-200 text-blue-800 text-sm font-semibold hover:bg-blue-50"
+                      >
+                        {profileImageFile ? 'Change Selected Image' : 'Upload Profile Image'}
+                      </button>
+                      <p className="text-center text-xs text-gray-400 mt-2">PNG, JPG, WEBP, or GIF (max 5 MB)</p>
+                    </div>
+
+                    <div className="bg-white rounded-xl border border-gray-200 p-5 xl:col-span-3">
+                      <div className="grid md:grid-cols-3 gap-3">
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">First Name</label>
+                          <input
+                            className="w-full px-3 py-2 border border-gray-300 rounded"
+                            value={profileForm.first_name}
+                            onChange={(e) => setProfileForm((prev) => ({ ...prev, first_name: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Middle Name</label>
+                          <input
+                            className="w-full px-3 py-2 border border-gray-300 rounded"
+                            value={profileForm.middle_name}
+                            onChange={(e) => setProfileForm((prev) => ({ ...prev, middle_name: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Last Name</label>
+                          <input
+                            className="w-full px-3 py-2 border border-gray-300 rounded"
+                            value={profileForm.last_name}
+                            onChange={(e) => setProfileForm((prev) => ({ ...prev, last_name: e.target.value }))}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid md:grid-cols-2 gap-3 mt-3">
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Email Address</label>
+                          <input
+                            type="email"
+                            className="w-full px-3 py-2 border border-gray-300 rounded"
+                            value={profileForm.email}
+                            onChange={(e) => setProfileForm((prev) => ({ ...prev, email: e.target.value }))}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs text-gray-500 mb-1">Phone Number</label>
+                          <input
+                            className="w-full px-3 py-2 border border-gray-300 rounded"
+                            value={profileForm.phone}
+                            onChange={(e) => setProfileForm((prev) => ({ ...prev, phone: e.target.value }))}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="mt-3">
+                        <label className="block text-xs text-gray-500 mb-1">Address</label>
+                        <input
+                          className="w-full px-3 py-2 border border-gray-300 rounded"
+                          value={profileForm.address}
+                          onChange={(e) => setProfileForm((prev) => ({ ...prev, address: e.target.value }))}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-xl border border-gray-200 p-5">
+                    <h3 className="text-base font-semibold text-blue-900 mb-3">Account Settings</h3>
+                    <div className="grid md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">New Password</label>
+                        <input
+                          type="password"
+                          className="w-full px-3 py-2 border border-gray-300 rounded"
+                          value={profileForm.password}
+                          onChange={(e) => setProfileForm((prev) => ({ ...prev, password: e.target.value }))}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">Confirm Password</label>
+                        <input
+                          type="password"
+                          className="w-full px-3 py-2 border border-gray-300 rounded"
+                          value={profileForm.confirm_password}
+                          onChange={(e) => setProfileForm((prev) => ({ ...prev, confirm_password: e.target.value }))}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end mt-4">
+                      <button type="submit" className="px-4 py-2 rounded-lg bg-blue-700 hover:bg-blue-800 text-white font-semibold">
+                        Save Changes
+                      </button>
+                    </div>
+                  </div>
+                </form>
               </section>
             )}
 
