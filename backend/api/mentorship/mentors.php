@@ -14,8 +14,10 @@ try {
             $user = gradtrack_require_graduate_auth($db);
 
             $mineQuery = "SELECT m.*, p.name AS program_name, p.code AS program_code,
-                                 g.first_name, g.middle_name, g.last_name, g.year_graduated
+                                 g.first_name, g.middle_name, g.last_name, g.year_graduated,
+                                 ga.email AS contact_email
                           FROM mentors m
+                          JOIN graduate_accounts ga ON m.graduate_account_id = ga.id
                           JOIN graduates g ON m.graduate_id = g.id
                           LEFT JOIN programs p ON g.program_id = p.id
                           WHERE m.graduate_account_id = :account_id";
@@ -39,10 +41,12 @@ try {
         $sql = "SELECT m.id, m.current_job_title, m.company, m.industry, m.skills, m.bio,
                        m.availability_status, m.preferred_topics, m.created_at,
                        g.id AS graduate_id, g.first_name, g.middle_name, g.last_name, g.year_graduated,
+                       ga.email AS contact_email,
                        p.name AS program_name, p.code AS program_code,
                        COALESCE(AVG(mf.rating), 0) AS avg_rating,
                        COUNT(mf.id) AS feedback_count
                 FROM mentors m
+                JOIN graduate_accounts ga ON m.graduate_account_id = ga.id
                 JOIN graduates g ON m.graduate_id = g.id
                 LEFT JOIN programs p ON g.program_id = p.id
                 LEFT JOIN mentorship_requests mr ON mr.mentor_id = m.id

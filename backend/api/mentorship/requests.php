@@ -55,7 +55,7 @@ try {
     }
 
     if ($method === 'POST') {
-        gradtrack_require_feature_access($db, $user, 'mentorship');
+        gradtrack_require_feature_access($db, $user, 'mentorship_request');
         $data = json_decode(file_get_contents('php://input'), true);
         $mentorId = isset($data['mentor_id']) ? (int) $data['mentor_id'] : 0;
         $requestMessage = isset($data['request_message']) ? trim((string) $data['request_message']) : null;

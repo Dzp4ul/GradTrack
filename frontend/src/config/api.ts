@@ -18,6 +18,7 @@ export const API_ENDPOINTS = {
   GRADUATE_PROFILE: `${API_ROOT}/graduate-profile/index.php`,
   GRADUATES: `${API_ROOT}/graduates/index.php`,
   SURVEYS: `${API_ROOT}/surveys/index.php`,
+  SURVEY_PROGRAMS: `${API_ROOT}/surveys/programs.php`,
   SURVEY_TEMPLATES: `${API_ROOT}/surveys/templates.php`,
   SURVEY_CLEAR: `${API_ROOT}/surveys/clear.php`,
   SURVEY_RESPONSES: `${API_ROOT}/surveys/responses.php`,

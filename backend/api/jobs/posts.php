@@ -4,9 +4,217 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/alumni_rating.php';
 
+function gradtrack_jobs_request_data(): array
+{
+    $contentType = isset($_SERVER['CONTENT_TYPE']) ? strtolower((string) $_SERVER['CONTENT_TYPE']) : '';
+    if (strpos($contentType, 'multipart/form-data') !== false) {
+        return $_POST;
+    }
+
+    $raw = file_get_contents('php://input');
+    if ($raw === false || trim($raw) === '') {
+        return [];
+    }
+
+    $decoded = json_decode($raw, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+function gradtrack_jobs_upload_base_dir(): string
+{
+    $base = realpath(__DIR__ . '/../../');
+    if ($base === false) {
+        throw new RuntimeException('Unable to resolve backend upload directory');
+    }
+    return $base . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'job-requirements';
+}
+
+function gradtrack_jobs_upload_job_dir(int $jobId): string
+{
+    return gradtrack_jobs_upload_base_dir() . DIRECTORY_SEPARATOR . $jobId;
+}
+
+function gradtrack_jobs_requirements_metadata_path(int $jobId): string
+{
+    return gradtrack_jobs_upload_job_dir($jobId) . DIRECTORY_SEPARATOR . 'metadata.json';
+}
+
+function gradtrack_jobs_requirements_relative_path(int $jobId, string $storedName): string
+{
+    return 'uploads/job-requirements/' . $jobId . '/' . $storedName;
+}
+
+function gradtrack_jobs_ensure_dir(string $dir): void
+{
+    if (!is_dir($dir)) {
+        mkdir($dir, 0755, true);
+    }
+}
+
+function gradtrack_jobs_cleanup_job_dir(int $jobId): void
+{
+    $jobDir = gradtrack_jobs_upload_job_dir($jobId);
+    if (!is_dir($jobDir)) {
+        return;
+    }
+
+    $items = scandir($jobDir);
+    if ($items === false) {
+        return;
+    }
+
+    foreach ($items as $item) {
+        if ($item === '.' || $item === '..') {
+            continue;
+        }
+        $path = $jobDir . DIRECTORY_SEPARATOR . $item;
+        if (is_file($path)) {
+            @unlink($path);
+        }
+    }
+
+    @rmdir($jobDir);
+}
+
+function gradtrack_jobs_remove_requirements_file(int $jobId): void
+{
+    gradtrack_jobs_cleanup_job_dir($jobId);
+}
+
+function gradtrack_jobs_sanitize_filename(string $name): string
+{
+    $safe = preg_replace('/[^a-zA-Z0-9._-]/', '_', $name);
+    return $safe ?: ('requirements_' . time());
+}
+
+function gradtrack_jobs_save_requirements_file(int $jobId, array $file): array
+{
+    $errorCode = (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE);
+    if ($errorCode === UPLOAD_ERR_NO_FILE) {
+        throw new RuntimeException('No requirements file was uploaded');
+    }
+    if ($errorCode !== UPLOAD_ERR_OK) {
+        throw new RuntimeException('Requirements file upload failed');
+    }
+
+    $tmpPath = (string) ($file['tmp_name'] ?? '');
+    if ($tmpPath === '' || !is_uploaded_file($tmpPath)) {
+        throw new RuntimeException('Invalid uploaded requirements file');
+    }
+
+    $fileSize = (int) ($file['size'] ?? 0);
+    $maxSizeBytes = 10 * 1024 * 1024;
+    if ($fileSize <= 0 || $fileSize > $maxSizeBytes) {
+        throw new RuntimeException('Requirements file must be between 1 byte and 10 MB');
+    }
+
+    $finfo = new finfo(FILEINFO_MIME_TYPE);
+    $mimeType = $finfo->file($tmpPath) ?: 'application/octet-stream';
+    $allowedMimes = [
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'image/png',
+        'image/jpeg',
+    ];
+
+    if (!in_array($mimeType, $allowedMimes, true)) {
+        throw new RuntimeException('Unsupported requirements file type. Allowed: PDF, DOC, DOCX, PNG, JPG');
+    }
+
+    $originalName = (string) ($file['name'] ?? 'requirements');
+    $safeName = gradtrack_jobs_sanitize_filename($originalName);
+    $extension = strtolower((string) pathinfo($safeName, PATHINFO_EXTENSION));
+    $storedName = uniqid('requirements_', true) . ($extension !== '' ? ('.' . $extension) : '');
+
+    $jobDir = gradtrack_jobs_upload_job_dir($jobId);
+    gradtrack_jobs_ensure_dir($jobDir);
+
+    $existing = scandir($jobDir);
+    if ($existing !== false) {
+        foreach ($existing as $item) {
+            if ($item === '.' || $item === '..' || $item === 'metadata.json') {
+                continue;
+            }
+            $itemPath = $jobDir . DIRECTORY_SEPARATOR . $item;
+            if (is_file($itemPath)) {
+                @unlink($itemPath);
+            }
+        }
+    }
+
+    $destinationPath = $jobDir . DIRECTORY_SEPARATOR . $storedName;
+    if (!move_uploaded_file($tmpPath, $destinationPath)) {
+        throw new RuntimeException('Failed to save uploaded requirements file');
+    }
+
+    $relativePath = gradtrack_jobs_requirements_relative_path($jobId, $storedName);
+    $metadata = [
+        'relative_path' => $relativePath,
+        'file_name' => $originalName,
+        'mime_type' => $mimeType,
+        'file_size_bytes' => $fileSize,
+        'uploaded_at' => date('c'),
+    ];
+
+    $metadataPath = gradtrack_jobs_requirements_metadata_path($jobId);
+    file_put_contents($metadataPath, json_encode($metadata, JSON_UNESCAPED_SLASHES));
+
+    return $metadata;
+}
+
+function gradtrack_jobs_read_requirements_file(int $jobId): ?array
+{
+    $metadataPath = gradtrack_jobs_requirements_metadata_path($jobId);
+    if (!is_file($metadataPath)) {
+        return null;
+    }
+
+    $content = file_get_contents($metadataPath);
+    if ($content === false) {
+        return null;
+    }
+
+    $decoded = json_decode($content, true);
+    if (!is_array($decoded) || empty($decoded['relative_path'])) {
+        return null;
+    }
+
+    $absolute = realpath(__DIR__ . '/../../') . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, (string) $decoded['relative_path']);
+    if (!is_file($absolute)) {
+        return null;
+    }
+
+    return $decoded;
+}
+
+function gradtrack_jobs_attach_requirements_data(array &$row): void
+{
+    $jobId = isset($row['id']) ? (int) $row['id'] : 0;
+    $requirements = $jobId > 0 ? gradtrack_jobs_read_requirements_file($jobId) : null;
+
+    $row['requirements_file_path'] = $requirements['relative_path'] ?? null;
+    $row['requirements_file_name'] = $requirements['file_name'] ?? null;
+    $row['requirements_mime_type'] = $requirements['mime_type'] ?? null;
+    $row['requirements_file_size_bytes'] = isset($requirements['file_size_bytes']) ? (int) $requirements['file_size_bytes'] : null;
+}
+
+function gradtrack_jobs_str_or_null(array $data, string $key): ?string
+{
+    if (!isset($data[$key])) {
+        return null;
+    }
+    $value = trim((string) $data[$key]);
+    return $value !== '' ? $value : null;
+}
+
 $database = new Database();
 $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
+
+if ($method === 'POST' && isset($_POST['_method']) && strtoupper((string) $_POST['_method']) === 'PUT') {
+    $method = 'PUT';
+}
 
 try {
     if ($method === 'GET') {
@@ -15,10 +223,12 @@ try {
 
         if ($jobId > 0) {
             $detailQuery = "SELECT jp.*, g.first_name, g.last_name, ga.email AS poster_email,
+                                   p.name AS poster_program_name, p.code AS poster_program_code,
                                    (SELECT COUNT(*) FROM job_applications ja WHERE ja.job_post_id = jp.id) AS application_count
                             FROM job_posts jp
                             JOIN graduate_accounts ga ON jp.posted_by_account_id = ga.id
                             JOIN graduates g ON ga.graduate_id = g.id
+                            LEFT JOIN programs p ON g.program_id = p.id
                             WHERE jp.id = :id";
             $detailStmt = $db->prepare($detailQuery);
             $detailStmt->bindParam(':id', $jobId);
@@ -35,6 +245,7 @@ try {
             $job['posted_by_account_id'] = (int) $job['posted_by_account_id'];
             $job['is_active'] = (int) $job['is_active'];
             $job['application_count'] = (int) $job['application_count'];
+            gradtrack_jobs_attach_requirements_data($job);
 
             echo json_encode(['success' => true, 'data' => $job]);
             exit;
@@ -54,10 +265,12 @@ try {
 
         $sql = "SELECT jp.id, jp.title, jp.company, jp.location, jp.job_type, jp.industry,
                        jp.application_deadline, jp.is_active, jp.created_at,
-                       g.first_name, g.last_name
+                       g.first_name, g.last_name,
+                       p.name AS poster_program_name, p.code AS poster_program_code
                 FROM job_posts jp
                 JOIN graduate_accounts ga ON jp.posted_by_account_id = ga.id
                 JOIN graduates g ON ga.graduate_id = g.id
+                LEFT JOIN programs p ON g.program_id = p.id
                 WHERE 1=1";
 
         $params = [];
@@ -108,6 +321,7 @@ try {
         foreach ($rows as &$row) {
             $row['id'] = (int) $row['id'];
             $row['is_active'] = (int) $row['is_active'];
+            gradtrack_jobs_attach_requirements_data($row);
         }
 
         echo json_encode(['success' => true, 'data' => $rows]);
@@ -117,7 +331,7 @@ try {
     if ($method === 'POST') {
         $user = gradtrack_require_graduate_auth($db);
         gradtrack_require_feature_access($db, $user, 'job_posting');
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data = gradtrack_jobs_request_data();
 
         $title = isset($data['title']) ? trim((string) $data['title']) : '';
         $company = isset($data['company']) ? trim((string) $data['company']) : '';
@@ -129,13 +343,13 @@ try {
             exit;
         }
 
-        $location = isset($data['location']) ? trim((string) $data['location']) : null;
+        $location = gradtrack_jobs_str_or_null($data, 'location');
         $jobType = isset($data['job_type']) ? trim((string) $data['job_type']) : 'full_time';
-        $industry = isset($data['industry']) ? trim((string) $data['industry']) : null;
-        $qualifications = isset($data['qualifications']) ? trim((string) $data['qualifications']) : null;
-        $requiredSkills = isset($data['required_skills']) ? trim((string) $data['required_skills']) : null;
-        $applicationDeadline = isset($data['application_deadline']) ? trim((string) $data['application_deadline']) : null;
-        $applicationMethod = isset($data['application_method']) ? trim((string) $data['application_method']) : null;
+        $industry = gradtrack_jobs_str_or_null($data, 'industry');
+        $qualifications = gradtrack_jobs_str_or_null($data, 'qualifications');
+        $requiredSkills = gradtrack_jobs_str_or_null($data, 'required_skills');
+        $applicationDeadline = gradtrack_jobs_str_or_null($data, 'application_deadline');
+        $applicationMethod = gradtrack_jobs_str_or_null($data, 'application_method');
 
         $allowedTypes = ['full_time', 'part_time', 'contract', 'internship', 'remote'];
         if (!in_array($jobType, $allowedTypes, true)) {
@@ -161,10 +375,18 @@ try {
         $stmt->bindParam(':application_method', $applicationMethod);
         $stmt->execute();
 
+        $newJobId = (int) $db->lastInsertId();
+        if (isset($_FILES['requirements_file'])) {
+            $fileError = (int) ($_FILES['requirements_file']['error'] ?? UPLOAD_ERR_NO_FILE);
+            if ($fileError !== UPLOAD_ERR_NO_FILE) {
+                gradtrack_jobs_save_requirements_file($newJobId, $_FILES['requirements_file']);
+            }
+        }
+
         echo json_encode([
             'success' => true,
             'message' => 'Job post created successfully',
-            'id' => (int) $db->lastInsertId()
+            'id' => $newJobId
         ]);
         exit;
     }
@@ -172,7 +394,7 @@ try {
     if ($method === 'PUT') {
         $user = gradtrack_require_graduate_auth($db);
         gradtrack_require_feature_access($db, $user, 'job_posting');
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data = gradtrack_jobs_request_data();
 
         $jobId = isset($data['id']) ? (int) $data['id'] : 0;
         if ($jobId <= 0) {
@@ -208,14 +430,16 @@ try {
             exit;
         }
 
-        $location = isset($data['location']) ? trim((string) $data['location']) : null;
+        $location = gradtrack_jobs_str_or_null($data, 'location');
         $jobType = isset($data['job_type']) ? trim((string) $data['job_type']) : 'full_time';
-        $industry = isset($data['industry']) ? trim((string) $data['industry']) : null;
-        $qualifications = isset($data['qualifications']) ? trim((string) $data['qualifications']) : null;
-        $requiredSkills = isset($data['required_skills']) ? trim((string) $data['required_skills']) : null;
-        $applicationDeadline = isset($data['application_deadline']) ? trim((string) $data['application_deadline']) : null;
-        $applicationMethod = isset($data['application_method']) ? trim((string) $data['application_method']) : null;
-        $isActive = isset($data['is_active']) ? (int) !!$data['is_active'] : 1;
+        $industry = gradtrack_jobs_str_or_null($data, 'industry');
+        $qualifications = gradtrack_jobs_str_or_null($data, 'qualifications');
+        $requiredSkills = gradtrack_jobs_str_or_null($data, 'required_skills');
+        $applicationDeadline = gradtrack_jobs_str_or_null($data, 'application_deadline');
+        $applicationMethod = gradtrack_jobs_str_or_null($data, 'application_method');
+        $isActive = isset($data['is_active']) ? (int) ((string) $data['is_active'] === '1' || (string) $data['is_active'] === 'true') : 1;
+        $removeRequirementsFile = isset($data['remove_requirements_file'])
+            && ((string) $data['remove_requirements_file'] === '1' || (string) $data['remove_requirements_file'] === 'true');
 
         $allowedTypes = ['full_time', 'part_time', 'contract', 'internship', 'remote'];
         if (!in_array($jobType, $allowedTypes, true)) {
@@ -250,6 +474,17 @@ try {
         $updateStmt->bindParam(':application_method', $applicationMethod);
         $updateStmt->bindParam(':is_active', $isActive);
         $updateStmt->execute();
+
+        if ($removeRequirementsFile) {
+            gradtrack_jobs_remove_requirements_file($jobId);
+        }
+
+        if (isset($_FILES['requirements_file'])) {
+            $fileError = (int) ($_FILES['requirements_file']['error'] ?? UPLOAD_ERR_NO_FILE);
+            if ($fileError !== UPLOAD_ERR_NO_FILE) {
+                gradtrack_jobs_save_requirements_file($jobId, $_FILES['requirements_file']);
+            }
+        }
 
         echo json_encode(['success' => true, 'message' => 'Job post updated successfully']);
         exit;

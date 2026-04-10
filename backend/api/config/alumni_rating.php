@@ -193,14 +193,19 @@ if (!function_exists('gradtrack_rating_build_permissions')) {
 
         $canPostJobs = $isEmployed;
         $canUseMentorship = $isEmployed && $isAligned;
+        $canRequestMentorship = !$isEmployed;
 
         return [
             'can_post_jobs' => $canPostJobs,
             'can_use_mentorship' => $canUseMentorship,
+            'can_request_mentorship' => $canRequestMentorship,
             'can_register_mentor' => $canUseMentorship,
             'requirements' => [
                 'job_posting' => [
                     'is_employed' => true,
+                ],
+                'mentorship_request' => [
+                    'is_unemployed' => true,
                 ],
                 'mentorship' => [
                     'is_employed' => true,
@@ -430,6 +435,7 @@ if (!function_exists('gradtrack_require_feature_access')) {
 
         $featureMap = [
             'job_posting' => ['permission' => 'can_post_jobs', 'label' => 'Job posting'],
+            'mentorship_request' => ['permission' => 'can_request_mentorship', 'label' => 'Mentorship request'],
             'mentorship' => ['permission' => 'can_use_mentorship', 'label' => 'Mentorship'],
             'mentor_registration' => ['permission' => 'can_register_mentor', 'label' => 'Mentor registration'],
         ];
