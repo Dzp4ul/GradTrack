@@ -10,12 +10,16 @@ interface Program {
   code: string;
 }
 
+type VerificationMethod = 'student_number' | 'email';
+
 function SurveyVerification() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const surveyId = searchParams.get('survey_id');
 
+  const [verificationMethod, setVerificationMethod] = useState<VerificationMethod>('student_number');
   const [studentNumber, setStudentNumber] = useState('');
+  const [email, setEmail] = useState('');
   const [lastName, setLastName] = useState('');
   const [program, setProgram] = useState('');
   const [programs, setPrograms] = useState<Program[]>([]);
@@ -77,12 +81,14 @@ function SurveyVerification() {
 
   const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
+    const selectedIdentifier = verificationMethod === 'student_number' ? studentNumber.trim() : email.trim();
+    const selectedIdentifierLabel = verificationMethod === 'student_number' ? 'student number' : 'email address';
     
-    if (!studentNumber.trim() || !lastName.trim()) {
+    if (!selectedIdentifier || !lastName.trim() || !program.trim()) {
       setMsgBox({
         isOpen: true,
         type: 'warning',
-        message: 'Please enter your student number and last name',
+        message: `Please enter your ${selectedIdentifierLabel}, last name, and program`,
         title: 'Required Fields'
       });
       return;
@@ -105,7 +111,9 @@ function SurveyVerification() {
 
     try {
       console.log('Sending verification request:', {
-        student_number: studentNumber,
+        verification_method: verificationMethod,
+        student_number: verificationMethod === 'student_number' ? selectedIdentifier : '',
+        email: verificationMethod === 'email' ? selectedIdentifier : '',
         last_name: lastName,
         program: program,
         survey_id: targetSurveyId
@@ -115,7 +123,9 @@ function SurveyVerification() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          student_number: studentNumber,
+          verification_method: verificationMethod,
+          student_number: verificationMethod === 'student_number' ? selectedIdentifier : '',
+          email: verificationMethod === 'email' ? selectedIdentifier : '',
           last_name: lastName,
           program: program,
           survey_id: targetSurveyId
@@ -170,6 +180,12 @@ function SurveyVerification() {
 
   const inputClass = 'w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition text-base';
   const selectClass = 'w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition text-base bg-white';
+  const methodButtonClass = (method: VerificationMethod) =>
+    `flex-1 px-4 py-3 rounded-lg border text-sm font-semibold transition ${
+      verificationMethod === method
+        ? 'border-blue-600 bg-blue-600 text-white shadow-sm'
+        : 'border-gray-300 bg-white text-gray-700 hover:border-blue-400 hover:text-blue-700'
+    }`;
 
   return (
     <div
@@ -211,18 +227,59 @@ function SurveyVerification() {
         <form onSubmit={handleVerify} className="space-y-4">
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">
-              Student Number <span className="text-red-600">*</span>
+              Verify Using
             </label>
-            <input
-              type="text"
-              value={studentNumber}
-              onChange={(e) => setStudentNumber(e.target.value)}
-              placeholder="e.g., 2020-12345"
-              className={inputClass}
-              required
-              disabled={loading}
-            />
+            <div className="flex gap-3">
+              <button
+                type="button"
+                className={methodButtonClass('student_number')}
+                onClick={() => setVerificationMethod('student_number')}
+                disabled={loading}
+              >
+                Student Number
+              </button>
+              <button
+                type="button"
+                className={methodButtonClass('email')}
+                onClick={() => setVerificationMethod('email')}
+                disabled={loading}
+              >
+                Email
+              </button>
+            </div>
           </div>
+
+          {verificationMethod === 'student_number' ? (
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Student Number <span className="text-red-600">*</span>
+              </label>
+              <input
+                type="text"
+                value={studentNumber}
+                onChange={(e) => setStudentNumber(e.target.value)}
+                placeholder="e.g., 2020-12345"
+                className={inputClass}
+                required
+                disabled={loading}
+              />
+            </div>
+          ) : (
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Email Address <span className="text-red-600">*</span>
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="e.g., juan@email.com"
+                className={inputClass}
+                required
+                disabled={loading}
+              />
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -241,7 +298,7 @@ function SurveyVerification() {
 
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">
-              Program <span className="text-gray-500 text-xs">(Optional)</span>
+              Program <span className="text-red-600">*</span>
             </label>
             {loadingPrograms ? (
               <div className="flex items-center justify-center py-3">
@@ -253,6 +310,7 @@ function SurveyVerification() {
                 onChange={(e) => setProgram(e.target.value)}
                 className={selectClass}
                 disabled={loading}
+                required
               >
                 <option value="">Select your program</option>
                 {programs.map((prog) => (
@@ -266,7 +324,7 @@ function SurveyVerification() {
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || loadingPrograms}
             className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-semibold transition shadow-md hover:shadow-lg flex items-center justify-center space-x-2"
           >
             {loading ? (

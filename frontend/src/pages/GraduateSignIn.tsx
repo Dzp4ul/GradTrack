@@ -66,7 +66,7 @@ export default function GraduateSignIn() {
 
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 border border-blue-100 relative z-10">
         <div className="flex justify-center mb-5">
-          <img src="/Gradtrack_Logo2.png" alt="GradTrack Logo" className="h-20 object-contain" />
+          <img src="/GRADTRACK_LOGO1.png" alt="GradTrack Logo" className="h-20 object-contain" />
         </div>
 
         <h1 className="text-2xl font-bold text-blue-900 text-center">Graduate Portal</h1>

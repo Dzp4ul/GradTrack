@@ -17,32 +17,53 @@ $conn = $database->getConnection();
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $data = json_decode(file_get_contents("php://input"), true);
     
-    $studentNumber = $data['student_number'] ?? '';
-    $lastName = $data['last_name'] ?? '';
-    $program = $data['program'] ?? '';
+    $verificationMethod = $data['verification_method'] ?? 'student_number';
+    $studentNumber = trim($data['student_number'] ?? '');
+    $email = strtolower(trim($data['email'] ?? ''));
+    $lastName = trim($data['last_name'] ?? '');
+    $program = trim($data['program'] ?? '');
     $surveyId = $data['survey_id'] ?? null;
+    $verificationMethod = $verificationMethod === 'email' ? 'email' : 'student_number';
+    $identifierLabel = $verificationMethod === 'email' ? 'email address' : 'student number';
+    $identifierValue = $verificationMethod === 'email' ? $email : $studentNumber;
     
     // Validate required fields
-    if (empty($studentNumber) || empty($lastName)) {
+    if (empty($identifierValue) || empty($lastName) || empty($program)) {
         http_response_code(400);
         echo json_encode([
             "success" => false,
-            "error" => "Student number and last name are required"
+            "error" => ucfirst($identifierLabel) . ", last name, and program are required"
+        ]);
+        exit();
+    }
+
+    if ($verificationMethod === 'email' && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        http_response_code(400);
+        echo json_encode([
+            "success" => false,
+            "error" => "Invalid email address",
+            "message" => "Please enter a valid email address"
         ]);
         exit();
     }
     
     try {
         // Step 1: Verify graduate exists in registrar database
+        $identifierColumn = $verificationMethod === 'email' ? 'LOWER(g.email)' : 'g.student_id';
+        $identifierParam = $verificationMethod === 'email' ? ':email' : ':student_number';
         $query = "SELECT g.*, p.name as program_name, p.code as program_code 
                   FROM graduates g
                   LEFT JOIN programs p ON g.program_id = p.id
-                  WHERE g.student_id = :student_number 
+                  WHERE {$identifierColumn} = {$identifierParam}
                   AND g.last_name LIKE :last_name";
         
         $stmt = $conn->prepare($query);
         $lastNamePattern = "%{$lastName}%";
-        $stmt->bindParam(':student_number', $studentNumber);
+        if ($verificationMethod === 'email') {
+            $stmt->bindParam(':email', $email);
+        } else {
+            $stmt->bindParam(':student_number', $studentNumber);
+        }
         $stmt->bindParam(':last_name', $lastNamePattern);
         $stmt->execute();
         
@@ -53,28 +74,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             echo json_encode([
                 "success" => false,
                 "error" => "Graduate not found in registrar records",
-                "message" => "Please check your student number and last name"
+                "message" => "Please check your {$identifierLabel} and last name"
             ]);
             exit();
         }
         
-        // Step 2: Verify program if provided
-        if (!empty($program)) {
-            $programMatch = (
-                stripos($graduate['program_name'], $program) !== false ||
-                stripos($graduate['program_code'], $program) !== false ||
-                $graduate['program_id'] == $program
-            );
-            
-            if (!$programMatch) {
-                http_response_code(403);
-                echo json_encode([
-                    "success" => false,
-                    "error" => "Program does not match registrar records",
-                    "message" => "The program you selected does not match your records"
-                ]);
-                exit();
-            }
+        // Step 2: Verify program
+        $programMatch = (
+            stripos($graduate['program_name'], $program) !== false ||
+            stripos($graduate['program_code'], $program) !== false ||
+            $graduate['program_id'] == $program
+        );
+        
+        if (!$programMatch) {
+            http_response_code(403);
+            echo json_encode([
+                "success" => false,
+                "error" => "Program does not match registrar records",
+                "message" => "The program you selected does not match your records"
+            ]);
+            exit();
         }
         
         // Step 3: Check if survey exists and is active

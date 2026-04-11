@@ -140,7 +140,7 @@ const mapExcelRowToPayload = (row: Record<string, unknown>): FormData => {
     first_name: pickValue(row, ['First Name', 'first_name', 'firstName']),
     last_name: pickValue(row, ['Last Name', 'last_name', 'lastName']),
     email: pickValue(row, ['Email', 'email']),
-    phone: pickValue(row, ['Phone', 'phone']),
+    phone: pickValue(row, ['Contact No.', 'Contact Number', 'Phone', 'phone']),
     program_id: resolveProgramId(row),
     year_graduated: Number.isNaN(parsedYear) ? '' : String(parsedYear),
     address: pickValue(row, ['Address', 'address']),
@@ -592,11 +592,13 @@ export default function Graduates() {
 
       <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[1100px] text-sm">
             <thead className="bg-gray-50 border-b">
               <tr>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Student ID</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Name</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600">Email</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600">Contact No.</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Program</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Year</th>
                 <th className="text-center px-4 py-3 font-semibold text-gray-600">Actions</th>
@@ -604,9 +606,9 @@ export default function Graduates() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={5} className="text-center py-12 text-gray-400">Loading...</td></tr>
+                <tr><td colSpan={7} className="text-center py-12 text-gray-400">Loading...</td></tr>
               ) : graduates.length === 0 ? (
-                <tr><td colSpan={5} className="text-center py-12 text-gray-400">No graduates found</td></tr>
+                <tr><td colSpan={7} className="text-center py-12 text-gray-400">No graduates found</td></tr>
               ) : (
                 graduates.map((g) => (
                   <tr key={g.id} className="border-b last:border-0 hover:bg-gray-50 transition-colors">
@@ -615,8 +617,9 @@ export default function Graduates() {
                       <p className="font-medium text-[#1b2a4a]">
                         {g.last_name}, {g.first_name}{g.middle_name ? ` ${g.middle_name.charAt(0)}.` : ''}
                       </p>
-                      <p className="text-xs text-gray-400">{g.email}</p>
                     </td>
+                    <td className="px-4 py-3 text-gray-600">{g.email || '-'}</td>
+                    <td className="px-4 py-3 text-gray-600">{g.phone || '-'}</td>
                     <td className="px-4 py-3">
                       <span className="bg-blue-50 text-blue-700 text-xs font-medium px-2 py-1 rounded">
                         {g.program_code || '-'}
@@ -683,6 +686,8 @@ export default function Graduates() {
                 <Input label="First Name" value={formData.first_name} onChange={(v) => updateField('first_name', v)} required />
                 <Input label="Middle Name" value={formData.middle_name} onChange={(v) => updateField('middle_name', v)} />
                 <Input label="Last Name" value={formData.last_name} onChange={(v) => updateField('last_name', v)} required />
+                <Input label="Email" type="email" value={formData.email} onChange={(v) => updateField('email', v)} />
+                <Input label="Contact No." type="tel" value={formData.phone} onChange={(v) => updateField('phone', v)} />
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Program</label>
                   <select
