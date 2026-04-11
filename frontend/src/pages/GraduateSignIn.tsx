@@ -60,7 +60,7 @@ export default function GraduateSignIn() {
   return (
     <div
       className="min-h-screen bg-cover bg-center bg-fixed relative flex items-center justify-center p-6"
-      style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}
+      style={{ backgroundImage: 'url(/520382375_1065446909052636_3412465913398569974_n.jpg)' }}
     >
       <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80"></div>
 

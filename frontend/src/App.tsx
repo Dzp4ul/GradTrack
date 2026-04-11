@@ -11,6 +11,7 @@ import GraduatePortal from './pages/GraduatePortal';
 import AdminLayout from './pages/admin/AdminLayout';
 import Dashboard from './pages/admin/Dashboard';
 import Graduates from './pages/admin/Graduates';
+import GraduateParticipation from './pages/admin/GraduateParticipation';
 import Surveys from './pages/admin/Surveys';
 import SurveyDetail from './pages/admin/SurveyDetail';
 import SurveyResponses from './pages/admin/SurveyResponses';
@@ -44,6 +45,16 @@ function AdminHome() {
   }
 
   return <Dashboard />;
+}
+
+function GraduatesRoute() {
+  const { user } = useAuth();
+
+  if (user?.role === 'admin') {
+    return <GraduateParticipation />;
+  }
+
+  return <Graduates />;
 }
 
 function App() {
@@ -84,8 +95,8 @@ function App() {
             <Route
               path="graduates"
               element={
-                <ProtectedRoute allowedRoles={['registrar']}>
-                  <Graduates />
+                <ProtectedRoute allowedRoles={['admin', 'registrar']}>
+                  <GraduatesRoute />
                 </ProtectedRoute>
               }
             />
