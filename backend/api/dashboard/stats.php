@@ -5,18 +5,191 @@ require_once __DIR__ . '/../config/database.php';
 $database = new Database();
 $db = $database->getConnection();
 
-try {
-    // Get survey responses with canonical graduate program/year context
-    $stmt = $db->query("\n        SELECT sr.responses, g.year_graduated, p.code AS graduate_program_code, p.name AS graduate_program_name\n        FROM survey_responses sr\n        LEFT JOIN graduates g ON g.id = sr.graduate_id\n        LEFT JOIN programs p ON p.id = g.program_id\n    ");
-    $surveyResponses = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    // Get active survey questions to map responses
-    $stmt = $db->query("SELECT q.id, q.question_text FROM surveys s JOIN survey_questions q ON s.id = q.survey_id WHERE s.status = 'active' ORDER BY q.sort_order");
-    $questions = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    $questionMap = [];
-    foreach ($questions as $q) {
-        $questionMap[$q['id']] = strtolower($q['question_text']);
+function getSelectedSurveyId(PDO $db): ?int
+{
+    if (isset($_GET['survey_id']) && (int)$_GET['survey_id'] > 0) {
+        return (int)$_GET['survey_id'];
     }
+
+    $stmt = $db->query("
+        SELECT id
+        FROM surveys
+        WHERE status = 'active'
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+    ");
+    $survey = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($survey) {
+        return (int)$survey['id'];
+    }
+
+    return null;
+}
+
+function answerToText($answer): string
+{
+    if (is_array($answer)) {
+        return strtolower(trim(implode(' ', array_map(static function ($value) {
+            return is_scalar($value) ? (string)$value : '';
+        }, $answer))));
+    }
+
+    return strtolower(trim((string)$answer));
+}
+
+function parseEmploymentAnswer($answer): ?bool
+{
+    $answerLower = answerToText($answer);
+    if ($answerLower === '') {
+        return null;
+    }
+
+    if (
+        strpos($answerLower, 'unemployed') !== false
+        || $answerLower === 'no'
+        || strpos($answerLower, 'not employed') !== false
+    ) {
+        return false;
+    }
+
+    if (
+        $answerLower === 'yes'
+        || strpos($answerLower, 'employed') !== false
+        || strpos($answerLower, 'regular') !== false
+        || strpos($answerLower, 'permanent') !== false
+        || strpos($answerLower, 'temporary') !== false
+        || strpos($answerLower, 'casual') !== false
+        || strpos($answerLower, 'contractual') !== false
+        || strpos($answerLower, 'self-employed') !== false
+        || strpos($answerLower, 'self employed') !== false
+        || strpos($answerLower, 'freelance') !== false
+    ) {
+        return true;
+    }
+
+    return null;
+}
+
+function getSurveyResponseQuestionKeys(PDO $db, ?int $surveyId): array
+{
+    if ($surveyId === null) {
+        return [];
+    }
+
+    $stmt = $db->prepare("
+        SELECT responses
+        FROM survey_responses
+        WHERE survey_id = :survey_id
+        ORDER BY id ASC
+        LIMIT 25
+    ");
+    $stmt->bindValue(':survey_id', $surveyId, PDO::PARAM_INT);
+    $stmt->execute();
+
+    $keys = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $response) {
+        $data = json_decode((string)$response['responses'], true);
+        if (!is_array($data)) {
+            continue;
+        }
+
+        foreach (array_keys($data) as $key) {
+            if (ctype_digit((string)$key)) {
+                $keys[(int)$key] = (int)$key;
+            }
+        }
+    }
+
+    sort($keys, SORT_NUMERIC);
+    return array_values($keys);
+}
+
+function getQuestionMap(PDO $db, ?int $surveyId): array
+{
+    if ($surveyId === null) {
+        return [];
+    }
+
+    $stmt = $db->prepare("
+        SELECT id, question_text, sort_order
+        FROM survey_questions
+        WHERE survey_id = :survey_id
+        ORDER BY sort_order
+    ");
+    $stmt->bindValue(':survey_id', $surveyId, PDO::PARAM_INT);
+    $stmt->execute();
+
+    $questionMap = [];
+    $questions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($questions as $q) {
+        $questionMap[$q['id']] = strtolower((string)$q['question_text']);
+    }
+
+    $responseKeys = getSurveyResponseQuestionKeys($db, $surveyId);
+    if (!empty($questions) && !empty($responseKeys)) {
+        $firstResponseKey = min($responseKeys);
+        $firstQuestion = $questions[0];
+        $firstQuestionId = (int)$firstQuestion['id'];
+        $firstSortOrder = (int)$firstQuestion['sort_order'];
+        $idOffset = $firstQuestionId - $firstResponseKey;
+
+        foreach ($questions as $q) {
+            $questionText = strtolower((string)$q['question_text']);
+            $historicalKeyBySort = $firstResponseKey + ((int)$q['sort_order'] - $firstSortOrder);
+            $historicalKeyById = (int)$q['id'] - $idOffset;
+
+            if ($historicalKeyBySort > 0 && !isset($questionMap[$historicalKeyBySort])) {
+                $questionMap[$historicalKeyBySort] = $questionText;
+            }
+            if ($historicalKeyById > 0 && !isset($questionMap[$historicalKeyById])) {
+                $questionMap[$historicalKeyById] = $questionText;
+            }
+        }
+    }
+
+    return $questionMap;
+}
+
+function getSurveyResponses(PDO $db, ?int $surveyId): array
+{
+    if ($surveyId === null) {
+        return [];
+    }
+
+    $stmt = $db->prepare("
+        SELECT sr.responses, g.year_graduated, p.code AS graduate_program_code, p.name AS graduate_program_name
+        FROM survey_responses sr
+        LEFT JOIN graduates g ON g.id = sr.graduate_id
+        LEFT JOIN programs p ON p.id = g.program_id
+        WHERE sr.survey_id = :survey_id
+    ");
+    $stmt->bindValue(':survey_id', $surveyId, PDO::PARAM_INT);
+    $stmt->execute();
+
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function getSurveyResponseCount(PDO $db, ?int $surveyId): int
+{
+    if ($surveyId === null) {
+        return 0;
+    }
+
+    $stmt = $db->prepare("SELECT COUNT(*) as total FROM survey_responses WHERE survey_id = :survey_id");
+    $stmt->bindValue(':survey_id', $surveyId, PDO::PARAM_INT);
+    $stmt->execute();
+
+    return (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
+}
+
+try {
+    $selectedSurveyId = getSelectedSurveyId($db);
+
+    // Get selected survey responses with canonical graduate program/year context
+    $surveyResponses = getSurveyResponses($db, $selectedSurveyId);
+
+    // Get selected survey questions to map responses, including historical IDs from saved responses
+    $questionMap = getQuestionMap($db, $selectedSurveyId);
     
     // Parse survey data
     $employedCount = 0;
@@ -68,10 +241,9 @@ try {
             
             // Check for employment status
             if (strpos($questionText, 'employment status') !== false || strpos($questionText, 'presently employed') !== false || strpos($questionText, 'are you employed') !== false) {
-                if (is_string($answer)) {
-                    $answerLower = strtolower(trim($answer));
-                    $isUnemployed = (strpos($answerLower, 'unemployed') !== false) || ($answerLower === 'no');
-                    if (!$isUnemployed && ($answerLower === 'yes' || $answerLower === 'employed' || strpos($answerLower, 'employed') !== false)) {
+                $employmentAnswer = parseEmploymentAnswer($answer);
+                if ($employmentAnswer !== null) {
+                    if ($employmentAnswer) {
                         $isEmployed = true;
                     }
                 }
@@ -86,7 +258,7 @@ try {
             
             // Check job alignment from survey
             if (strpos($questionText, 'job related to') !== false || strpos($questionText, 'related to your course') !== false) {
-                $jobRelated = strtolower(trim($answer));
+                $jobRelated = answerToText($answer);
             }
         }
 
@@ -274,9 +446,8 @@ try {
     $actions[] = "Strengthen Industry Partnerships";
     $actions[] = "Expand Internship Opportunities";
 
-    // Recent survey responses count
-    $stmt = $db->query("SELECT COUNT(*) as total FROM survey_responses");
-    $totalResponses = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
+    // Responses for the selected dashboard survey
+    $totalResponses = getSurveyResponseCount($db, $selectedSurveyId);
 
     // Active surveys
     $stmt = $db->query("SELECT COUNT(*) as total FROM surveys WHERE status = 'active'");
@@ -289,6 +460,7 @@ try {
             "employment_rate" => $employmentRate,
             "alignment_rate" => $alignmentRate,
             "avg_time_to_employment" => $avgTime,
+            "selected_survey_id" => $selectedSurveyId,
             "at_risk_programs" => array_map(function($p) { return $p['code']; }, $atRiskPrograms),
             "program_stats" => $programStats,
             "employment_trends" => $trends,

@@ -139,13 +139,32 @@ function Survey() {
 
       // Token is valid
       console.log('Token is valid!');
+      const tokenSurveyId = tokenResult?.data?.survey_id ? String(tokenResult.data.survey_id) : '';
+      if (surveyIdFromUrl && tokenSurveyId && tokenSurveyId !== surveyIdFromUrl) {
+        sessionStorage.removeItem('survey_token');
+        sessionStorage.removeItem('graduate_id');
+        sessionStorage.removeItem('graduate_name');
+
+        setMsgBox({
+          isOpen: true,
+          type: 'warning',
+          message: 'Please verify your identity for this survey.',
+          title: 'Verification Required'
+        });
+
+        setTimeout(() => {
+          window.location.href = `/survey-verify?survey_id=${surveyIdFromUrl}`;
+        }, 1500);
+        return;
+      }
+
       setToken(storedToken);
       setGraduateId(parseInt(storedGraduateId || '0'));
       setGraduateName(storedGraduateName || tokenResult?.data?.graduate_name || '');
       setTokenProfileData(tokenResult?.data?.profile || null);
 
       // Fetch survey
-      await fetchActiveSurvey();
+      await fetchActiveSurvey(tokenSurveyId || surveyIdFromUrl);
     } catch (error) {
       console.error('Token validation error:', error);
       setMsgBox({
@@ -182,8 +201,23 @@ function Survey() {
     }
   }, [responses, currentSection, activeSurvey]);
 
-  const fetchActiveSurvey = async () => {
+  const fetchActiveSurvey = async (targetSurveyId?: string | number | null) => {
     try {
+      if (targetSurveyId) {
+        const detailResponse = await fetch(`${API_ROOT}/surveys/index.php?id=${targetSurveyId}`);
+        const detailResult = await detailResponse.json();
+
+        if (detailResult.success && detailResult.data?.status === 'active') {
+          const survey = detailResult.data;
+          survey.questions = (survey.questions || []).map((q: Question) => ({
+            ...q,
+            options: typeof q.options === 'string' ? JSON.parse(q.options) : q.options,
+          }));
+          setActiveSurvey(survey);
+        }
+        return;
+      }
+
       const response = await fetch(`${API_ROOT}/surveys/index.php`);
       const result = await response.json();
       

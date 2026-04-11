@@ -49,13 +49,27 @@ try {
         case 'POST':
             $data = json_decode(file_get_contents("php://input"), true);
 
+            $activeStmt = $db->query("SELECT id, title FROM surveys WHERE status = 'active' ORDER BY created_at DESC, id DESC LIMIT 1");
+            $activeSurvey = $activeStmt->fetch(PDO::FETCH_ASSOC);
+            if ($activeSurvey) {
+                http_response_code(409);
+                echo json_encode([
+                    "success" => false,
+                    "error" => "An active survey already exists. Please set it to inactive before creating a new survey.",
+                    "active_survey" => $activeSurvey
+                ]);
+                break;
+            }
+
+            $status = $data['status'] ?? 'draft';
+
             $db->beginTransaction();
 
             $stmt = $db->prepare("INSERT INTO surveys (title, description, status) VALUES (:title, :desc, :status)");
             $stmt->execute([
                 ':title' => $data['title'],
                 ':desc' => $data['description'] ?? '',
-                ':status' => $data['status'] ?? 'draft'
+                ':status' => $status
             ]);
             $surveyId = $db->lastInsertId();
 
@@ -91,25 +105,59 @@ try {
 
             $db->beginTransaction();
 
+            $status = $data['status'] ?? 'draft';
+            if ($status === 'active') {
+                $activeStmt = $db->prepare("SELECT id, title FROM surveys WHERE status = 'active' AND id <> :id LIMIT 1");
+                $activeStmt->execute([':id' => $data['id']]);
+                $activeSurvey = $activeStmt->fetch(PDO::FETCH_ASSOC);
+                if ($activeSurvey) {
+                    $db->rollBack();
+                    http_response_code(409);
+                    echo json_encode([
+                        "success" => false,
+                        "error" => "Another active survey already exists. Please set it to inactive before activating this survey.",
+                        "active_survey" => $activeSurvey
+                    ]);
+                    break;
+                }
+            }
+
             $stmt = $db->prepare("UPDATE surveys SET title = :title, description = :desc, status = :status WHERE id = :id");
             $stmt->execute([
                 ':id' => $data['id'],
                 ':title' => $data['title'],
                 ':desc' => $data['description'] ?? '',
-                ':status' => $data['status'] ?? 'draft'
+                ':status' => $status
             ]);
 
             if (isset($data['questions']) && is_array($data['questions'])) {
-                // Delete old questions and re-insert
-                $delStmt = $db->prepare("DELETE FROM survey_questions WHERE survey_id = :id");
-                $delStmt->execute([':id' => $data['id']]);
+                $existingStmt = $db->prepare("SELECT id FROM survey_questions WHERE survey_id = :id");
+                $existingStmt->execute([':id' => $data['id']]);
+                $existingIds = [];
+                foreach ($existingStmt->fetchAll(PDO::FETCH_ASSOC) as $existingQuestion) {
+                    $existingIds[(int)$existingQuestion['id']] = true;
+                }
 
-                $qStmt = $db->prepare("
+                $updateQuestionStmt = $db->prepare("
+                    UPDATE survey_questions
+                    SET section = :section,
+                        question_text = :text,
+                        question_type = :type,
+                        options = :options,
+                        is_required = :required,
+                        sort_order = :sort
+                    WHERE id = :id AND survey_id = :survey_id
+                ");
+
+                $insertQuestionStmt = $db->prepare("
                     INSERT INTO survey_questions (survey_id, section, question_text, question_type, options, is_required, sort_order)
                     VALUES (:survey_id, :section, :text, :type, :options, :required, :sort)
                 ");
+
+                $keptIds = [];
                 foreach ($data['questions'] as $i => $q) {
-                    $qStmt->execute([
+                    $questionId = isset($q['id']) ? (int)$q['id'] : 0;
+                    $questionData = [
                         ':survey_id' => $data['id'],
                         ':section' => $q['section'] ?? null,
                         ':text' => $q['question_text'],
@@ -117,7 +165,22 @@ try {
                         ':options' => isset($q['options']) ? json_encode($q['options']) : null,
                         ':required' => $q['is_required'] ?? 1,
                         ':sort' => $i + 1
-                    ]);
+                    ];
+
+                    if ($questionId > 0 && isset($existingIds[$questionId])) {
+                        $updateQuestionStmt->execute($questionData + [':id' => $questionId]);
+                        $keptIds[] = $questionId;
+                    } else {
+                        $insertQuestionStmt->execute($questionData);
+                        $keptIds[] = (int)$db->lastInsertId();
+                    }
+                }
+
+                $idsToDelete = array_values(array_diff(array_keys($existingIds), $keptIds));
+                if (!empty($idsToDelete)) {
+                    $placeholders = implode(',', array_fill(0, count($idsToDelete), '?'));
+                    $deleteQuestionStmt = $db->prepare("DELETE FROM survey_questions WHERE survey_id = ? AND id IN ($placeholders)");
+                    $deleteQuestionStmt->execute(array_merge([(int)$data['id']], $idsToDelete));
                 }
             }
 

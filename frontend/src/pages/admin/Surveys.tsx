@@ -73,7 +73,13 @@ export default function Surveys() {
   const [showTemplates, setShowTemplates] = useState(false);
   const [templates, setTemplates] = useState<Template[]>([]);
   const navigate = useNavigate();
-  const [msgBox, setMsgBox] = useState<{ isOpen: boolean; type: 'confirm' | 'success' | 'error'; message: string; onConfirm?: () => void }>({ isOpen: false, type: 'success', message: '' });
+  const [msgBox, setMsgBox] = useState<{
+    isOpen: boolean;
+    type: 'confirm' | 'success' | 'error' | 'warning';
+    title?: string;
+    message: string;
+    onConfirm?: () => void;
+  }>({ isOpen: false, type: 'success', message: '' });
 
   const fetchSurveys = () => {
     setLoading(true);
@@ -126,7 +132,22 @@ export default function Surveys() {
       .catch(() => {});
   };
 
+  const activeSurvey = surveys.find((survey) => survey.status === 'active');
+  const createSurveyButtonClass = `flex items-center gap-2 text-white px-6 py-2.5 rounded-lg transition-colors font-semibold shadow-md hover:shadow-lg ${
+    activeSurvey ? 'bg-gray-400 hover:bg-gray-500' : 'bg-blue-900 hover:bg-blue-800'
+  }`;
+
   const openAdd = () => {
+    if (activeSurvey) {
+      setMsgBox({
+        isOpen: true,
+        type: 'warning',
+        title: 'Active Survey Notice',
+        message: `"${activeSurvey.title}" is still active. Set the active survey to inactive before creating a new survey.`,
+      });
+      return;
+    }
+
     setShowTemplates(true);
   };
 
@@ -285,6 +306,28 @@ export default function Surveys() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const conflictingActiveSurvey = surveys.find((survey) => survey.status === 'active' && survey.id !== formData.id);
+
+    if (!isEditing && activeSurvey) {
+      setMsgBox({
+        isOpen: true,
+        type: 'warning',
+        title: 'Active Survey Notice',
+        message: `"${activeSurvey.title}" is still active. Set the active survey to inactive before creating a new survey.`,
+      });
+      return;
+    }
+
+    if (formData.status === 'active' && conflictingActiveSurvey) {
+      setMsgBox({
+        isOpen: true,
+        type: 'warning',
+        title: 'Active Survey Notice',
+        message: `"${conflictingActiveSurvey.title}" is already active. Set it to inactive before activating another survey.`,
+      });
+      return;
+    }
+
     const method = isEditing ? 'PUT' : 'POST';
     console.log('Submitting survey data:', formData);
     fetch(`${API_BASE}/surveys/index.php`, {
@@ -295,7 +338,19 @@ export default function Surveys() {
       .then((r) => r.json())
       .then((res) => {
         console.log('Server response:', res);
-        if (res.success) { setShowModal(false); fetchSurveys(); }
+        if (res.success) {
+          setShowModal(false);
+          fetchSurveys();
+        } else if (res.active_survey) {
+          setMsgBox({
+            isOpen: true,
+            type: 'warning',
+            title: 'Active Survey Notice',
+            message: res.error || 'Set the active survey to inactive before continuing.',
+          });
+        } else {
+          setMsgBox({ isOpen: true, type: 'error', message: res.error || 'Unable to save survey' });
+        }
       });
   };
 
@@ -344,9 +399,14 @@ export default function Surveys() {
         <div>
           <h1 className="text-3xl font-bold text-blue-900">Survey Management</h1>
           <p className="text-sm text-gray-500 mt-1">{surveys.length} surveys created</p>
+          {activeSurvey && (
+            <p className="text-xs text-amber-700 mt-1">
+              Set "{activeSurvey.title}" to inactive before creating another survey.
+            </p>
+          )}
         </div>
         <div className="flex gap-3">
-          <button onClick={openAdd} className="flex items-center gap-2 bg-blue-900 hover:bg-blue-800 text-white px-6 py-2.5 rounded-lg transition-colors font-semibold shadow-md hover:shadow-lg">
+          <button onClick={openAdd} className={createSurveyButtonClass} title={activeSurvey ? 'Inactive the active survey first' : 'Create Survey'}>
             <Plus className="w-5 h-5" /> Create Survey
           </button>
         </div>
@@ -362,7 +422,7 @@ export default function Surveys() {
           <ClipboardList className="w-16 h-16 text-gray-300 mx-auto mb-4" />
           <p className="text-gray-600 text-lg font-medium">No surveys yet</p>
           <p className="text-gray-500 text-sm mb-6">Create your first survey or load the default template</p>
-          <button onClick={openAdd} className="flex items-center gap-2 bg-blue-900 hover:bg-blue-800 text-white px-6 py-2.5 rounded-lg transition-colors font-semibold mx-auto">
+          <button onClick={openAdd} className={`${createSurveyButtonClass} mx-auto`}>
             <Plus className="w-5 h-5" /> Create Survey
           </button>
         </div>
@@ -395,6 +455,9 @@ export default function Surveys() {
                   <div className="flex items-center gap-2 ml-4 flex-shrink-0">
                     <button onClick={() => navigate(`/admin/surveys/${s.id}`)} className="p-2 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors font-medium" title="View Details">
                       <Info className="w-5 h-5" />
+                    </button>
+                    <button onClick={() => navigate(`/admin/reports?tab=surveys&survey_id=${s.id}`)} className="p-2 rounded-lg hover:bg-green-50 text-green-600 transition-colors font-medium" title="View Analytics">
+                      <BarChart3 className="w-5 h-5" />
                     </button>
                     <button onClick={() => openEdit(s)} className="p-2 rounded-lg hover:bg-yellow-50 text-yellow-600 transition-colors font-medium" title="Edit">
                       <Edit2 className="w-5 h-5" />
@@ -751,6 +814,7 @@ export default function Surveys() {
         onClose={() => setMsgBox({ ...msgBox, isOpen: false })}
         onConfirm={msgBox.onConfirm}
         type={msgBox.type}
+        title={msgBox.title}
         message={msgBox.message}
       />
     </div>

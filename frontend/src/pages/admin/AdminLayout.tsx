@@ -49,7 +49,14 @@ export default function AdminLayout() {
   const [profileOpen, setProfileOpen] = useState(false);
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const [msgBox, setMsgBox] = useState<{ isOpen: boolean; type: 'confirm'; message: string; onConfirm?: () => void }>({ isOpen: false, type: 'confirm', message: '' });
+  const [msgBox, setMsgBox] = useState<{
+    isOpen: boolean;
+    type: 'confirm';
+    title?: string;
+    message: string;
+    confirmText?: string;
+    onConfirm?: () => void;
+  }>({ isOpen: false, type: 'confirm', message: '' });
   const navItems =
     user?.role === 'super_admin'
       ? superAdminNavItems
@@ -63,7 +70,9 @@ export default function AdminLayout() {
     setMsgBox({
       isOpen: true,
       type: 'confirm',
-      message: 'Are you sure you want to sign out?',
+      title: 'Logout Confirmation',
+      message: 'Are you sure you want to do logout?',
+      confirmText: 'Logout',
       onConfirm: async () => {
         await logout();
         navigate('/signin');
@@ -182,7 +191,9 @@ export default function AdminLayout() {
         onClose={() => setMsgBox({ ...msgBox, isOpen: false })}
         onConfirm={msgBox.onConfirm}
         type={msgBox.type}
+        title={msgBox.title}
         message={msgBox.message}
+        confirmText={msgBox.confirmText}
       />
     </div>
   );

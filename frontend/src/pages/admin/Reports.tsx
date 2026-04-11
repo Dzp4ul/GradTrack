@@ -4,7 +4,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend, LineChart, Line,
+  PieChart, Pie, Cell, Legend,
 } from 'recharts';
 import { Download, Users, Briefcase, Target, FileText, Sparkles, TrendingUp, CheckCircle2, BarChart3 } from 'lucide-react';
 import { API_ROOT } from '../../config/api';
@@ -14,6 +14,8 @@ const API_BASE = API_ROOT;
 interface Overview {
   total_graduates: number;
   total_employed: number;
+  total_unemployed?: number;
+  total_employment_known?: number;
   total_employed_local: number;
   total_employed_abroad: number;
   total_aligned: number;
@@ -91,6 +93,9 @@ interface SurveyAnalyticsData {
 }
 
 const COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
+const REPORT_TABS = ['overview', 'program', 'year', 'employment', 'salary', 'surveys'] as const;
+type ReportTab = typeof REPORT_TABS[number];
+const SELECTED_SURVEY_STORAGE_KEY = 'gradtrack_selected_survey_id';
 
 // Program-specific colors
 const PROGRAM_COLORS: Record<string, string> = {
@@ -101,10 +106,29 @@ const PROGRAM_COLORS: Record<string, string> = {
   'ACT': '#6b7280',   // gray
 };
 
+const DEFAULT_DEPARTMENTS = [
+  { code: 'BSCS', name: 'Bachelor of Science in Computer Science' },
+  { code: 'ACT', name: 'Associate in Computer Technology' },
+  { code: 'BSED', name: 'Bachelor of Secondary Education' },
+  { code: 'BEED', name: 'Bachelor of Elementary Education' },
+  { code: 'BSHM', name: 'Bachelor of Science in Hospitality Management' },
+];
+
 type ExcelRow = Record<string, string | number>;
 
+const normalizeSurveySummary = (survey: SurveySummary): SurveySummary => ({
+  ...survey,
+  id: Number(survey.id),
+  response_count: Number(survey.response_count ?? 0),
+});
+
 export default function Reports() {
-  const [tab, setTab] = useState<'overview' | 'program' | 'year' | 'employment' | 'salary' | 'surveys'>('overview');
+  const initialParams = new URLSearchParams(window.location.search);
+  const initialTabParam = initialParams.get('tab') as ReportTab | null;
+  const initialSurveyId = Number(initialParams.get('survey_id') || localStorage.getItem(SELECTED_SURVEY_STORAGE_KEY));
+  const [tab, setTab] = useState<ReportTab>(
+    initialTabParam && REPORT_TABS.includes(initialTabParam) ? initialTabParam : 'overview'
+  );
   const [overview, setOverview] = useState<Overview | null>(null);
   const [programData, setProgramData] = useState<ProgramReport[]>([]);
   const [yearData, setYearData] = useState<YearReport[]>([]);
@@ -119,12 +143,15 @@ export default function Reports() {
   const [aiLoading, setAiLoading] = useState(false);
   const [surveyItems, setSurveyItems] = useState<SurveySummary[]>([]);
   const [surveyLoading, setSurveyLoading] = useState(false);
-  const [selectedSurveyId, setSelectedSurveyId] = useState<number | null>(null);
+  const [selectedSurveyId, setSelectedSurveyId] = useState<number | null>(initialSurveyId > 0 ? initialSurveyId : null);
   const [surveyAnalytics, setSurveyAnalytics] = useState<SurveyAnalyticsData | null>(null);
   const [surveyAnalyticsLoading, setSurveyAnalyticsLoading] = useState(false);
 
   const buildReportUrl = (type: string, year: string = 'all', department: string = selectedDepartment) => {
     const params = new URLSearchParams({ type });
+    if (selectedSurveyId) {
+      params.set('survey_id', selectedSurveyId.toString());
+    }
     if (year !== 'all') {
       params.set('year', year);
     }
@@ -133,6 +160,15 @@ export default function Reports() {
     }
 
     return `${API_BASE}/reports/index.php?${params.toString()}`;
+  };
+
+  const getDefaultSurveyId = (surveys: SurveySummary[], currentId: number | null = selectedSurveyId) => {
+    if (currentId && surveys.some((survey) => Number(survey.id) === currentId)) {
+      return currentId;
+    }
+
+    const activeSurvey = surveys.find((survey) => survey.status === 'active');
+    return activeSurvey ? Number(activeSurvey.id) : null;
   };
 
   const fetchReport = (type: string, year: string = 'all') => {
@@ -162,27 +198,37 @@ export default function Reports() {
       .finally(() => setLoading(false));
   };
 
-  const fetchSurveyAnalyticsList = () => {
-    setSurveyLoading(true);
+  const fetchSurveyItems = (loadAnalytics: boolean = false) => {
+    if (loadAnalytics) {
+      setSurveyLoading(true);
+    }
+
     fetch(`${API_BASE}/surveys/index.php`)
       .then((r) => r.json())
       .then((res) => {
         if (res.success) {
-          const surveys: SurveySummary[] = res.data || [];
+          const surveys: SurveySummary[] = (res.data || []).map(normalizeSurveySummary);
           setSurveyItems(surveys);
 
           if (surveys.length === 0) {
             setSelectedSurveyId(null);
             setSurveyAnalytics(null);
+            localStorage.removeItem(SELECTED_SURVEY_STORAGE_KEY);
             return;
           }
 
-          const currentSelectionIsValid = selectedSurveyId
-            ? surveys.some((survey) => survey.id === selectedSurveyId)
-            : false;
-          const surveyIdToLoad = currentSelectionIsValid ? selectedSurveyId : surveys[0].id;
+          const surveyIdToLoad = getDefaultSurveyId(surveys);
           setSelectedSurveyId(surveyIdToLoad);
-          fetchSurveyAnalytics(surveyIdToLoad);
+          if (surveyIdToLoad) {
+            localStorage.setItem(SELECTED_SURVEY_STORAGE_KEY, surveyIdToLoad.toString());
+          } else {
+            localStorage.removeItem(SELECTED_SURVEY_STORAGE_KEY);
+          }
+          if (loadAnalytics && surveyIdToLoad) {
+            fetchSurveyAnalytics(surveyIdToLoad);
+          } else if (loadAnalytics) {
+            setSurveyAnalytics(null);
+          }
         } else {
           setSurveyItems([]);
           setSelectedSurveyId(null);
@@ -194,7 +240,15 @@ export default function Reports() {
         setSelectedSurveyId(null);
         setSurveyAnalytics(null);
       })
-      .finally(() => setSurveyLoading(false));
+      .finally(() => {
+        if (loadAnalytics) {
+          setSurveyLoading(false);
+        }
+      });
+  };
+
+  const fetchSurveyAnalyticsList = () => {
+    fetchSurveyItems(true);
   };
 
   const fetchSurveyAnalytics = (surveyId: number) => {
@@ -211,6 +265,25 @@ export default function Reports() {
       .catch(() => setSurveyAnalytics(null))
       .finally(() => setSurveyAnalyticsLoading(false));
   };
+
+  const handleSelectedSurveyChange = (surveyId: number | null) => {
+    setSelectedSurveyId(surveyId);
+    if (!surveyId) {
+      setSurveyAnalytics(null);
+      localStorage.removeItem(SELECTED_SURVEY_STORAGE_KEY);
+      return;
+    }
+
+    localStorage.setItem(SELECTED_SURVEY_STORAGE_KEY, surveyId.toString());
+
+    if (tab === 'surveys') {
+      fetchSurveyAnalytics(surveyId);
+    }
+  };
+
+  useEffect(() => {
+    fetchSurveyItems();
+  }, []);
 
   useEffect(() => {
     // Fetch year data first to populate the filter
@@ -239,7 +312,7 @@ export default function Reports() {
         }
       })
       .catch(() => {});
-  }, []);
+  }, [selectedSurveyId]);
 
   useEffect(() => {
     const typeMap: Record<string, string> = {
@@ -253,7 +326,7 @@ export default function Reports() {
     }
 
     fetchReport(typeMap[tab], selectedYear);
-  }, [tab, selectedYear, selectedDepartment]);
+  }, [tab, selectedYear, selectedDepartment, selectedSurveyId]);
 
   const fetchAIAnalytics = (
     reportType: string,
@@ -269,6 +342,9 @@ export default function Reports() {
     if (department !== 'all') {
       params.set('department', department);
     }
+    if (selectedSurveyId) {
+      params.set('survey_id', selectedSurveyId.toString());
+    }
 
     fetch(`${API_BASE}/reports/ai-analytics.php?${params.toString()}`, {
       method: 'POST',
@@ -277,6 +353,7 @@ export default function Reports() {
       },
       body: JSON.stringify({
         report_data: reportData,
+        selected_survey_id: selectedSurveyId,
         selected_year: year,
         selected_department: department,
       }),
@@ -825,14 +902,44 @@ export default function Reports() {
     </div>
   );
 
+  const selectedSurvey = surveyItems.find((survey) => Number(survey.id) === selectedSurveyId);
+  const overviewUnemployed = overview?.total_unemployed ?? Math.max((overview?.total_graduates ?? 0) - (overview?.total_employed ?? 0), 0);
+  const departmentOptionMap = new Map(DEFAULT_DEPARTMENTS.map((department) => [department.code, department]));
+  availableDepartments.forEach((department) => {
+    if (department.code) {
+      departmentOptionMap.set(department.code, department);
+    }
+  });
+  const departmentOptions = Array.from(departmentOptionMap.values());
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[#1b2a4a]">Reports & Analytics</h1>
-          <p className="text-sm text-gray-500">Graduate employment data insights</p>
+          <p className="text-sm text-gray-500">
+            {selectedSurvey ? `Viewing analytics for ${selectedSurvey.title}` : 'Graduate employment data insights'}
+          </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-end gap-3">
+          {tab !== 'surveys' && surveyItems.length > 0 && (
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-gray-700">Survey:</label>
+              <select
+                value={selectedSurveyId ?? ''}
+                onChange={(e) => handleSelectedSurveyChange(e.target.value ? Number(e.target.value) : null)}
+                className="border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white min-w-[240px]"
+              >
+                <option value="">No active survey selected</option>
+                {surveyItems.map((survey) => (
+                  <option key={survey.id} value={survey.id}>
+                    {survey.title}
+                    {survey.status === 'active' ? ' (Active)' : ' (Saved)'}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           {/* Year Filter */}
           {(tab === 'program' || tab === 'employment' || tab === 'salary') && availableYears.length > 0 && (
             <div className="flex items-center gap-2">
@@ -849,7 +956,7 @@ export default function Reports() {
               </select>
             </div>
           )}
-          {tab !== 'surveys' && availableDepartments.length > 0 && (
+          {tab !== 'surveys' && (
             <div className="flex items-center gap-2">
               <label className="text-sm font-medium text-gray-700">Department:</label>
               <select
@@ -858,7 +965,7 @@ export default function Reports() {
                 className="border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
               >
                 <option value="all">All Departments</option>
-                {availableDepartments.map((department) => (
+                {departmentOptions.map((department) => (
                   <option key={department.code} value={department.code}>
                     {department.code} - {department.name}
                   </option>
@@ -932,7 +1039,7 @@ export default function Reports() {
                             <Pie 
                               data={[
                                 { name: 'Employed', value: overview.total_employed },
-                                { name: 'Unemployed', value: overview.total_graduates - overview.total_employed }
+                                { name: 'Unemployed', value: overviewUnemployed }
                               ]} 
                               cx="50%" 
                               cy="50%" 
@@ -954,7 +1061,7 @@ export default function Reports() {
                         </div>
                         <div className="flex items-center gap-2">
                           <div className="w-3 h-3 rounded-full bg-red-500" />
-                          <span className="text-xs text-gray-600">Unemployed: {overview.total_graduates - overview.total_employed}</span>
+                          <span className="text-xs text-gray-600">Unemployed: {overviewUnemployed}</span>
                         </div>
                       </div>
                     </div>
@@ -1442,16 +1549,14 @@ export default function Reports() {
                           </div>
                           <select
                             value={selectedSurveyId ?? ''}
-                            onChange={(e) => {
-                              const nextId = Number(e.target.value);
-                              setSelectedSurveyId(nextId);
-                              fetchSurveyAnalytics(nextId);
-                            }}
+                            onChange={(e) => handleSelectedSurveyChange(e.target.value ? Number(e.target.value) : null)}
                             className="border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white min-w-[260px]"
                           >
+                            <option value="">Select a saved survey</option>
                             {surveyItems.map((survey) => (
                               <option key={survey.id} value={survey.id}>
                                 {survey.title}
+                                {survey.status === 'active' ? ' (Active)' : ' (Saved)'}
                               </option>
                             ))}
                           </select>
@@ -1461,6 +1566,11 @@ export default function Reports() {
                       {surveyAnalyticsLoading ? (
                         <div className="flex justify-center py-12">
                           <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#1b2a4a]" />
+                        </div>
+                      ) : !selectedSurveyId ? (
+                        <div className="text-center py-12 border rounded-xl bg-white">
+                          <p className="font-semibold text-[#1b2a4a]">Select a survey to load saved analytics.</p>
+                          <p className="text-sm text-gray-500 mt-1">Inactive surveys keep their old responses and can still be reviewed here.</p>
                         </div>
                       ) : !surveyAnalytics ? (
                         <div className="text-center py-12 border rounded-xl bg-white">
@@ -1717,20 +1827,6 @@ function SurveyAnalyticsStatCard({ icon: Icon, label, value, color }: {
   );
 }
 
-function MetricBar({ label, value, color }: { label: string; value: number; color: string }) {
-  return (
-    <div>
-      <div className="flex justify-between text-sm mb-1">
-        <span className="text-gray-600">{label}</span>
-        <span className="font-semibold text-[#1b2a4a]">{value}%</span>
-      </div>
-      <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
-        <div className={`h-full rounded-full ${color}`} style={{ width: `${value}%` }} />
-      </div>
-    </div>
-  );
-}
-
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
   const chunkSize = 0x8000;
@@ -1822,6 +1918,8 @@ function getPdfChartConfig(
   salaryData: SalaryData[],
 ): Record<string, unknown> | null {
   if (tab === 'overview' && overview) {
+    const unemployed = overview.total_unemployed ?? Math.max(overview.total_graduates - overview.total_employed, 0);
+
     return {
       type: 'doughnut',
       data: {
@@ -1829,7 +1927,7 @@ function getPdfChartConfig(
         datasets: [
           {
             backgroundColor: ['#22c55e', '#ef4444'],
-            data: [overview.total_employed, Math.max(overview.total_graduates - overview.total_employed, 0)],
+            data: [overview.total_employed, unemployed],
           },
         ],
       },

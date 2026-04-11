@@ -16,6 +16,7 @@ import {
 import { API_ROOT } from '../../config/api';
 
 const API_BASE = API_ROOT;
+const SELECTED_SURVEY_STORAGE_KEY = 'gradtrack_selected_survey_id';
 
 interface DashboardData {
   total_graduates: number;
@@ -41,7 +42,17 @@ export default function Dashboard() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetch(`${API_BASE}/dashboard/stats.php`)
+    const selectedSurveyId = localStorage.getItem(SELECTED_SURVEY_STORAGE_KEY);
+    const params = new URLSearchParams();
+    if (selectedSurveyId) {
+      params.set('survey_id', selectedSurveyId);
+    }
+
+    const dashboardUrl = params.toString()
+      ? `${API_BASE}/dashboard/stats.php?${params.toString()}`
+      : `${API_BASE}/dashboard/stats.php`;
+
+    fetch(dashboardUrl)
       .then((res) => res.json())
       .then((res) => {
         if (res.success) setData(res.data);

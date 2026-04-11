@@ -5,22 +5,137 @@ require_once __DIR__ . '/../config/database.php';
 $database = new Database();
 $db = $database->getConnection();
 
-function getOverviewData(PDO $db): array
+function getSelectedSurveyId(PDO $db): ?int
 {
-    $stmt = $db->query("SELECT COUNT(*) as total FROM survey_responses");
+    if (isset($_GET['survey_id']) && (int)$_GET['survey_id'] > 0) {
+        return (int)$_GET['survey_id'];
+    }
+
+    $stmt = $db->query("
+        SELECT id
+        FROM surveys
+        WHERE status = 'active'
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+    ");
+    $survey = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($survey) {
+        return (int)$survey['id'];
+    }
+
+    return null;
+}
+
+function answerToText($answer): string
+{
+    if (is_array($answer)) {
+        return strtolower(trim(implode(' ', array_map(static function ($value) {
+            return is_scalar($value) ? (string)$value : '';
+        }, $answer))));
+    }
+
+    return strtolower(trim((string)$answer));
+}
+
+function parseEmploymentAnswer($answer): ?bool
+{
+    $answerLower = answerToText($answer);
+    if ($answerLower === '') {
+        return null;
+    }
+
+    if (
+        strpos($answerLower, 'unemployed') !== false
+        || $answerLower === 'no'
+        || strpos($answerLower, 'not employed') !== false
+    ) {
+        return false;
+    }
+
+    if (
+        $answerLower === 'yes'
+        || strpos($answerLower, 'employed') !== false
+        || strpos($answerLower, 'regular') !== false
+        || strpos($answerLower, 'permanent') !== false
+        || strpos($answerLower, 'temporary') !== false
+        || strpos($answerLower, 'casual') !== false
+        || strpos($answerLower, 'contractual') !== false
+        || strpos($answerLower, 'self-employed') !== false
+        || strpos($answerLower, 'self employed') !== false
+        || strpos($answerLower, 'freelance') !== false
+    ) {
+        return true;
+    }
+
+    return null;
+}
+
+function getOverviewData(PDO $db, ?int $surveyId): array
+{
+    if ($surveyId === null) {
+        return [
+            'survey_id' => null,
+            'total_graduates' => 0,
+            'total_employed' => 0,
+            'total_unemployed' => 0,
+            'total_employment_known' => 0,
+            'total_employed_local' => 0,
+            'total_employed_abroad' => 0,
+            'total_aligned' => 0,
+            'total_survey_responses' => 0,
+            'employment_rate' => 0,
+            'alignment_rate' => 0,
+        ];
+    }
+
+    $stmt = $db->prepare("SELECT COUNT(*) as total FROM survey_responses WHERE survey_id = :survey_id");
+    $stmt->bindValue(':survey_id', $surveyId, PDO::PARAM_INT);
+    $stmt->execute();
     $totalResponses = (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
 
-    $stmt = $db->query("SELECT q.id, q.question_text FROM surveys s JOIN survey_questions q ON s.id = q.survey_id WHERE s.status = 'active' ORDER BY q.sort_order");
+    $stmt = $db->prepare("
+        SELECT id, question_text, sort_order
+        FROM survey_questions
+        WHERE survey_id = :survey_id
+        ORDER BY sort_order
+    ");
+    $stmt->bindValue(':survey_id', $surveyId, PDO::PARAM_INT);
+    $stmt->execute();
     $questions = $stmt->fetchAll(PDO::FETCH_ASSOC);
     $questionMap = [];
     foreach ($questions as $q) {
         $questionMap[$q['id']] = strtolower((string)$q['question_text']);
     }
 
-    $stmt = $db->query("SELECT responses FROM survey_responses");
+    $responseKeys = getSurveyResponseQuestionKeys($db, $surveyId);
+    if (!empty($questions) && !empty($responseKeys)) {
+        $firstResponseKey = min($responseKeys);
+        $firstQuestion = $questions[0];
+        $firstQuestionId = (int)$firstQuestion['id'];
+        $firstSortOrder = (int)$firstQuestion['sort_order'];
+        $idOffset = $firstQuestionId - $firstResponseKey;
+
+        foreach ($questions as $q) {
+            $questionText = strtolower((string)$q['question_text']);
+            $historicalKeyBySort = $firstResponseKey + ((int)$q['sort_order'] - $firstSortOrder);
+            $historicalKeyById = (int)$q['id'] - $idOffset;
+
+            if ($historicalKeyBySort > 0 && !isset($questionMap[$historicalKeyBySort])) {
+                $questionMap[$historicalKeyBySort] = $questionText;
+            }
+            if ($historicalKeyById > 0 && !isset($questionMap[$historicalKeyById])) {
+                $questionMap[$historicalKeyById] = $questionText;
+            }
+        }
+    }
+
+    $stmt = $db->prepare("SELECT responses FROM survey_responses WHERE survey_id = :survey_id");
+    $stmt->bindValue(':survey_id', $surveyId, PDO::PARAM_INT);
+    $stmt->execute();
     $surveyResponses = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $employedCount = 0;
+    $unemployedCount = 0;
     $employedLocalCount = 0;
     $employedAbroadCount = 0;
     $alignedCount = 0;
@@ -32,6 +147,7 @@ function getOverviewData(PDO $db): array
         }
 
         $isEmployed = false;
+        $isUnemployed = false;
         $jobRelated = '';
         $workLocation = '';
 
@@ -40,8 +156,13 @@ function getOverviewData(PDO $db): array
             $answerValue = is_string($answer) ? strtolower(trim($answer)) : '';
 
             if (strpos($questionText, 'employment status') !== false || strpos($questionText, 'presently employed') !== false) {
-                if ($answerValue === 'employed' || $answerValue === 'yes') {
-                    $isEmployed = true;
+                $employmentAnswer = parseEmploymentAnswer($answer);
+                if ($employmentAnswer !== null) {
+                    if ($employmentAnswer) {
+                        $isEmployed = true;
+                    } else {
+                        $isUnemployed = true;
+                    }
                 }
             }
 
@@ -65,19 +186,58 @@ function getOverviewData(PDO $db): array
             if (strpos($jobRelated, 'yes') !== false || strpos($jobRelated, 'directly related') !== false) {
                 $alignedCount++;
             }
+        } elseif ($isUnemployed) {
+            $unemployedCount++;
         }
     }
 
     return [
+        'survey_id' => $surveyId,
         'total_graduates' => $totalResponses,
         'total_employed' => $employedCount,
+        'total_unemployed' => $unemployedCount,
+        'total_employment_known' => $employedCount + $unemployedCount,
         'total_employed_local' => $employedLocalCount,
         'total_employed_abroad' => $employedAbroadCount,
         'total_aligned' => $alignedCount,
         'total_survey_responses' => $totalResponses,
-        'employment_rate' => $totalResponses > 0 ? round(($employedCount / $totalResponses) * 100, 1) : 0,
+        'employment_rate' => ($employedCount + $unemployedCount) > 0 ? round(($employedCount / ($employedCount + $unemployedCount)) * 100, 1) : 0,
         'alignment_rate' => $employedCount > 0 ? round(($alignedCount / $employedCount) * 100, 1) : 0,
     ];
+}
+
+function getSurveyResponseQuestionKeys(PDO $db, ?int $surveyId): array
+{
+    if ($surveyId === null) {
+        return [];
+    }
+
+    $stmt = $db->prepare("
+        SELECT responses
+        FROM survey_responses
+        WHERE survey_id = :survey_id
+        ORDER BY id ASC
+        LIMIT 25
+    ");
+    $stmt->bindValue(':survey_id', $surveyId, PDO::PARAM_INT);
+    $stmt->execute();
+
+    $keys = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $response) {
+        $data = json_decode((string)$response['responses'], true);
+        if (!is_array($data)) {
+            continue;
+        }
+
+        foreach (array_keys($data) as $key) {
+            if (ctype_digit((string)$key)) {
+                $keys[(int)$key] = (int)$key;
+            }
+        }
+    }
+
+    sort($keys, SORT_NUMERIC);
+    return array_values($keys);
 }
 
 function normalizeReportType(string $type): string
@@ -113,6 +273,7 @@ try {
     $reportType = normalizeReportType((string)($_GET['type'] ?? 'overview'));
     $selectedYear = (string)($_GET['year'] ?? 'all');
     $selectedDepartment = strtoupper((string)($_GET['department'] ?? 'all'));
+    $selectedSurveyId = getSelectedSurveyId($db);
 
     $requestBody = json_decode((string)file_get_contents('php://input'), true);
     $reportData = is_array($requestBody) && array_key_exists('report_data', $requestBody)
@@ -121,7 +282,7 @@ try {
 
     $overview = null;
     if ($reportType === 'overview' && ($reportData === null || $reportData === [])) {
-        $overview = getOverviewData($db);
+        $overview = getOverviewData($db, $selectedSurveyId);
         $reportData = $overview;
     }
 
@@ -131,6 +292,7 @@ try {
 
     $dataContext = json_encode([
         'report_type' => $reportType,
+        'survey_id' => $selectedSurveyId,
         'selected_year' => $selectedYear,
         'selected_department' => $selectedDepartment,
         'report_data' => $reportData,
@@ -177,6 +339,7 @@ try {
 
     $responseData = [
         'report_type' => $reportType,
+        'survey_id' => $selectedSurveyId,
         'selected_year' => $selectedYear,
         'selected_department' => $selectedDepartment,
         'ai_analysis' => $aiAnalysis,

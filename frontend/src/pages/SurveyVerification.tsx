@@ -36,6 +36,16 @@ function SurveyVerification() {
 
   const fetchActiveSurvey = async () => {
     try {
+      if (surveyId) {
+        const detailResponse = await fetch(`${API_ROOT}/surveys/index.php?id=${surveyId}`);
+        const detailResult = await detailResponse.json();
+
+        if (detailResult.success && detailResult.data?.status === 'active') {
+          setActiveSurvey(detailResult.data);
+        }
+        return;
+      }
+
       const response = await fetch(`${API_ROOT}/surveys/index.php`);
       const result = await response.json();
       

@@ -50,6 +50,7 @@ try {
     $stmt->bindParam(':id', $surveyId);
     $stmt->execute();
     $questions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    $questionResponseKeys = buildQuestionResponseKeys($questions, $responses);
 
     // Analyze responses
     $analytics = [
@@ -73,10 +74,18 @@ try {
         ];
 
         $answers = [];
+        $responseKeys = $questionResponseKeys[(string)$question['id']] ?? [(string)$question['id']];
         foreach ($responses as $response) {
             $responseData = json_decode($response['responses'], true);
-            if (isset($responseData[$questionId])) {
-                $answers[] = $responseData[$questionId];
+            if (!is_array($responseData)) {
+                continue;
+            }
+
+            foreach ($responseKeys as $responseKey) {
+                if (array_key_exists($responseKey, $responseData)) {
+                    $answers[] = $responseData[$responseKey];
+                    break;
+                }
             }
         }
 
@@ -100,7 +109,7 @@ try {
     }
 
     // Employment-specific analytics
-    $employmentAnalytics = analyzeEmploymentData($responses, $questions);
+    $employmentAnalytics = analyzeEmploymentData($responses, $questions, $questionResponseKeys);
     if ($employmentAnalytics) {
         $analytics['employment_insights'] = $employmentAnalytics;
     }
@@ -189,7 +198,119 @@ function analyzeText($answers) {
     ];
 }
 
-function analyzeEmploymentData($responses, $questions) {
+function collectResponseQuestionKeys($responses) {
+    $keys = [];
+
+    foreach ($responses as $response) {
+        $data = json_decode((string)$response['responses'], true);
+        if (!is_array($data)) {
+            continue;
+        }
+
+        foreach (array_keys($data) as $key) {
+            if (ctype_digit((string)$key)) {
+                $keys[(int)$key] = (int)$key;
+            }
+        }
+    }
+
+    sort($keys, SORT_NUMERIC);
+    return array_values($keys);
+}
+
+function buildQuestionResponseKeys($questions, $responses) {
+    $map = [];
+    foreach ($questions as $question) {
+        $questionId = (string)$question['id'];
+        $map[$questionId] = [$questionId];
+    }
+
+    $responseKeys = collectResponseQuestionKeys($responses);
+    if (empty($questions) || empty($responseKeys)) {
+        return $map;
+    }
+
+    usort($questions, function ($a, $b) {
+        return ((int)$a['sort_order']) <=> ((int)$b['sort_order']);
+    });
+
+    $firstResponseKey = min($responseKeys);
+    $firstQuestion = $questions[0];
+    $firstQuestionId = (int)$firstQuestion['id'];
+    $firstSortOrder = (int)$firstQuestion['sort_order'];
+    $idOffset = $firstQuestionId - $firstResponseKey;
+
+    foreach ($questions as $question) {
+        $questionId = (string)$question['id'];
+        $historicalKeys = [
+            $firstResponseKey + ((int)$question['sort_order'] - $firstSortOrder),
+            (int)$question['id'] - $idOffset,
+        ];
+
+        foreach ($historicalKeys as $historicalKey) {
+            $historicalKey = (string)$historicalKey;
+            if ((int)$historicalKey > 0 && !in_array($historicalKey, $map[$questionId], true)) {
+                $map[$questionId][] = $historicalKey;
+            }
+        }
+    }
+
+    return $map;
+}
+
+function getAnswerFromKeys($data, $keys) {
+    foreach ($keys as $key) {
+        if (array_key_exists($key, $data)) {
+            return $data[$key];
+        }
+    }
+
+    return null;
+}
+
+function answerToText($answer) {
+    if (is_array($answer)) {
+        return strtolower(trim(implode(' ', array_map(function ($value) {
+            return is_scalar($value) ? (string)$value : '';
+        }, $answer))));
+    }
+
+    return strtolower(trim((string)$answer));
+}
+
+function parseEmploymentAnswer($answer) {
+    $answerLower = answerToText($answer);
+    if ($answerLower === '') {
+        return null;
+    }
+
+    if (
+        strpos($answerLower, 'unemployed') !== false
+        || $answerLower === 'no'
+        || strpos($answerLower, 'not employed') !== false
+    ) {
+        return false;
+    }
+
+    if (
+        $answerLower === 'yes'
+        || strpos($answerLower, 'employed') !== false
+        || strpos($answerLower, 'regular') !== false
+        || strpos($answerLower, 'permanent') !== false
+        || strpos($answerLower, 'temporary') !== false
+        || strpos($answerLower, 'casual') !== false
+        || strpos($answerLower, 'contractual') !== false
+        || strpos($answerLower, 'self-employed') !== false
+        || strpos($answerLower, 'self employed') !== false
+        || strpos($answerLower, 'freelance') !== false
+    ) {
+        return true;
+    }
+
+    return null;
+}
+
+function analyzeEmploymentData($responses, $questions, $questionResponseKeys) {
     // Find employment-related questions
     $employmentQuestionId = null;
     $alignmentQuestionId = null;
@@ -267,61 +388,57 @@ function analyzeEmploymentData($responses, $questions) {
     
     foreach ($responses as $response) {
         $data = json_decode($response['responses'], true);
+        if (!is_array($data)) {
+            continue;
+        }
         
         // Employment status
-        if (isset($data[$employmentQuestionId])) {
-            $status = strtolower(trim((string)$data[$employmentQuestionId]));
-            $isUnemployed = (strpos($status, 'unemployed') !== false)
-                || $status === 'no'
-                || (strpos($status, 'not employed') !== false);
-            $isEmployed = !$isUnemployed && (
-                (strpos($status, 'yes') !== false)
-                || (strpos($status, 'employed') !== false)
-                || (strpos($status, 'regular') !== false)
-                || (strpos($status, 'permanent') !== false)
-                || (strpos($status, 'temporary') !== false)
-                || (strpos($status, 'casual') !== false)
-                || (strpos($status, 'contractual') !== false)
-                || (strpos($status, 'self-employed') !== false)
-                || (strpos($status, 'self employed') !== false)
-                || (strpos($status, 'freelance') !== false)
-            );
+        $employmentAnswer = getAnswerFromKeys($data, $questionResponseKeys[$employmentQuestionId] ?? [$employmentQuestionId]);
+        if ($employmentAnswer !== null) {
+            $employmentStatus = parseEmploymentAnswer($employmentAnswer);
 
-            if ($isEmployed) {
+            if ($employmentStatus === true) {
                 $employed++;
-            } elseif ($isUnemployed || $status !== '') {
+            } elseif ($employmentStatus === false) {
                 $unemployed++;
             }
         }
         
         // Alignment
-        if ($alignmentQuestionId && isset($data[$alignmentQuestionId])) {
-            $alignment = strtolower($data[$alignmentQuestionId]);
-            if (strpos($alignment, 'directly') !== false || strpos($alignment, 'yes') !== false) {
-                $aligned++;
-            } elseif (strpos($alignment, 'partially') !== false) {
-                $partiallyAligned++;
-            } else {
-                $notAligned++;
+        if ($alignmentQuestionId) {
+            $alignmentAnswer = getAnswerFromKeys($data, $questionResponseKeys[$alignmentQuestionId] ?? [$alignmentQuestionId]);
+            $alignment = strtolower(trim((string)$alignmentAnswer));
+            if ($alignment !== '') {
+                if (strpos($alignment, 'directly') !== false || strpos($alignment, 'yes') !== false) {
+                    $aligned++;
+                } elseif (strpos($alignment, 'partially') !== false) {
+                    $partiallyAligned++;
+                } else {
+                    $notAligned++;
+                }
             }
         }
         
         // Salary
-        if ($salaryQuestionId && isset($data[$salaryQuestionId])) {
-            $salary = $data[$salaryQuestionId];
-            if (!isset($salaryDistribution[$salary])) {
-                $salaryDistribution[$salary] = 0;
+        if ($salaryQuestionId) {
+            $salary = getAnswerFromKeys($data, $questionResponseKeys[$salaryQuestionId] ?? [$salaryQuestionId]);
+            if ($salary !== null && $salary !== '') {
+                if (!isset($salaryDistribution[$salary])) {
+                    $salaryDistribution[$salary] = 0;
+                }
+                $salaryDistribution[$salary]++;
             }
-            $salaryDistribution[$salary]++;
         }
         
         // Time to job
-        if ($timeToJobQuestionId && isset($data[$timeToJobQuestionId])) {
-            $time = $data[$timeToJobQuestionId];
-            if (!isset($timeToJobDistribution[$time])) {
-                $timeToJobDistribution[$time] = 0;
+        if ($timeToJobQuestionId) {
+            $time = getAnswerFromKeys($data, $questionResponseKeys[$timeToJobQuestionId] ?? [$timeToJobQuestionId]);
+            if ($time !== null && $time !== '') {
+                if (!isset($timeToJobDistribution[$time])) {
+                    $timeToJobDistribution[$time] = 0;
+                }
+                $timeToJobDistribution[$time]++;
             }
-            $timeToJobDistribution[$time]++;
         }
     }
     
