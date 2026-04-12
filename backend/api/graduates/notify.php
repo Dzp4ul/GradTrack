@@ -22,9 +22,17 @@ if (!isset($_SESSION['user_id'])) {
     exit;
 }
 
-if (($_SESSION['role'] ?? '') !== 'admin') {
+$role = $_SESSION['role'] ?? '';
+$roleProgramScopes = [
+    'dean_cs' => ['BSCS', 'ACT'],
+    'dean_coed' => ['BSED', 'BEED'],
+    'dean_hm' => ['BSHM'],
+];
+$isDean = isset($roleProgramScopes[$role]);
+
+if ($role !== 'admin' && !$isDean) {
     http_response_code(403);
-    echo json_encode(["success" => false, "error" => "Only admin accounts can send graduate survey reminders"]);
+    echo json_encode(["success" => false, "error" => "Only admin and dean accounts can send graduate survey reminders"]);
     exit;
 }
 
@@ -208,6 +216,17 @@ try {
 
     $whereParts = [];
     $params = [':survey_id' => $surveyId];
+
+    if ($isDean) {
+        $scopePlaceholders = [];
+        foreach ($roleProgramScopes[$role] as $index => $code) {
+            $placeholder = ':scope_program_code_' . $index;
+            $scopePlaceholders[] = $placeholder;
+            $params[$placeholder] = $code;
+        }
+
+        $whereParts[] = 'p.code IN (' . implode(', ', $scopePlaceholders) . ')';
+    }
 
     if ($mode === 'filters') {
         $filters = is_array($data['filters'] ?? null) ? $data['filters'] : [];

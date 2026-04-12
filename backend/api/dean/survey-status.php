@@ -36,8 +36,38 @@ $database = new Database();
 $db = $database->getConnection();
 
 try {
+    $requestedSurveyId = isset($_GET['survey_id']) && (int) $_GET['survey_id'] > 0
+        ? (int) $_GET['survey_id']
+        : null;
+
+    if ($requestedSurveyId !== null) {
+        $surveyStmt = $db->prepare("SELECT id, title, status FROM surveys WHERE id = :id LIMIT 1");
+        $surveyStmt->execute([':id' => $requestedSurveyId]);
+        $selectedSurvey = $surveyStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$selectedSurvey) {
+            http_response_code(404);
+            echo json_encode(["success" => false, "error" => "Survey not found"]);
+            exit;
+        }
+    } else {
+        $surveyStmt = $db->query("
+            SELECT id, title, status
+            FROM surveys
+            ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, created_at DESC, id DESC
+            LIMIT 1
+        ");
+        $selectedSurvey = $surveyStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    }
+
+    $selectedSurveyId = $selectedSurvey ? (int) $selectedSurvey['id'] : null;
+
     $whereParts = [];
     $params = [];
+
+    if ($selectedSurveyId !== null) {
+        $params[':survey_id'] = $selectedSurveyId;
+    }
 
     $programPlaceholders = [];
     foreach ($programCodes as $index => $code) {
@@ -51,11 +81,17 @@ try {
     $search = isset($_GET['search']) ? trim((string) $_GET['search']) : '';
     if ($search !== '') {
         $searchTerm = '%' . $search . '%';
-        $whereParts[] = '(g.first_name LIKE :search_1 OR g.last_name LIKE :search_2 OR g.student_id LIKE :search_3 OR g.email LIKE :search_4)';
+        $whereParts[] = '(g.first_name LIKE :search_1 OR g.middle_name LIKE :search_2 OR g.last_name LIKE :search_3 OR g.student_id LIKE :search_4 OR g.email LIKE :search_5)';
         $params[':search_1'] = $searchTerm;
         $params[':search_2'] = $searchTerm;
         $params[':search_3'] = $searchTerm;
         $params[':search_4'] = $searchTerm;
+        $params[':search_5'] = $searchTerm;
+    }
+
+    if (isset($_GET['year_graduated']) && (int) $_GET['year_graduated'] > 0) {
+        $whereParts[] = 'g.year_graduated = :year_graduated';
+        $params[':year_graduated'] = (int) $_GET['year_graduated'];
     }
 
     $status = isset($_GET['status']) ? trim((string) $_GET['status']) : '';
@@ -69,13 +105,17 @@ try {
     $whereClause = count($whereParts) > 0 ? 'WHERE ' . implode(' AND ', $whereParts) : '';
 
     $page = isset($_GET['page']) ? max(1, (int) $_GET['page']) : 1;
-    $limit = isset($_GET['limit']) ? min(100, max(1, (int) $_GET['limit'])) : 20;
+    $limit = isset($_GET['limit']) ? min(5000, max(1, (int) $_GET['limit'])) : 20;
     $offset = ($page - 1) * $limit;
+
+    $responseJoin = $selectedSurveyId !== null
+        ? 'LEFT JOIN survey_responses sr ON sr.graduate_id = g.id AND sr.survey_id = :survey_id'
+        : 'LEFT JOIN survey_responses sr ON sr.graduate_id = g.id';
 
     $fromAndJoins = "
         FROM graduates g
         LEFT JOIN programs p ON p.id = g.program_id
-        LEFT JOIN survey_responses sr ON sr.graduate_id = g.id
+        $responseJoin
     ";
 
     $countSql = "
@@ -138,6 +178,7 @@ try {
     echo json_encode([
         "success" => true,
         "program_scope" => $programCodes,
+        "selected_survey" => $selectedSurvey,
         "summary" => [
             "total" => (int) $summaryResult['total'],
             "answered" => (int) $summaryResult['answered'],
@@ -152,6 +193,7 @@ try {
         "data" => array_map(function ($row) {
             $row['response_count'] = (int) $row['response_count'];
             $row['has_answered'] = (int) $row['has_answered'] === 1;
+            $row['has_email'] = trim((string) ($row['email'] ?? '')) !== '';
             return $row;
         }, $rows),
     ]);
