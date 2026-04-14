@@ -40,7 +40,13 @@ try {
     $totalResponses = (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
 
     // Get all responses
-    $stmt = $db->prepare("SELECT responses FROM survey_responses WHERE survey_id = :id");
+    $stmt = $db->prepare("
+        SELECT sr.responses, sr.graduate_id, g.year_graduated, p.code AS program_code, p.name AS program_name
+        FROM survey_responses sr
+        LEFT JOIN graduates g ON g.id = sr.graduate_id
+        LEFT JOIN programs p ON p.id = g.program_id
+        WHERE sr.survey_id = :id
+    ");
     $stmt->bindParam(':id', $surveyId);
     $stmt->execute();
     $responses = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -69,7 +75,10 @@ try {
             'question_id' => $question['id'],
             'question_text' => $question['question_text'],
             'question_type' => $question['question_type'],
+            'section' => $question['section'] ?? '',
+            'options' => decodeQuestionOptions($question['options'] ?? null),
             'total_answers' => 0,
+            'skipped_answers' => 0,
             'data' => []
         ];
 
@@ -83,24 +92,29 @@ try {
 
             foreach ($responseKeys as $responseKey) {
                 if (array_key_exists($responseKey, $responseData)) {
-                    $answers[] = $responseData[$responseKey];
+                    if (hasAnswerValue($responseData[$responseKey])) {
+                        $answers[] = $responseData[$responseKey];
+                    }
                     break;
                 }
             }
         }
 
         $questionAnalytics['total_answers'] = count($answers);
+        $questionAnalytics['skipped_answers'] = max($totalResponses - count($answers), 0);
 
         // Analyze based on question type
         switch ($question['question_type']) {
             case 'multiple_choice':
+            case 'radio':
             case 'rating':
-                $questionAnalytics['data'] = analyzeMultipleChoice($answers);
+                $questionAnalytics['data'] = analyzeMultipleChoice($answers, $questionAnalytics['options']);
                 break;
             case 'checkbox':
-                $questionAnalytics['data'] = analyzeCheckbox($answers);
+                $questionAnalytics['data'] = analyzeCheckbox($answers, $questionAnalytics['options']);
                 break;
             case 'text':
+            case 'date':
                 $questionAnalytics['data'] = analyzeText($answers);
                 break;
         }
@@ -113,6 +127,10 @@ try {
     if ($employmentAnalytics) {
         $analytics['employment_insights'] = $employmentAnalytics;
     }
+
+    $programFilter = getSelectedProgramFilter();
+    $analytics['selected_program'] = $programFilter;
+    $analytics['report_tables'] = buildSurveyReportTables($db, (int)$surveyId, $responses, $questions, $questionResponseKeys, $programFilter);
 
     echo json_encode(["success" => true, "data" => $analytics]);
 
@@ -136,31 +154,118 @@ function calculateResponseRate($db, $surveyId) {
     return round(($totalResponses / $totalGraduates) * 100, 2);
 }
 
-function analyzeMultipleChoice($answers) {
-    $distribution = [];
-    $total = count($answers);
-    
-    foreach ($answers as $answer) {
-        if (!isset($distribution[$answer])) {
-            $distribution[$answer] = 0;
-        }
-        $distribution[$answer]++;
+function decodeQuestionOptions($options) {
+    if ($options === null || $options === '') {
+        return [];
     }
-    
+
+    if (is_string($options)) {
+        $decoded = json_decode($options, true);
+        $options = is_array($decoded) ? $decoded : [];
+    }
+
+    if (!is_array($options)) {
+        return [];
+    }
+
+    $normalized = [];
+    foreach ($options as $option) {
+        if (!is_scalar($option)) {
+            continue;
+        }
+
+        $optionText = trim((string)$option);
+        if ($optionText !== '') {
+            $normalized[] = $optionText;
+        }
+    }
+
+    return array_values(array_unique($normalized));
+}
+
+function hasAnswerValue($answer) {
+    if (is_array($answer)) {
+        foreach ($answer as $value) {
+            if (hasAnswerValue($value)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    return trim((string)$answer) !== '';
+}
+
+function answerLabel($answer) {
+    if (is_array($answer)) {
+        $parts = [];
+        foreach ($answer as $value) {
+            if (is_scalar($value)) {
+                $valueText = trim((string)$value);
+                if ($valueText !== '') {
+                    $parts[] = $valueText;
+                }
+            }
+        }
+
+        return implode(', ', $parts);
+    }
+
+    return trim((string)$answer);
+}
+
+function distributionToRows($distribution, $total) {
     $result = [];
     foreach ($distribution as $option => $count) {
         $result[] = [
-            'option' => $option,
+            'option' => (string)$option,
             'count' => $count,
             'percentage' => $total > 0 ? round(($count / $total) * 100, 2) : 0
         ];
     }
-    
+
     return $result;
 }
 
-function analyzeCheckbox($answers) {
+function seedOptionDistribution($options) {
     $distribution = [];
+    foreach ($options as $option) {
+        $distribution[(string)$option] = 0;
+    }
+
+    return $distribution;
+}
+
+function analyzeMultipleChoice($answers, $options = []) {
+    $distribution = [];
+    if (!empty($options)) {
+        $distribution = seedOptionDistribution($options);
+    }
+
+    $total = count($answers);
+    
+    foreach ($answers as $answer) {
+        $option = answerLabel($answer);
+        if ($option === '') {
+            continue;
+        }
+
+        if (!isset($distribution[$option])) {
+            $distribution[$option] = 0;
+        }
+        $distribution[$option]++;
+    }
+    
+    return distributionToRows($distribution, $total);
+}
+
+function analyzeCheckbox($answers, $options = []) {
+    $distribution = [];
+    if (!empty($options)) {
+        $distribution = seedOptionDistribution($options);
+    }
+
     $total = count($answers);
     
     foreach ($answers as $answer) {
@@ -168,6 +273,10 @@ function analyzeCheckbox($answers) {
         $options = is_array($answer) ? $answer : explode(',', $answer);
         foreach ($options as $option) {
             $option = trim($option);
+            if ($option === '') {
+                continue;
+            }
+
             if (!isset($distribution[$option])) {
                 $distribution[$option] = 0;
             }
@@ -175,26 +284,22 @@ function analyzeCheckbox($answers) {
         }
     }
     
-    $result = [];
-    foreach ($distribution as $option => $count) {
-        $result[] = [
-            'option' => $option,
-            'count' => $count,
-            'percentage' => $total > 0 ? round(($count / $total) * 100, 2) : 0
-        ];
-    }
-    
-    return $result;
+    return distributionToRows($distribution, $total);
 }
 
 function analyzeText($answers) {
     // For text responses, return sample responses and word count
-    $nonEmpty = array_filter($answers, function($a) { return !empty(trim($a)); });
+    $nonEmpty = array_values(array_filter($answers, function($a) { return hasAnswerValue($a); }));
+    $samples = array_map(function($answer) {
+        return answerLabel($answer);
+    }, array_slice($nonEmpty, 0, 5));
     
     return [
         'total_responses' => count($nonEmpty),
-        'sample_responses' => array_slice($nonEmpty, 0, 5),
-        'avg_length' => count($nonEmpty) > 0 ? round(array_sum(array_map('strlen', $nonEmpty)) / count($nonEmpty), 2) : 0
+        'sample_responses' => $samples,
+        'avg_length' => count($nonEmpty) > 0 ? round(array_sum(array_map(function($answer) {
+            return strlen(answerLabel($answer));
+        }, $nonEmpty)) / count($nonEmpty), 2) : 0
     ];
 }
 
@@ -308,6 +413,977 @@ function parseEmploymentAnswer($answer) {
     }
 
     return null;
+}
+
+function getSelectedProgramFilter() {
+    $value = $_GET['program'] ?? ($_GET['department'] ?? null);
+    if (!is_scalar($value)) {
+        return null;
+    }
+
+    $value = strtoupper(trim((string)$value));
+    return $value !== '' && $value !== 'ALL' ? $value : null;
+}
+
+function buildSurveyReportTables($db, $surveyId, $responses, $questions, $questionResponseKeys, $programFilter = null) {
+    $programs = $programFilter ? [$programFilter] : ['BSCS', 'ACT'];
+    $questionIds = [
+        'program' => findSurveyQuestionId($questions, ['degree program']),
+        'year' => findSurveyQuestionId($questions, ['year graduated']),
+        'civil_status' => findSurveyQuestionId($questions, ['civil status']),
+        'sex' => findSurveyQuestionId($questions, ['sex']),
+        'honors' => findSurveyQuestionId($questions, ['honors']),
+        'pursue_degree' => findSurveyQuestionId($questions, ['reason', 'course']),
+        'presently_employed' => findSurveyQuestionId($questions, ['are you presently employed']),
+        'employment_status' => findSurveyQuestionId($questions, ['present employment status']),
+        'occupation' => findSurveyQuestionId($questions, ['present occupation']),
+        'line_business' => findSurveyQuestionId($questions, ['major line of business']),
+        'place_work' => findSurveyQuestionId($questions, ['place of work']),
+        'first_job' => findSurveyQuestionId($questions, ['first job after college']),
+        'staying_reason' => findSurveyQuestionId($questions, ['reason', 'staying']),
+        'first_job_related' => findSurveyQuestionId($questions, ['first job related']),
+        'changing_reason' => findSurveyQuestionId($questions, ['reason', 'changing']),
+        'stay_length' => findSurveyQuestionId($questions, ['stay in your first job']),
+        'find_first_job' => findSurveyQuestionId($questions, ['find your first job']),
+        'land_first_job' => findSurveyQuestionId($questions, ['land your first job']),
+        'job_level' => findSurveyQuestionId($questions, ['job level']),
+        'gross_monthly' => findSurveyQuestionId($questions, ['gross monthly']),
+        'curriculum_relevant' => findSurveyQuestionId($questions, ['curriculum relevant']),
+        'competencies' => findSurveyQuestionId($questions, ['competencies']),
+        'unemployment_reason' => findSurveyQuestionId($questions, ['reason', 'not yet employed']),
+    ];
+
+    $records = buildSurveyReportRecords($responses, $questions, $questionResponseKeys, $questionIds);
+    $programTotals = countRecordsByProgram($records, $programs);
+    $graduateTotals = getGraduateTotalsByProgramYear($db, $programs);
+    $years = getSurveyReportYears($records, $graduateTotals, $programs);
+    $programPhrase = reportProgramPhrase($programs);
+    $employedFilter = function ($record) use ($questionIds) {
+        return getRecordEmploymentStatus($record, $questionIds) === true;
+    };
+
+    $tables = [];
+    $tables[] = buildRetrievalTable($records, $programs, $years, $graduateTotals);
+    $tables[] = buildDemographicTable($records, $programs, $programTotals, $questionIds);
+    $tables[] = buildRankingProgramTable('3', 'Reasons for Pursuing the Degree for ' . $programPhrase . ' Graduates', 'Reasons for Pursuing the Degree', $questionIds['pursue_degree'], getPursueDegreeCategories(), $records, $programs, $programTotals);
+    $tables[] = buildProgramDistributionTable('4', 'Honors and Awards Received by ' . $programPhrase . ' Graduates', 'Award', $questionIds['honors'], getQuestionCategories($questions, $questionIds['honors'], getHonorCategories()), $records, $programs, $programTotals);
+    $employmentTableNumber = 5;
+    foreach ($programs as $program) {
+        $tables[] = buildActualEmploymentTable((string)$employmentTableNumber, 'Actual Employment Data of ' . $program . ' Graduates', $program, $records, $years, $questionIds, $employmentTableNumber === 5 ? '3.3. Present Employment Data' : '');
+        $employmentTableNumber++;
+    }
+    $tables[] = buildEmploymentStatusByYearTable($records, $programs, $years, $questionIds);
+    $employedTotals = countRecordsByProgram($records, $programs, $employedFilter);
+    $tables[] = buildProgramDistributionTable('8', 'Present Employment Classification of ' . $programPhrase . ' Graduates', 'Present Occupation', $questionIds['occupation'], getOccupationCategories(), $records, $programs, $employedTotals, '', '', $employedFilter);
+    $tables[] = buildProgramDistributionTable('9', 'Major Line of Business of the Company the ' . $programPhrase . ' Graduates are Employed', 'Line of Business', $questionIds['line_business'], getLineBusinessCategories(), $records, $programs, $employedTotals, '', '', $employedFilter);
+    $tables[] = buildPlaceOfWorkTable($records, $programs, $years, $questionIds);
+    $tables[] = buildProgramDistributionTable('11', 'Current Job Level Positions of the ' . $programPhrase . ' Graduates', 'Position', $questionIds['job_level'], getJobLevelCategories(), $records, $programs, $employedTotals, '', '', $employedFilter);
+    $tables[] = buildProgramDistributionTable('12', 'Job Details as to First Job', 'First Job?', $questionIds['first_job'], getYesNoCategories(), $records, $programs, $programTotals);
+    $tables[] = buildProgramDistributionTable('13', 'Relatedness of the First Job to the Course Taken in College', 'First Job Related to the course taken up in College?', $questionIds['first_job_related'], getYesNoCategories(), $records, $programs, $programTotals);
+    if (count($programs) === 1) {
+        $tables[] = buildReasonRelationTable('14', 'Reasons for Staying, Accepting, and Changing the First Job of the ' . $programs[0] . ' Graduates', $programs[0], $records, $questionIds);
+    } else {
+        $tables[] = buildReasonRelationTable('14a', 'Reasons for Staying, Accepting, and Changing the First Job of the BSCS Graduates', 'BSCS', $records, $questionIds);
+        $tables[] = buildReasonRelationTable('14b', 'Relatedness of the Staying, Accepting, and Changing the First Job of the ACT Graduates', 'ACT', $records, $questionIds);
+    }
+    $tables[] = buildProgramDistributionTable('15', 'Length of Stay in the First Job', 'Duration with the First Job', $questionIds['stay_length'], getDurationCategories(true), $records, $programs, $programTotals);
+    $tables[] = buildProgramDistributionTable('16', 'Means of Finding the First Job of the ' . $programPhrase . ' Graduates', 'Means of Finding the First Job', $questionIds['find_first_job'], getFindJobCategories(), $records, $programs, $programTotals);
+    $tables[] = buildProgramDistributionTable('17', 'Time it Takes to Land on the First Job', 'Duration with the First Job', $questionIds['land_first_job'], getDurationCategories(false), $records, $programs, $programTotals);
+    $tables[] = buildProgramDistributionTable('18', 'Gross Monthly Earning in the First Job', 'Gross Monthly Earning in the First Job', $questionIds['gross_monthly'], getSalaryCategories(), $records, $programs, $programTotals);
+    $tables[] = buildProgramDistributionTable('19', 'Curriculum Relevance to the First Job', 'Curriculum Relevant to the First Job?', $questionIds['curriculum_relevant'], getYesNoCategories(), $records, $programs, $programTotals, '3.5 Curriculum Contribution to their First Job');
+    $tables[] = buildProgramDistributionTable('20', 'Competencies Learned in College that was Found Useful in the First Job', 'Competencies', $questionIds['competencies'], getCompetencyCategories(), $records, $programs, $programTotals);
+
+    return $tables;
+}
+
+function findSurveyQuestionId($questions, $requiredTerms, $excludedTerms = []) {
+    foreach ($questions as $question) {
+        $text = normalizeReportText($question['question_text']);
+        $matches = true;
+        foreach ($requiredTerms as $term) {
+            if (strpos($text, normalizeReportText($term)) === false) {
+                $matches = false;
+                break;
+            }
+        }
+        foreach ($excludedTerms as $term) {
+            if ($matches && strpos($text, normalizeReportText($term)) !== false) {
+                $matches = false;
+                break;
+            }
+        }
+        if ($matches) {
+            return (string)$question['id'];
+        }
+    }
+
+    return null;
+}
+
+function buildSurveyReportRecords($responses, $questions, $questionResponseKeys, $questionIds) {
+    $records = [];
+
+    foreach ($responses as $response) {
+        $data = json_decode((string)$response['responses'], true);
+        if (!is_array($data)) {
+            continue;
+        }
+
+        $answers = [];
+        foreach ($questions as $question) {
+            $questionId = (string)$question['id'];
+            $answers[$questionId] = getAnswerFromKeys($data, $questionResponseKeys[$questionId] ?? [$questionId]);
+        }
+
+        $program = strtoupper(trim((string)($response['program_code'] ?? '')));
+        if ($program === '' && !empty($questionIds['program'])) {
+            $program = normalizeProgramCode($answers[$questionIds['program']] ?? '');
+        }
+
+        $year = trim((string)($response['year_graduated'] ?? ''));
+        if ($year === '' && !empty($questionIds['year'])) {
+            $year = normalizeGraduationYear($answers[$questionIds['year']] ?? '');
+        }
+
+        $records[] = [
+            'program' => $program,
+            'year' => $year,
+            'answers' => $answers,
+        ];
+    }
+
+    return $records;
+}
+
+function normalizeProgramCode($value) {
+    $text = normalizeReportText(answerLabel($value));
+    if (strpos($text, 'computer science') !== false || $text === 'bscs') {
+        return 'BSCS';
+    }
+    if (strpos($text, 'computer technology') !== false || $text === 'act') {
+        return 'ACT';
+    }
+    if (strpos($text, 'secondary education') !== false || $text === 'bsed') {
+        return 'BSED';
+    }
+    if (strpos($text, 'elementary education') !== false || $text === 'beed') {
+        return 'BEED';
+    }
+    if (strpos($text, 'hospitality management') !== false || $text === 'bshm') {
+        return 'BSHM';
+    }
+
+    return strtoupper(trim(answerLabel($value)));
+}
+
+function normalizeGraduationYear($value) {
+    $text = answerLabel($value);
+    if (preg_match('/\b(19|20)\d{2}\b/', $text, $matches)) {
+        return $matches[0];
+    }
+
+    return trim($text);
+}
+
+function normalizeReportText($value) {
+    $text = strtolower(trim((string)$value));
+    $text = str_replace(["\r", "\n", "\t", "\xE2\x80\x99", "\xE2\x80\x93", "\xE2\x80\x94", "\xE2\x82\xB1"], [' ', ' ', ' ', "'", '-', '-', 'php'], $text);
+    $text = preg_replace('/\s+/', ' ', $text);
+    return $text;
+}
+
+function answerValues($answer) {
+    if (is_array($answer)) {
+        $values = [];
+        foreach ($answer as $value) {
+            if (hasAnswerValue($value)) {
+                $values[] = answerLabel($value);
+            }
+        }
+        return $values;
+    }
+
+    $text = answerLabel($answer);
+    return $text === '' ? [] : [$text];
+}
+
+function makeCategory($label, $aliases = []) {
+    return ['label' => $label, 'aliases' => array_values(array_unique(array_merge([$label], $aliases)))];
+}
+
+function makeCategories($labels) {
+    return array_map(function ($label) {
+        return makeCategory($label);
+    }, $labels);
+}
+
+function valueMatchesCategory($value, $category) {
+    $valueText = normalizeReportText($value);
+    if ($valueText === '') {
+        return false;
+    }
+
+    foreach ($category['aliases'] as $alias) {
+        $aliasText = normalizeReportText($alias);
+        if ($aliasText !== '' && ($valueText === $aliasText || strpos($valueText, $aliasText) !== false || strpos($aliasText, $valueText) !== false)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function getQuestionCategories($questions, $questionId, $fallback) {
+    if ($questionId === null) {
+        return $fallback;
+    }
+
+    foreach ($questions as $question) {
+        if ((string)$question['id'] !== (string)$questionId) {
+            continue;
+        }
+
+        $options = decodeQuestionOptions($question['options'] ?? null);
+        return !empty($options) ? makeCategories($options) : $fallback;
+    }
+
+    return $fallback;
+}
+
+function countRecordsByProgram($records, $programs, $filter = null) {
+    $counts = array_fill_keys($programs, 0);
+    foreach ($records as $record) {
+        if (!in_array($record['program'], $programs, true)) {
+            continue;
+        }
+        if ($filter && !$filter($record)) {
+            continue;
+        }
+        $counts[$record['program']]++;
+    }
+
+    return $counts;
+}
+
+function countCategoriesByProgram($records, $programs, $questionId, $categories, $filter = null) {
+    $counts = [];
+    foreach ($programs as $program) {
+        $counts[$program] = [];
+        foreach ($categories as $category) {
+            $counts[$program][$category['label']] = 0;
+        }
+    }
+
+    if ($questionId === null) {
+        return $counts;
+    }
+
+    foreach ($records as $record) {
+        $program = $record['program'];
+        if (!in_array($program, $programs, true)) {
+            continue;
+        }
+        if ($filter && !$filter($record)) {
+            continue;
+        }
+
+        $values = answerValues($record['answers'][$questionId] ?? null);
+        foreach ($categories as $category) {
+            foreach ($values as $value) {
+                if (valueMatchesCategory($value, $category)) {
+                    $counts[$program][$category['label']]++;
+                    break;
+                }
+            }
+        }
+    }
+
+    return $counts;
+}
+
+function countCategoriesForProgram($records, $program, $questionId, $categories, $filter = null) {
+    $counts = countCategoriesByProgram($records, [$program], $questionId, $categories, $filter);
+    return $counts[$program];
+}
+
+function getRecordEmploymentStatus($record, $questionIds) {
+    $answer = !empty($questionIds['presently_employed']) ? ($record['answers'][$questionIds['presently_employed']] ?? null) : null;
+    $status = parseEmploymentAnswer($answer);
+    if ($status !== null) {
+        return $status;
+    }
+
+    return !empty($questionIds['employment_status'])
+        ? parseEmploymentAnswer($record['answers'][$questionIds['employment_status']] ?? null)
+        : null;
+}
+
+function getRecordYesNo($record, $questionId) {
+    if ($questionId === null) {
+        return null;
+    }
+
+    $text = normalizeReportText(answerLabel($record['answers'][$questionId] ?? null));
+    if ($text === '') {
+        return null;
+    }
+    if (strpos($text, 'yes') !== false) {
+        return true;
+    }
+    if (strpos($text, 'no') !== false || strpos($text, 'not') !== false) {
+        return false;
+    }
+
+    return null;
+}
+
+function getGraduateTotalsByProgramYear($db, $programs) {
+    $totals = [];
+    foreach ($programs as $program) {
+        $totals[$program] = [];
+    }
+
+    $placeholders = implode(',', array_fill(0, count($programs), '?'));
+    $stmt = $db->prepare("
+        SELECT p.code, g.year_graduated, COUNT(*) AS total
+        FROM graduates g
+        LEFT JOIN programs p ON p.id = g.program_id
+        WHERE p.code IN ($placeholders) AND g.status = 'active'
+        GROUP BY p.code, g.year_graduated
+        ORDER BY g.year_graduated
+    ");
+    $stmt->execute($programs);
+
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $program = strtoupper((string)$row['code']);
+        $year = (string)$row['year_graduated'];
+        if (isset($totals[$program])) {
+            $totals[$program][$year] = (int)$row['total'];
+        }
+    }
+
+    return $totals;
+}
+
+function getSurveyReportYears($records, $graduateTotals, $programs) {
+    $years = [];
+    foreach ($graduateTotals as $programTotals) {
+        foreach (array_keys($programTotals) as $year) {
+            if ($year !== '') {
+                $years[$year] = $year;
+            }
+        }
+    }
+    foreach ($records as $record) {
+        if (in_array($record['program'], $programs, true) && $record['year'] !== '') {
+            $years[$record['year']] = $record['year'];
+        }
+    }
+
+    ksort($years, SORT_NUMERIC);
+    return array_values($years);
+}
+
+function reportProgramPhrase($programs) {
+    $programs = array_values($programs);
+    if (count($programs) === 0) {
+        return 'Program';
+    }
+    if (count($programs) === 1) {
+        return $programs[0];
+    }
+    if (count($programs) === 2) {
+        return $programs[0] . ' and ' . $programs[1];
+    }
+
+    $last = array_pop($programs);
+    return implode(', ', $programs) . ', and ' . $last;
+}
+
+function reportCell($label, $colspan = 1, $rowspan = 1, $align = 'center') {
+    return ['label' => (string)$label, 'colspan' => $colspan, 'rowspan' => $rowspan, 'align' => $align];
+}
+
+function reportRow($cells, $isTotal = false, $isGroup = false) {
+    return ['cells' => array_map('strval', $cells), 'is_total' => $isTotal, 'is_group' => $isGroup];
+}
+
+function reportTable($number, $title, $headers, $rows, $sectionTitle = '', $note = '') {
+    return [
+        'number' => $number,
+        'title' => $title,
+        'section_title' => $sectionTitle,
+        'headers' => $headers,
+        'rows' => $rows,
+        'note' => $note,
+    ];
+}
+
+function programHeaderLabel($program, $count) {
+    return $program . ' (N=' . (int)$count . ')';
+}
+
+function formatReportCount($count, $dashZero = true) {
+    $count = (int)$count;
+    return ($dashZero && $count === 0) ? '-' : (string)$count;
+}
+
+function formatReportPercent($count, $denominator, $dashZero = true) {
+    $count = (int)$count;
+    $denominator = (int)$denominator;
+    if ($denominator <= 0 || ($dashZero && $count === 0)) {
+        return '-';
+    }
+
+    $percentage = ($count / $denominator) * 100;
+    return ($percentage > 0 && $percentage < 1) ? '<1' : (string)round($percentage);
+}
+
+function buildRetrievalTable($records, $programs, $years, $graduateTotals) {
+    $retrieved = [];
+    foreach ($programs as $program) {
+        $retrieved[$program] = [];
+    }
+    foreach ($records as $record) {
+        if (!in_array($record['program'], $programs, true) || $record['year'] === '') {
+            continue;
+        }
+        $retrieved[$record['program']][$record['year']] = ($retrieved[$record['program']][$record['year']] ?? 0) + 1;
+    }
+
+    $headers = [
+        [
+            reportCell('Year Graduated', 1, 2),
+            reportCell('Number of Graduates', count($programs)),
+            reportCell('Retrieved No. of Questionnaires', count($programs)),
+            reportCell('Retrieval Rate Percentage (%)', count($programs)),
+        ],
+        [],
+    ];
+    foreach (['graduates', 'retrieved', 'rate'] as $_group) {
+        foreach ($programs as $program) {
+            $headers[1][] = reportCell($program);
+        }
+    }
+    $rows = [];
+    $totalGraduates = array_fill_keys($programs, 0);
+    $totalRetrieved = array_fill_keys($programs, 0);
+
+    foreach ($years as $year) {
+        $cells = [$year];
+        foreach ($programs as $program) {
+            $count = $graduateTotals[$program][$year] ?? 0;
+            $totalGraduates[$program] += $count;
+            $cells[] = formatReportCount($count);
+        }
+        foreach ($programs as $program) {
+            $count = $retrieved[$program][$year] ?? 0;
+            $totalRetrieved[$program] += $count;
+            $cells[] = formatReportCount($count);
+        }
+        foreach ($programs as $program) {
+            $cells[] = formatReportPercent($retrieved[$program][$year] ?? 0, $graduateTotals[$program][$year] ?? 0);
+        }
+        $rows[] = reportRow($cells);
+    }
+
+    $totalCells = ['TOTAL/AVE'];
+    foreach ($programs as $program) {
+        $totalCells[] = formatReportCount($totalGraduates[$program], false);
+    }
+    foreach ($programs as $program) {
+        $totalCells[] = formatReportCount($totalRetrieved[$program], false);
+    }
+    foreach ($programs as $program) {
+        $totalCells[] = formatReportPercent($totalRetrieved[$program], $totalGraduates[$program], false);
+    }
+    $rows[] = reportRow($totalCells, true);
+
+    return reportTable('1', 'Distribution of Graduates and Retrieval Rate of the Tracer Study for ' . reportProgramPhrase($programs) . ' Graduates', $headers, $rows);
+}
+
+function buildDemographicTable($records, $programs, $programTotals, $questionIds) {
+    $headers = [[reportCell('Profile/ Program', 1, 2, 'left')], []];
+    foreach ($programs as $program) {
+        $headers[0][] = reportCell(programHeaderLabel($program, $programTotals[$program] ?? 0), 2);
+        $headers[1][] = reportCell('f');
+        $headers[1][] = reportCell('%');
+    }
+    $rows = [];
+    $sections = [
+        ['Civil Status', $questionIds['civil_status'], [makeCategory('Single'), makeCategory('Married'), makeCategory('Widowed'), makeCategory('Separated'), makeCategory('Divorced')]],
+        ['Gender', $questionIds['sex'], [makeCategory('Male'), makeCategory('Female'), makeCategory('Prefer not to say')]],
+    ];
+
+    foreach ($sections as $section) {
+        [$sectionLabel, $questionId, $categories] = $section;
+        $rows[] = reportRow(array_merge([$sectionLabel], array_fill(0, count($programs) * 2, '')), false, true);
+        $counts = countCategoriesByProgram($records, $programs, $questionId, $categories);
+        foreach ($categories as $category) {
+            $hasData = false;
+            foreach ($programs as $program) {
+                $hasData = $hasData || (($counts[$program][$category['label']] ?? 0) > 0);
+            }
+            if (!$hasData && $category['label'] === 'Prefer not to say') {
+                continue;
+            }
+            $cells = ['  ' . $category['label']];
+            foreach ($programs as $program) {
+                $count = $counts[$program][$category['label']] ?? 0;
+                $cells[] = formatReportCount($count);
+                $cells[] = formatReportPercent($count, $programTotals[$program]);
+            }
+            $rows[] = reportRow($cells);
+        }
+    }
+
+    return reportTable('2', 'Demographic Profile of ' . reportProgramPhrase($programs) . ' Graduates', $headers, $rows);
+}
+
+function buildProgramDistributionTable($number, $title, $firstColumn, $questionId, $categories, $records, $programs, $denominators, $sectionTitle = '', $note = '', $filter = null) {
+    $headers = [[reportCell($firstColumn, 1, 2, 'left')], []];
+    foreach ($programs as $program) {
+        $headers[0][] = reportCell(programHeaderLabel($program, $denominators[$program] ?? 0), 2);
+        $headers[1][] = reportCell('f');
+        $headers[1][] = reportCell('%');
+    }
+    $counts = countCategoriesByProgram($records, $programs, $questionId, $categories, $filter);
+    $rows = [];
+    $totals = array_fill_keys($programs, 0);
+
+    foreach ($categories as $category) {
+        $cells = [$category['label']];
+        foreach ($programs as $program) {
+            $count = $counts[$program][$category['label']] ?? 0;
+            $totals[$program] += $count;
+            $cells[] = formatReportCount($count);
+            $cells[] = formatReportPercent($count, $denominators[$program] ?? 0);
+        }
+        $rows[] = reportRow($cells);
+    }
+
+    $totalCells = ['TOTAL'];
+    foreach ($programs as $program) {
+        $totalCells[] = formatReportCount($totals[$program], false);
+        $totalCells[] = formatReportPercent($totals[$program], $denominators[$program] ?? 0, false);
+    }
+    $rows[] = reportRow($totalCells, true);
+
+    return reportTable($number, $title, $headers, $rows, $sectionTitle, $note);
+}
+
+function buildRankingProgramTable($number, $title, $firstColumn, $questionId, $categories, $records, $programs, $denominators) {
+    $headers = [[reportCell($firstColumn, 1, 2, 'left')], []];
+    foreach ($programs as $program) {
+        $headers[0][] = reportCell($program, 3);
+        $headers[1][] = reportCell('f');
+        $headers[1][] = reportCell('%');
+        $headers[1][] = reportCell('R');
+    }
+    $counts = countCategoriesByProgram($records, $programs, $questionId, $categories);
+    $ranks = [];
+
+    foreach ($programs as $program) {
+        $sorted = $counts[$program];
+        arsort($sorted);
+        $rank = 1;
+        $ranks[$program] = [];
+        foreach ($sorted as $label => $count) {
+            $ranks[$program][$label] = $count > 0 ? (string)$rank : '';
+            $rank++;
+        }
+    }
+
+    $rows = [];
+    foreach ($categories as $category) {
+        $cells = [$category['label']];
+        foreach ($programs as $program) {
+            $count = $counts[$program][$category['label']] ?? 0;
+            $cells[] = formatReportCount($count);
+            $cells[] = formatReportPercent($count, $denominators[$program] ?? 0);
+            $cells[] = $ranks[$program][$category['label']] ?? '';
+        }
+        $rows[] = reportRow($cells);
+    }
+
+    return reportTable($number, $title, $headers, $rows, '', '*R = ranking');
+}
+
+function buildActualEmploymentTable($number, $title, $program, $records, $years, $questionIds, $sectionTitle = '') {
+    $headers = [
+        [reportCell('Year of Graduation', 1, 2), reportCell('Employed', 2), reportCell('Not Employed', 2)],
+        [reportCell('Frequency'), reportCell('%'), reportCell('Frequency'), reportCell('%')],
+    ];
+    $rows = [];
+    $totals = ['employed' => 0, 'not' => 0, 'year_total' => 0];
+
+    foreach ($years as $year) {
+        $yearRecords = array_values(array_filter($records, function ($record) use ($program, $year) {
+            return $record['program'] === $program && $record['year'] === (string)$year;
+        }));
+        $yearTotal = count($yearRecords);
+        $employed = 0;
+        $not = 0;
+
+        foreach ($yearRecords as $record) {
+            $employmentStatus = getRecordEmploymentStatus($record, $questionIds);
+            if ($employmentStatus === true) {
+                $employed++;
+            } elseif ($employmentStatus === false) {
+                $not++;
+            }
+        }
+
+        $totals['employed'] += $employed;
+        $totals['not'] += $not;
+        $totals['year_total'] += $yearTotal;
+
+        $rows[] = reportRow([
+            $year,
+            formatReportCount($employed),
+            formatReportPercent($employed, $yearTotal),
+            formatReportCount($not),
+            formatReportPercent($not, $yearTotal),
+        ]);
+    }
+
+    $rows[] = reportRow([
+        'TOTALS',
+        formatReportCount($totals['employed'], false),
+        formatReportPercent($totals['employed'], $totals['year_total'], false),
+        formatReportCount($totals['not'], false),
+        formatReportPercent($totals['not'], $totals['year_total'], false),
+    ], true);
+
+    return reportTable($number, $title, $headers, $rows, $sectionTitle);
+}
+
+function buildEmploymentStatusByYearTable($records, $programs, $years, $questionIds) {
+    $categories = getEmploymentStatusCategories();
+    $headers = [[reportCell('Present Employment Status', 1, 3, 'left'), reportCell('Year of Graduation', count($years) * count($programs)), reportCell('Total', count($programs))]];
+    $yearHeader = [];
+    foreach ($years as $year) {
+        $yearHeader[] = reportCell($year, count($programs));
+    }
+    foreach ($programs as $program) {
+        $yearHeader[] = reportCell($program);
+    }
+    $headers[] = $yearHeader;
+    $programHeader = [];
+    foreach ($years as $_year) {
+        foreach ($programs as $program) {
+            $programHeader[] = reportCell($program);
+        }
+    }
+    foreach ($programs as $program) {
+        $programHeader[] = reportCell($program);
+    }
+    $headers[] = $programHeader;
+
+    $rows = [];
+    $programTotals = countRecordsByProgram($records, $programs);
+    foreach ($categories as $category) {
+        $cells = [$category['label']];
+        $totalByProgram = array_fill_keys($programs, 0);
+        foreach ($years as $year) {
+            foreach ($programs as $program) {
+                $count = countRecordsForStatus($records, $program, $year, $questionIds['employment_status'], $category);
+                $totalByProgram[$program] += $count;
+                $cells[] = formatReportCount($count);
+            }
+        }
+        foreach ($programs as $program) {
+            $count = $totalByProgram[$program];
+            $cells[] = $count > 0 ? ($count . ' (' . formatReportPercent($count, $programTotals[$program] ?? 0, false) . '%)') : '-';
+        }
+        $rows[] = reportRow($cells);
+    }
+
+    $totalCells = ['TOTAL'];
+    foreach ($years as $year) {
+        foreach ($programs as $program) {
+            $count = count(array_filter($records, function ($record) use ($program, $year) {
+                return $record['program'] === $program && $record['year'] === (string)$year;
+            }));
+            $totalCells[] = formatReportCount($count, false);
+        }
+    }
+    foreach ($programs as $program) {
+        $totalCells[] = formatReportCount($programTotals[$program] ?? 0, false) . ' (100%)';
+    }
+    $rows[] = reportRow($totalCells, true);
+
+    return reportTable('7', 'Present Employment Status of ' . reportProgramPhrase($programs) . ' Graduates', $headers, $rows);
+}
+
+function countRecordsForStatus($records, $program, $year, $questionId, $category) {
+    if ($questionId === null) {
+        return 0;
+    }
+
+    $count = 0;
+    foreach ($records as $record) {
+        if ($record['program'] !== $program || $record['year'] !== (string)$year) {
+            continue;
+        }
+
+        foreach (answerValues($record['answers'][$questionId] ?? null) as $value) {
+            if (valueMatchesCategory($value, $category)) {
+                $count++;
+                break;
+            }
+        }
+    }
+
+    return $count;
+}
+
+function buildPlaceOfWorkTable($records, $programs, $years, $questionIds) {
+    $headers = [
+        [reportCell('Year Graduated', 1, 3), reportCell('Place of Work', count($programs) * 4)],
+        [reportCell('Local', count($programs) * 2), reportCell('Abroad', count($programs) * 2)],
+        [],
+    ];
+    foreach (['Local', 'Abroad'] as $_place) {
+        foreach ($programs as $program) {
+            $headers[2][] = reportCell($program . ' Frequency');
+            $headers[2][] = reportCell('Percentage (%)');
+        }
+    }
+    $rows = [];
+    $totals = ['Local' => array_fill_keys($programs, 0), 'Abroad' => array_fill_keys($programs, 0)];
+    $programTotals = countRecordsByProgram($records, $programs);
+
+    foreach ($years as $year) {
+        $cells = [$year];
+        foreach (['Local', 'Abroad'] as $place) {
+            foreach ($programs as $program) {
+                $count = countPlaceOfWork($records, $program, $year, $questionIds['place_work'], $place);
+                $totals[$place][$program] += $count;
+                $yearProgramTotal = count(array_filter($records, function ($record) use ($program, $year) {
+                    return $record['program'] === $program && $record['year'] === (string)$year;
+                }));
+                $cells[] = formatReportCount($count);
+                $cells[] = formatReportPercent($count, $yearProgramTotal);
+            }
+        }
+        $rows[] = reportRow($cells);
+    }
+
+    $totalCells = ['TOTALS'];
+    foreach (['Local', 'Abroad'] as $place) {
+        foreach ($programs as $program) {
+            $count = $totals[$place][$program];
+            $totalCells[] = formatReportCount($count, false);
+            $totalCells[] = formatReportPercent($count, $programTotals[$program] ?? 0, false);
+        }
+    }
+    $rows[] = reportRow($totalCells, true);
+
+    return reportTable('10', 'Place of Work of the ' . reportProgramPhrase($programs) . ' Graduates', $headers, $rows);
+}
+
+function countPlaceOfWork($records, $program, $year, $questionId, $place) {
+    if ($questionId === null) {
+        return 0;
+    }
+
+    $count = 0;
+    foreach ($records as $record) {
+        if ($record['program'] !== $program || $record['year'] !== (string)$year) {
+            continue;
+        }
+
+        $text = normalizeReportText(answerLabel($record['answers'][$questionId] ?? null));
+        if ($place === 'Local' && strpos($text, 'local') !== false) {
+            $count++;
+        }
+        if ($place === 'Abroad' && (strpos($text, 'abroad') !== false || strpos($text, 'overseas') !== false)) {
+            $count++;
+        }
+    }
+
+    return $count;
+}
+
+function buildReasonRelationTable($number, $title, $program, $records, $questionIds) {
+    $categories = getReasonRelationCategories();
+    $headers = [[reportCell('Reasons', 1, 1, 'left'), reportCell('Staying*'), reportCell('Accepting**'), reportCell('Changing*')]];
+    $programRecords = array_values(array_filter($records, function ($record) use ($program) {
+        return $record['program'] === $program;
+    }));
+    $employedRecords = array_values(array_filter($programRecords, function ($record) use ($questionIds) {
+        return getRecordEmploymentStatus($record, $questionIds) === true;
+    }));
+    $stayingCounts = countCategoriesForProgram($records, $program, $questionIds['staying_reason'], $categories);
+    $acceptingCounts = countCategoriesForProgram($records, $program, null, $categories);
+    $changingCounts = countCategoriesForProgram($records, $program, $questionIds['changing_reason'], $categories);
+
+    $rows = [];
+    foreach ($categories as $category) {
+        $label = $category['label'];
+        $rows[] = reportRow([
+            $label,
+            formatCountWithPercent($stayingCounts[$label] ?? 0, count($employedRecords)),
+            formatCountWithPercent($acceptingCounts[$label] ?? 0, count($programRecords)),
+            formatCountWithPercent($changingCounts[$label] ?? 0, count($employedRecords)),
+        ]);
+    }
+
+    return reportTable($number, $title, $headers, $rows, '', '*Based on the total number of presently employed graduates. **Based on the total number of graduate respondents.');
+}
+
+function formatCountWithPercent($count, $denominator) {
+    $count = (int)$count;
+    return $count === 0 ? '-' : $count . ' (' . formatReportPercent($count, $denominator, false) . '%)';
+}
+
+function getYesNoCategories() {
+    return [
+        makeCategory('YES', ['yes', 'yes, directly related']),
+        makeCategory('NO', ['no', 'not related', 'no (proceed to question 35)', 'no (please proceed to question 27 and 28)']),
+    ];
+}
+
+function getPursueDegreeCategories() {
+    return [
+        makeCategory('Prospect of Career Advancement', ['career advancement', 'prospect for career advancement']),
+        makeCategory('Influence of Parents or Relatives', ['influence of parents', 'parents/relatives']),
+        makeCategory('Affordable for the Family', ['affordable for family', 'affordable for the family']),
+        makeCategory('Availability of Course Offering in NC', ['availability of the course', 'availability of course']),
+        makeCategory('Prospect of Immediate Employment', ['prospect for immediate employment']),
+        makeCategory('Good grades in High School', ['good grades in high school']),
+        makeCategory('Opportunity of Employment Abroad', ['opportunity for employment abroad']),
+        makeCategory('High Grades in the course or subject related to the course', ['high grades in the course', 'high grades in the course/subject']),
+        makeCategory('Passion for the Profession', ['passion for the profession', 'strong passion for the field', 'strong passion for the profession']),
+        makeCategory('Status or Prestige of the Profession', ['status/prestige', 'status or prestige']),
+        makeCategory('Prospect of Attractive Compensation', ['attractive compensation']),
+        makeCategory('No other choice or no better idea', ['no particular choice', 'no better idea']),
+        makeCategory('Peer Influence', ['peer influence']),
+        makeCategory('Inspired by a Role Model', ['inspired by a role model']),
+    ];
+}
+
+function getHonorCategories() {
+    return makeCategories(['Academic Excellence', 'Outstanding Student', "Dean's Lister", 'Best in OJT', 'Best in Thesis', 'Other Awards']);
+}
+
+function getEmploymentStatusCategories() {
+    return [
+        makeCategory('Contractual', ['contractual']),
+        makeCategory('Regular or Permanent', ['regular/permanent', 'regular', 'permanent']),
+        makeCategory('Temporary', ['temporary']),
+        makeCategory('Casual', ['casual']),
+        makeCategory('Self-employed', ['self-employed', 'self employed']),
+    ];
+}
+
+function getOccupationCategories() {
+    return [
+        makeCategory('Government Service', ['government service']),
+        makeCategory('Technical & Associate Professional', ['technical', 'associate professional', 'software developer', 'web developer', 'teacher']),
+        makeCategory('Service Workers', ['service worker', 'front desk', 'hotel']),
+        makeCategory('Special Occupation', ['special occupation']),
+        makeCategory('Clerks', ['clerk', 'clerical']),
+        makeCategory('Trade and Related Works', ['trade']),
+        makeCategory('Laborers and Unskilled Workers', ['laborer', 'unskilled']),
+        makeCategory('Plant Machine Operators', ['machine operator']),
+        makeCategory('Self-Employed', ['self-employed', 'self employed']),
+        makeCategory('Others', ['other', 'others', 'n/a']),
+    ];
+}
+
+function getLineBusinessCategories() {
+    return [
+        makeCategory('Education', ['education']),
+        makeCategory('Financial Intermediation', ['financial intermediation', 'finance']),
+        makeCategory('Transport and Storage', ['transport', 'storage']),
+        makeCategory('Wholesale and Retail', ['wholesale', 'retail']),
+        makeCategory('Other Community-related Works', ['other community']),
+        makeCategory('Health and Social Works', ['health', 'social work']),
+        makeCategory('Real Estate', ['real estate']),
+        makeCategory('Construction', ['construction']),
+        makeCategory('Manufacturing', ['manufacturing']),
+        makeCategory('IT', ['information technology', 'it/technology']),
+        makeCategory('Public Administration', ['public administration']),
+        makeCategory('BPO', ['bpo']),
+        makeCategory('Hotel and Restaurant', ['hotel', 'restaurant', 'hospitality']),
+        makeCategory('Agriculture', ['agriculture']),
+        makeCategory('Utilities (Electricity and Water Supply)', ['electricity', 'water supply', 'utilities']),
+        makeCategory('Others', ['others', 'other', 'n/a']),
+    ];
+}
+
+function getJobLevelCategories() {
+    return [
+        makeCategory('Professional, Technical, or Supervisory', ['professional', 'technical', 'supervisory']),
+        makeCategory('Managerial/Executive', ['managerial', 'executive']),
+        makeCategory('Rank and Clerical', ['rank and file', 'rank or clerical', 'clerical']),
+        makeCategory('Self-Employed', ['self-employed', 'self employed']),
+    ];
+}
+
+function getReasonRelationCategories() {
+    return [
+        makeCategory('Salaries and Benefits', ['salary', 'salaries and benefits']),
+        makeCategory('Career Challenge', ['career challenge', 'career advancement', 'career growth']),
+        makeCategory('Related to Special Skill', ['related to special skill', 'related to special skills']),
+        makeCategory('Related to Course/Program of Study', ['related to course', 'course/program']),
+        makeCategory('Proximity to residence', ['proximity to residence']),
+        makeCategory('Family Influence', ['family influence']),
+    ];
+}
+
+function getDurationCategories($includeMoreThanFourYears) {
+    $categories = [
+        makeCategory('Less than a month', ['less than a month', 'less than 1 month']),
+        makeCategory('1 - 6 months', ['1-6 months', '1 to 6 months', '1 - 6 months']),
+        makeCategory('7 - 11 months', ['7-11 months', '7 - 11 months']),
+        makeCategory('1 - less than 2 years', ['1 year to less than 2 years', '1 - less than 2 years']),
+        makeCategory('2 - less than 3 years', ['2 years to less than 3 years', '2 - less than 3 years']),
+    ];
+    if ($includeMoreThanFourYears) {
+        $categories[] = makeCategory('3 - less than 4 years', ['3 - less than 4 years']);
+        $categories[] = makeCategory('More than 4 years', ['more than 4 years', 'more than 3 years']);
+    } else {
+        $categories[] = makeCategory('More than 3 years', ['more than 3 years', 'more than 4 years']);
+    }
+
+    return $categories;
+}
+
+function getFindJobCategories() {
+    return [
+        makeCategory('As walk-in Applicant', ['walk-in applicant']),
+        makeCategory('Information from a friend', ['information from friends', 'information from a friend']),
+        makeCategory('Recommended by someone', ['recommended by someone']),
+        makeCategory('Response to an Advertisement', ['response to job advertisement', 'response to an advertisement']),
+        makeCategory('(School) PESO/Placement Office', ['placement officer', 'peso']),
+        makeCategory('Family Business', ['family business']),
+        makeCategory('Job Fair', ['job fair']),
+    ];
+}
+
+function getSalaryCategories() {
+    return [
+        makeCategory('Below Php 5,000', ['below php5,000', 'below php 5,000', 'below']),
+        makeCategory('Php 5,000 - less than Php 10,000', ['5,000.00 to less than', '5,000 - php10,000', '5,000 - 10,000']),
+        makeCategory('Php 10,000 - less than Php 15,000', ['10,000.00 to less than', '10,000 - php15,000', '10,000 - 15,000']),
+        makeCategory('Php 15,000 - less than Php 20,000', ['15,000.00 to less than', '15,000 - php20,000', '15,000 - 20,000']),
+        makeCategory('Php 20,000 - less than Php 25,000', ['20,000.00 to less than', '20,000 - php25,000', '20,000 - 25,000']),
+        makeCategory('Php 25,000 and above', ['25,000 and above']),
+    ];
+}
+
+function getCompetencyCategories() {
+    return [
+        makeCategory('Communication Skills', ['communication skills']),
+        makeCategory('Human Relation Skills', ['human relation', 'human relations']),
+        makeCategory('Problem-Solving Skills', ['problem-solving', 'problem solving']),
+        makeCategory('Critical Thinking Skills', ['critical thinking']),
+        makeCategory('Entrepreneurial Skills', ['entrepreneurial']),
+        makeCategory('Information Technology Skills', ['information technology']),
+    ];
 }
 
 function analyzeEmploymentData($responses, $questions, $questionResponseKeys) {

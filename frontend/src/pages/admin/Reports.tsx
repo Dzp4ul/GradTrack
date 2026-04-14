@@ -66,7 +66,10 @@ interface SurveyQuestionAnalytics {
   question_id: number;
   question_text: string;
   question_type: string;
+  section?: string;
+  options?: string[];
   total_answers: number;
+  skipped_answers?: number;
   data: any;
 }
 
@@ -90,6 +93,34 @@ interface SurveyAnalyticsData {
   completion_rate: number;
   questions_analytics: SurveyQuestionAnalytics[];
   employment_insights?: SurveyEmploymentInsights;
+  report_tables?: SurveyReportTable[];
+}
+
+interface SurveyQuestionTableRow {
+  label: string;
+  count: number;
+}
+
+interface SurveyReportHeaderCell {
+  label: string;
+  colspan?: number;
+  rowspan?: number;
+  align?: 'left' | 'center' | 'right';
+}
+
+interface SurveyReportRow {
+  cells: string[];
+  is_total?: boolean;
+  is_group?: boolean;
+}
+
+interface SurveyReportTable {
+  number: string;
+  title: string;
+  section_title?: string;
+  headers: SurveyReportHeaderCell[][];
+  rows: SurveyReportRow[];
+  note?: string;
 }
 
 const COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
@@ -265,7 +296,12 @@ export default function Reports() {
 
   const fetchSurveyAnalytics = (surveyId: number) => {
     setSurveyAnalyticsLoading(true);
-    fetch(`${API_BASE}/surveys/analytics.php?survey_id=${surveyId}`)
+    const params = new URLSearchParams({ survey_id: surveyId.toString() });
+    if (selectedDepartment !== 'all') {
+      params.set('program', selectedDepartment);
+    }
+
+    fetch(`${API_BASE}/surveys/analytics.php?${params.toString()}`)
       .then((r) => r.json())
       .then((res) => {
         if (res.success) {
@@ -974,23 +1010,21 @@ export default function Reports() {
               </select>
             </div>
           )}
-          {tab !== 'surveys' && (
-            <div className="flex items-center gap-2">
-              <label className="text-sm font-medium text-gray-700">Department:</label>
-              <select
-                value={selectedDepartment}
-                onChange={(e) => setSelectedDepartment(e.target.value)}
-                className="border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-              >
-                <option value="all">All Departments</option>
-                {departmentOptions.map((department) => (
-                  <option key={department.code} value={department.code}>
-                    {department.code} - {department.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-medium text-gray-700">{tab === 'surveys' ? 'Program:' : 'Department:'}</label>
+            <select
+              value={selectedDepartment}
+              onChange={(e) => setSelectedDepartment(e.target.value)}
+              className="border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            >
+              <option value="all">{tab === 'surveys' ? 'All Programs' : 'All Departments'}</option>
+              {departmentOptions.map((department) => (
+                <option key={department.code} value={department.code}>
+                  {department.code} - {department.name}
+                </option>
+              ))}
+            </select>
+          </div>
           {tab !== 'surveys' && (
             <>
               <button
@@ -1601,203 +1635,20 @@ export default function Reports() {
                             <p className="text-sm text-gray-500">Survey Analytics & Insights</p>
                           </div>
 
-                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                            <SurveyAnalyticsStatCard icon={Users} label="Total Responses" value={surveyAnalytics.total_responses.toString()} color="bg-blue-100 text-blue-700" />
-                            <SurveyAnalyticsStatCard icon={TrendingUp} label="Response Rate" value={`${surveyAnalytics.response_rate}%`} color="bg-green-100 text-green-700" />
-                            <SurveyAnalyticsStatCard icon={CheckCircle2} label="Completion Rate" value={`${surveyAnalytics.completion_rate}%`} color="bg-purple-100 text-purple-700" />
-                            <SurveyAnalyticsStatCard icon={BarChart3} label="Questions" value={surveyAnalytics.questions_analytics.length.toString()} color="bg-orange-100 text-orange-700" />
-                          </div>
-
-                          {surveyAnalytics.employment_insights && (
-                            <div className="bg-white rounded-xl shadow-sm border p-6">
-                              <h3 className="text-xl font-bold text-[#1b2a4a] mb-6">Employment Insights</h3>
-
-                              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-                                <div className="border rounded-xl p-5">
-                                  <div className="flex items-center gap-3 mb-4">
-                                    <div className="p-3 bg-green-100 rounded-lg">
-                                      <Target className="w-6 h-6 text-green-700" />
-                                    </div>
-                                    <div>
-                                      <p className="text-sm text-gray-600">Employment Rate</p>
-                                      <p className="text-3xl font-bold text-[#1b2a4a]">{surveyAnalytics.employment_insights.employment_rate}%</p>
-                                    </div>
-                                  </div>
-                                  <div className="space-y-2 text-sm">
-                                    <div className="flex justify-between">
-                                      <span className="text-gray-600">Employed:</span>
-                                      <span className="font-semibold">{surveyAnalytics.employment_insights.employed_count}</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                      <span className="text-gray-600">Unemployed:</span>
-                                      <span className="font-semibold">{surveyAnalytics.employment_insights.unemployed_count}</span>
-                                    </div>
-                                  </div>
-                                </div>
-
-                                <div className="border rounded-xl p-5">
-                                  <div className="flex items-center gap-3 mb-4">
-                                    <div className="p-3 bg-blue-100 rounded-lg">
-                                      <Target className="w-6 h-6 text-blue-700" />
-                                    </div>
-                                    <div>
-                                      <p className="text-sm text-gray-600">Job Alignment Rate</p>
-                                      <p className="text-3xl font-bold text-[#1b2a4a]">{surveyAnalytics.employment_insights.alignment_rate}%</p>
-                                    </div>
-                                  </div>
-                                  <div className="space-y-2 text-sm">
-                                    <div className="flex justify-between">
-                                      <span className="text-gray-600">Aligned:</span>
-                                      <span className="font-semibold text-green-600">{surveyAnalytics.employment_insights.aligned_count}</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                      <span className="text-gray-600">Partially Aligned:</span>
-                                      <span className="font-semibold text-orange-600">{surveyAnalytics.employment_insights.partially_aligned_count}</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                      <span className="text-gray-600">Not Aligned:</span>
-                                      <span className="font-semibold text-red-600">{surveyAnalytics.employment_insights.not_aligned_count}</span>
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-
-                              {Object.keys(surveyAnalytics.employment_insights.salary_distribution).length > 0 && (
-                                <div className="border rounded-xl p-5 mb-6">
-                                  <h4 className="text-lg font-semibold text-[#1b2a4a] mb-4">Salary Distribution</h4>
-                                  <ResponsiveContainer width="100%" height={250}>
-                                    <BarChart data={Object.entries(surveyAnalytics.employment_insights.salary_distribution).map(([range, count]) => ({ range, count }))}>
-                                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                      <XAxis dataKey="range" tick={{ fontSize: 11 }} angle={-15} textAnchor="end" height={80} />
-                                      <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
-                                      <Tooltip contentStyle={{ borderRadius: 8 }} />
-                                      <Bar dataKey="count" fill="#3b82f6" radius={[6, 6, 0, 0]} />
-                                    </BarChart>
-                                  </ResponsiveContainer>
-                                </div>
-                              )}
-
-                              {Object.keys(surveyAnalytics.employment_insights.time_to_job_distribution).length > 0 && (
-                                <div className="border rounded-xl p-5">
-                                  <h4 className="text-lg font-semibold text-[#1b2a4a] mb-4">Time to Find First Job</h4>
-                                  <ResponsiveContainer width="100%" height={250}>
-                                    <BarChart data={Object.entries(surveyAnalytics.employment_insights.time_to_job_distribution).map(([time, count]) => ({ time, count }))}>
-                                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                                      <XAxis dataKey="time" tick={{ fontSize: 11 }} angle={-15} textAnchor="end" height={80} />
-                                      <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
-                                      <Tooltip contentStyle={{ borderRadius: 8 }} />
-                                      <Bar dataKey="count" fill="#22c55e" radius={[6, 6, 0, 0]} />
-                                    </BarChart>
-                                  </ResponsiveContainer>
-                                </div>
-                              )}
+                          {!(surveyAnalytics.report_tables && surveyAnalytics.report_tables.length > 0) && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                              <SurveyAnalyticsStatCard icon={Users} label="Total Responses" value={surveyAnalytics.total_responses.toString()} color="bg-blue-100 text-blue-700" />
+                              <SurveyAnalyticsStatCard icon={TrendingUp} label="Response Rate" value={`${surveyAnalytics.response_rate}%`} color="bg-green-100 text-green-700" />
+                              <SurveyAnalyticsStatCard icon={CheckCircle2} label="Completion Rate" value={`${surveyAnalytics.completion_rate}%`} color="bg-purple-100 text-purple-700" />
+                              <SurveyAnalyticsStatCard icon={BarChart3} label="Questions" value={surveyAnalytics.questions_analytics.length.toString()} color="bg-orange-100 text-orange-700" />
                             </div>
                           )}
 
-                          <div className="bg-white rounded-xl shadow-sm border p-6">
-                            <h3 className="text-xl font-bold text-[#1b2a4a] mb-6">Question-by-Question Analysis</h3>
-
-                            <div className="space-y-8">
-                              {surveyAnalytics.questions_analytics.map((qa, index) => (
-                                <div key={qa.question_id} className="border-b pb-6 last:border-b-0">
-                                  <div className="mb-4">
-                                    <h4 className="text-base font-semibold text-[#1b2a4a] mb-1">Q{index + 1}: {qa.question_text}</h4>
-                                    <p className="text-sm text-gray-500">{qa.total_answers} responses • {qa.question_type.replace('_', ' ')}</p>
-                                  </div>
-
-                                  {(qa.question_type === 'multiple_choice' || qa.question_type === 'rating') && Array.isArray(qa.data) && (
-                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                      <div className="space-y-3">
-                                        {qa.data.map((item: any, i: number) => (
-                                          <div key={i} className="flex items-center gap-3">
-                                            <div className="flex-1">
-                                              <div className="flex justify-between text-sm mb-1">
-                                                <span className="text-gray-700">{item.option}</span>
-                                                <span className="font-semibold text-[#1b2a4a]">{item.count} ({item.percentage}%)</span>
-                                              </div>
-                                              <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
-                                                <div className="h-full bg-blue-500 rounded-full transition-all" style={{ width: `${item.percentage}%` }} />
-                                              </div>
-                                            </div>
-                                          </div>
-                                        ))}
-                                      </div>
-                                      <div className="flex items-center justify-center">
-                                        <div className="w-64 h-64">
-                                          <ResponsiveContainer width="100%" height="100%">
-                                            <PieChart>
-                                              <Pie
-                                                data={qa.data}
-                                                cx="50%"
-                                                cy="50%"
-                                                outerRadius={80}
-                                                dataKey="count"
-                                                label={({ option, percentage }: any) => `${option}: ${percentage}%`}
-                                              >
-                                                {qa.data.map((_: any, i: number) => (
-                                                  <Cell key={i} fill={COLORS[i % COLORS.length]} />
-                                                ))}
-                                              </Pie>
-                                              <Tooltip />
-                                            </PieChart>
-                                          </ResponsiveContainer>
-                                        </div>
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  {qa.question_type === 'checkbox' && Array.isArray(qa.data) && (
-                                    <div className="space-y-3">
-                                      {qa.data.map((item: any, i: number) => (
-                                        <div key={i} className="flex items-center gap-3">
-                                          <div className="flex-1">
-                                            <div className="flex justify-between text-sm mb-1">
-                                              <span className="text-gray-700">{item.option}</span>
-                                              <span className="font-semibold text-[#1b2a4a]">{item.count} ({item.percentage}%)</span>
-                                            </div>
-                                            <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
-                                              <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${item.percentage}%` }} />
-                                            </div>
-                                          </div>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  )}
-
-                                  {qa.question_type === 'text' && qa.data && (
-                                    <div className="bg-gray-50 rounded-lg p-4">
-                                      <div className="grid grid-cols-3 gap-4 mb-4 text-center">
-                                        <div>
-                                          <p className="text-2xl font-bold text-[#1b2a4a]">{qa.data.total_responses}</p>
-                                          <p className="text-xs text-gray-600">Responses</p>
-                                        </div>
-                                        <div>
-                                          <p className="text-2xl font-bold text-[#1b2a4a]">{qa.data.avg_length}</p>
-                                          <p className="text-xs text-gray-600">Avg. Length</p>
-                                        </div>
-                                        <div>
-                                          <p className="text-2xl font-bold text-[#1b2a4a]">{qa.data.sample_responses?.length || 0}</p>
-                                          <p className="text-xs text-gray-600">Samples</p>
-                                        </div>
-                                      </div>
-                                      {qa.data.sample_responses && qa.data.sample_responses.length > 0 && (
-                                        <div>
-                                          <p className="text-sm font-semibold text-gray-700 mb-2">Sample Responses:</p>
-                                          <div className="space-y-2">
-                                            {qa.data.sample_responses.map((response: string, i: number) => (
-                                              <div key={i} className="bg-white rounded p-3 text-sm text-gray-700 border">
-                                                "{response}"
-                                              </div>
-                                            ))}
-                                          </div>
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
+                          {surveyAnalytics.report_tables && surveyAnalytics.report_tables.length > 0 ? (
+                            <SurveyNumberedReportTables tables={surveyAnalytics.report_tables} />
+                          ) : (
+                            <SurveyQuestionReportTable analytics={surveyAnalytics} />
+                          )}
                         </div>
                       )}
                     </>
@@ -1843,6 +1694,214 @@ function SurveyAnalyticsStatCard({ icon: Icon, label, value, color }: {
       <p className="text-3xl font-bold text-[#1b2a4a]">{value}</p>
     </div>
   );
+}
+
+function SurveyNumberedReportTables({ tables }: { tables: SurveyReportTable[] }) {
+  return (
+    <div className="bg-white rounded-xl shadow-sm border p-5 sm:p-8">
+      <div className="space-y-10 text-black" style={{ fontFamily: '"Times New Roman", Times, serif' }}>
+        {tables.map((table, index) => (
+          <ThesisReportTable key={`${table.number}-${index}`} table={table} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ThesisReportTable({ table }: { table: SurveyReportTable }) {
+  return (
+    <section className="break-inside-avoid">
+      {table.section_title && (
+        <h3 className="text-base font-bold mb-2">{table.section_title}</h3>
+      )}
+      <h4 className="text-base font-bold mb-1">
+        Table {table.number}. {table.title}
+      </h4>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[620px] border-collapse text-[15px] leading-tight">
+          <thead>
+            {table.headers.map((headerRow, rowIndex) => (
+              <tr key={rowIndex}>
+                {headerRow.map((cell, cellIndex) => (
+                  <th
+                    key={`${rowIndex}-${cellIndex}`}
+                    colSpan={cell.colspan ?? 1}
+                    rowSpan={cell.rowspan ?? 1}
+                    className={`px-2 py-1 font-bold ${
+                      rowIndex === 0 ? 'border-t border-black' : ''
+                    } ${
+                      rowIndex === table.headers.length - 1 ? 'border-b border-black' : ''
+                    } ${getReportCellAlignClass(cell.align)}`}
+                  >
+                    {cell.label}
+                  </th>
+                ))}
+              </tr>
+            ))}
+          </thead>
+          <tbody>
+            {table.rows.map((row, rowIndex) => (
+              <tr key={rowIndex}>
+                {row.cells.map((cell, cellIndex) => (
+                  <td
+                    key={`${rowIndex}-${cellIndex}`}
+                    className={`px-2 py-0.5 ${
+                      row.is_total ? 'font-bold border-t border-black' : ''
+                    } ${
+                      row.is_group ? 'font-bold' : ''
+                    } ${
+                      rowIndex === table.rows.length - 1 ? 'border-b border-black' : ''
+                    } ${cellIndex === 0 ? 'text-left' : 'text-center'}`}
+                  >
+                    {cell}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {table.note && (
+        <p className="mt-1 text-sm italic">{table.note}</p>
+      )}
+    </section>
+  );
+}
+
+function getReportCellAlignClass(align?: 'left' | 'center' | 'right') {
+  if (align === 'left') {
+    return 'text-left';
+  }
+  if (align === 'right') {
+    return 'text-right';
+  }
+  return 'text-center';
+}
+
+function SurveyQuestionReportTable({ analytics }: { analytics: SurveyAnalyticsData }) {
+  return (
+    <div className="bg-white rounded-xl shadow-sm border p-6">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between mb-5">
+        <div>
+          <h3 className="text-xl font-bold text-[#1b2a4a]">Survey Question Report</h3>
+          <p className="text-sm text-gray-500 mt-1">Percentages are calculated against total submitted responses.</p>
+        </div>
+        <div className="text-sm font-semibold text-[#1b2a4a]">
+          {analytics.total_responses} total responses
+        </div>
+      </div>
+
+      <div className="overflow-x-auto rounded-lg border">
+        <table className="min-w-full border-collapse text-sm">
+          <thead className="bg-[#1b2a4a] text-white">
+            <tr>
+              <th className="px-4 py-3 text-left font-semibold w-36">Section</th>
+              <th className="px-4 py-3 text-left font-semibold w-20">No.</th>
+              <th className="px-4 py-3 text-left font-semibold min-w-[320px]">Survey Question</th>
+              <th className="px-4 py-3 text-left font-semibold w-36">Type</th>
+              <th className="px-4 py-3 text-left font-semibold min-w-[220px]">Answer / Option</th>
+              <th className="px-4 py-3 text-right font-semibold w-28">Frequency</th>
+              <th className="px-4 py-3 text-right font-semibold w-28">Percentage</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200">
+            {analytics.questions_analytics.length === 0 ? (
+              <tr>
+                <td colSpan={7} className="px-4 py-8 text-center text-gray-500">
+                  No survey questions found.
+                </td>
+              </tr>
+            ) : (
+              analytics.questions_analytics.map((question, questionIndex) => {
+                const rows = getSurveyQuestionTableRows(question, analytics.total_responses);
+                const section = question.section?.trim() || 'General';
+                const questionType = formatSurveyQuestionType(question.question_type);
+
+                return rows.map((row, rowIndex) => (
+                  <tr key={`${question.question_id}-${rowIndex}`} className={questionIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50/60'}>
+                    {rowIndex === 0 && (
+                      <>
+                        <td rowSpan={rows.length} className="align-top px-4 py-4 text-gray-700 border-r">
+                          {section}
+                        </td>
+                        <td rowSpan={rows.length} className="align-top px-4 py-4 font-semibold text-[#1b2a4a] border-r">
+                          Q{questionIndex + 1}
+                        </td>
+                        <td rowSpan={rows.length} className="align-top px-4 py-4 text-[#1b2a4a] border-r">
+                          {question.question_text}
+                        </td>
+                        <td rowSpan={rows.length} className="align-top px-4 py-4 text-gray-600 border-r">
+                          {questionType}
+                        </td>
+                      </>
+                    )}
+                    <td className="px-4 py-3 text-gray-700 border-r">{row.label}</td>
+                    <td className="px-4 py-3 text-right font-semibold text-[#1b2a4a] border-r">{row.count}</td>
+                    <td className="px-4 py-3 text-right text-gray-700">{formatSurveyPercentage(row.count, analytics.total_responses)}</td>
+                  </tr>
+                ));
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function getSurveyQuestionTableRows(question: SurveyQuestionAnalytics, totalResponses: number): SurveyQuestionTableRow[] {
+  const rows: SurveyQuestionTableRow[] = [];
+  const skippedAnswers = Math.max(
+    Number(question.skipped_answers ?? totalResponses - Number(question.total_answers || 0)),
+    0,
+  );
+  const isChoiceQuestion = ['multiple_choice', 'radio', 'rating', 'checkbox'].includes(question.question_type);
+
+  if (isChoiceQuestion && Array.isArray(question.data)) {
+    question.data.forEach((item: any) => {
+      rows.push({
+        label: String(item.option ?? 'No answer'),
+        count: Number(item.count ?? 0),
+      });
+    });
+  } else {
+    rows.push({
+      label: 'Answered responses',
+      count: Number(question.total_answers || 0),
+    });
+  }
+
+  if (skippedAnswers > 0) {
+    rows.push({
+      label: 'No answer',
+      count: skippedAnswers,
+    });
+  }
+
+  if (rows.length === 0) {
+    rows.push({
+      label: 'No answer',
+      count: 0,
+    });
+  }
+
+  return rows;
+}
+
+function formatSurveyQuestionType(type: string): string {
+  return type
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function formatSurveyPercentage(count: number, total: number): string {
+  if (!total) {
+    return '0%';
+  }
+
+  return `${((count / total) * 100).toFixed(1)}%`;
 }
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
