@@ -1,4 +1,4 @@
-why its locked, i want that<?php
+<?php
 
 if (!function_exists('gradtrack_start_session_if_needed')) {
     function gradtrack_start_session_if_needed(): void
