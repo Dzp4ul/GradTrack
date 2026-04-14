@@ -183,12 +183,33 @@ function getSurveyResponseCount(PDO $db, ?int $surveyId): int
     return (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
 }
 
+function getSurveyTitle(PDO $db, ?int $surveyId): string
+{
+    if ($surveyId === null) {
+        return '';
+    }
+
+    $stmt = $db->prepare("SELECT title FROM surveys WHERE id = :survey_id LIMIT 1");
+    $stmt->bindValue(':survey_id', $surveyId, PDO::PARAM_INT);
+    $stmt->execute();
+
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $row ? (string)$row['title'] : '';
+}
+
+function getTotalEligibleGraduates(PDO $db): int
+{
+    $stmt = $db->query("SELECT COUNT(*) as total FROM graduates WHERE status = 'active' OR status IS NULL");
+    return (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
+}
+
 try {
     $selectedSurveyId = getSelectedSurveyId($db);
 
     if ($selectedSurveyId === null) {
         $stmt = $db->query("SELECT COUNT(*) as total FROM surveys WHERE status = 'active'");
         $activeSurveys = (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
+        $totalEligibleGraduates = getTotalEligibleGraduates($db);
 
         echo json_encode([
             "success" => true,
@@ -205,7 +226,11 @@ try {
                 "top_jobs" => [],
                 "recommended_actions" => [],
                 "total_responses" => 0,
-                "active_surveys" => $activeSurveys
+                "active_surveys" => $activeSurveys,
+                "selected_survey_title" => "",
+                "total_eligible_graduates" => $totalEligibleGraduates,
+                "pending_responses" => $totalEligibleGraduates,
+                "survey_completion_rate" => 0
             ]
         ]);
         exit;
@@ -445,35 +470,39 @@ try {
         ['name' => 'Not Aligned', 'value' => $notAlignedCount, 'percentage' => $totalEmployedForAlignment > 0 ? round(($notAlignedCount / $totalEmployedForAlignment) * 100) : 0],
     ];
 
-    // Top job listings
-    $stmt = $db->query("SELECT job_title, company_name, graduate_count FROM job_listings ORDER BY graduate_count DESC LIMIT 5");
-    $topJobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
-    // If no job listings, create sample data
-    if (empty($topJobs)) {
-        $topJobs = [
-            ['job_title' => 'Software Developer', 'company_name' => 'Tech Corp', 'graduate_count' => 5],
-            ['job_title' => 'Teacher', 'company_name' => 'Public School', 'graduate_count' => 4],
-            ['job_title' => 'Business Analyst', 'company_name' => 'Consulting Firm', 'graduate_count' => 3],
-        ];
-    }
+    // Responses for the selected dashboard survey
+    $totalResponses = getSurveyResponseCount($db, $selectedSurveyId);
+
+    // Survey coverage and active job-post metrics
+    $selectedSurveyTitle = getSurveyTitle($db, $selectedSurveyId);
+    $totalEligibleGraduates = getTotalEligibleGraduates($db);
+    $pendingResponses = max($totalEligibleGraduates - $totalResponses, 0);
+    $surveyCompletionRate = $totalEligibleGraduates > 0
+        ? round(($totalResponses / $totalEligibleGraduates) * 100, 1)
+        : 0;
+    $topJobs = [];
 
     // Recommended actions based on data
     $actions = [];
     foreach ($atRiskPrograms as $p) {
-        $actions[] = "Review " . $p['code'] . " Curriculum";
+        $actions[] = "Review " . $p['code'] . " outcomes with program faculty";
+    }
+    $weakestProgram = !empty($programStats) ? $programStats[count($programStats) - 1] : null;
+    if ($weakestProgram && (float)$weakestProgram['employability_index'] < 80) {
+        $actions[] = "Prioritize employer leads for " . $weakestProgram['code'];
+    }
+    if ($pendingResponses > 0 && $surveyCompletionRate < 85) {
+        $actions[] = "Send reminders to " . $pendingResponses . " graduates without survey responses";
     }
     if ($employmentRate < 75) {
         $actions[] = "Enhance Career Placement Programs";
     }
     if ($alignmentRate < 70) {
-        $actions[] = "Improve Course-Industry Alignment";
+        $actions[] = "Review course-to-career alignment with industry partners";
     }
-    $actions[] = "Strengthen Industry Partnerships";
-    $actions[] = "Expand Internship Opportunities";
-
-    // Responses for the selected dashboard survey
-    $totalResponses = getSurveyResponseCount($db, $selectedSurveyId);
+    if (empty($actions)) {
+        $actions[] = "Maintain monthly outcome review";
+    }
 
     // Active surveys
     $stmt = $db->query("SELECT COUNT(*) as total FROM surveys WHERE status = 'active'");
@@ -494,7 +523,11 @@ try {
             "top_jobs" => $topJobs,
             "recommended_actions" => array_slice($actions, 0, 5),
             "total_responses" => (int)$totalResponses,
-            "active_surveys" => (int)$activeSurveys
+            "active_surveys" => (int)$activeSurveys,
+            "selected_survey_title" => $selectedSurveyTitle,
+            "total_eligible_graduates" => $totalEligibleGraduates,
+            "pending_responses" => $pendingResponses,
+            "survey_completion_rate" => $surveyCompletionRate
         ]
     ]);
 } catch (Exception $e) {

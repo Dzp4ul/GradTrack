@@ -4,7 +4,6 @@ import {
   Briefcase,
   Target,
   AlertTriangle,
-  CheckCircle2,
   ClipboardList,
   BarChart3,
 } from 'lucide-react';
@@ -23,18 +22,42 @@ interface DashboardData {
   employment_rate: number;
   alignment_rate: number;
   avg_time_to_employment: number;
+  selected_survey_id?: number | null;
+  selected_survey_title?: string;
   at_risk_programs: string[];
-  program_stats: { code: string; name: string; employability_index: number }[];
+  program_stats: {
+    code: string;
+    name: string;
+    total_graduates?: number;
+    employed_count?: number;
+    aligned_count?: number;
+    employability_index: number;
+    alignment_index?: number;
+  }[];
   employment_trends: { year: number; employment_rate: number; alignment_rate: number }[];
   alignment_distribution: { name: string; value: number; percentage: number }[];
-  top_jobs: { job_title: string; company_name: string; graduate_count: number }[];
-  recommended_actions: string[];
   total_responses: number;
   active_surveys: number;
+  total_eligible_graduates?: number;
+  pending_responses?: number;
+  survey_completion_rate?: number;
 }
 
 const PIE_COLORS = ['#22c55e', '#f59e0b', '#ef4444'];
 const BAR_COLORS = ['#22c55e', '#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6'];
+const TARGET_EMPLOYMENT_RATE = 80;
+const TARGET_ALIGNMENT_RATE = 70;
+
+const numberFormatter = new Intl.NumberFormat('en-US');
+
+function formatNumber(value: number | null | undefined) {
+  return numberFormatter.format(Number(value ?? 0));
+}
+
+function formatPercent(value: number | null | undefined) {
+  const normalized = Number(value ?? 0);
+  return Number.isInteger(normalized) ? `${normalized}` : normalized.toFixed(1);
+}
 
 export default function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
@@ -64,12 +87,46 @@ export default function Dashboard() {
           employment_rate: 78,
           alignment_rate: 62,
           avg_time_to_employment: 5.4,
+          selected_survey_id: null,
+          selected_survey_title: 'Graduate Tracer Study Survey',
           at_risk_programs: [],
           program_stats: [
-            { code: 'BSCS', name: 'BS Computer Science', employability_index: 82 },
-            { code: 'BSHM', name: 'BS Hospitality Management', employability_index: 75 },
-            { code: 'BSED', name: 'BS Secondary Education', employability_index: 70 },
-            { code: 'BEED', name: 'BS Elementary Education', employability_index: 68 },
+            {
+              code: 'BSCS',
+              name: 'BS Computer Science',
+              total_graduates: 7,
+              employed_count: 6,
+              aligned_count: 4,
+              employability_index: 82,
+              alignment_index: 67,
+            },
+            {
+              code: 'BSHM',
+              name: 'BS Hospitality Management',
+              total_graduates: 5,
+              employed_count: 4,
+              aligned_count: 2,
+              employability_index: 75,
+              alignment_index: 50,
+            },
+            {
+              code: 'BSED',
+              name: 'BS Secondary Education',
+              total_graduates: 4,
+              employed_count: 3,
+              aligned_count: 2,
+              employability_index: 70,
+              alignment_index: 67,
+            },
+            {
+              code: 'BEED',
+              name: 'BS Elementary Education',
+              total_graduates: 4,
+              employed_count: 3,
+              aligned_count: 2,
+              employability_index: 68,
+              alignment_index: 67,
+            },
           ],
           employment_trends: [
             { year: 2019, employment_rate: 80, alignment_rate: 72 },
@@ -82,18 +139,11 @@ export default function Dashboard() {
             { name: 'Partially Aligned', value: 3, percentage: 20 },
             { name: 'Not Aligned', value: 2, percentage: 15 },
           ],
-          top_jobs: [
-            { job_title: 'Web Developer', company_name: 'Tech Solutions Inc.', graduate_count: 5 },
-            { job_title: 'Marketing Associate', company_name: 'Prime Innovations', graduate_count: 3 },
-            { job_title: 'IT Support Specialist', company_name: 'Global Systems Co.', graduate_count: 4 },
-          ],
-          recommended_actions: [
-            'Enhance IT Internship Programs',
-            'Industry Partnership Initiative',
-            'Offer Data Analytics Course',
-          ],
           total_responses: 6,
           active_surveys: 2,
+          total_eligible_graduates: 20,
+          pending_responses: 14,
+          survey_completion_rate: 30,
         });
       })
       .finally(() => setLoading(false));
@@ -153,36 +203,78 @@ export default function Dashboard() {
     ];
   }, [data?.alignment_distribution]);
 
-  const recommendedActions = useMemo(() => {
-    if (!data) return [];
-    if (data.total_responses === 0) return [];
+  const lowestEmploymentProgram = useMemo(() => {
+    if (!data?.program_stats?.length) return null;
 
-    const actions: string[] = [];
+    return [...data.program_stats]
+      .sort((a, b) => a.employability_index - b.employability_index)[0];
+  }, [data?.program_stats]);
 
-    if (data.at_risk_programs.length > 0) {
-      actions.push(`Prioritize coaching and employer-linkage support for ${data.at_risk_programs.join(', ')}`);
+  const programGapCount = useMemo(() => {
+    if (!data?.program_stats?.length) return 0;
+
+    return data.program_stats.filter((program) =>
+      program.employability_index < TARGET_EMPLOYMENT_RATE
+      || (program.alignment_index ?? 100) < TARGET_ALIGNMENT_RATE
+    ).length;
+  }, [data?.program_stats]);
+
+  const surveySummary = useMemo(() => {
+    if (!data) {
+      return { eligible: 0, pending: 0, rate: 0 };
     }
 
-    if (data.alignment_rate < 70) {
-      actions.push('Review curriculum-to-job mapping with industry partners this semester');
-    }
+    const eligible = data.total_eligible_graduates ?? data.total_responses;
+    const pending = data.pending_responses ?? Math.max(eligible - data.total_responses, 0);
+    const rate = data.survey_completion_rate ?? (eligible > 0
+      ? Number(((data.total_responses / eligible) * 100).toFixed(1))
+      : 0);
 
-    if (data.employment_rate < 80) {
-      actions.push('Launch a targeted placement drive for graduating cohorts with low hiring rates');
-    }
-
-    actions.push('Track monthly program-level outcomes and flag sudden declines early');
-
-    return actions.slice(0, 4);
+    return { eligible, pending, rate };
   }, [data]);
 
-  const topJobs = useMemo(() => {
-    if (!data?.top_jobs?.length) return [];
+  const programPerformanceRows = useMemo(() => {
+    if (!data?.program_stats?.length) return [];
 
-    return [...data.top_jobs]
-      .sort((a, b) => b.graduate_count - a.graduate_count)
+    return [...data.program_stats]
+      .sort((a, b) => a.employability_index - b.employability_index)
       .slice(0, 5);
-  }, [data?.top_jobs]);
+  }, [data?.program_stats]);
+
+  const outcomeGaps = useMemo(() => {
+    if (!data) return [];
+
+    const employedCount = Math.round((data.total_responses * data.employment_rate) / 100);
+    const unemployedCount = Math.max(data.total_responses - employedCount, 0);
+    const notAlignedCount = alignmentDistribution.find((item) => item.name === 'Not Aligned')?.value ?? 0;
+
+    return [
+      {
+        label: 'Pending responses',
+        value: surveySummary.pending,
+        detail: `${formatPercent(surveySummary.rate)}% survey coverage`,
+        color: 'text-emerald-700',
+      },
+      {
+        label: 'Unemployed respondents',
+        value: unemployedCount,
+        detail: `${formatPercent(data.employment_rate)}% employment rate`,
+        color: 'text-blue-700',
+      },
+      {
+        label: 'Not or partly aligned',
+        value: notAlignedCount,
+        detail: `${formatPercent(data.alignment_rate)}% alignment rate`,
+        color: 'text-orange-700',
+      },
+      {
+        label: 'Programs below target',
+        value: programGapCount,
+        detail: `${TARGET_EMPLOYMENT_RATE}% employment / ${TARGET_ALIGNMENT_RATE}% alignment targets`,
+        color: 'text-amber-700',
+      },
+    ];
+  }, [alignmentDistribution, data, programGapCount, surveySummary.pending, surveySummary.rate]);
 
   if (loading) {
     return (
@@ -232,40 +324,48 @@ export default function Dashboard() {
           <p className="text-xs text-gray-400 mt-1">{data.alignment_rate}% Aligned to Course</p>
         </div>
 
-        {/* At-Risk Programs */}
-        <div className="bg-white rounded-xl shadow-sm border p-5">
+        {/* Program Gaps */}
+        <div className="bg-white rounded-lg shadow-sm border p-5">
           <div className="flex items-center gap-2 mb-3">
             <div className="p-2 bg-amber-100 rounded-lg">
               <AlertTriangle className="w-5 h-5 text-amber-600" />
             </div>
-            <span className="text-sm font-medium text-gray-600">At-Risk Programs</span>
+            <span className="text-sm font-medium text-gray-600">Program Gaps</span>
           </div>
           <p className="text-4xl font-bold text-[#1b2a4a]">
-            {data.at_risk_programs.length}
+            {programGapCount}
           </p>
           <p className="text-xs text-gray-400 mt-1">
-            {data.at_risk_programs.length > 0
-              ? `${data.at_risk_programs.join(', ')} need attention`
-              : 'No programs currently flagged'}
+            {programGapCount > 0
+              ? `Below ${TARGET_EMPLOYMENT_RATE}% employment or ${TARGET_ALIGNMENT_RATE}% alignment target`
+              : 'All programs are within target'}
+          </p>
+          <p className="text-xs text-amber-600 mt-2 font-medium">
+            {lowestEmploymentProgram
+              ? `Lowest: ${lowestEmploymentProgram.code} - ${formatPercent(lowestEmploymentProgram.employability_index)}% employed, ${formatPercent(lowestEmploymentProgram.alignment_index)}% aligned`
+              : 'No program response data yet'}
           </p>
         </div>
 
-        {/* Survey Analytics - New Card */}
+        {/* Survey Coverage */}
         <div 
-          onClick={() => navigate('/admin/surveys')}
-          className="bg-gradient-to-br from-purple-50 to-blue-50 rounded-xl shadow-sm border border-purple-200 p-5 cursor-pointer hover:shadow-lg transition-all group"
+          onClick={() => navigate(data.selected_survey_id ? `/admin/surveys/${data.selected_survey_id}/analytics` : '/admin/surveys')}
+          className="bg-white rounded-lg shadow-sm border border-emerald-200 p-5 cursor-pointer hover:shadow-lg hover:border-emerald-300 transition-all group"
         >
           <div className="flex items-center gap-2 mb-3">
-            <div className="p-2 bg-purple-100 rounded-lg group-hover:bg-purple-200 transition">
-              <ClipboardList className="w-5 h-5 text-purple-700" />
+            <div className="p-2 bg-emerald-100 rounded-lg group-hover:bg-emerald-200 transition">
+              <ClipboardList className="w-5 h-5 text-emerald-700" />
             </div>
-            <span className="text-sm font-medium text-gray-600">Survey Analytics</span>
+            <span className="text-sm font-medium text-gray-600">Survey Coverage</span>
           </div>
           <p className="text-4xl font-bold text-[#1b2a4a]">
-            {data.total_responses}
+            {formatPercent(surveySummary.rate)}<span className="text-2xl">%</span>
           </p>
-          <p className="text-xs text-purple-600 mt-1 font-medium flex items-center gap-1">
-            <BarChart3 className="w-3 h-3" /> View Insights →
+          <p className="text-xs text-gray-400 mt-1">
+            {formatNumber(data.total_responses)} of {formatNumber(surveySummary.eligible)} responses
+          </p>
+          <p className="text-xs text-emerald-700 mt-2 font-medium flex items-center gap-1">
+            <BarChart3 className="w-3 h-3" /> Open analytics - {formatNumber(surveySummary.pending)} pending
           </p>
         </div>
       </div>
@@ -329,7 +429,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Row 2: Pie + Actions + Top Jobs */}
+      {/* Row 2: Alignment + Program + Gaps */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Job Alignment Distribution */}
         <div className="bg-white rounded-xl shadow-sm border p-5">
@@ -368,31 +468,49 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Recommended Actions */}
-        <div className="bg-white rounded-xl shadow-sm border p-5">
-          <h3 className="text-lg font-semibold text-[#1b2a4a] mb-4">Recommended Actions</h3>
+        {/* Program Performance */}
+        <div className="bg-white rounded-lg shadow-sm border p-5">
+          <h3 className="text-lg font-semibold text-[#1b2a4a] mb-4">Program Performance</h3>
           <div className="space-y-3">
-            {recommendedActions.map((action, i) => (
-              <div key={i} className="flex items-start gap-3">
-                <CheckCircle2 className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
-                <span className="text-sm text-gray-700">{action}</span>
+            {programPerformanceRows.length > 0 ? programPerformanceRows.map((program) => (
+              <div key={program.code} className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold text-[#1b2a4a] truncate">{program.code}</p>
+                    <p className="text-xs text-gray-500 truncate">{formatNumber(program.total_graduates)} respondents</p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-sm font-bold text-[#1b2a4a]">{formatPercent(program.employability_index)}%</p>
+                    <p className="text-xs text-gray-500">{formatPercent(program.alignment_index)}% aligned</p>
+                  </div>
+                </div>
+                <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-blue-600"
+                    style={{ width: `${Math.min(program.employability_index, 100)}%` }}
+                  />
+                </div>
               </div>
-            ))}
+            )) : (
+              <div className="rounded-lg border border-dashed border-gray-200 p-4 text-sm text-gray-500">
+                Program-level outcomes will appear after survey responses are submitted.
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Top Job Listings */}
-        <div className="bg-white rounded-xl shadow-sm border p-5">
-          <h3 className="text-lg font-semibold text-[#1b2a4a] mb-4">Top Job Listings</h3>
+        {/* Outcome Gaps */}
+        <div className="bg-white rounded-lg shadow-sm border p-5">
+          <h3 className="text-lg font-semibold text-[#1b2a4a] mb-4">Outcome Gaps</h3>
           <div className="space-y-3">
-            {topJobs.map((job, i) => (
-              <div key={i} className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-lg bg-[#1b2a4a] flex items-center justify-center flex-shrink-0">
-                  <span className="text-white text-sm font-bold">{i + 1}</span>
+            {outcomeGaps.map((gap) => (
+              <div key={gap.label} className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 p-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-[#1b2a4a]">{gap.label}</p>
+                  <p className="text-xs text-gray-500 mt-1">{gap.detail}</p>
                 </div>
-                <div>
-                  <p className="text-sm font-semibold text-[#1b2a4a]">{job.job_title}</p>
-                  <p className="text-xs text-gray-500">{job.company_name} • {job.graduate_count} graduates</p>
+                <div className={`text-2xl font-bold flex-shrink-0 ${gap.color}`}>
+                  {formatNumber(gap.value)}
                 </div>
               </div>
             ))}
