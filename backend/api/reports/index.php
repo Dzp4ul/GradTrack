@@ -7,8 +7,9 @@ $db = $database->getConnection();
 
 function getSelectedSurveyId(PDO $db): ?int
 {
-    if (isset($_GET['survey_id']) && (int)$_GET['survey_id'] > 0) {
-        return (int)$_GET['survey_id'];
+    if (array_key_exists('survey_id', $_GET)) {
+        $surveyId = $_GET['survey_id'];
+        return is_scalar($surveyId) && (int)$surveyId > 0 ? (int)$surveyId : null;
     }
 
     $stmt = $db->query("

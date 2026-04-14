@@ -7,8 +7,9 @@ $db = $database->getConnection();
 
 function getSelectedSurveyId(PDO $db): ?int
 {
-    if (isset($_GET['survey_id']) && (int)$_GET['survey_id'] > 0) {
-        return (int)$_GET['survey_id'];
+    if (array_key_exists('survey_id', $_GET)) {
+        $surveyId = $_GET['survey_id'];
+        return is_scalar($surveyId) && (int)$surveyId > 0 ? (int)$surveyId : null;
     }
 
     $stmt = $db->query("
@@ -184,6 +185,31 @@ function getSurveyResponseCount(PDO $db, ?int $surveyId): int
 
 try {
     $selectedSurveyId = getSelectedSurveyId($db);
+
+    if ($selectedSurveyId === null) {
+        $stmt = $db->query("SELECT COUNT(*) as total FROM surveys WHERE status = 'active'");
+        $activeSurveys = (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
+
+        echo json_encode([
+            "success" => true,
+            "data" => [
+                "total_graduates" => 0,
+                "employment_rate" => 0,
+                "alignment_rate" => 0,
+                "avg_time_to_employment" => 0,
+                "selected_survey_id" => null,
+                "at_risk_programs" => [],
+                "program_stats" => [],
+                "employment_trends" => [],
+                "alignment_distribution" => [],
+                "top_jobs" => [],
+                "recommended_actions" => [],
+                "total_responses" => 0,
+                "active_surveys" => $activeSurveys
+            ]
+        ]);
+        exit;
+    }
 
     // Get selected survey responses with canonical graduate program/year context
     $surveyResponses = getSurveyResponses($db, $selectedSurveyId);

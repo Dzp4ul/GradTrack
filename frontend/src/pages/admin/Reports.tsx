@@ -96,6 +96,7 @@ const COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
 const REPORT_TABS = ['overview', 'program', 'year', 'employment', 'salary', 'surveys'] as const;
 type ReportTab = typeof REPORT_TABS[number];
 const SELECTED_SURVEY_STORAGE_KEY = 'gradtrack_selected_survey_id';
+const NO_SURVEY_SELECTION_VALUE = 'none';
 
 // Program-specific colors
 const PROGRAM_COLORS: Record<string, string> = {
@@ -122,10 +123,20 @@ const normalizeSurveySummary = (survey: SurveySummary): SurveySummary => ({
   response_count: Number(survey.response_count ?? 0),
 });
 
+const parseSurveyId = (value: string | null): number | null => {
+  const surveyId = Number(value);
+  return Number.isFinite(surveyId) && surveyId > 0 ? surveyId : null;
+};
+
 export default function Reports() {
   const initialParams = new URLSearchParams(window.location.search);
   const initialTabParam = initialParams.get('tab') as ReportTab | null;
-  const initialSurveyId = Number(initialParams.get('survey_id') || localStorage.getItem(SELECTED_SURVEY_STORAGE_KEY));
+  const initialSurveyParam = initialParams.get('survey_id');
+  const initialStoredSurvey = localStorage.getItem(SELECTED_SURVEY_STORAGE_KEY);
+  const initialSurveyId = parseSurveyId(initialSurveyParam ?? initialStoredSurvey);
+  const initialNoSurveySelection = initialSurveyParam !== null
+    ? parseSurveyId(initialSurveyParam) === null
+    : initialStoredSurvey === NO_SURVEY_SELECTION_VALUE;
   const [tab, setTab] = useState<ReportTab>(
     initialTabParam && REPORT_TABS.includes(initialTabParam) ? initialTabParam : 'overview'
   );
@@ -143,15 +154,14 @@ export default function Reports() {
   const [aiLoading, setAiLoading] = useState(false);
   const [surveyItems, setSurveyItems] = useState<SurveySummary[]>([]);
   const [surveyLoading, setSurveyLoading] = useState(false);
-  const [selectedSurveyId, setSelectedSurveyId] = useState<number | null>(initialSurveyId > 0 ? initialSurveyId : null);
+  const [selectedSurveyId, setSelectedSurveyId] = useState<number | null>(initialSurveyId);
+  const [noSurveySelectionExplicit, setNoSurveySelectionExplicit] = useState(initialNoSurveySelection);
   const [surveyAnalytics, setSurveyAnalytics] = useState<SurveyAnalyticsData | null>(null);
   const [surveyAnalyticsLoading, setSurveyAnalyticsLoading] = useState(false);
 
   const buildReportUrl = (type: string, year: string = 'all', department: string = selectedDepartment) => {
     const params = new URLSearchParams({ type });
-    if (selectedSurveyId) {
-      params.set('survey_id', selectedSurveyId.toString());
-    }
+    params.set('survey_id', selectedSurveyId ? selectedSurveyId.toString() : NO_SURVEY_SELECTION_VALUE);
     if (year !== 'all') {
       params.set('year', year);
     }
@@ -217,12 +227,14 @@ export default function Reports() {
             return;
           }
 
-          const surveyIdToLoad = getDefaultSurveyId(surveys);
+          const surveyIdToLoad = noSurveySelectionExplicit ? null : getDefaultSurveyId(surveys);
           setSelectedSurveyId(surveyIdToLoad);
           if (surveyIdToLoad) {
+            setNoSurveySelectionExplicit(false);
             localStorage.setItem(SELECTED_SURVEY_STORAGE_KEY, surveyIdToLoad.toString());
           } else {
-            localStorage.removeItem(SELECTED_SURVEY_STORAGE_KEY);
+            setNoSurveySelectionExplicit(true);
+            localStorage.setItem(SELECTED_SURVEY_STORAGE_KEY, NO_SURVEY_SELECTION_VALUE);
           }
           if (loadAnalytics && surveyIdToLoad) {
             fetchSurveyAnalytics(surveyIdToLoad);
@@ -270,10 +282,12 @@ export default function Reports() {
     setSelectedSurveyId(surveyId);
     if (!surveyId) {
       setSurveyAnalytics(null);
-      localStorage.removeItem(SELECTED_SURVEY_STORAGE_KEY);
+      setNoSurveySelectionExplicit(true);
+      localStorage.setItem(SELECTED_SURVEY_STORAGE_KEY, NO_SURVEY_SELECTION_VALUE);
       return;
     }
 
+    setNoSurveySelectionExplicit(false);
     localStorage.setItem(SELECTED_SURVEY_STORAGE_KEY, surveyId.toString());
 
     if (tab === 'surveys') {
@@ -334,6 +348,12 @@ export default function Reports() {
     year: string = selectedYear,
     department: string = selectedDepartment,
   ) => {
+    if (!selectedSurveyId) {
+      setAiLoading(false);
+      setAiAnalysis('Select a survey to generate AI-powered analytics.');
+      return;
+    }
+
     setAiLoading(true);
     const params = new URLSearchParams({ type: reportType });
     if (year !== 'all') {
@@ -342,9 +362,7 @@ export default function Reports() {
     if (department !== 'all') {
       params.set('department', department);
     }
-    if (selectedSurveyId) {
-      params.set('survey_id', selectedSurveyId.toString());
-    }
+    params.set('survey_id', selectedSurveyId.toString());
 
     fetch(`${API_BASE}/reports/ai-analytics.php?${params.toString()}`, {
       method: 'POST',

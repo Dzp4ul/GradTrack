@@ -155,6 +155,7 @@ export default function Dashboard() {
 
   const recommendedActions = useMemo(() => {
     if (!data) return [];
+    if (data.total_responses === 0) return [];
 
     const actions: string[] = [];
 
