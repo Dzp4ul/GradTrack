@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import {
   Briefcase,
   Target,
-  AlertTriangle,
   ClipboardList,
   BarChart3,
 } from 'lucide-react';
@@ -45,8 +44,6 @@ interface DashboardData {
 
 const PIE_COLORS = ['#22c55e', '#f59e0b', '#ef4444'];
 const BAR_COLORS = ['#22c55e', '#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6'];
-const TARGET_EMPLOYMENT_RATE = 80;
-const TARGET_ALIGNMENT_RATE = 70;
 
 const numberFormatter = new Intl.NumberFormat('en-US');
 
@@ -203,22 +200,6 @@ export default function Dashboard() {
     ];
   }, [data?.alignment_distribution]);
 
-  const lowestEmploymentProgram = useMemo(() => {
-    if (!data?.program_stats?.length) return null;
-
-    return [...data.program_stats]
-      .sort((a, b) => a.employability_index - b.employability_index)[0];
-  }, [data?.program_stats]);
-
-  const programGapCount = useMemo(() => {
-    if (!data?.program_stats?.length) return 0;
-
-    return data.program_stats.filter((program) =>
-      program.employability_index < TARGET_EMPLOYMENT_RATE
-      || (program.alignment_index ?? 100) < TARGET_ALIGNMENT_RATE
-    ).length;
-  }, [data?.program_stats]);
-
   const surveySummary = useMemo(() => {
     if (!data) {
       return { eligible: 0, pending: 0, rate: 0 };
@@ -233,48 +214,23 @@ export default function Dashboard() {
     return { eligible, pending, rate };
   }, [data]);
 
-  const programPerformanceRows = useMemo(() => {
-    if (!data?.program_stats?.length) return [];
-
-    return [...data.program_stats]
-      .sort((a, b) => a.employability_index - b.employability_index)
-      .slice(0, 5);
-  }, [data?.program_stats]);
-
-  const outcomeGaps = useMemo(() => {
-    if (!data) return [];
+  const employmentSummary = useMemo(() => {
+    if (!data) {
+      return { employed: 0, unemployed: 0, aligned: 0, notAligned: 0 };
+    }
 
     const employedCount = Math.round((data.total_responses * data.employment_rate) / 100);
     const unemployedCount = Math.max(data.total_responses - employedCount, 0);
+    const alignedCount = alignmentDistribution.find((item) => item.name === 'Aligned')?.value ?? 0;
     const notAlignedCount = alignmentDistribution.find((item) => item.name === 'Not Aligned')?.value ?? 0;
 
-    return [
-      {
-        label: 'Pending responses',
-        value: surveySummary.pending,
-        detail: `${formatPercent(surveySummary.rate)}% survey coverage`,
-        color: 'text-emerald-700',
-      },
-      {
-        label: 'Unemployed respondents',
-        value: unemployedCount,
-        detail: `${formatPercent(data.employment_rate)}% employment rate`,
-        color: 'text-blue-700',
-      },
-      {
-        label: 'Not or partly aligned',
-        value: notAlignedCount,
-        detail: `${formatPercent(data.alignment_rate)}% alignment rate`,
-        color: 'text-orange-700',
-      },
-      {
-        label: 'Programs below target',
-        value: programGapCount,
-        detail: `${TARGET_EMPLOYMENT_RATE}% employment / ${TARGET_ALIGNMENT_RATE}% alignment targets`,
-        color: 'text-amber-700',
-      },
-    ];
-  }, [alignmentDistribution, data, programGapCount, surveySummary.pending, surveySummary.rate]);
+    return {
+      employed: employedCount,
+      unemployed: unemployedCount,
+      aligned: alignedCount,
+      notAligned: notAlignedCount,
+    };
+  }, [alignmentDistribution, data]);
 
   if (loading) {
     return (
@@ -324,26 +280,25 @@ export default function Dashboard() {
           <p className="text-xs text-gray-400 mt-1">{data.alignment_rate}% Aligned to Course</p>
         </div>
 
-        {/* Program Gaps */}
-        <div className="bg-white rounded-lg shadow-sm border p-5">
+        {/* Active Surveys */}
+        <div
+          onClick={() => navigate('/admin/surveys')}
+          className="bg-white rounded-lg shadow-sm border border-amber-200 p-5 cursor-pointer hover:shadow-lg hover:border-amber-300 transition-all group"
+        >
           <div className="flex items-center gap-2 mb-3">
-            <div className="p-2 bg-amber-100 rounded-lg">
-              <AlertTriangle className="w-5 h-5 text-amber-600" />
+            <div className="p-2 bg-amber-100 rounded-lg group-hover:bg-amber-200 transition">
+              <ClipboardList className="w-5 h-5 text-amber-700" />
             </div>
-            <span className="text-sm font-medium text-gray-600">Program Gaps</span>
+            <span className="text-sm font-medium text-gray-600">Active Surveys</span>
           </div>
           <p className="text-4xl font-bold text-[#1b2a4a]">
-            {programGapCount}
+            {formatNumber(data.active_surveys)}
           </p>
-          <p className="text-xs text-gray-400 mt-1">
-            {programGapCount > 0
-              ? `Below ${TARGET_EMPLOYMENT_RATE}% employment or ${TARGET_ALIGNMENT_RATE}% alignment target`
-              : 'All programs are within target'}
+          <p className="text-xs text-gray-400 mt-1 truncate">
+            {data.selected_survey_title || 'Survey campaigns currently open'}
           </p>
-          <p className="text-xs text-amber-600 mt-2 font-medium">
-            {lowestEmploymentProgram
-              ? `Lowest: ${lowestEmploymentProgram.code} - ${formatPercent(lowestEmploymentProgram.employability_index)}% employed, ${formatPercent(lowestEmploymentProgram.alignment_index)}% aligned`
-              : 'No program response data yet'}
+          <p className="text-xs text-amber-700 mt-2 font-medium">
+            Manage survey forms and response windows
           </p>
         </div>
 
@@ -429,8 +384,8 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Row 2: Alignment + Program + Gaps */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Row 2: Alignment + Survey Snapshot */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Job Alignment Distribution */}
         <div className="bg-white rounded-xl shadow-sm border p-5">
           <h3 className="text-lg font-semibold text-[#1b2a4a] mb-4">Job Alignment Distribution</h3>
@@ -468,52 +423,51 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Program Performance */}
+        {/* Selected Survey Snapshot */}
         <div className="bg-white rounded-lg shadow-sm border p-5">
-          <h3 className="text-lg font-semibold text-[#1b2a4a] mb-4">Program Performance</h3>
-          <div className="space-y-3">
-            {programPerformanceRows.length > 0 ? programPerformanceRows.map((program) => (
-              <div key={program.code} className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-[#1b2a4a] truncate">{program.code}</p>
-                    <p className="text-xs text-gray-500 truncate">{formatNumber(program.total_graduates)} respondents</p>
-                  </div>
-                  <div className="text-right flex-shrink-0">
-                    <p className="text-sm font-bold text-[#1b2a4a]">{formatPercent(program.employability_index)}%</p>
-                    <p className="text-xs text-gray-500">{formatPercent(program.alignment_index)}% aligned</p>
-                  </div>
-                </div>
-                <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-blue-600"
-                    style={{ width: `${Math.min(program.employability_index, 100)}%` }}
-                  />
-                </div>
+          <h3 className="text-lg font-semibold text-[#1b2a4a] mb-2">Selected Survey Snapshot</h3>
+          <p className="text-xs text-gray-500 truncate mb-4">
+            {data.selected_survey_title || 'All graduate tracer responses'}
+          </p>
+          <div className="space-y-3 text-sm">
+            <div>
+              <div className="flex items-center justify-between gap-3 mb-1">
+                <span className="font-medium text-gray-700">Survey coverage</span>
+                <span className="font-bold text-[#1b2a4a]">{formatPercent(surveySummary.rate)}%</span>
               </div>
-            )) : (
-              <div className="rounded-lg border border-dashed border-gray-200 p-4 text-sm text-gray-500">
-                Program-level outcomes will appear after survey responses are submitted.
+              <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-emerald-600"
+                  style={{ width: `${Math.min(surveySummary.rate, 100)}%` }}
+                />
               </div>
-            )}
-          </div>
-        </div>
-
-        {/* Outcome Gaps */}
-        <div className="bg-white rounded-lg shadow-sm border p-5">
-          <h3 className="text-lg font-semibold text-[#1b2a4a] mb-4">Outcome Gaps</h3>
-          <div className="space-y-3">
-            {outcomeGaps.map((gap) => (
-              <div key={gap.label} className="flex items-center justify-between gap-3 rounded-lg border border-gray-100 p-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-[#1b2a4a]">{gap.label}</p>
-                  <p className="text-xs text-gray-500 mt-1">{gap.detail}</p>
-                </div>
-                <div className={`text-2xl font-bold flex-shrink-0 ${gap.color}`}>
-                  {formatNumber(gap.value)}
-                </div>
+            </div>
+            <div className="grid grid-cols-2 gap-x-4 gap-y-3 pt-2">
+              <div>
+                <p className="text-xs text-gray-500">Responses</p>
+                <p className="text-lg font-bold text-[#1b2a4a]">{formatNumber(data.total_responses)}</p>
               </div>
-            ))}
+              <div>
+                <p className="text-xs text-gray-500">Pending</p>
+                <p className="text-lg font-bold text-emerald-700">{formatNumber(surveySummary.pending)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Employed</p>
+                <p className="text-lg font-bold text-blue-700">{formatNumber(employmentSummary.employed)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Unemployed</p>
+                <p className="text-lg font-bold text-orange-700">{formatNumber(employmentSummary.unemployed)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Aligned jobs</p>
+                <p className="text-lg font-bold text-green-700">{formatNumber(employmentSummary.aligned)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Not aligned</p>
+                <p className="text-lg font-bold text-amber-700">{formatNumber(employmentSummary.notAligned)}</p>
+              </div>
+            </div>
           </div>
         </div>
       </div>
