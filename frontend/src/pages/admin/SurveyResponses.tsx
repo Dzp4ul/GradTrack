@@ -29,7 +29,9 @@ export default function SurveyResponses() {
 
   const fetchResponses = async () => {
     try {
-      const response = await fetch(`${API_BASE}/surveys/responses.php?survey_id=${surveyId}`);
+      const response = await fetch(`${API_BASE}/surveys/responses.php?survey_id=${surveyId}`, {
+        credentials: 'include',
+      });
       const data = await response.json();
 
       if (data.success) {

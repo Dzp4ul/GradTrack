@@ -10,6 +10,8 @@ import {
   Mail,
   Send,
   Loader2,
+  Eye,
+  X,
 } from 'lucide-react';
 import MessageBox from '../../components/MessageBox';
 import { API_ENDPOINTS } from '../../config/api';
@@ -40,6 +42,31 @@ interface ParticipationSummary {
   total: number;
   answered: number;
   not_answered: number;
+}
+
+interface SurveyResponseAnswer {
+  question_id: string;
+  question_text: string;
+  question_type: string | null;
+  section: string | null;
+  sort_order: number;
+  answer: unknown;
+}
+
+interface SurveyResponseDetail {
+  id: number;
+  survey_id: number;
+  graduate_id: number | null;
+  survey_title?: string;
+  student_id?: string | null;
+  first_name?: string | null;
+  middle_name?: string | null;
+  last_name?: string | null;
+  email?: string | null;
+  program_code?: string | null;
+  year_graduated?: number | null;
+  submitted_at: string;
+  answers: SurveyResponseAnswer[];
 }
 
 type StatusFilter = 'all' | 'answered' | 'not_answered';
@@ -76,6 +103,19 @@ export default function GraduateParticipation() {
   const [totalPages, setTotalPages] = useState(1);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [emailMessage, setEmailMessage] = useState(DEFAULT_EMAIL_MESSAGE);
+  const [answerViewer, setAnswerViewer] = useState<{
+    isOpen: boolean;
+    loading: boolean;
+    row: GraduateParticipationRow | null;
+    response: SurveyResponseDetail | null;
+    error: string;
+  }>({
+    isOpen: false,
+    loading: false,
+    row: null,
+    response: null,
+    error: '',
+  });
   const [msgBox, setMsgBox] = useState<{
     isOpen: boolean;
     type: MessageType;
@@ -308,6 +348,69 @@ export default function GraduateParticipation() {
     });
   };
 
+  const openAnswerViewer = async (row: GraduateParticipationRow) => {
+    if (!row.has_answered || !selectedSurveyId) return;
+
+    setAnswerViewer({
+      isOpen: true,
+      loading: true,
+      row,
+      response: null,
+      error: '',
+    });
+
+    try {
+      const params = new URLSearchParams({
+        survey_id: selectedSurveyId,
+        graduate_id: String(row.id),
+      });
+      const response = await fetch(`${API_ENDPOINTS.SURVEY_RESPONSES}?${params.toString()}`, {
+        credentials: 'include',
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Unable to load survey answers');
+      }
+
+      const surveyResponse = ((data.data || []) as SurveyResponseDetail[])[0] || null;
+      if (!surveyResponse) {
+        throw new Error('No submitted answers were found for this graduate.');
+      }
+
+      setAnswerViewer({
+        isOpen: true,
+        loading: false,
+        row,
+        response: surveyResponse,
+        error: '',
+      });
+    } catch (error) {
+      setAnswerViewer({
+        isOpen: true,
+        loading: false,
+        row,
+        response: null,
+        error: error instanceof Error ? error.message : 'Unable to load survey answers',
+      });
+    }
+  };
+
+  const closeAnswerViewer = () => {
+    setAnswerViewer({
+      isOpen: false,
+      loading: false,
+      row: null,
+      response: null,
+      error: '',
+    });
+  };
+
+  const viewedGraduateName = answerViewer.row ? getGraduateDisplayName(answerViewer.row) : 'Graduate';
+  const viewedSubmittedAt =
+    answerViewer.response?.submitted_at || answerViewer.row?.last_submitted_at || null;
+  const viewedAnswers = answerViewer.response?.answers || [];
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -458,7 +561,7 @@ export default function GraduateParticipation() {
 
       <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1100px] text-sm">
+          <table className="w-full min-w-[1220px] text-sm">
             <thead className="bg-gray-50 border-b">
               <tr>
                 <th className="w-12 px-4 py-3">
@@ -478,13 +581,14 @@ export default function GraduateParticipation() {
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Status</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Responses</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Last Submitted</th>
+                <th className="text-center px-4 py-3 font-semibold text-gray-600">Action</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-400">Loading...</td></tr>
+                <tr><td colSpan={9} className="text-center py-12 text-gray-400">Loading...</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-400">No graduates found</td></tr>
+                <tr><td colSpan={9} className="text-center py-12 text-gray-400">No graduates found</td></tr>
               ) : (
                 rows.map((row) => {
                   const canSelect = !row.has_answered && row.has_email;
@@ -528,6 +632,17 @@ export default function GraduateParticipation() {
                       <td className="px-4 py-3">
                         {row.last_submitted_at ? new Date(row.last_submitted_at).toLocaleString() : '-'}
                       </td>
+                      <td className="px-4 py-3 text-center">
+                        <button
+                          type="button"
+                          onClick={() => void openAnswerViewer(row)}
+                          disabled={!row.has_answered || !selectedSurveyId}
+                          className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-blue-200 px-3 py-1.5 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400 disabled:hover:bg-transparent"
+                        >
+                          <Eye className="h-3.5 w-3.5" />
+                          View Answers
+                        </button>
+                      </td>
                     </tr>
                   );
                 })
@@ -561,6 +676,80 @@ export default function GraduateParticipation() {
         )}
       </div>
 
+      {answerViewer.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
+          <div className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b px-5 py-4">
+              <div>
+                <p className="text-xs font-semibold uppercase text-blue-700">Survey Answers</p>
+                <h2 className="mt-1 text-xl font-bold text-[#1b2a4a]">{viewedGraduateName}</h2>
+                <p className="mt-1 text-sm text-gray-500">
+                  {answerViewer.row?.student_id || 'No student ID'} - {answerViewer.row?.program_code || '-'} - Submitted:{' '}
+                  {viewedSubmittedAt ? new Date(viewedSubmittedAt).toLocaleString() : '-'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeAnswerViewer}
+                className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                aria-label="Close survey answers"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto px-5 py-4">
+              {answerViewer.loading ? (
+                <div className="flex items-center justify-center gap-2 py-12 text-gray-500">
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                  Loading survey answers...
+                </div>
+              ) : answerViewer.error ? (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {answerViewer.error}
+                </div>
+              ) : viewedAnswers.length === 0 ? (
+                <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-8 text-center text-sm text-gray-500">
+                  No answers were recorded for this response.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {viewedAnswers.map((item, index) => {
+                    const previousSection = index > 0 ? viewedAnswers[index - 1].section : null;
+                    const showSection = (item.section || 'Survey Answers') !== (previousSection || 'Survey Answers');
+                    const isStructured = isStructuredAnswer(item.answer);
+
+                    return (
+                      <div key={`${item.question_id}-${index}`}>
+                        {showSection && (
+                          <div className="mb-2 rounded-lg bg-gray-100 px-3 py-2 text-xs font-bold uppercase text-gray-600">
+                            {item.section || 'Survey Answers'}
+                          </div>
+                        )}
+                        <div className="rounded-lg border border-gray-200 px-4 py-3">
+                          <p className="text-sm font-semibold text-[#1b2a4a]">
+                            {item.sort_order}. {item.question_text}
+                          </p>
+                          {isStructured ? (
+                            <pre className="mt-2 whitespace-pre-wrap break-words rounded-lg bg-gray-50 p-3 text-xs text-gray-700">
+                              {formatAnswerValue(item.answer)}
+                            </pre>
+                          ) : (
+                            <p className="mt-2 whitespace-pre-wrap break-words text-sm text-gray-700">
+                              {formatAnswerValue(item.answer)}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <MessageBox
         isOpen={msgBox.isOpen}
         onClose={() => setMsgBox({ ...msgBox, isOpen: false })}
@@ -584,4 +773,31 @@ function SummaryCard({ icon, label, value, cardClass }: { icon: ReactNode; label
       <p className="mt-2 text-2xl font-bold text-gray-800">{value}</p>
     </div>
   );
+}
+
+function getGraduateDisplayName(row: GraduateParticipationRow) {
+  return `${row.last_name}, ${row.first_name}${row.middle_name ? ` ${row.middle_name.charAt(0)}.` : ''}`;
+}
+
+function isStructuredAnswer(value: unknown) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function formatAnswerValue(value: unknown) {
+  if (value === null || value === undefined) {
+    return '-';
+  }
+
+  if (Array.isArray(value)) {
+    return value.length > 0
+      ? value.map((item) => (isStructuredAnswer(item) ? JSON.stringify(item) : String(item))).join(', ')
+      : '-';
+  }
+
+  if (isStructuredAnswer(value)) {
+    return JSON.stringify(value, null, 2);
+  }
+
+  const text = String(value).trim();
+  return text || '-';
 }

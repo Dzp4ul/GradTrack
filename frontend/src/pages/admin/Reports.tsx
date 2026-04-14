@@ -128,6 +128,7 @@ const REPORT_TABS = ['overview', 'program', 'year', 'employment', 'salary', 'sur
 type ReportTab = typeof REPORT_TABS[number];
 const SELECTED_SURVEY_STORAGE_KEY = 'gradtrack_selected_survey_id';
 const NO_SURVEY_SELECTION_VALUE = 'none';
+const SURVEY_REPORT_HEADER_COLOR = 'FF1B2A4A';
 
 // Program-specific colors
 const PROGRAM_COLORS: Record<string, string> = {
@@ -426,8 +427,183 @@ export default function Reports() {
       .finally(() => setAiLoading(false));
   };
 
+  const getSelectedSurveyProgramLabel = () => {
+    if (selectedDepartment === 'all') {
+      return 'All Programs';
+    }
+
+    const department = availableDepartments.find((item) => item.code === selectedDepartment)
+      ?? DEFAULT_DEPARTMENTS.find((item) => item.code === selectedDepartment);
+
+    return department ? `${department.code} - ${department.name}` : selectedDepartment;
+  };
+
+  const handleSurveyExcelExport = async () => {
+    if (!surveyAnalytics) {
+      return;
+    }
+
+    const generatedAt = new Date();
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'GradTrack';
+    workbook.created = generatedAt;
+
+    addSurveyExportSummarySheet(workbook, surveyAnalytics, getSelectedSurveyProgramLabel(), generatedAt);
+
+    if (surveyAnalytics.report_tables && surveyAnalytics.report_tables.length > 0) {
+      surveyAnalytics.report_tables.forEach((table, index) => {
+        addSurveyReportTableWorksheet(workbook, table, index);
+      });
+    } else {
+      addSurveyQuestionExportWorksheet(workbook, surveyAnalytics);
+    }
+
+    const fileDate = generatedAt.toISOString().slice(0, 10);
+    const programSuffix = selectedDepartment !== 'all' ? `_${toFileSafePart(selectedDepartment)}` : '_all_programs';
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `gradtrack_survey_analytics${programSuffix}_${fileDate}.xlsx`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(link.href);
+  };
+
+  const handleSurveyPdfExport = async () => {
+    if (!surveyAnalytics) {
+      return;
+    }
+
+    const generatedAt = new Date();
+    const pdf = new jsPDF('l', 'pt', 'a4');
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const marginLeft = 36;
+    const programLabel = getSelectedSurveyProgramLabel();
+
+    const drawSurveyPdfHeader = (title: string, subtitle?: string) => {
+      pdf.setFillColor(27, 42, 74);
+      pdf.rect(0, 0, pageWidth, 58, 'F');
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(15);
+      pdf.text(title, marginLeft, 26);
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(9);
+      pdf.text(subtitle || surveyAnalytics.survey_title, marginLeft, 42);
+      pdf.setTextColor(45, 45, 45);
+    };
+
+    drawSurveyPdfHeader('Survey Analytics Report');
+    pdf.setFont('helvetica', 'bold');
+    pdf.setFontSize(13);
+    pdf.text(surveyAnalytics.survey_title, marginLeft, 88);
+    pdf.setFont('helvetica', 'normal');
+    pdf.setFontSize(9);
+    pdf.text(`Generated: ${generatedAt.toLocaleString()}`, marginLeft, 106);
+    pdf.text(`Program: ${programLabel}`, marginLeft, 120);
+
+    autoTable(pdf, {
+      startY: 146,
+      head: [['Metric', 'Value']],
+      body: [
+        ['Total Responses', surveyAnalytics.total_responses],
+        ['Response Rate', `${surveyAnalytics.response_rate}%`],
+        ['Completion Rate', `${surveyAnalytics.completion_rate}%`],
+        ['Questions', surveyAnalytics.questions_analytics.length],
+      ],
+      styles: { fontSize: 9, cellPadding: 5 },
+      headStyles: { fillColor: [27, 42, 74] },
+      margin: { left: marginLeft, right: marginLeft },
+    });
+
+    if (surveyAnalytics.report_tables && surveyAnalytics.report_tables.length > 0) {
+      surveyAnalytics.report_tables.forEach((table) => {
+        pdf.addPage();
+        const tableTitle = `Table ${table.number}. ${table.title}`;
+        drawSurveyPdfHeader(table.section_title || 'Survey Analytics', tableTitle);
+
+        autoTable(pdf, {
+          startY: 88,
+          head: buildSurveyPdfReportTableHead(table),
+          body: buildSurveyPdfReportTableBody(table),
+          theme: 'grid',
+          styles: {
+            font: 'times',
+            fontSize: 8,
+            cellPadding: 3,
+            lineColor: [0, 0, 0],
+            lineWidth: 0.2,
+            textColor: [0, 0, 0],
+          },
+          headStyles: {
+            fillColor: [255, 255, 255],
+            textColor: [0, 0, 0],
+            fontStyle: 'bold',
+            halign: 'center',
+          },
+          margin: { top: 88, left: marginLeft, right: marginLeft, bottom: 30 },
+          didDrawPage: () => {
+            drawSurveyPdfHeader(table.section_title || 'Survey Analytics', tableTitle);
+          },
+        });
+
+        if (table.note) {
+          const finalY = ((pdf as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 88) + 14;
+          if (finalY < pageHeight - 30) {
+            pdf.setFont('times', 'italic');
+            pdf.setFontSize(8);
+            pdf.text(table.note, marginLeft, finalY);
+          }
+        }
+      });
+    } else {
+      pdf.addPage();
+      drawSurveyPdfHeader('Survey Question Report', surveyAnalytics.survey_title);
+
+      autoTable(pdf, {
+        startY: 88,
+        head: [['Section', 'No.', 'Survey Question', 'Type', 'Answer / Option', 'Frequency', 'Percentage']],
+        body: buildSurveyQuestionPdfRows(surveyAnalytics),
+        styles: { fontSize: 7, cellPadding: 3, overflow: 'linebreak' },
+        headStyles: { fillColor: [27, 42, 74] },
+        columnStyles: {
+          0: { cellWidth: 80 },
+          1: { cellWidth: 38, halign: 'center' },
+          2: { cellWidth: 230 },
+          3: { cellWidth: 86 },
+          4: { cellWidth: 170 },
+          5: { cellWidth: 62, halign: 'right' },
+          6: { cellWidth: 64, halign: 'right' },
+        },
+        margin: { top: 88, left: marginLeft, right: marginLeft, bottom: 30 },
+        didDrawPage: () => {
+          drawSurveyPdfHeader('Survey Question Report', surveyAnalytics.survey_title);
+        },
+      });
+    }
+
+    const pageCount = (pdf as jsPDF & { internal: { getNumberOfPages: () => number } }).internal.getNumberOfPages();
+    for (let page = 1; page <= pageCount; page += 1) {
+      pdf.setPage(page);
+      pdf.setFontSize(8);
+      pdf.setTextColor(110, 110, 110);
+      pdf.text(`Page ${page} of ${pageCount}`, pageWidth - 88, pageHeight - 16);
+      pdf.text('GradTrack - Survey Analytics Export', marginLeft, pageHeight - 16);
+    }
+
+    const fileDate = generatedAt.toISOString().slice(0, 10);
+    const programSuffix = selectedDepartment !== 'all' ? `_${toFileSafePart(selectedDepartment)}` : '_all_programs';
+    pdf.save(`gradtrack_survey_analytics${programSuffix}_${fileDate}.pdf`);
+  };
+
   const handleExport = async () => {
     if (tab === 'surveys') {
+      await handleSurveyExcelExport();
       return;
     }
 
@@ -703,6 +879,7 @@ export default function Reports() {
 
   const handleExportPdf = async () => {
     if (tab === 'surveys') {
+      await handleSurveyPdfExport();
       return;
     }
 
@@ -965,6 +1142,12 @@ export default function Reports() {
     }
   });
   const departmentOptions = Array.from(departmentOptionMap.values());
+  const isSurveyExportDisabled = tab === 'surveys' && (
+    surveyLoading || surveyAnalyticsLoading || !selectedSurveyId || !surveyAnalytics
+  );
+  const exportButtonClass = (disabled: boolean) => `flex items-center gap-2 border px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+    disabled ? 'cursor-not-allowed bg-gray-100 text-gray-400' : 'hover:bg-gray-50'
+  }`;
 
   return (
     <div className="space-y-6">
@@ -1025,22 +1208,20 @@ export default function Reports() {
               ))}
             </select>
           </div>
-          {tab !== 'surveys' && (
-            <>
-              <button
-                onClick={handleExportPdf}
-                className="flex items-center gap-2 border px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
-              >
-                <FileText className="w-4 h-4" /> Export PDF
-              </button>
-              <button 
-                onClick={handleExport}
-                className="flex items-center gap-2 border px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
-              >
-                <Download className="w-4 h-4" /> Export Excel
-              </button>
-            </>
-          )}
+          <button
+            onClick={handleExportPdf}
+            disabled={isSurveyExportDisabled}
+            className={exportButtonClass(isSurveyExportDisabled)}
+          >
+            <FileText className="w-4 h-4" /> Export PDF
+          </button>
+          <button
+            onClick={handleExport}
+            disabled={isSurveyExportDisabled}
+            className={exportButtonClass(isSurveyExportDisabled)}
+          >
+            <Download className="w-4 h-4" /> Export Excel
+          </button>
         </div>
       </div>
 
@@ -1776,6 +1957,260 @@ function getReportCellAlignClass(align?: 'left' | 'center' | 'right') {
     return 'text-right';
   }
   return 'text-center';
+}
+
+function addSurveyExportSummarySheet(
+  workbook: ExcelJS.Workbook,
+  analytics: SurveyAnalyticsData,
+  programLabel: string,
+  generatedAt: Date,
+) {
+  const sheet = workbook.addWorksheet('Summary');
+  sheet.addRow(['GradTrack Survey Analytics Export']);
+  sheet.mergeCells('A1:B1');
+  sheet.getRow(1).font = { bold: true, size: 14, color: { argb: SURVEY_REPORT_HEADER_COLOR } };
+  sheet.addRow([]);
+  sheet.addRow(['Survey Title', analytics.survey_title]);
+  sheet.addRow(['Generated At', generatedAt.toLocaleString()]);
+  sheet.addRow(['Program Filter', programLabel]);
+  sheet.addRow(['Total Responses', analytics.total_responses]);
+  sheet.addRow(['Response Rate (%)', analytics.response_rate]);
+  sheet.addRow(['Completion Rate (%)', analytics.completion_rate]);
+  sheet.addRow(['Questions', analytics.questions_analytics.length]);
+  sheet.addRow(['Report Tables', analytics.report_tables?.length ?? 0]);
+  sheet.getColumn(1).width = 24;
+  sheet.getColumn(2).width = 64;
+
+  for (let rowIndex = 3; rowIndex <= sheet.rowCount; rowIndex += 1) {
+    sheet.getRow(rowIndex).getCell(1).font = { bold: true };
+  }
+}
+
+function addSurveyReportTableWorksheet(
+  workbook: ExcelJS.Workbook,
+  table: SurveyReportTable,
+  index: number,
+) {
+  const columnCount = getSurveyReportTableColumnCount(table);
+  const sheetName = toWorksheetSafeName(`Table ${index + 1}${table.number ? ` ${table.number}` : ''}`);
+  const sheet = workbook.addWorksheet(sheetName);
+
+  if (table.section_title) {
+    const sectionRow = sheet.addRow([table.section_title]);
+    sectionRow.font = { bold: true, size: 12 };
+    sheet.mergeCells(sectionRow.number, 1, sectionRow.number, columnCount);
+  }
+
+  const titleRow = sheet.addRow([`Table ${table.number}. ${table.title}`]);
+  titleRow.font = { bold: true, size: 12 };
+  sheet.mergeCells(titleRow.number, 1, titleRow.number, columnCount);
+  sheet.addRow([]);
+
+  const headerStartRow = sheet.rowCount + 1;
+  table.headers.forEach(() => {
+    sheet.addRow(Array.from({ length: columnCount }, () => ''));
+  });
+
+  const occupiedHeaderCells = new Set<string>();
+  table.headers.forEach((headerRow, rowIndex) => {
+    let columnIndex = 1;
+
+    headerRow.forEach((cell) => {
+      while (occupiedHeaderCells.has(`${rowIndex}:${columnIndex}`)) {
+        columnIndex += 1;
+      }
+
+      const rowNumber = headerStartRow + rowIndex;
+      const colSpan = cell.colspan ?? 1;
+      const rowSpan = cell.rowspan ?? 1;
+      const excelCell = sheet.getCell(rowNumber, columnIndex);
+      excelCell.value = cell.label;
+      excelCell.font = { bold: true };
+      excelCell.alignment = {
+        horizontal: cell.align ?? 'center',
+        vertical: 'middle',
+        wrapText: true,
+      };
+      excelCell.border = {
+        top: { style: 'thin' },
+        bottom: { style: 'thin' },
+      };
+
+      if (colSpan > 1 || rowSpan > 1) {
+        sheet.mergeCells(rowNumber, columnIndex, rowNumber + rowSpan - 1, columnIndex + colSpan - 1);
+      }
+
+      for (let rowOffset = 0; rowOffset < rowSpan; rowOffset += 1) {
+        for (let colOffset = 0; colOffset < colSpan; colOffset += 1) {
+          if (rowOffset > 0 || colOffset > 0) {
+            occupiedHeaderCells.add(`${rowIndex + rowOffset}:${columnIndex + colOffset}`);
+          }
+        }
+      }
+
+      columnIndex += colSpan;
+    });
+  });
+
+  table.rows.forEach((row) => {
+    const excelRow = sheet.addRow(Array.from({ length: columnCount }, (_, cellIndex) => row.cells[cellIndex] ?? ''));
+    if (row.is_group && row.cells.length === 1 && columnCount > 1) {
+      sheet.mergeCells(excelRow.number, 1, excelRow.number, columnCount);
+    }
+    if (row.is_total || row.is_group) {
+      excelRow.font = { bold: true };
+    }
+    if (row.is_total) {
+      excelRow.eachCell((cell) => {
+        cell.border = { top: { style: 'thin' } };
+      });
+    }
+  });
+
+  if (table.note) {
+    sheet.addRow([]);
+    const noteRow = sheet.addRow([table.note]);
+    noteRow.font = { italic: true };
+    sheet.mergeCells(noteRow.number, 1, noteRow.number, columnCount);
+  }
+
+  for (let columnIndex = 1; columnIndex <= columnCount; columnIndex += 1) {
+    sheet.getColumn(columnIndex).width = columnIndex === 1 ? 34 : 14;
+  }
+  sheet.views = [{ state: 'frozen', ySplit: headerStartRow + table.headers.length - 1 }];
+}
+
+function addSurveyQuestionExportWorksheet(workbook: ExcelJS.Workbook, analytics: SurveyAnalyticsData) {
+  const sheet = workbook.addWorksheet('Question Analytics');
+  const rows = buildSurveyQuestionExcelRows(analytics);
+
+  if (!rows.length) {
+    sheet.addRow(['No survey questions found.']);
+    sheet.getColumn(1).width = 34;
+    return;
+  }
+
+  const columns = Object.keys(rows[0]);
+  sheet.columns = columns.map((column) => ({
+    header: column,
+    key: column,
+    width: Math.max(14, Math.min(46, column.length + 8)),
+  }));
+
+  rows.forEach((row) => sheet.addRow(row));
+
+  const headerRow = sheet.getRow(1);
+  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+  headerRow.fill = {
+    type: 'pattern',
+    pattern: 'solid',
+    fgColor: { argb: SURVEY_REPORT_HEADER_COLOR },
+  };
+  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+  sheet.autoFilter = {
+    from: 'A1',
+    to: `${String.fromCharCode(64 + columns.length)}1`,
+  };
+}
+
+function buildSurveyQuestionExcelRows(analytics: SurveyAnalyticsData): ExcelRow[] {
+  const rows: ExcelRow[] = [];
+
+  analytics.questions_analytics.forEach((question, questionIndex) => {
+    const section = question.section?.trim() || 'General';
+    const questionType = formatSurveyQuestionType(question.question_type);
+    const answerRows = getSurveyQuestionTableRows(question, analytics.total_responses);
+
+    answerRows.forEach((row) => {
+      rows.push({
+        Section: section,
+        Number: `Q${questionIndex + 1}`,
+        'Survey Question': question.question_text,
+        Type: questionType,
+        'Answer / Option': row.label,
+        Frequency: row.count,
+        Percentage: formatSurveyPercentage(row.count, analytics.total_responses),
+      });
+    });
+  });
+
+  return rows;
+}
+
+function buildSurveyPdfReportTableHead(table: SurveyReportTable) {
+  return table.headers.map((headerRow) => (
+    headerRow.map((cell) => ({
+      content: cell.label,
+      colSpan: cell.colspan ?? 1,
+      rowSpan: cell.rowspan ?? 1,
+      styles: {
+        halign: cell.align ?? 'center',
+        valign: 'middle' as const,
+        fontStyle: 'bold' as const,
+      },
+    }))
+  ));
+}
+
+function buildSurveyPdfReportTableBody(table: SurveyReportTable) {
+  return table.rows.map((row) => (
+    row.cells.map((cell, cellIndex) => ({
+      content: cell,
+      styles: {
+        halign: (cellIndex === 0 ? 'left' : 'center') as 'left' | 'center',
+        fontStyle: (row.is_total || row.is_group ? 'bold' : 'normal') as 'bold' | 'normal',
+      },
+    }))
+  ));
+}
+
+function buildSurveyQuestionPdfRows(analytics: SurveyAnalyticsData): Array<Array<string | number>> {
+  const rows: Array<Array<string | number>> = [];
+
+  analytics.questions_analytics.forEach((question, questionIndex) => {
+    const section = question.section?.trim() || 'General';
+    const questionType = formatSurveyQuestionType(question.question_type);
+    const answerRows = getSurveyQuestionTableRows(question, analytics.total_responses);
+
+    answerRows.forEach((row) => {
+      rows.push([
+        section,
+        `Q${questionIndex + 1}`,
+        question.question_text,
+        questionType,
+        row.label,
+        row.count,
+        formatSurveyPercentage(row.count, analytics.total_responses),
+      ]);
+    });
+  });
+
+  return rows;
+}
+
+function getSurveyReportTableColumnCount(table: SurveyReportTable): number {
+  const headerColumnCount = table.headers.reduce((max, headerRow) => {
+    const count = headerRow.reduce((sum, cell) => sum + (cell.colspan ?? 1), 0);
+    return Math.max(max, count);
+  }, 0);
+  const rowColumnCount = table.rows.reduce((max, row) => Math.max(max, row.cells.length), 0);
+
+  return Math.max(headerColumnCount, rowColumnCount, 1);
+}
+
+function toFileSafePart(value: string): string {
+  const safeValue = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+
+  return safeValue || 'report';
+}
+
+function toWorksheetSafeName(value: string): string {
+  const safeValue = value.replace(/[\\/?*[\]:]/g, ' ').replace(/\s+/g, ' ').trim();
+  return (safeValue || 'Sheet').slice(0, 31);
 }
 
 function SurveyQuestionReportTable({ analytics }: { analytics: SurveyAnalyticsData }) {

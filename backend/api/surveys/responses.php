@@ -1,15 +1,6 @@
 <?php
-header("Content-Type: application/json");
-header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: POST, GET, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type");
-
-require_once '../config/database.php';
-
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(200);
-    exit();
-}
+require_once __DIR__ . '/../config/cors.php';
+require_once __DIR__ . '/../config/database.php';
 
 $database = new Database();
 $conn = $database->getConnection();
@@ -142,29 +133,154 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     try {
-        $surveyId = $_GET['survey_id'] ?? null;
-
-        if ($surveyId) {
-            $query = "SELECT sr.* FROM survey_responses sr
-                      WHERE sr.survey_id = :survey_id
-                      ORDER BY sr.submitted_at DESC";
-            $stmt = $conn->prepare($query);
-            $stmt->bindParam(':survey_id', $surveyId);
-        } else {
-            $query = "SELECT sr.* FROM survey_responses sr
-                      ORDER BY sr.submitted_at DESC";
-            $stmt = $conn->prepare($query);
+        if (session_status() === PHP_SESSION_NONE) {
+            session_start();
         }
 
-        $stmt->execute();
+        if (!isset($_SESSION['user_id'])) {
+            http_response_code(401);
+            echo json_encode(["success" => false, "error" => "Authentication required"]);
+            exit();
+        }
+
+        $role = $_SESSION['role'] ?? '';
+        $roleProgramScopes = [
+            'dean_cs' => ['BSCS', 'ACT'],
+            'dean_coed' => ['BSED', 'BEED'],
+            'dean_hm' => ['BSHM'],
+        ];
+
+        if ($role !== 'admin' && !isset($roleProgramScopes[$role])) {
+            http_response_code(403);
+            echo json_encode(["success" => false, "error" => "Not authorized to view survey responses"]);
+            exit();
+        }
+
+        $surveyId = isset($_GET['survey_id']) && (int) $_GET['survey_id'] > 0 ? (int) $_GET['survey_id'] : null;
+        $graduateId = isset($_GET['graduate_id']) && (int) $_GET['graduate_id'] > 0 ? (int) $_GET['graduate_id'] : null;
+        $whereParts = [];
+        $params = [];
+
+        if ($surveyId !== null) {
+            $whereParts[] = 'sr.survey_id = :survey_id';
+            $params[':survey_id'] = $surveyId;
+        }
+
+        if ($graduateId !== null) {
+            $whereParts[] = 'sr.graduate_id = :graduate_id';
+            $params[':graduate_id'] = $graduateId;
+        }
+
+        if (isset($roleProgramScopes[$role])) {
+            $programPlaceholders = [];
+            foreach ($roleProgramScopes[$role] as $index => $code) {
+                $placeholder = ':program_code_' . $index;
+                $programPlaceholders[] = $placeholder;
+                $params[$placeholder] = $code;
+            }
+            $whereParts[] = 'p.code IN (' . implode(', ', $programPlaceholders) . ')';
+        }
+
+        $whereClause = count($whereParts) > 0 ? 'WHERE ' . implode(' AND ', $whereParts) : '';
+
+        $query = "
+            SELECT
+                sr.*,
+                g.student_id,
+                g.first_name,
+                g.middle_name,
+                g.last_name,
+                g.email,
+                g.year_graduated,
+                p.code AS program_code,
+                p.name AS program_name,
+                s.title AS survey_title
+            FROM survey_responses sr
+            LEFT JOIN graduates g ON g.id = sr.graduate_id
+            LEFT JOIN programs p ON p.id = g.program_id
+            LEFT JOIN surveys s ON s.id = sr.survey_id
+            $whereClause
+            ORDER BY sr.submitted_at DESC, sr.id DESC
+        ";
+        $stmt = $conn->prepare($query);
+        $stmt->execute($params);
         $responses = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        // Parse JSON responses
+        $questionCache = [];
         foreach ($responses as &$response) {
-            if ($response['responses']) {
-                $response['responses'] = json_decode($response['responses'], true);
+            $responseSurveyId = (int) $response['survey_id'];
+            if (!isset($questionCache[$responseSurveyId])) {
+                $questionStmt = $conn->prepare("
+                    SELECT id, section, question_text, question_type, sort_order
+                    FROM survey_questions
+                    WHERE survey_id = :survey_id
+                    ORDER BY sort_order ASC, id ASC
+                ");
+                $questionStmt->execute([':survey_id' => $responseSurveyId]);
+                $questions = $questionStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                $questionsById = [];
+                foreach ($questions as $question) {
+                    $questionsById[(string) $question['id']] = $question;
+                }
+
+                $questionCache[$responseSurveyId] = [
+                    'ordered' => $questions,
+                    'by_id' => $questionsById,
+                ];
             }
+
+            $decodedResponses = [];
+            if ($response['responses']) {
+                $decoded = json_decode((string) $response['responses'], true);
+                $decodedResponses = is_array($decoded) ? $decoded : [];
+            }
+
+            $answers = [];
+            $orderedQuestions = $questionCache[$responseSurveyId]['ordered'];
+            $questionsById = $questionCache[$responseSurveyId]['by_id'];
+            $answerIndex = 0;
+            $questionIdOffset = null;
+
+            foreach (array_keys($decodedResponses) as $responseQuestionId) {
+                $responseQuestionKey = (string) $responseQuestionId;
+                if (isset($questionsById[$responseQuestionKey]) || !isset($orderedQuestions[0])) {
+                    break;
+                }
+
+                if (is_numeric($responseQuestionKey) && is_numeric($orderedQuestions[0]['id'])) {
+                    $questionIdOffset = (int) $orderedQuestions[0]['id'] - (int) $responseQuestionKey;
+                }
+                break;
+            }
+
+            foreach ($decodedResponses as $questionId => $answer) {
+                $questionKey = (string) $questionId;
+                $offsetQuestion = null;
+                if ($questionIdOffset !== null && is_numeric($questionKey)) {
+                    $offsetQuestionKey = (string) ((int) $questionKey + $questionIdOffset);
+                    $offsetQuestion = $questionsById[$offsetQuestionKey] ?? null;
+                }
+
+                $question = $questionsById[$questionKey] ?? $offsetQuestion ?? ($orderedQuestions[$answerIndex] ?? null);
+                $answers[] = [
+                    'question_id' => $questionKey,
+                    'question_text' => $question['question_text'] ?? ('Question ' . $questionKey),
+                    'question_type' => $question['question_type'] ?? null,
+                    'section' => $question['section'] ?? null,
+                    'sort_order' => isset($question['sort_order']) ? (int) $question['sort_order'] : $answerIndex + 1,
+                    'answer' => $answer,
+                ];
+                $answerIndex++;
+            }
+
+            $response['id'] = (int) $response['id'];
+            $response['survey_id'] = (int) $response['survey_id'];
+            $response['graduate_id'] = $response['graduate_id'] !== null ? (int) $response['graduate_id'] : null;
+            $response['responses'] = $decodedResponses;
+            $response['answers'] = $answers;
         }
+        unset($response);
 
         http_response_code(200);
         echo json_encode([
