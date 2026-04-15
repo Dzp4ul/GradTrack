@@ -208,8 +208,62 @@ function gradtrack_jobs_str_or_null(array $data, string $key): ?string
     return $value !== '' ? $value : null;
 }
 
+function gradtrack_jobs_ensure_schema(PDO $db): void
+{
+    $columns = [
+        'salary_range' => "ALTER TABLE job_posts ADD salary_range VARCHAR(120) NULL AFTER location",
+        'course_program_fit' => "ALTER TABLE job_posts ADD course_program_fit VARCHAR(255) NULL AFTER required_skills",
+        'contact_email' => "ALTER TABLE job_posts ADD contact_email VARCHAR(180) NULL AFTER application_deadline",
+        'application_link' => "ALTER TABLE job_posts ADD application_link VARCHAR(255) NULL AFTER contact_email",
+    ];
+
+    foreach ($columns as $column => $alterSql) {
+        $stmt = $db->prepare('SHOW COLUMNS FROM job_posts LIKE :column_name');
+        $stmt->execute([':column_name' => $column]);
+
+        if (!$stmt->fetch(PDO::FETCH_ASSOC)) {
+            $db->exec($alterSql);
+        }
+    }
+}
+
+function gradtrack_jobs_validate_contact_email(?string $email): void
+{
+    if ($email !== null && !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'error' => 'Please provide a valid contact email']);
+        exit;
+    }
+}
+
+function gradtrack_jobs_normalize_application_link(?string $link): ?string
+{
+    if ($link === null) {
+        return null;
+    }
+
+    $normalized = preg_match('/^https?:\/\//i', $link) ? $link : 'https://' . $link;
+    if (!filter_var($normalized, FILTER_VALIDATE_URL)) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'error' => 'Please provide a valid application link']);
+        exit;
+    }
+
+    return $normalized;
+}
+
+function gradtrack_jobs_require_application_contact(?string $contactEmail, ?string $applicationLink, ?string $applicationMethod): void
+{
+    if ($contactEmail === null && $applicationLink === null && $applicationMethod === null) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'error' => 'Add a contact email, application link, or contact details']);
+        exit;
+    }
+}
+
 $database = new Database();
 $db = $database->getConnection();
+gradtrack_jobs_ensure_schema($db);
 $method = $_SERVER['REQUEST_METHOD'];
 
 if ($method === 'POST' && isset($_POST['_method']) && strtoupper((string) $_POST['_method']) === 'PUT') {
@@ -223,8 +277,7 @@ try {
 
         if ($jobId > 0) {
             $detailQuery = "SELECT jp.*, g.first_name, g.last_name, ga.email AS poster_email,
-                                   p.name AS poster_program_name, p.code AS poster_program_code,
-                                   (SELECT COUNT(*) FROM job_applications ja WHERE ja.job_post_id = jp.id) AS application_count
+                                   p.name AS poster_program_name, p.code AS poster_program_code
                             FROM job_posts jp
                             JOIN graduate_accounts ga ON jp.posted_by_account_id = ga.id
                             JOIN graduates g ON ga.graduate_id = g.id
@@ -244,7 +297,6 @@ try {
             $job['id'] = (int) $job['id'];
             $job['posted_by_account_id'] = (int) $job['posted_by_account_id'];
             $job['is_active'] = (int) $job['is_active'];
-            $job['application_count'] = (int) $job['application_count'];
             gradtrack_jobs_attach_requirements_data($job);
 
             echo json_encode(['success' => true, 'data' => $job]);
@@ -263,8 +315,10 @@ try {
             $activeOnly = false;
         }
 
-        $sql = "SELECT jp.id, jp.title, jp.company, jp.location, jp.job_type, jp.industry,
-                       jp.application_deadline, jp.is_active, jp.created_at,
+        $sql = "SELECT jp.id, jp.title, jp.company, jp.location, jp.salary_range, jp.job_type, jp.industry,
+                       jp.description, jp.required_skills, jp.course_program_fit,
+                       jp.application_deadline, jp.contact_email, jp.application_link, jp.application_method,
+                       jp.is_active, jp.created_at,
                        g.first_name, g.last_name,
                        p.name AS poster_program_name, p.code AS poster_program_code
                 FROM job_posts jp
@@ -290,11 +344,19 @@ try {
                 OR jp.company LIKE :search2
                 OR jp.description LIKE :search3
                 OR jp.required_skills LIKE :search4
+                OR jp.salary_range LIKE :search5
+                OR jp.course_program_fit LIKE :search6
+                OR jp.contact_email LIKE :search7
+                OR jp.application_link LIKE :search8
             )";
             $params[':search'] = '%' . $search . '%';
             $params[':search2'] = '%' . $search . '%';
             $params[':search3'] = '%' . $search . '%';
             $params[':search4'] = '%' . $search . '%';
+            $params[':search5'] = '%' . $search . '%';
+            $params[':search6'] = '%' . $search . '%';
+            $params[':search7'] = '%' . $search . '%';
+            $params[':search8'] = '%' . $search . '%';
         }
 
         if ($jobType !== '') {
@@ -346,10 +408,16 @@ try {
         $location = gradtrack_jobs_str_or_null($data, 'location');
         $jobType = isset($data['job_type']) ? trim((string) $data['job_type']) : 'full_time';
         $industry = gradtrack_jobs_str_or_null($data, 'industry');
+        $salaryRange = gradtrack_jobs_str_or_null($data, 'salary_range');
         $qualifications = gradtrack_jobs_str_or_null($data, 'qualifications');
         $requiredSkills = gradtrack_jobs_str_or_null($data, 'required_skills');
+        $courseProgramFit = gradtrack_jobs_str_or_null($data, 'course_program_fit');
         $applicationDeadline = gradtrack_jobs_str_or_null($data, 'application_deadline');
+        $contactEmail = gradtrack_jobs_str_or_null($data, 'contact_email');
+        $applicationLink = gradtrack_jobs_normalize_application_link(gradtrack_jobs_str_or_null($data, 'application_link'));
         $applicationMethod = gradtrack_jobs_str_or_null($data, 'application_method');
+        gradtrack_jobs_validate_contact_email($contactEmail);
+        gradtrack_jobs_require_application_contact($contactEmail, $applicationLink, $applicationMethod);
 
         $allowedTypes = ['full_time', 'part_time', 'contract', 'internship', 'remote'];
         if (!in_array($jobType, $allowedTypes, true)) {
@@ -357,21 +425,25 @@ try {
         }
 
         $insertQuery = "INSERT INTO job_posts
-                        (posted_by_account_id, title, company, location, job_type, industry, description, qualifications, required_skills, application_deadline, application_method)
+                        (posted_by_account_id, title, company, location, salary_range, job_type, industry, description, qualifications, required_skills, course_program_fit, application_deadline, contact_email, application_link, application_method)
                         VALUES
-                        (:posted_by_account_id, :title, :company, :location, :job_type, :industry, :description, :qualifications, :required_skills, :application_deadline, :application_method)";
+                        (:posted_by_account_id, :title, :company, :location, :salary_range, :job_type, :industry, :description, :qualifications, :required_skills, :course_program_fit, :application_deadline, :contact_email, :application_link, :application_method)";
 
         $stmt = $db->prepare($insertQuery);
         $stmt->bindParam(':posted_by_account_id', $user['account_id']);
         $stmt->bindParam(':title', $title);
         $stmt->bindParam(':company', $company);
         $stmt->bindParam(':location', $location);
+        $stmt->bindParam(':salary_range', $salaryRange);
         $stmt->bindParam(':job_type', $jobType);
         $stmt->bindParam(':industry', $industry);
         $stmt->bindParam(':description', $description);
         $stmt->bindParam(':qualifications', $qualifications);
         $stmt->bindParam(':required_skills', $requiredSkills);
+        $stmt->bindParam(':course_program_fit', $courseProgramFit);
         $stmt->bindParam(':application_deadline', $applicationDeadline);
+        $stmt->bindParam(':contact_email', $contactEmail);
+        $stmt->bindParam(':application_link', $applicationLink);
         $stmt->bindParam(':application_method', $applicationMethod);
         $stmt->execute();
 
@@ -433,10 +505,16 @@ try {
         $location = gradtrack_jobs_str_or_null($data, 'location');
         $jobType = isset($data['job_type']) ? trim((string) $data['job_type']) : 'full_time';
         $industry = gradtrack_jobs_str_or_null($data, 'industry');
+        $salaryRange = gradtrack_jobs_str_or_null($data, 'salary_range');
         $qualifications = gradtrack_jobs_str_or_null($data, 'qualifications');
         $requiredSkills = gradtrack_jobs_str_or_null($data, 'required_skills');
+        $courseProgramFit = gradtrack_jobs_str_or_null($data, 'course_program_fit');
         $applicationDeadline = gradtrack_jobs_str_or_null($data, 'application_deadline');
+        $contactEmail = gradtrack_jobs_str_or_null($data, 'contact_email');
+        $applicationLink = gradtrack_jobs_normalize_application_link(gradtrack_jobs_str_or_null($data, 'application_link'));
         $applicationMethod = gradtrack_jobs_str_or_null($data, 'application_method');
+        gradtrack_jobs_validate_contact_email($contactEmail);
+        gradtrack_jobs_require_application_contact($contactEmail, $applicationLink, $applicationMethod);
         $isActive = isset($data['is_active']) ? (int) ((string) $data['is_active'] === '1' || (string) $data['is_active'] === 'true') : 1;
         $removeRequirementsFile = isset($data['remove_requirements_file'])
             && ((string) $data['remove_requirements_file'] === '1' || (string) $data['remove_requirements_file'] === 'true');
@@ -450,12 +528,16 @@ try {
                         SET title = :title,
                             company = :company,
                             location = :location,
+                            salary_range = :salary_range,
                             job_type = :job_type,
                             industry = :industry,
                             description = :description,
                             qualifications = :qualifications,
                             required_skills = :required_skills,
+                            course_program_fit = :course_program_fit,
                             application_deadline = :application_deadline,
+                            contact_email = :contact_email,
+                            application_link = :application_link,
                             application_method = :application_method,
                             is_active = :is_active
                         WHERE id = :id";
@@ -465,12 +547,16 @@ try {
         $updateStmt->bindParam(':title', $title);
         $updateStmt->bindParam(':company', $company);
         $updateStmt->bindParam(':location', $location);
+        $updateStmt->bindParam(':salary_range', $salaryRange);
         $updateStmt->bindParam(':job_type', $jobType);
         $updateStmt->bindParam(':industry', $industry);
         $updateStmt->bindParam(':description', $description);
         $updateStmt->bindParam(':qualifications', $qualifications);
         $updateStmt->bindParam(':required_skills', $requiredSkills);
+        $updateStmt->bindParam(':course_program_fit', $courseProgramFit);
         $updateStmt->bindParam(':application_deadline', $applicationDeadline);
+        $updateStmt->bindParam(':contact_email', $contactEmail);
+        $updateStmt->bindParam(':application_link', $applicationLink);
         $updateStmt->bindParam(':application_method', $applicationMethod);
         $updateStmt->bindParam(':is_active', $isActive);
         $updateStmt->execute();

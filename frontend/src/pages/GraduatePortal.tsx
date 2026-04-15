@@ -6,8 +6,6 @@ import {
   ChevronDown,
   ClipboardList,
   Mail,
-  LayoutDashboard,
-  UploadCloud,
   LogOut,
   Menu,
   Settings,
@@ -20,7 +18,7 @@ import { API_BASE_URL, API_ENDPOINTS } from '../config/api';
 import { useGraduateAuth } from '../contexts/GraduateAuthContext';
 import MessageBox from '../components/MessageBox';
 
-type PortalTab = 'dashboard' | 'mentors' | 'requests' | 'jobs' | 'applications' | 'my_profile' | 'mentor_profile' | 'job_posting';
+type PortalTab = 'dashboard' | 'mentors' | 'requests' | 'jobs' | 'my_profile' | 'mentor_profile' | 'job_posting';
 
 interface Mentor {
   id: number;
@@ -37,7 +35,8 @@ interface Mentor {
   bio: string | null;
   preferred_topics: string | null;
   contact_email?: string | null;
-  availability_status: 'available' | 'busy' | 'unavailable';
+  profile_image_path?: string | null;
+  availability_status: string | null;
   avg_rating: number;
   feedback_count: number;
 }
@@ -46,14 +45,35 @@ interface MentorshipRequest {
   id: number;
   mentor_id: number;
   request_message: string | null;
-  status: 'pending' | 'accepted' | 'declined' | 'completed';
+  status: 'pending' | 'accepted' | 'declined' | 'completed' | 'cancelled';
   requested_at: string;
+  mentee_name?: string | null;
+  mentee_email?: string | null;
+  mentee_program?: string | null;
+  reason_for_request?: string | null;
+  topic?: string | null;
+  preferred_schedule?: string | null;
+  session_date?: string | null;
+  session_time?: string | null;
+  session_type?: string | null;
+  meeting_link?: string | null;
+  meeting_location?: string | null;
+  session_notes?: string | null;
   mentor_first_name?: string;
   mentor_last_name?: string;
+  mentor_profile_image_path?: string | null;
   current_job_title?: string;
   company?: string;
+  industry?: string;
+  availability_status?: string | null;
   mentee_first_name?: string;
   mentee_last_name?: string;
+  mentee_feedback_rating?: number | null;
+  mentee_feedback_text?: string | null;
+  mentee_found_helpful?: boolean | null;
+  mentor_feedback_attended?: boolean | null;
+  mentor_feedback_completed?: boolean | null;
+  mentor_feedback_remarks?: string | null;
 }
 
 interface JobPost {
@@ -63,9 +83,14 @@ interface JobPost {
   location: string | null;
   job_type: string;
   industry: string | null;
+  description?: string | null;
+  salary_range?: string | null;
+  required_skills?: string | null;
+  course_program_fit?: string | null;
   application_deadline: string | null;
-  requirements_file_path?: string | null;
-  requirements_file_name?: string | null;
+  contact_email?: string | null;
+  application_link?: string | null;
+  application_method?: string | null;
   poster_program_name?: string | null;
   poster_program_code?: string | null;
   is_active: number;
@@ -77,17 +102,6 @@ interface ProgramOption {
   code: string;
 }
 
-interface JobApplication {
-  id: number;
-  job_post_id: number;
-  status: 'pending' | 'reviewed' | 'shortlisted' | 'rejected' | 'hired';
-  application_note: string | null;
-  title?: string;
-  company?: string;
-  first_name?: string;
-  last_name?: string;
-}
-
 interface MentorProfileForm {
   contact_email: string;
   current_job_title: string;
@@ -96,8 +110,45 @@ interface MentorProfileForm {
   skills: string;
   bio: string;
   preferred_topics: string;
-  availability_status: 'available' | 'busy' | 'unavailable';
+  availability_status: string;
   is_active: boolean;
+}
+
+interface MentorshipRequestForm {
+  mentor_id: number | null;
+  mentor_name: string;
+  mentee_name: string;
+  mentee_email: string;
+  mentee_program: string;
+  reason_for_request: string;
+  topic: string;
+  preferred_schedule: string;
+  request_message: string;
+}
+
+interface SessionScheduleForm {
+  session_date: string;
+  session_time: string;
+  session_type: string;
+  meeting_link: string;
+  meeting_location: string;
+  session_notes: string;
+}
+
+interface MenteeFeedbackForm {
+  request_id: number | null;
+  mentor_name: string;
+  mentor_helpful: boolean;
+  rating: string;
+  feedback_text: string;
+}
+
+interface MentorFeedbackForm {
+  request_id: number | null;
+  mentee_name: string;
+  mentee_attended: boolean;
+  session_completed: boolean;
+  remarks: string;
 }
 
 interface JobForm {
@@ -107,13 +158,14 @@ interface JobForm {
   location: string;
   job_type: string;
   industry: string;
+  salary_range: string;
   description: string;
-  qualifications: string;
   required_skills: string;
+  course_program_fit: string;
   application_deadline: string;
+  contact_email: string;
+  application_link: string;
   application_method: string;
-  requirements_file_path?: string;
-  requirements_file_name?: string;
   is_active: boolean;
 }
 
@@ -181,8 +233,76 @@ const defaultMentorProfile: MentorProfileForm = {
   skills: '',
   bio: '',
   preferred_topics: '',
-  availability_status: 'available',
+  availability_status: 'Available: Saturday 2 PM - 5 PM',
   is_active: true,
+};
+
+const defaultMentorshipRequestForm: MentorshipRequestForm = {
+  mentor_id: null,
+  mentor_name: '',
+  mentee_name: '',
+  mentee_email: '',
+  mentee_program: '',
+  reason_for_request: '',
+  topic: 'career advice',
+  preferred_schedule: '',
+  request_message: '',
+};
+
+const defaultScheduleForm: SessionScheduleForm = {
+  session_date: '',
+  session_time: '',
+  session_type: 'Google Meet',
+  meeting_link: '',
+  meeting_location: '',
+  session_notes: '',
+};
+
+const defaultMenteeFeedbackForm: MenteeFeedbackForm = {
+  request_id: null,
+  mentor_name: '',
+  mentor_helpful: true,
+  rating: '5',
+  feedback_text: '',
+};
+
+const defaultMentorFeedbackForm: MentorFeedbackForm = {
+  request_id: null,
+  mentee_name: '',
+  mentee_attended: true,
+  session_completed: true,
+  remarks: '',
+};
+
+const requestTopicOptions = [
+  'career advice',
+  'resume review',
+  'interview preparation',
+  'industry insights',
+  'internship guidance',
+  'job searching',
+];
+
+const sessionTypeOptions = ['Face-to-face', 'Google Meet', 'Zoom', 'Chat-based mentoring'];
+const defaultAvailability = 'Available: Saturday 2 PM - 5 PM';
+const availabilityDayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+const availabilityTimeOptions = ['8 AM', '9 AM', '10 AM', '11 AM', '12 PM', '1 PM', '2 PM', '3 PM', '4 PM', '5 PM', '6 PM', '7 PM', '8 PM'];
+
+const buildAvailabilityStatus = (day: string, startTime: string, endTime: string) => `Available: ${day} ${startTime} - ${endTime}`;
+
+const parseAvailabilityStatus = (value?: string | null) => {
+  const normalized = (value || defaultAvailability).replace(/\s+–\s+/g, ' - ').trim();
+  const match = normalized.match(/^Available:\s+([A-Za-z]+)\s+(.+?)\s*-\s*(.+)$/i);
+
+  if (!match) {
+    return { day: 'Saturday', startTime: '2 PM', endTime: '5 PM' };
+  }
+
+  const day = availabilityDayOptions.find((option) => option.toLowerCase() === match[1].toLowerCase()) || 'Saturday';
+  const startTime = availabilityTimeOptions.includes(match[2].trim()) ? match[2].trim() : '2 PM';
+  const endTime = availabilityTimeOptions.includes(match[3].trim()) ? match[3].trim() : '5 PM';
+
+  return { day, startTime, endTime };
 };
 
 const defaultJobForm: JobForm = {
@@ -191,20 +311,21 @@ const defaultJobForm: JobForm = {
   location: '',
   job_type: 'full_time',
   industry: '',
+  salary_range: '',
   description: '',
-  qualifications: '',
   required_skills: '',
+  course_program_fit: '',
   application_deadline: '',
+  contact_email: '',
+  application_link: '',
   application_method: '',
-  requirements_file_path: '',
-  requirements_file_name: '',
   is_active: true,
 };
 
 export default function GraduatePortal() {
   const { user, logout, checkAuth } = useGraduateAuth();
 
-  const [activeTab, setActiveTab] = useState<PortalTab>('dashboard');
+  const [activeTab, setActiveTab] = useState<PortalTab>('mentors');
   const [loading, setLoading] = useState(false);
   const [mentors, setMentors] = useState<Mentor[]>([]);
   const [outgoingRequests, setOutgoingRequests] = useState<MentorshipRequest[]>([]);
@@ -212,16 +333,19 @@ export default function GraduatePortal() {
   const [jobs, setJobs] = useState<JobPost[]>([]);
   const [myPostedJobs, setMyPostedJobs] = useState<JobPost[]>([]);
   const [programOptions, setProgramOptions] = useState<ProgramOption[]>([]);
-  const [myApplications, setMyApplications] = useState<JobApplication[]>([]);
-  const [receivedApplications, setReceivedApplications] = useState<JobApplication[]>([]);
   const [myMentorProfile, setMyMentorProfile] = useState<MentorProfileForm>(defaultMentorProfile);
   const [hasMentorProfile, setHasMentorProfile] = useState(false);
   const [showMentorProfileForm, setShowMentorProfileForm] = useState(false);
   const [myJobForm, setMyJobForm] = useState<JobForm>(defaultJobForm);
-  const [jobRequirementsFile, setJobRequirementsFile] = useState<File | null>(null);
-  const [removeRequirementsFile, setRemoveRequirementsFile] = useState(false);
   const [mentorSearch, setMentorSearch] = useState('');
   const [mentorProgramTab, setMentorProgramTab] = useState('all');
+  const [mentorIndustryFilter, setMentorIndustryFilter] = useState('');
+  const [mentorSkillsFilter, setMentorSkillsFilter] = useState('');
+  const [mentorYearFilter, setMentorYearFilter] = useState('');
+  const [requestForm, setRequestForm] = useState<MentorshipRequestForm>(defaultMentorshipRequestForm);
+  const [scheduleDrafts, setScheduleDrafts] = useState<Record<number, SessionScheduleForm>>({});
+  const [menteeFeedbackForm, setMenteeFeedbackForm] = useState<MenteeFeedbackForm>(defaultMenteeFeedbackForm);
+  const [mentorFeedbackForm, setMentorFeedbackForm] = useState<MentorFeedbackForm>(defaultMentorFeedbackForm);
   const [jobSearch, setJobSearch] = useState('');
   const [jobProgramTab, setJobProgramTab] = useState('all');
   const [ratingSummary, setRatingSummary] = useState<AlumniRating | null>(null);
@@ -248,6 +372,7 @@ export default function GraduatePortal() {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const profileImageInputRef = useRef<HTMLInputElement | null>(null);
+  const mentorImageInputRef = useRef<HTMLInputElement | null>(null);
 
   const resolveProfileImageUrl = (path?: string | null) => {
     if (!path) return '';
@@ -256,6 +381,37 @@ export default function GraduatePortal() {
   };
 
   const profileImageUrl = useMemo(() => resolveProfileImageUrl(user?.profile_image_path), [user?.profile_image_path]);
+  const mentorAvailability = useMemo(
+    () => parseAvailabilityStatus(myMentorProfile.availability_status),
+    [myMentorProfile.availability_status],
+  );
+
+  const updateMentorAvailability = (field: keyof typeof mentorAvailability, value: string) => {
+    const next = { ...mentorAvailability, [field]: value };
+    setMyMentorProfile((prev) => ({
+      ...prev,
+      availability_status: buildAvailabilityStatus(next.day, next.startTime, next.endTime),
+    }));
+  };
+
+  const getInitials = (firstName?: string | null, lastName?: string | null) => {
+    const first = (firstName || '').trim();
+    const last = (lastName || '').trim();
+    if (!first && !last) return 'G';
+    return `${first.charAt(0)}${last.charAt(0) || first.charAt(1) || ''}`.toUpperCase();
+  };
+
+  const formatAvailability = (value?: string | null) => {
+    const availability = (value || '').trim();
+    if (!availability) return defaultAvailability;
+    if (availability === 'available') return defaultAvailability;
+    if (availability === 'busy') return 'Busy';
+    if (availability === 'unavailable') return 'Unavailable';
+    return availability;
+  };
+
+  const formatStatus = (status: MentorshipRequest['status']) =>
+    status.charAt(0).toUpperCase() + status.slice(1);
 
   const userRoleLabel = useMemo(() => {
     const rawRole = (user?.role || 'graduate') as string;
@@ -303,25 +459,39 @@ export default function GraduatePortal() {
   const fetchAll = async () => {
     setLoading(true);
     try {
-      const [ratingRes, mentorList, reqOut, reqIn, jobsList, appsMine, appsReceived, myMentor, mineJobs] = await Promise.all([
+      const [ratingRes, mentorList, reqOut, reqIn, jobsList, myMentor, mineJobs] = await Promise.all([
         authenticatedFetch(API_ENDPOINTS.ALUMNI_RATING.SUMMARY),
         authenticatedFetch(`${API_ENDPOINTS.MENTORSHIP.MENTORS}?search=${encodeURIComponent(mentorSearch)}`),
         authenticatedFetch(`${API_ENDPOINTS.MENTORSHIP.REQUESTS}?type=outgoing`),
         authenticatedFetch(`${API_ENDPOINTS.MENTORSHIP.REQUESTS}?type=incoming`),
         authenticatedFetch(`${API_ENDPOINTS.JOBS.POSTS}?search=${encodeURIComponent(jobSearch)}`),
-        authenticatedFetch(`${API_ENDPOINTS.JOBS.APPLICATIONS}?type=my`),
-        authenticatedFetch(`${API_ENDPOINTS.JOBS.APPLICATIONS}?type=received`),
         authenticatedFetch(`${API_ENDPOINTS.MENTORSHIP.MENTORS}?mine=1`),
         authenticatedFetch(`${API_ENDPOINTS.JOBS.POSTS}?mine=1&include_inactive=1`),
       ]);
 
+      const outgoing = reqOut.data || [];
+      const incoming = reqIn.data || [];
       setMentors(mentorList.data || []);
-      setOutgoingRequests(reqOut.data || []);
-      setIncomingRequests(reqIn.data || []);
+      setOutgoingRequests(outgoing);
+      setIncomingRequests(incoming);
+      setScheduleDrafts((prev) => {
+        const next = { ...prev };
+        incoming.forEach((req: MentorshipRequest) => {
+          if (!next[req.id]) {
+            next[req.id] = {
+              session_date: req.session_date || '',
+              session_time: req.session_time || '',
+              session_type: req.session_type || 'Google Meet',
+              meeting_link: req.meeting_link || '',
+              meeting_location: req.meeting_location || '',
+              session_notes: req.session_notes || '',
+            };
+          }
+        });
+        return next;
+      });
       setJobs(jobsList.data || []);
       setMyPostedJobs(mineJobs.data || []);
-      setMyApplications(appsMine.data || []);
-      setReceivedApplications(appsReceived.data || []);
       setRatingSummary(ratingRes?.data?.rating || null);
 
       if (myMentor.data) {
@@ -335,7 +505,7 @@ export default function GraduatePortal() {
           skills: myMentor.data.skills || '',
           bio: myMentor.data.bio || '',
           preferred_topics: myMentor.data.preferred_topics || '',
-          availability_status: myMentor.data.availability_status || 'available',
+          availability_status: formatAvailability(myMentor.data.availability_status),
           is_active: !!myMentor.data.is_active,
         });
       } else {
@@ -388,6 +558,23 @@ export default function GraduatePortal() {
   }, [user?.email]);
 
   useEffect(() => {
+    setMyJobForm((prev) => ({
+      ...prev,
+      contact_email: prev.contact_email || user?.email || '',
+      course_program_fit: prev.course_program_fit || user?.program_code || user?.program_name || '',
+    }));
+  }, [user?.email, user?.program_code, user?.program_name]);
+
+  useEffect(() => {
+    setRequestForm((prev) => ({
+      ...prev,
+      mentee_name: prev.mentor_id ? prev.mentee_name : user?.full_name || '',
+      mentee_email: prev.mentor_id ? prev.mentee_email : user?.email || '',
+      mentee_program: prev.mentor_id ? prev.mentee_program : user?.program_code || user?.program_name || '',
+    }));
+  }, [user]);
+
+  useEffect(() => {
     setProfileImagePreview(profileImageUrl);
   }, [profileImageUrl]);
 
@@ -415,6 +602,29 @@ export default function GraduatePortal() {
     return name;
   };
 
+  const normalizeProgramText = (value?: string | null) => (value || '').trim().toUpperCase();
+
+  const formatEmploymentType = (value?: string | null) =>
+    (value || 'full_time')
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (letter) => letter.toUpperCase());
+
+  const normalizeApplicationLink = (value?: string | null) => {
+    const link = (value || '').trim();
+    if (!link) return '';
+    return /^https?:\/\//i.test(link) ? link : `https://${link}`;
+  };
+
+  const jobMatchesProgramTab = (job: JobPost, tabKey: string) => {
+    const selected = normalizeProgramText(tabKey);
+    if (!selected || selected === 'ALL') return true;
+
+    const fit = normalizeProgramText(job.course_program_fit);
+    const posterProgram = normalizeProgramText(normalizeProgramKey(job.poster_program_code, job.poster_program_name));
+
+    return posterProgram === selected || fit.includes(selected);
+  };
+
   const mentorProgramTabs = useMemo(() => {
     const tabMap = new Map<string, string>();
 
@@ -432,6 +642,20 @@ export default function GraduatePortal() {
 
     return [{ key: 'all', label: 'All' }, ...Array.from(tabMap.entries()).map(([key, label]) => ({ key, label }))];
   }, [mentors, programOptions]);
+
+  const mentorIndustryOptions = useMemo(() => {
+    const values = mentors
+      .map((mentor) => (mentor.industry || '').trim())
+      .filter(Boolean);
+    return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b));
+  }, [mentors]);
+
+  const mentorYearOptions = useMemo(() => {
+    const values = mentors
+      .map((mentor) => mentor.year_graduated)
+      .filter((year): year is number => year !== null && year !== undefined);
+    return Array.from(new Set(values)).sort((a, b) => b - a);
+  }, [mentors]);
 
   const jobProgramTabs = useMemo(() => {
     const tabMap = new Map<string, string>();
@@ -465,12 +689,28 @@ export default function GraduatePortal() {
 
   const filteredMentors = useMemo(() => {
     const q = mentorSearch.toLowerCase();
+    const industry = mentorIndustryFilter.toLowerCase();
+    const skills = mentorSkillsFilter.toLowerCase();
+    const year = mentorYearFilter.trim();
+
     return mentors.filter((m) => {
       if (mentorProgramTab !== 'all') {
         const mentorProgramKey = normalizeProgramKey(m.program_code, m.program_name);
         if (mentorProgramKey !== mentorProgramTab) {
           return false;
         }
+      }
+
+      if (industry && !(m.industry || '').toLowerCase().includes(industry)) {
+        return false;
+      }
+
+      if (skills && !(m.skills || '').toLowerCase().includes(skills)) {
+        return false;
+      }
+
+      if (year && String(m.year_graduated || '') !== year) {
+        return false;
       }
 
       if (!q.trim()) return true;
@@ -482,56 +722,103 @@ export default function GraduatePortal() {
         m.industry || '',
         m.skills || '',
         m.current_job_title || '',
+        m.preferred_topics || '',
       ]
         .join(' ')
         .toLowerCase()
         .includes(q);
     });
-  }, [mentorSearch, mentorProgramTab, mentors]);
+  }, [
+    mentorSearch,
+    mentorProgramTab,
+    mentorIndustryFilter,
+    mentorSkillsFilter,
+    mentorYearFilter,
+    mentors,
+  ]);
 
   const filteredJobs = useMemo(() => {
     const q = jobSearch.toLowerCase();
     return jobs.filter((j) => {
-      if (jobProgramTab !== 'all') {
-        const jobProgramKey = normalizeProgramKey(j.poster_program_code, j.poster_program_name);
-        if (jobProgramKey !== jobProgramTab) {
-          return false;
-        }
+      if (!jobMatchesProgramTab(j, jobProgramTab)) {
+        return false;
       }
 
       if (!q.trim()) return true;
 
-      return [j.title, j.company, j.location || '', j.job_type, j.industry || '', j.poster_program_name || '', j.poster_program_code || '']
+      return [
+        j.title,
+        j.company,
+        j.location || '',
+        j.job_type,
+        j.industry || '',
+        j.description || '',
+        j.salary_range || '',
+        j.required_skills || '',
+        j.course_program_fit || '',
+        j.contact_email || '',
+        j.application_link || '',
+        j.application_method || '',
+        j.poster_program_name || '',
+        j.poster_program_code || '',
+      ]
         .join(' ')
         .toLowerCase()
         .includes(q);
     });
-  }, [jobSearch, jobProgramTab, jobs]);
+  }, [jobSearch, jobProgramTab, jobs, jobMatchesProgramTab]);
 
-  const sendMentorshipRequest = async (mentorId: number) => {
+  const openMentorshipRequestForm = (mentor: Mentor) => {
     if (!canRequestMentorship) {
       notify('warning', 'Mentorship request is locked. Only graduates with not employed status can request mentorship.');
       return;
     }
 
-    const message = window.prompt('Add a short request note for the mentor (optional):', 'I would like to request mentorship guidance.');
+    setRequestForm({
+      ...defaultMentorshipRequestForm,
+      mentor_id: mentor.id,
+      mentor_name: `${mentor.first_name} ${mentor.last_name}`,
+      mentee_name: user?.full_name || '',
+      mentee_email: user?.email || '',
+      mentee_program: user?.program_code || user?.program_name || '',
+      topic: mentor.preferred_topics?.split(',')[0]?.trim().toLowerCase() || 'career advice',
+      request_message: `Hi ${mentor.first_name}, I would like to request mentorship guidance.`,
+    });
+  };
+
+  const closeMentorshipRequestForm = () => setRequestForm(defaultMentorshipRequestForm);
+
+  const submitMentorshipRequest = async (e: FormEvent) => {
+    e.preventDefault();
+
+    if (!requestForm.mentor_id) {
+      notify('warning', 'Please choose a mentor before sending a request.');
+      return;
+    }
 
     try {
       await authenticatedFetch(API_ENDPOINTS.MENTORSHIP.REQUESTS, {
         method: 'POST',
         body: JSON.stringify({
-          mentor_id: mentorId,
-          request_message: message || '',
+          mentor_id: requestForm.mentor_id,
+          mentee_name: requestForm.mentee_name,
+          mentee_email: requestForm.mentee_email,
+          mentee_program: requestForm.mentee_program,
+          reason_for_request: requestForm.reason_for_request,
+          topic: requestForm.topic,
+          preferred_schedule: requestForm.preferred_schedule,
+          request_message: requestForm.request_message,
         }),
       });
       notify('success', 'Mentorship request sent successfully.');
+      closeMentorshipRequestForm();
       await fetchAll();
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to send request');
     }
   };
 
-  const updateMentorshipStatus = async (id: number, status: string) => {
+  const updateMentorshipStatus = async (id: number, status: string, extraPayload: Record<string, unknown> = {}) => {
     if (!canUseMentorship) {
       notify('warning', 'Mentorship access is currently locked due to unmet eligibility rules.');
       return;
@@ -540,7 +827,7 @@ export default function GraduatePortal() {
     try {
       await authenticatedFetch(API_ENDPOINTS.MENTORSHIP.REQUESTS, {
         method: 'PUT',
-        body: JSON.stringify({ id, status }),
+        body: JSON.stringify({ id, status, ...extraPayload }),
       });
       notify('success', `Request marked as ${status}.`);
       await fetchAll();
@@ -549,34 +836,92 @@ export default function GraduatePortal() {
     }
   };
 
-  const submitFeedback = async (requestId: number) => {
+  const openMenteeFeedbackForm = (request: MentorshipRequest) => {
     if (!canUseMentorship) {
       notify('warning', 'Mentorship access is currently locked due to unmet eligibility rules.');
       return;
     }
 
-    const ratingRaw = window.prompt('Rate your mentorship experience (1-5):', '5');
-    const rating = Number(ratingRaw || '0');
+    setMenteeFeedbackForm({
+      request_id: request.id,
+      mentor_name: `${request.mentor_first_name || ''} ${request.mentor_last_name || ''}`.trim() || 'Mentor',
+      mentor_helpful: request.mentee_found_helpful ?? true,
+      rating: request.mentee_feedback_rating ? String(request.mentee_feedback_rating) : '5',
+      feedback_text: request.mentee_feedback_text || '',
+    });
+  };
+
+  const closeMenteeFeedbackForm = () => setMenteeFeedbackForm(defaultMenteeFeedbackForm);
+
+  const submitMenteeFeedback = async (e: FormEvent) => {
+    e.preventDefault();
+
+    if (!menteeFeedbackForm.request_id) {
+      notify('warning', 'Please choose a completed mentoring session first.');
+      return;
+    }
+
+    const rating = Number(menteeFeedbackForm.rating || '0');
     if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
       notify('warning', 'Please provide a rating from 1 to 5.');
       return;
     }
 
-    const feedback = window.prompt('Share a short feedback note (optional):', 'Thank you for the guidance!') || '';
+    try {
+      await authenticatedFetch(API_ENDPOINTS.MENTORSHIP.FEEDBACK, {
+        method: 'POST',
+        body: JSON.stringify({
+          mentorship_request_id: menteeFeedbackForm.request_id,
+          feedback_role: 'mentee',
+          rating,
+          mentor_helpful: menteeFeedbackForm.mentor_helpful,
+          feedback_text: menteeFeedbackForm.feedback_text,
+        }),
+      });
+      notify('success', 'Feedback submitted.');
+      closeMenteeFeedbackForm();
+      await fetchAll();
+    } catch (error) {
+      notify('error', error instanceof Error ? error.message : 'Unable to submit feedback');
+    }
+  };
+
+  const openMentorFeedbackForm = (request: MentorshipRequest) => {
+    setMentorFeedbackForm({
+      request_id: request.id,
+      mentee_name: request.mentee_name || `${request.mentee_first_name || ''} ${request.mentee_last_name || ''}`.trim() || 'Mentee',
+      mentee_attended: request.mentor_feedback_attended ?? true,
+      session_completed: request.mentor_feedback_completed ?? true,
+      remarks: request.mentor_feedback_remarks || '',
+    });
+  };
+
+  const closeMentorFeedbackForm = () => setMentorFeedbackForm(defaultMentorFeedbackForm);
+
+  const submitMentorFeedback = async (e: FormEvent) => {
+    e.preventDefault();
+
+    if (!mentorFeedbackForm.request_id) {
+      notify('warning', 'Please choose a mentorship request first.');
+      return;
+    }
 
     try {
       await authenticatedFetch(API_ENDPOINTS.MENTORSHIP.FEEDBACK, {
         method: 'POST',
         body: JSON.stringify({
-          mentorship_request_id: requestId,
-          rating,
-          feedback_text: feedback,
+          mentorship_request_id: mentorFeedbackForm.request_id,
+          feedback_role: 'mentor',
+          mentee_attended: mentorFeedbackForm.mentee_attended,
+          session_completed: mentorFeedbackForm.session_completed,
+          remarks: mentorFeedbackForm.remarks,
         }),
       });
-      notify('success', 'Feedback submitted.');
+      notify('success', 'Mentor feedback submitted.');
+      closeMentorFeedbackForm();
       await fetchAll();
     } catch (error) {
-      notify('error', error instanceof Error ? error.message : 'Unable to submit feedback');
+      notify('error', error instanceof Error ? error.message : 'Unable to submit mentor feedback');
     }
   };
 
@@ -601,7 +946,7 @@ export default function GraduatePortal() {
 
     try {
       const currentEmail = (user?.email || '').trim().toLowerCase();
-      if (mentorEmail.toLowerCase() !== currentEmail) {
+      if (mentorEmail.toLowerCase() !== currentEmail || profileImageFile) {
         const profileData = new FormData();
         profileData.append('first_name', profileForm.first_name.trim() || user?.first_name || '');
         profileData.append('middle_name', profileForm.middle_name.trim() || user?.middle_name || '');
@@ -609,12 +954,16 @@ export default function GraduatePortal() {
         profileData.append('email', mentorEmail);
         profileData.append('phone', profileForm.phone.trim());
         profileData.append('address', profileForm.address.trim());
+        if (profileImageFile) {
+          profileData.append('profile_image', profileImageFile);
+        }
         await authenticatedFetch(API_ENDPOINTS.GRADUATE_PROFILE, {
           method: 'POST',
           body: profileData,
         });
         await checkAuth();
         setProfileForm((prev) => ({ ...prev, email: mentorEmail }));
+        setProfileImageFile(null);
       }
 
       const mentorPayload = {
@@ -625,7 +974,7 @@ export default function GraduatePortal() {
         bio: myMentorProfile.bio,
         preferred_topics: myMentorProfile.preferred_topics,
         availability_status: myMentorProfile.availability_status,
-        is_active: myMentorProfile.is_active,
+        is_active: true,
       };
       await authenticatedFetch(API_ENDPOINTS.MENTORSHIP.MENTORS, {
         method: 'POST',
@@ -640,42 +989,25 @@ export default function GraduatePortal() {
     }
   };
 
-  const applyToJob = async (jobId: number) => {
-    const note = window.prompt('Add application note (optional):', 'I am interested in this opportunity and would love to be considered.') || '';
-
-    try {
-      await authenticatedFetch(API_ENDPOINTS.JOBS.APPLICATIONS, {
-        method: 'POST',
-        body: JSON.stringify({
-          job_post_id: jobId,
-          application_note: note,
-        }),
-      });
-      notify('success', 'Application submitted successfully.');
-      await fetchAll();
-    } catch (error) {
-      notify('error', error instanceof Error ? error.message : 'Unable to apply');
-    }
-  };
-
-  const updateApplicationStatus = async (id: number, status: JobApplication['status']) => {
-    try {
-      await authenticatedFetch(API_ENDPOINTS.JOBS.APPLICATIONS, {
-        method: 'PUT',
-        body: JSON.stringify({ id, status }),
-      });
-      notify('success', `Application updated to ${status}.`);
-      await fetchAll();
-    } catch (error) {
-      notify('error', error instanceof Error ? error.message : 'Unable to update application status');
-    }
-  };
-
   const handleJobSubmit = async (e: FormEvent) => {
     e.preventDefault();
 
     if (!canPostJobs) {
       notify('warning', 'Job posting is locked until your employment status is set to employed.');
+      return;
+    }
+
+    const contactEmail = myJobForm.contact_email.trim();
+    const applicationLink = myJobForm.application_link.trim();
+    const contactDetails = myJobForm.application_method.trim();
+
+    if (!contactEmail && !applicationLink && !contactDetails) {
+      notify('warning', 'Add a contact email, application link, or other contact details so applicants know how to apply.');
+      return;
+    }
+
+    if (contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) {
+      notify('warning', 'Please enter a valid contact email.');
       return;
     }
 
@@ -685,20 +1017,15 @@ export default function GraduatePortal() {
     formData.append('location', myJobForm.location.trim());
     formData.append('job_type', myJobForm.job_type);
     formData.append('industry', myJobForm.industry.trim());
+    formData.append('salary_range', myJobForm.salary_range.trim());
     formData.append('description', myJobForm.description.trim());
-    formData.append('qualifications', myJobForm.qualifications.trim());
     formData.append('required_skills', myJobForm.required_skills.trim());
+    formData.append('course_program_fit', myJobForm.course_program_fit.trim());
     formData.append('application_deadline', myJobForm.application_deadline || '');
-    formData.append('application_method', myJobForm.application_method.trim());
+    formData.append('contact_email', contactEmail);
+    formData.append('application_link', applicationLink);
+    formData.append('application_method', contactDetails);
     formData.append('is_active', myJobForm.is_active ? '1' : '0');
-
-    if (jobRequirementsFile) {
-      formData.append('requirements_file', jobRequirementsFile);
-    }
-
-    if (removeRequirementsFile) {
-      formData.append('remove_requirements_file', '1');
-    }
 
     try {
       if (myJobForm.id) {
@@ -717,9 +1044,11 @@ export default function GraduatePortal() {
         notify('success', 'Job post published successfully.');
       }
 
-      setMyJobForm(defaultJobForm);
-      setJobRequirementsFile(null);
-      setRemoveRequirementsFile(false);
+      setMyJobForm({
+        ...defaultJobForm,
+        contact_email: user?.email || '',
+        course_program_fit: user?.program_code || user?.program_name || '',
+      });
       await fetchAll();
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to save job post');
@@ -737,17 +1066,16 @@ export default function GraduatePortal() {
         location: data.location || '',
         job_type: data.job_type || 'full_time',
         industry: data.industry || '',
+        salary_range: data.salary_range || '',
         description: data.description || '',
-        qualifications: data.qualifications || '',
         required_skills: data.required_skills || '',
+        course_program_fit: data.course_program_fit || data.poster_program_code || data.poster_program_name || '',
         application_deadline: data.application_deadline || '',
+        contact_email: data.contact_email || data.poster_email || user?.email || '',
+        application_link: data.application_link || '',
         application_method: data.application_method || '',
-        requirements_file_path: data.requirements_file_path || '',
-        requirements_file_name: data.requirements_file_name || '',
         is_active: !!data.is_active,
       });
-      setJobRequirementsFile(null);
-      setRemoveRequirementsFile(false);
       setActiveTab('job_posting');
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to load job details');
@@ -803,11 +1131,9 @@ export default function GraduatePortal() {
   };
 
   const navItems: Array<{ key: PortalTab; label: string; icon: LucideIcon }> = [
-    { key: 'dashboard', label: 'Dashboard', icon: BarChart3 },
     { key: 'mentors', label: 'Find Mentors', icon: Users },
     { key: 'requests', label: 'Mentorship Requests', icon: ClipboardList },
     { key: 'jobs', label: 'Browse Jobs', icon: Briefcase },
-    { key: 'applications', label: 'My Applications', icon: LayoutDashboard },
     { key: 'mentor_profile', label: 'Mentor Profile', icon: Users },
     { key: 'job_posting', label: 'Job Posting', icon: Settings },
   ];
@@ -1098,7 +1424,7 @@ export default function GraduatePortal() {
                     <div>
                       <h2 className="text-xl font-bold text-blue-900">Find Mentors</h2>
                       <p className="text-sm text-gray-600">
-                        Browse by program to find mentors aligned with your course, or switch to all programs.
+                        Search by course, industry, skills, and batch.
                       </p>
                     </div>
                     <p className="text-sm text-gray-500">
@@ -1112,29 +1438,66 @@ export default function GraduatePortal() {
                     </div>
                   )}
 
-                  <div className="flex flex-wrap gap-2">
-                    {mentorProgramTabs.map((tab) => (
-                      <button
-                        key={tab.key}
-                        type="button"
-                        onClick={() => setMentorProgramTab(tab.key)}
-                        className={`px-3 py-1.5 rounded-full text-sm border transition ${
-                          mentorProgramTab === tab.key
-                            ? 'bg-blue-600 border-blue-600 text-white'
-                            : 'bg-white border-gray-300 text-gray-700 hover:border-blue-300 hover:text-blue-700'
-                        }`}
-                      >
-                        {tab.label}
-                      </button>
-                    ))}
-                  </div>
-
                   <input
                     value={mentorSearch}
                     onChange={(e) => setMentorSearch(e.target.value)}
-                    placeholder="Search mentors by name, program, industry, or skills"
+                    placeholder="Search mentors by name, course, IT, interview preparation, career shifting, or skills"
                     className="w-full px-4 py-2.5 border border-gray-300 rounded-lg"
                   />
+
+                  <div className="grid md:grid-cols-2 xl:grid-cols-4 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 mb-1">Course</label>
+                      <select
+                        value={mentorProgramTab}
+                        onChange={(e) => setMentorProgramTab(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                      >
+                        {mentorProgramTabs.map((tab) => (
+                          <option key={tab.key} value={tab.key}>{tab.label}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 mb-1">Industry</label>
+                      <select
+                        value={mentorIndustryFilter}
+                        onChange={(e) => setMentorIndustryFilter(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                      >
+                        <option value="">All industries</option>
+                        {mentorIndustryOptions.map((industry) => (
+                          <option key={industry} value={industry}>{industry}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 mb-1">Skills</label>
+                      <input
+                        value={mentorSkillsFilter}
+                        onChange={(e) => setMentorSkillsFilter(e.target.value)}
+                        placeholder="React, SQL, HR"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 mb-1">Batch</label>
+                      <select
+                        value={mentorYearFilter}
+                        onChange={(e) => setMentorYearFilter(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                      >
+                        <option value="">All years</option>
+                        {mentorYearOptions.map((year) => (
+                          <option key={year} value={year}>Batch: {year}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                  </div>
                 </div>
 
                 {filteredMentors.length === 0 ? (
@@ -1146,16 +1509,32 @@ export default function GraduatePortal() {
                     {filteredMentors.map((mentor) => (
                       <div key={mentor.id} className="bg-white rounded-xl border border-gray-200 p-5">
                         <div className="flex justify-between items-start gap-4">
-                          <div>
+                          <div className="flex items-start gap-3 min-w-0">
+                            {mentor.profile_image_path ? (
+                              <img
+                                src={resolveProfileImageUrl(mentor.profile_image_path)}
+                                alt={`${mentor.first_name} ${mentor.last_name}`}
+                                className="w-14 h-14 rounded-full object-cover border border-gray-200"
+                              />
+                            ) : (
+                              <div className="w-14 h-14 rounded-full bg-blue-100 text-blue-900 flex items-center justify-center font-bold">
+                                {getInitials(mentor.first_name, mentor.last_name)}
+                              </div>
+                            )}
+                            <div className="min-w-0">
                             <h3 className="text-lg font-bold text-blue-900">
                               {mentor.first_name} {mentor.last_name}
                             </h3>
                             <p className="text-sm text-gray-600">
                               {mentor.current_job_title || 'Professional'} {mentor.company ? `at ${mentor.company}` : ''}
                             </p>
+                            <p className="text-xs text-gray-500">
+                              Batch: {mentor.year_graduated || 'N/A'}
+                            </p>
+                            </div>
                           </div>
                           <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700">
-                            {mentor.availability_status}
+                            {formatAvailability(mentor.availability_status)}
                           </span>
                         </div>
                         <div className="mt-3 space-y-1 text-sm text-gray-700">
@@ -1171,7 +1550,7 @@ export default function GraduatePortal() {
                           {mentor.bio && <p className="text-gray-600 mt-2">{mentor.bio}</p>}
                         </div>
                         <button
-                          onClick={() => sendMentorshipRequest(mentor.id)}
+                          onClick={() => openMentorshipRequestForm(mentor)}
                           disabled={!canRequestMentorship}
                           className="mt-4 w-full py-2 rounded-lg font-medium bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-60 disabled:cursor-not-allowed"
                         >
@@ -1192,20 +1571,135 @@ export default function GraduatePortal() {
                     {incomingRequests.length === 0 && <p className="text-gray-500">No incoming mentorship requests.</p>}
                     {incomingRequests.map((req) => (
                       <div key={req.id} className="border border-gray-200 rounded-lg p-3">
-                        <p className="font-semibold text-gray-800">{req.mentee_first_name} {req.mentee_last_name}</p>
-                        <p className="text-sm text-gray-600 mt-1">{req.request_message || 'No message provided.'}</p>
-                        <p className="text-xs text-gray-500 mt-1">Status: {req.status}</p>
-                        <div className="mt-3 flex gap-2">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <p className="font-semibold text-gray-800">{req.mentee_name || `${req.mentee_first_name || ''} ${req.mentee_last_name || ''}`}</p>
+                            <p className="text-xs text-gray-500">{req.mentee_email || 'No email'} | {req.mentee_program || 'No program'}</p>
+                          </div>
+                          <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700">
+                            {formatStatus(req.status)}
+                          </span>
+                        </div>
+
+                        <div className="mt-3 text-sm text-gray-700 space-y-1">
+                          <p><span className="font-semibold">Topic:</span> {req.topic || 'N/A'}</p>
+                          <p><span className="font-semibold">Reason:</span> {req.reason_for_request || 'N/A'}</p>
+                          <p><span className="font-semibold">Preferred Schedule:</span> {req.preferred_schedule || 'N/A'}</p>
+                          <p><span className="font-semibold">Message:</span> {req.request_message || 'No message provided.'}</p>
+                        </div>
+
+                        {req.status === 'pending' && (
+                          <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50/60 p-3 space-y-3">
+                            <p className="text-sm font-semibold text-blue-900">Session Schedule</p>
+                            <div className="grid sm:grid-cols-2 gap-2">
+                              <input
+                                type="date"
+                                value={(scheduleDrafts[req.id] || defaultScheduleForm).session_date}
+                                onChange={(e) =>
+                                  setScheduleDrafts((prev) => ({
+                                    ...prev,
+                                    [req.id]: { ...(prev[req.id] || defaultScheduleForm), session_date: e.target.value },
+                                  }))
+                                }
+                                className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                              />
+                              <input
+                                value={(scheduleDrafts[req.id] || defaultScheduleForm).session_time}
+                                onChange={(e) =>
+                                  setScheduleDrafts((prev) => ({
+                                    ...prev,
+                                    [req.id]: { ...(prev[req.id] || defaultScheduleForm), session_time: e.target.value },
+                                  }))
+                                }
+                                placeholder="2 PM - 5 PM"
+                                className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                              />
+                              <select
+                                value={(scheduleDrafts[req.id] || defaultScheduleForm).session_type}
+                                onChange={(e) =>
+                                  setScheduleDrafts((prev) => ({
+                                    ...prev,
+                                    [req.id]: { ...(prev[req.id] || defaultScheduleForm), session_type: e.target.value },
+                                  }))
+                                }
+                                className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                              >
+                                {sessionTypeOptions.map((option) => (
+                                  <option key={option} value={option}>{option}</option>
+                                ))}
+                              </select>
+                              <input
+                                value={(scheduleDrafts[req.id] || defaultScheduleForm).meeting_link}
+                                onChange={(e) =>
+                                  setScheduleDrafts((prev) => ({
+                                    ...prev,
+                                    [req.id]: { ...(prev[req.id] || defaultScheduleForm), meeting_link: e.target.value },
+                                  }))
+                                }
+                                placeholder="Meeting link"
+                                className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                              />
+                            </div>
+                            <input
+                              value={(scheduleDrafts[req.id] || defaultScheduleForm).meeting_location}
+                              onChange={(e) =>
+                                setScheduleDrafts((prev) => ({
+                                  ...prev,
+                                  [req.id]: { ...(prev[req.id] || defaultScheduleForm), meeting_location: e.target.value },
+                                }))
+                              }
+                              placeholder="Room, campus location, or chat channel"
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                            />
+                            <textarea
+                              value={(scheduleDrafts[req.id] || defaultScheduleForm).session_notes}
+                              onChange={(e) =>
+                                setScheduleDrafts((prev) => ({
+                                  ...prev,
+                                  [req.id]: { ...(prev[req.id] || defaultScheduleForm), session_notes: e.target.value },
+                                }))
+                              }
+                              placeholder="Notes for the mentee"
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                              rows={2}
+                            />
+                          </div>
+                        )}
+
+                        {req.status !== 'pending' && (
+                          <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700 space-y-1">
+                            <p><span className="font-semibold">Session Date:</span> {req.session_date || 'N/A'}</p>
+                            <p><span className="font-semibold">Session Time:</span> {req.session_time || 'N/A'}</p>
+                            <p><span className="font-semibold">Type:</span> {req.session_type || 'N/A'}</p>
+                            <p><span className="font-semibold">Link / Location:</span> {req.meeting_link || req.meeting_location || 'N/A'}</p>
+                            <p><span className="font-semibold">Notes:</span> {req.session_notes || 'N/A'}</p>
+                          </div>
+                        )}
+
+                        <div className="mt-3 flex flex-wrap gap-2">
                           {req.status === 'pending' && (
                             <>
-                              <button onClick={() => updateMentorshipStatus(req.id, 'accepted')} disabled={!canUseMentorship} className="px-3 py-1.5 bg-green-600 text-white rounded text-sm disabled:opacity-60">Accept</button>
+                              <button onClick={() => updateMentorshipStatus(req.id, 'accepted', { ...(scheduleDrafts[req.id] || defaultScheduleForm) })} disabled={!canUseMentorship} className="px-3 py-1.5 bg-green-600 text-white rounded text-sm disabled:opacity-60">Accept</button>
                               <button onClick={() => updateMentorshipStatus(req.id, 'declined')} className="px-3 py-1.5 bg-red-600 text-white rounded text-sm">Decline</button>
                             </>
                           )}
                           {req.status === 'accepted' && (
-                            <button onClick={() => updateMentorshipStatus(req.id, 'completed')} className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm">Mark Completed</button>
+                            <>
+                              <button onClick={() => updateMentorshipStatus(req.id, 'completed')} className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm">Mark Completed</button>
+                              <button onClick={() => updateMentorshipStatus(req.id, 'cancelled')} className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-sm">Cancel</button>
+                            </>
+                          )}
+                          {(['accepted', 'completed'] as MentorshipRequest['status'][]).includes(req.status) && (
+                            <button onClick={() => openMentorFeedbackForm(req)} className="px-3 py-1.5 bg-yellow-500 text-blue-900 rounded text-sm font-semibold">
+                              Mentor Feedback
+                            </button>
                           )}
                         </div>
+                        {req.mentee_feedback_rating && (
+                          <p className="text-xs text-gray-500 mt-2">
+                            Mentee feedback: {req.mentee_feedback_rating}/5 - {req.mentee_feedback_text || 'No comment'}
+                          </p>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1217,16 +1711,61 @@ export default function GraduatePortal() {
                     {outgoingRequests.length === 0 && <p className="text-gray-500">You have not sent mentorship requests yet.</p>}
                     {outgoingRequests.map((req) => (
                       <div key={req.id} className="border border-gray-200 rounded-lg p-3">
-                        <p className="font-semibold text-gray-800">
-                          Mentor: {req.mentor_first_name} {req.mentor_last_name}
-                        </p>
-                        <p className="text-sm text-gray-600">{req.current_job_title || 'Professional'} {req.company ? `at ${req.company}` : ''}</p>
-                        <p className="text-sm text-gray-600 mt-1">{req.request_message || 'No request message.'}</p>
-                        <p className="text-xs text-gray-500 mt-1">Status: {req.status}</p>
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div className="flex items-center gap-3">
+                            {req.mentor_profile_image_path ? (
+                              <img
+                                src={resolveProfileImageUrl(req.mentor_profile_image_path)}
+                                alt={`${req.mentor_first_name || ''} ${req.mentor_last_name || ''}`}
+                                className="w-10 h-10 rounded-full object-cover border border-gray-200"
+                              />
+                            ) : (
+                              <div className="w-10 h-10 rounded-full bg-blue-100 text-blue-900 flex items-center justify-center font-bold text-sm">
+                                {getInitials(req.mentor_first_name, req.mentor_last_name)}
+                              </div>
+                            )}
+                            <div>
+                              <p className="font-semibold text-gray-800">
+                                Mentor: {req.mentor_first_name} {req.mentor_last_name}
+                              </p>
+                              <p className="text-sm text-gray-600">{req.current_job_title || 'Professional'} {req.company ? `at ${req.company}` : ''}</p>
+                            </div>
+                          </div>
+                          <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700">
+                            {formatStatus(req.status)}
+                          </span>
+                        </div>
+
+                        <div className="text-sm text-gray-700 mt-3 space-y-1">
+                          <p><span className="font-semibold">Topic:</span> {req.topic || 'N/A'}</p>
+                          <p><span className="font-semibold">Preferred Schedule:</span> {req.preferred_schedule || 'N/A'}</p>
+                          <p><span className="font-semibold">Message:</span> {req.request_message || 'No request message.'}</p>
+                        </div>
+
+                        {(['accepted', 'completed'] as MentorshipRequest['status'][]).includes(req.status) && (
+                          <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700 space-y-1">
+                            <p><span className="font-semibold">Session Date:</span> {req.session_date || 'N/A'}</p>
+                            <p><span className="font-semibold">Session Time:</span> {req.session_time || 'N/A'}</p>
+                            <p><span className="font-semibold">Type:</span> {req.session_type || 'N/A'}</p>
+                            <p><span className="font-semibold">Link / Location:</span> {req.meeting_link || req.meeting_location || 'N/A'}</p>
+                            <p><span className="font-semibold">Notes:</span> {req.session_notes || 'N/A'}</p>
+                          </div>
+                        )}
+
                         {req.status === 'completed' && (
-                          <button onClick={() => submitFeedback(req.id)} className="mt-3 px-3 py-1.5 bg-yellow-500 text-blue-900 rounded text-sm font-semibold">
-                            Leave Feedback
+                          <button onClick={() => openMenteeFeedbackForm(req)} className="mt-3 px-3 py-1.5 bg-yellow-500 text-blue-900 rounded text-sm font-semibold">
+                            {req.mentee_feedback_rating ? 'Update Feedback' : 'Leave Feedback'}
                           </button>
+                        )}
+                        {req.status === 'pending' && (
+                          <button onClick={() => updateMentorshipStatus(req.id, 'cancelled')} className="mt-3 px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-sm">
+                            Cancel Request
+                          </button>
+                        )}
+                        {req.mentor_feedback_remarks && (
+                          <p className="text-xs text-gray-500 mt-2">
+                            Mentor remarks: {req.mentor_feedback_remarks}
+                          </p>
                         )}
                       </div>
                     ))}
@@ -1242,7 +1781,7 @@ export default function GraduatePortal() {
                     <div>
                       <h2 className="text-xl font-bold text-blue-900">Browse Jobs</h2>
                       <p className="text-sm text-gray-600">
-                        Use the program tabs to explore work that matches your course or view all open opportunities.
+                        Find posted opportunities and use the listed email, link, or contact details to apply externally.
                       </p>
                     </div>
                     <p className="text-sm text-gray-500">
@@ -1270,7 +1809,7 @@ export default function GraduatePortal() {
                   <input
                     value={jobSearch}
                     onChange={(e) => setJobSearch(e.target.value)}
-                    placeholder="Search jobs by title, company, type, location, or industry"
+                    placeholder="Search jobs by title, company, skills, program fit, salary, or location"
                     className="w-full px-4 py-2.5 border border-gray-300 rounded-lg"
                   />
                 </div>
@@ -1282,9 +1821,9 @@ export default function GraduatePortal() {
                 ) : (
                   <div className="grid md:grid-cols-2 gap-4">
                     {filteredJobs.map((job) => {
-                      const requirementFileUrl = job.requirements_file_path
-                        ? `${API_BASE_URL}/${job.requirements_file_path.replace(/^\/+/, '')}`
-                        : '';
+                      const applicationLink = normalizeApplicationLink(job.application_link);
+                      const contactEmail = (job.contact_email || '').trim();
+                      const mailSubject = encodeURIComponent(`Application for ${job.title} at ${job.company}`);
 
                       return (
                         <div key={job.id} className="bg-white rounded-xl border border-gray-200 p-5">
@@ -1294,80 +1833,52 @@ export default function GraduatePortal() {
                               <p className="text-sm text-gray-600">{job.company}</p>
                             </div>
                             <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">
-                              {job.job_type.replace('_', ' ')}
+                              {formatEmploymentType(job.job_type)}
                             </span>
                           </div>
+                          <p className="mt-3 text-sm text-gray-700 whitespace-pre-line">
+                            {job.description || 'No job description posted yet.'}
+                          </p>
                           <div className="mt-3 text-sm text-gray-700 space-y-1">
                             <p><span className="font-semibold">Location:</span> {job.location || 'N/A'}</p>
-                            <p><span className="font-semibold">Industry:</span> {job.industry || 'N/A'}</p>
-                            <p><span className="font-semibold">Program:</span> {job.poster_program_code || job.poster_program_name || 'All programs'}</p>
+                            <p><span className="font-semibold">Salary Range:</span> {job.salary_range || 'Not specified'}</p>
+                            <p><span className="font-semibold">Course / Program Fit:</span> {job.course_program_fit || job.poster_program_code || job.poster_program_name || 'Open to eligible graduates'}</p>
+                            <p><span className="font-semibold">Required Skills:</span> {job.required_skills || 'Not specified'}</p>
                             <p><span className="font-semibold">Deadline:</span> {job.application_deadline || 'Open until filled'}</p>
-                            {job.requirements_file_name && requirementFileUrl && (
-                              <p>
-                                <span className="font-semibold">Requirements file:</span>{' '}
-                                <a href={requirementFileUrl} target="_blank" rel="noreferrer" className="text-blue-700 hover:underline">
-                                  {job.requirements_file_name}
-                                </a>
-                              </p>
+                          </div>
+
+                          <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50/60 p-3 text-sm text-gray-700 space-y-2">
+                            <p className="font-semibold text-blue-900">How to apply</p>
+                            {contactEmail && (
+                              <a
+                                href={`mailto:${contactEmail}?subject=${mailSubject}`}
+                                className="block text-blue-700 hover:underline"
+                              >
+                                Email {contactEmail}
+                              </a>
+                            )}
+                            {applicationLink && (
+                              <a
+                                href={applicationLink}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="block text-blue-700 hover:underline"
+                              >
+                                Open application link
+                              </a>
+                            )}
+                            {job.application_method && (
+                              <p className="whitespace-pre-line">{job.application_method}</p>
+                            )}
+                            {!contactEmail && !applicationLink && !job.application_method && (
+                              <p>No application contact details posted yet.</p>
                             )}
                           </div>
-                          <button
-                            onClick={() => applyToJob(job.id)}
-                            className="mt-4 w-full bg-blue-600 hover:bg-blue-700 text-white py-2 rounded-lg font-medium"
-                          >
-                            Apply / Express Interest
-                          </button>
                         </div>
                       );
                     })}
                   </div>
                 )}
-              </section>
-            )}
-
-            {activeTab === 'applications' && (
-              <section className="grid lg:grid-cols-2 gap-6">
-                <div className="bg-white rounded-xl border border-gray-200 p-5">
-                  <h2 className="text-xl font-bold text-blue-900 mb-4">My Job Applications</h2>
-                  <div className="space-y-3">
-                    {myApplications.length === 0 && <p className="text-gray-500">No applications yet.</p>}
-                    {myApplications.map((app) => (
-                      <div key={app.id} className="border border-gray-200 rounded-lg p-3">
-                        <p className="font-semibold text-gray-800">{app.title}</p>
-                        <p className="text-sm text-gray-600">{app.company}</p>
-                        <span className="inline-block mt-2 text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700">
-                          {app.status}
-                        </span>
-                        {app.application_note && <p className="text-sm text-gray-600 mt-2">{app.application_note}</p>}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="bg-white rounded-xl border border-gray-200 p-5">
-                  <h2 className="text-xl font-bold text-blue-900 mb-4">Applications Received (My Posts)</h2>
-                  <div className="space-y-3">
-                    {receivedApplications.length === 0 && <p className="text-gray-500">No received applications yet.</p>}
-                    {receivedApplications.map((app) => (
-                      <div key={app.id} className="border border-gray-200 rounded-lg p-3">
-                        <p className="font-semibold text-gray-800">{app.first_name} {app.last_name}</p>
-                        <p className="text-sm text-gray-600">Applied for: {app.title} ({app.company})</p>
-                        <p className="text-xs text-gray-500 mt-1">Current status: {app.status}</p>
-                        <div className="flex flex-wrap gap-2 mt-3">
-                          {(['reviewed', 'shortlisted', 'rejected', 'hired'] as JobApplication['status'][]).map((status) => (
-                            <button
-                              key={status}
-                              onClick={() => updateApplicationStatus(app.id, status)}
-                              className="px-2.5 py-1 text-xs rounded bg-gray-100 hover:bg-gray-200"
-                            >
-                              Mark {status}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
               </section>
             )}
 
@@ -1543,6 +2054,51 @@ export default function GraduatePortal() {
                     )}
 
                     <fieldset disabled={!canRegisterMentor} className="space-y-4">
+                      <div className="grid md:grid-cols-[180px_1fr] gap-4 items-start">
+                        <div className="rounded-xl border border-gray-200 p-4 text-center">
+                          {profileImagePreview ? (
+                            <img src={profileImagePreview} alt="Mentor profile" className="w-24 h-24 rounded-full object-cover border border-gray-300 mx-auto" />
+                          ) : (
+                            <div className="w-24 h-24 rounded-full bg-blue-100 text-blue-900 font-bold text-2xl flex items-center justify-center mx-auto">
+                              {userInitials}
+                            </div>
+                          )}
+                          <input
+                            ref={mentorImageInputRef}
+                            type="file"
+                            accept="image/png,image/jpeg,image/webp,image/gif"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0] || null;
+                              setProfileImageFile(file);
+                              if (file) {
+                                setProfileImagePreview(URL.createObjectURL(file));
+                              } else {
+                                setProfileImagePreview(profileImageUrl);
+                              }
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => mentorImageInputRef.current?.click()}
+                            className="w-full mt-3 px-3 py-2 rounded-lg border border-blue-200 text-blue-800 text-sm font-semibold hover:bg-blue-50"
+                          >
+                            {profileImageFile ? 'Change Photo' : 'Add Profile Picture'}
+                          </button>
+                        </div>
+
+                        <div className="grid sm:grid-cols-2 gap-3">
+                          <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
+                            <p className="text-xs font-semibold text-blue-700">Batch</p>
+                            <p className="text-xl font-bold text-blue-900">Batch: {user?.year_graduated || 'N/A'}</p>
+                          </div>
+                          <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
+                            <p className="text-xs font-semibold text-blue-700">Program</p>
+                            <p className="text-xl font-bold text-blue-900">{user?.program_code || user?.program_name || 'N/A'}</p>
+                          </div>
+                        </div>
+                      </div>
+
                       <div className="grid md:grid-cols-2 gap-3">
                         <div>
                           <label className="block text-xs font-semibold text-gray-500 mb-1">Contact Email</label>
@@ -1620,34 +2176,40 @@ export default function GraduatePortal() {
                         />
                       </div>
 
-                      <div className="grid sm:grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-xs font-semibold text-gray-500 mb-1">Availability</label>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">Availability</label>
+                        <div className="grid sm:grid-cols-3 gap-3">
                           <select
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                            value={myMentorProfile.availability_status}
-                            onChange={(e) =>
-                              setMyMentorProfile((prev) => ({
-                                ...prev,
-                                availability_status: e.target.value as MentorProfileForm['availability_status'],
-                              }))
-                            }
+                            value={mentorAvailability.day}
+                            onChange={(e) => updateMentorAvailability('day', e.target.value)}
                           >
-                            <option value="available">Available</option>
-                            <option value="busy">Busy</option>
-                            <option value="unavailable">Unavailable</option>
+                            {availabilityDayOptions.map((day) => (
+                              <option key={day} value={day}>{day}</option>
+                            ))}
+                          </select>
+                          <select
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                            value={mentorAvailability.startTime}
+                            onChange={(e) => updateMentorAvailability('startTime', e.target.value)}
+                          >
+                            {availabilityTimeOptions.map((time) => (
+                              <option key={time} value={time}>{time}</option>
+                            ))}
+                          </select>
+                          <select
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                            value={mentorAvailability.endTime}
+                            onChange={(e) => updateMentorAvailability('endTime', e.target.value)}
+                          >
+                            {availabilityTimeOptions.map((time) => (
+                              <option key={time} value={time}>{time}</option>
+                            ))}
                           </select>
                         </div>
-                        <div className="flex items-end">
-                          <label className="flex items-center gap-2 text-sm border border-gray-200 rounded-lg px-3 py-2.5 w-full">
-                            <input
-                              type="checkbox"
-                              checked={myMentorProfile.is_active}
-                              onChange={(e) => setMyMentorProfile((prev) => ({ ...prev, is_active: e.target.checked }))}
-                            />
-                            Visible as mentor
-                          </label>
-                        </div>
+                        <p className="mt-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                          {formatAvailability(myMentorProfile.availability_status)}
+                        </p>
                       </div>
 
                       <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-lg font-semibold">
@@ -1666,11 +2228,11 @@ export default function GraduatePortal() {
                     <div>
                       <h2 className="text-2xl font-bold text-blue-900">Post / Update Job Opportunity</h2>
                       <p className="text-sm text-gray-600 mt-1">
-                        Jobs are grouped by program in Browse Jobs so graduates can quickly find aligned opportunities.
+                        Eligible employed graduates can share openings. Applicants use the email, link, or contact details you provide.
                       </p>
                     </div>
                     <span className="text-xs px-3 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
-                      Program tab: {user?.program_code || user?.program_name || 'All programs'}
+                      Posted by: {user?.program_code || user?.program_name || 'Graduate'}
                     </span>
                   </div>
 
@@ -1693,10 +2255,10 @@ export default function GraduatePortal() {
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-gray-500 mb-1">Company</label>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">Company Name</label>
                         <input
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                          placeholder="Company"
+                          placeholder="Company name"
                           value={myJobForm.company}
                           onChange={(e) => setMyJobForm((prev) => ({ ...prev, company: e.target.value }))}
                           required
@@ -1709,13 +2271,22 @@ export default function GraduatePortal() {
                         <label className="block text-xs font-semibold text-gray-500 mb-1">Location</label>
                         <input
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                          placeholder="Location"
+                          placeholder="City, province, remote, or hybrid"
                           value={myJobForm.location}
                           onChange={(e) => setMyJobForm((prev) => ({ ...prev, location: e.target.value }))}
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-gray-500 mb-1">Job Type</label>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">Salary Range</label>
+                        <input
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                          placeholder="e.g. PHP 25,000 - 35,000"
+                          value={myJobForm.salary_range}
+                          onChange={(e) => setMyJobForm((prev) => ({ ...prev, salary_range: e.target.value }))}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">Employment Type</label>
                         <select
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg"
                           value={myJobForm.job_type}
@@ -1727,15 +2298,6 @@ export default function GraduatePortal() {
                           <option value="internship">Internship</option>
                           <option value="remote">Remote</option>
                         </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-semibold text-gray-500 mb-1">Industry</label>
-                        <input
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                          placeholder="Industry"
-                          value={myJobForm.industry}
-                          onChange={(e) => setMyJobForm((prev) => ({ ...prev, industry: e.target.value }))}
-                        />
                       </div>
                     </div>
 
@@ -1753,23 +2315,23 @@ export default function GraduatePortal() {
 
                     <div className="grid md:grid-cols-2 gap-3">
                       <div>
-                        <label className="block text-xs font-semibold text-gray-500 mb-1">Qualifications</label>
-                        <textarea
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                          rows={2}
-                          placeholder="Qualifications"
-                          value={myJobForm.qualifications}
-                          onChange={(e) => setMyJobForm((prev) => ({ ...prev, qualifications: e.target.value }))}
-                        />
-                      </div>
-                      <div>
                         <label className="block text-xs font-semibold text-gray-500 mb-1">Required Skills</label>
                         <textarea
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg"
                           rows={2}
-                          placeholder="Required skills"
+                          placeholder="e.g. JavaScript, customer service, data encoding"
                           value={myJobForm.required_skills}
                           onChange={(e) => setMyJobForm((prev) => ({ ...prev, required_skills: e.target.value }))}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">Course / Program Fit</label>
+                        <textarea
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                          rows={2}
+                          placeholder="e.g. BSIT, BSBA, any computer-related course"
+                          value={myJobForm.course_program_fit}
+                          onChange={(e) => setMyJobForm((prev) => ({ ...prev, course_program_fit: e.target.value }))}
                         />
                       </div>
                     </div>
@@ -1785,69 +2347,36 @@ export default function GraduatePortal() {
                         />
                       </div>
                       <div>
-                        <label className="block text-xs font-semibold text-gray-500 mb-1">Application Contact Details</label>
-                        <textarea
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">Contact Email</label>
+                        <input
+                          type="email"
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                          rows={2}
-                          placeholder="Application method / contact details"
-                          value={myJobForm.application_method}
-                          onChange={(e) => setMyJobForm((prev) => ({ ...prev, application_method: e.target.value }))}
+                          placeholder="hr@example.com"
+                          value={myJobForm.contact_email}
+                          onChange={(e) => setMyJobForm((prev) => ({ ...prev, contact_email: e.target.value }))}
                         />
                       </div>
                     </div>
 
-                    <div className="rounded-xl border border-blue-100 bg-blue-50/60 p-4 space-y-3">
-                      <div className="flex items-center gap-2">
-                        <UploadCloud className="w-4 h-4 text-blue-700" />
-                        <p className="text-sm font-semibold text-blue-900">Application Requirements Upload</p>
+                    <div className="grid md:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">Application Link</label>
+                        <input
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                          placeholder="https://company.com/careers/apply"
+                          value={myJobForm.application_link}
+                          onChange={(e) => setMyJobForm((prev) => ({ ...prev, application_link: e.target.value }))}
+                        />
                       </div>
-                      <p className="text-xs text-blue-800">
-                        Upload the requirements file that applicants should review before submitting.
-                      </p>
-
-                      <input
-                        type="file"
-                        accept=".pdf,.doc,.docx,.png,.jpg,.jpeg"
-                        className="w-full text-sm"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0] || null;
-                          setJobRequirementsFile(file);
-                          if (file) {
-                            setRemoveRequirementsFile(false);
-                          }
-                        }}
-                      />
-
-                      {jobRequirementsFile && (
-                        <p className="text-xs text-gray-700">
-                          Selected file: <span className="font-semibold">{jobRequirementsFile.name}</span>
-                        </p>
-                      )}
-
-                      {myJobForm.requirements_file_name && myJobForm.requirements_file_path && !removeRequirementsFile && !jobRequirementsFile && (
-                        <p className="text-xs text-gray-700">
-                          Current file:{' '}
-                          <a
-                            href={`${API_BASE_URL}/${myJobForm.requirements_file_path.replace(/^\/+/, '')}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="text-blue-700 hover:underline font-semibold"
-                          >
-                            {myJobForm.requirements_file_name}
-                          </a>
-                        </p>
-                      )}
-
-                      {myJobForm.requirements_file_path && !jobRequirementsFile && (
-                        <label className="flex items-center gap-2 text-xs text-gray-700">
-                          <input
-                            type="checkbox"
-                            checked={removeRequirementsFile}
-                            onChange={(e) => setRemoveRequirementsFile(e.target.checked)}
-                          />
-                          Remove current requirements file
-                        </label>
-                      )}
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-500 mb-1">Other Contact Details</label>
+                        <input
+                          className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                          placeholder="Phone number, office contact, or instructions"
+                          value={myJobForm.application_method}
+                          onChange={(e) => setMyJobForm((prev) => ({ ...prev, application_method: e.target.value }))}
+                        />
+                      </div>
                     </div>
 
                     <label className="flex items-center gap-2 text-sm">
@@ -1867,9 +2396,11 @@ export default function GraduatePortal() {
                       <button
                         type="button"
                         onClick={() => {
-                          setMyJobForm(defaultJobForm);
-                          setJobRequirementsFile(null);
-                          setRemoveRequirementsFile(false);
+                          setMyJobForm({
+                            ...defaultJobForm,
+                            contact_email: user?.email || '',
+                            course_program_fit: user?.program_code || user?.program_name || '',
+                          });
                         }}
                         className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 rounded-lg font-medium"
                       >
@@ -1901,14 +2432,17 @@ export default function GraduatePortal() {
                           </button>
                         </div>
                         <p className="text-xs text-gray-500 mt-2">
-                          {job.location || 'No location'} | {job.job_type.replace('_', ' ')}
+                          {job.location || 'No location'} | {formatEmploymentType(job.job_type)}
                         </p>
                         <p className="text-xs text-gray-500 mt-1">
-                          Program tab: {job.poster_program_code || job.poster_program_name || 'All programs'}
+                          Salary: {job.salary_range || 'Not specified'}
                         </p>
-                        {job.requirements_file_name && (
-                          <p className="text-xs text-gray-500 mt-1">Requirements file: {job.requirements_file_name}</p>
-                        )}
+                        <p className="text-xs text-gray-500 mt-1">
+                          Program fit: {job.course_program_fit || job.poster_program_code || job.poster_program_name || 'Open to eligible graduates'}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1">
+                          Apply via: {job.application_link || job.contact_email || job.application_method || 'No contact details'}
+                        </p>
                       </div>
                     ))}
                   </div>
@@ -1919,6 +2453,222 @@ export default function GraduatePortal() {
           )}
         </main>
       </div>
+
+      {requestForm.mentor_id && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <form onSubmit={submitMentorshipRequest} className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-5 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-bold text-blue-900">Request Mentorship</h2>
+                <p className="text-sm text-gray-600">Mentor: {requestForm.mentor_name}</p>
+              </div>
+              <button type="button" onClick={closeMentorshipRequestForm} className="p-2 rounded-lg hover:bg-gray-100" aria-label="Close request form">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1">Mentee Name</label>
+                <input
+                  value={requestForm.mentee_name}
+                  onChange={(e) => setRequestForm((prev) => ({ ...prev, mentee_name: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1">Email</label>
+                <input
+                  type="email"
+                  value={requestForm.mentee_email}
+                  onChange={(e) => setRequestForm((prev) => ({ ...prev, mentee_email: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1">Course / Program</label>
+                <input
+                  value={requestForm.mentee_program}
+                  onChange={(e) => setRequestForm((prev) => ({ ...prev, mentee_program: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1">Topic</label>
+                <select
+                  value={requestForm.topic}
+                  onChange={(e) => setRequestForm((prev) => ({ ...prev, topic: e.target.value }))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                >
+                  {requestTopicOptions.map((topic) => (
+                    <option key={topic} value={topic}>{topic}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">Reason for Request</label>
+              <textarea
+                value={requestForm.reason_for_request}
+                onChange={(e) => setRequestForm((prev) => ({ ...prev, reason_for_request: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                rows={3}
+                placeholder="Tell the mentor why you need guidance"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">Preferred Schedule</label>
+              <input
+                value={requestForm.preferred_schedule}
+                onChange={(e) => setRequestForm((prev) => ({ ...prev, preferred_schedule: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                placeholder="Saturday 2 PM - 5 PM"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">Message to Mentor</label>
+              <textarea
+                value={requestForm.request_message}
+                onChange={(e) => setRequestForm((prev) => ({ ...prev, request_message: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                rows={3}
+                placeholder="Write a short message"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={closeMentorshipRequestForm} className="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700">
+                Cancel
+              </button>
+              <button type="submit" className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold">
+                Send Request
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {menteeFeedbackForm.request_id && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <form onSubmit={submitMenteeFeedback} className="bg-white rounded-lg shadow-xl w-full max-w-lg p-5 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-bold text-blue-900">Mentee Feedback</h2>
+                <p className="text-sm text-gray-600">Mentor: {menteeFeedbackForm.mentor_name}</p>
+              </div>
+              <button type="button" onClick={closeMenteeFeedbackForm} className="p-2 rounded-lg hover:bg-gray-100" aria-label="Close feedback form">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <label className="flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={menteeFeedbackForm.mentor_helpful}
+                onChange={(e) => setMenteeFeedbackForm((prev) => ({ ...prev, mentor_helpful: e.target.checked }))}
+              />
+              The mentor was helpful
+            </label>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">Rating</label>
+              <select
+                value={menteeFeedbackForm.rating}
+                onChange={(e) => setMenteeFeedbackForm((prev) => ({ ...prev, rating: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+              >
+                {['5', '4', '3', '2', '1'].map((rating) => (
+                  <option key={rating} value={rating}>{rating}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">Comments</label>
+              <textarea
+                value={menteeFeedbackForm.feedback_text}
+                onChange={(e) => setMenteeFeedbackForm((prev) => ({ ...prev, feedback_text: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                rows={4}
+                placeholder="Share what helped"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={closeMenteeFeedbackForm} className="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700">
+                Cancel
+              </button>
+              <button type="submit" className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold">
+                Submit Feedback
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {mentorFeedbackForm.request_id && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <form onSubmit={submitMentorFeedback} className="bg-white rounded-lg shadow-xl w-full max-w-lg p-5 space-y-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-bold text-blue-900">Mentor Feedback</h2>
+                <p className="text-sm text-gray-600">Mentee: {mentorFeedbackForm.mentee_name}</p>
+              </div>
+              <button type="button" onClick={closeMentorFeedbackForm} className="p-2 rounded-lg hover:bg-gray-100" aria-label="Close mentor feedback form">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <label className="flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={mentorFeedbackForm.mentee_attended}
+                onChange={(e) => setMentorFeedbackForm((prev) => ({ ...prev, mentee_attended: e.target.checked }))}
+              />
+              Mentee attended
+            </label>
+
+            <label className="flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={mentorFeedbackForm.session_completed}
+                onChange={(e) => setMentorFeedbackForm((prev) => ({ ...prev, session_completed: e.target.checked }))}
+              />
+              Session completed
+            </label>
+
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">Remarks</label>
+              <textarea
+                value={mentorFeedbackForm.remarks}
+                onChange={(e) => setMentorFeedbackForm((prev) => ({ ...prev, remarks: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                rows={4}
+                placeholder="Add notes for reporting"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={closeMentorFeedbackForm} className="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700">
+                Cancel
+              </button>
+              <button type="submit" className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold">
+                Submit Feedback
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       <MessageBox
         isOpen={msgBox.isOpen}
