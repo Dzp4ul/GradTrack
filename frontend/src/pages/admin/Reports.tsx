@@ -160,6 +160,22 @@ const parseSurveyId = (value: string | null): number | null => {
   return Number.isFinite(surveyId) && surveyId > 0 ? surveyId : null;
 };
 
+const getNotEmployedCount = (item: Pick<ProgramReport | YearReport, 'total_graduates' | 'employed'>): number => (
+  Math.max(Number(item.total_graduates ?? 0) - Number(item.employed ?? 0), 0)
+);
+
+const getEmploymentStatusChartLabel = (status: string): string => {
+  if (status === 'Employed (Local)') {
+    return 'Local';
+  }
+
+  if (status === 'Employed (Abroad)') {
+    return 'Abroad';
+  }
+
+  return status;
+};
+
 export default function Reports() {
   const initialParams = new URLSearchParams(window.location.search);
   const initialTabParam = initialParams.get('tab') as ReportTab | null;
@@ -174,6 +190,7 @@ export default function Reports() {
   );
   const [overview, setOverview] = useState<Overview | null>(null);
   const [programData, setProgramData] = useState<ProgramReport[]>([]);
+  const [overviewProgramData, setOverviewProgramData] = useState<ProgramReport[]>([]);
   const [yearData, setYearData] = useState<YearReport[]>([]);
   const [statusData, setStatusData] = useState<StatusData[]>([]);
   const [salaryData, setSalaryData] = useState<SalaryData[]>([]);
@@ -193,12 +210,13 @@ export default function Reports() {
 
   const buildReportUrl = (type: string, year: string = 'all', department: string = selectedDepartment) => {
     const params = new URLSearchParams({ type });
+    const effectiveDepartment = type === 'overview' ? 'all' : department;
     params.set('survey_id', selectedSurveyId ? selectedSurveyId.toString() : NO_SURVEY_SELECTION_VALUE);
     if (year !== 'all') {
       params.set('year', year);
     }
-    if (department !== 'all') {
-      params.set('department', department);
+    if (effectiveDepartment !== 'all') {
+      params.set('department', effectiveDepartment);
     }
 
     return `${API_BASE}/reports/index.php?${params.toString()}`;
@@ -213,9 +231,10 @@ export default function Reports() {
     return activeSurvey ? Number(activeSurvey.id) : null;
   };
 
-  const fetchReport = (type: string, year: string = 'all') => {
+  const fetchReport = (type: string, year: string = 'all', department: string = selectedDepartment) => {
     setLoading(true);
-    const url = buildReportUrl(type, year);
+    const reportDepartment = type === 'overview' ? 'all' : department;
+    const url = buildReportUrl(type, year, reportDepartment);
     fetch(url)
       .then((r) => r.json())
       .then((res) => {
@@ -233,7 +252,7 @@ export default function Reports() {
             case 'salary_distribution': setSalaryData(res.data); break;
           }
 
-          fetchAIAnalytics(type, res.data, year, selectedDepartment);
+          fetchAIAnalytics(type, res.data, year, reportDepartment);
         }
       })
       .catch(() => {})
@@ -336,6 +355,23 @@ export default function Reports() {
     fetchSurveyItems();
   }, []);
 
+  const loadOverviewProgramData = () => {
+    fetch(buildReportUrl('by_program', 'all', 'all'))
+      .then((r) => r.json())
+      .then((res) => {
+        if (res.success && res.data) {
+          const allPrograms = res.data as ProgramReport[];
+          setOverviewProgramData(allPrograms);
+          const departments = allPrograms
+            .filter((item) => item.code)
+            .map((item) => ({ code: item.code, name: item.name || item.code }))
+            .sort((a, b) => a.code.localeCompare(b.code));
+          setAvailableDepartments(departments);
+        }
+      })
+      .catch(() => {});
+  };
+
   useEffect(() => {
     // Fetch year data first to populate the filter
     fetch(buildReportUrl('by_year', 'all', 'all'))
@@ -348,21 +384,8 @@ export default function Reports() {
       })
       .catch(() => {});
     
-    // Fetch program data for overview
-    fetch(buildReportUrl('by_program', 'all', 'all'))
-      .then((r) => r.json())
-      .then((res) => {
-        if (res.success && res.data) {
-          const allPrograms = res.data as ProgramReport[];
-          setProgramData(allPrograms);
-          const departments = allPrograms
-            .filter((item) => item.code)
-            .map((item) => ({ code: item.code, name: item.name || item.code }))
-            .sort((a, b) => a.code.localeCompare(b.code));
-          setAvailableDepartments(departments);
-        }
-      })
-      .catch(() => {});
+    // Fetch unfiltered program data for overview charts and department options
+    loadOverviewProgramData();
   }, [selectedSurveyId]);
 
   useEffect(() => {
@@ -376,7 +399,12 @@ export default function Reports() {
       return;
     }
 
-    fetchReport(typeMap[tab], selectedYear);
+    if (tab === 'overview') {
+      loadOverviewProgramData();
+    }
+
+    const reportDepartment = tab === 'overview' ? 'all' : selectedDepartment;
+    fetchReport(typeMap[tab], selectedYear, reportDepartment);
   }, [tab, selectedYear, selectedDepartment, selectedSurveyId]);
 
   const fetchAIAnalytics = (
@@ -393,11 +421,12 @@ export default function Reports() {
 
     setAiLoading(true);
     const params = new URLSearchParams({ type: reportType });
+    const effectiveDepartment = reportType === 'overview' ? 'all' : department;
     if (year !== 'all') {
       params.set('year', year);
     }
-    if (department !== 'all') {
-      params.set('department', department);
+    if (effectiveDepartment !== 'all') {
+      params.set('department', effectiveDepartment);
     }
     params.set('survey_id', selectedSurveyId.toString());
 
@@ -410,7 +439,7 @@ export default function Reports() {
         report_data: reportData,
         selected_survey_id: selectedSurveyId,
         selected_year: year,
-        selected_department: department,
+        selected_department: effectiveDepartment,
       }),
     })
       .then((r) => r.json())
@@ -607,13 +636,16 @@ export default function Reports() {
       return;
     }
 
+    const reportDepartment = tab === 'overview' ? 'all' : selectedDepartment;
+    const cachedProgramExport = tab === 'overview' ? overviewProgramData : programData;
+    const canUseCachedScopedData = tab !== 'overview';
     const fetchReportData = async <T,>(
       type: string,
       applyYearFilter: boolean = false,
     ): Promise<T | null> => {
       const url = applyYearFilter
-        ? buildReportUrl(type, selectedYear)
-        : buildReportUrl(type, 'all');
+        ? buildReportUrl(type, selectedYear, reportDepartment)
+        : buildReportUrl(type, 'all', reportDepartment);
 
       try {
         const response = await fetch(url);
@@ -626,10 +658,10 @@ export default function Reports() {
 
     const [overviewExport, programExport, yearExport, statusExport, salaryExport] = await Promise.all([
       overview ? Promise.resolve(overview) : fetchReportData<Overview>('overview'),
-      programData.length ? Promise.resolve(programData) : fetchReportData<ProgramReport[]>('by_program', true),
-      yearData.length ? Promise.resolve(yearData) : fetchReportData<YearReport[]>('by_year'),
-      statusData.length ? Promise.resolve(statusData) : fetchReportData<StatusData[]>('employment_status', true),
-      salaryData.length ? Promise.resolve(salaryData) : fetchReportData<SalaryData[]>('salary_distribution', true),
+      canUseCachedScopedData && cachedProgramExport.length ? Promise.resolve(cachedProgramExport) : fetchReportData<ProgramReport[]>('by_program', true),
+      canUseCachedScopedData && yearData.length ? Promise.resolve(yearData) : fetchReportData<YearReport[]>('by_year'),
+      canUseCachedScopedData && statusData.length ? Promise.resolve(statusData) : fetchReportData<StatusData[]>('employment_status', true),
+      canUseCachedScopedData && salaryData.length ? Promise.resolve(salaryData) : fetchReportData<SalaryData[]>('salary_distribution', true),
     ]);
 
     const overviewRows: ExcelRow[] = overviewExport
@@ -650,11 +682,10 @@ export default function Reports() {
       'Program Name': item.name,
       'Total Graduates': item.total_graduates,
       Employed: item.employed,
+      'Not Employed': getNotEmployedCount(item),
       Aligned: item.aligned,
       'Partially Aligned': item.partially_aligned,
       'Not Aligned': item.not_aligned,
-      'Avg Time to Employment (months)': item.avg_time_to_employment ?? '',
-      'Avg Salary': item.avg_salary ?? '',
       'Employment Rate (%)': item.total_graduates > 0 ? Number(((item.employed / item.total_graduates) * 100).toFixed(1)) : 0,
       'Alignment Rate (%)': item.employed > 0 ? Number(((item.aligned / item.employed) * 100).toFixed(1)) : 0,
     }));
@@ -663,8 +694,8 @@ export default function Reports() {
       'Year Graduated': item.year_graduated,
       'Total Graduates': item.total_graduates,
       Employed: item.employed,
+      'Not Employed': getNotEmployedCount(item),
       Aligned: item.aligned,
-      'Avg Salary': item.avg_salary ?? '',
       'Employment Rate (%)': item.total_graduates > 0 ? Number(((item.employed / item.total_graduates) * 100).toFixed(1)) : 0,
       'Alignment Rate (%)': item.employed > 0 ? Number(((item.aligned / item.employed) * 100).toFixed(1)) : 0,
     }));
@@ -691,7 +722,7 @@ export default function Reports() {
     summarySheet.addRow(['GradTrack Report Export']);
     summarySheet.addRow(['Generated At', new Date().toLocaleString()]);
     summarySheet.addRow(['Year Filter', selectedYear === 'all' ? 'All Years' : selectedYear]);
-    summarySheet.addRow(['Department Filter', selectedDepartment === 'all' ? 'All Departments' : selectedDepartment]);
+    summarySheet.addRow(['Department Filter', reportDepartment === 'all' ? 'All Departments' : reportDepartment]);
     summarySheet.addRow(['Export Triggered From Tab', tab]);
     summarySheet.addRow([]);
     summarySheet.getRow(1).font = { bold: true, size: 14 };
@@ -782,9 +813,19 @@ export default function Reports() {
               data: programRows.map((row) => row['Employed']),
             },
             {
+              label: 'Not Employed',
+              backgroundColor: '#ef4444',
+              data: programRows.map((row) => row['Not Employed']),
+            },
+            {
               label: 'Aligned',
               backgroundColor: '#3b82f6',
               data: programRows.map((row) => row['Aligned']),
+            },
+            {
+              label: 'Not Aligned',
+              backgroundColor: '#f59e0b',
+              data: programRows.map((row) => row['Not Aligned']),
             },
           ],
         },
@@ -796,27 +837,35 @@ export default function Reports() {
     }
 
     if (yearRows.length) {
-      await addChartImage('Yearly Employment Trend (Line Chart)', {
-        type: 'line',
+      await addChartImage('Yearly Employment by Year (Bar Chart)', {
+        type: 'bar',
         data: {
           labels: yearRows.map((row) => row['Year Graduated']),
           datasets: [
             {
-              label: 'Employment Rate %',
-              borderColor: '#22c55e',
-              fill: false,
-              data: yearRows.map((row) => row['Employment Rate (%)']),
+              label: 'Graduates',
+              backgroundColor: '#3b82f6',
+              data: yearRows.map((row) => row['Total Graduates']),
             },
             {
-              label: 'Alignment Rate %',
-              borderColor: '#f59e0b',
-              fill: false,
-              data: yearRows.map((row) => row['Alignment Rate (%)']),
+              label: 'Employed',
+              backgroundColor: '#22c55e',
+              data: yearRows.map((row) => row['Employed']),
+            },
+            {
+              label: 'Not Employed',
+              backgroundColor: '#ef4444',
+              data: yearRows.map((row) => row['Not Employed']),
+            },
+            {
+              label: 'Aligned',
+              backgroundColor: '#f59e0b',
+              data: yearRows.map((row) => row['Aligned']),
             },
           ],
         },
         options: {
-          title: { display: true, text: 'Employment and Alignment Trend by Year' },
+          title: { display: true, text: 'Employment by Year' },
           legend: { position: 'bottom' },
         },
       });
@@ -887,13 +936,14 @@ export default function Reports() {
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
     const marginLeft = 40;
+    const reportDepartment = tab === 'overview' ? 'all' : selectedDepartment;
 
     const fetchReportData = async <T,>(
       type: string,
       year: string,
     ): Promise<T | null> => {
       try {
-        const response = await fetch(buildReportUrl(type, year));
+        const response = await fetch(buildReportUrl(type, year, reportDepartment));
         const result = await response.json();
         return result.success ? (result.data as T) : null;
       } catch {
@@ -910,7 +960,7 @@ export default function Reports() {
     ]);
 
     const overviewForPdf = overviewPdf ?? overview;
-    const programForPdf = programPdf ?? programData;
+    const programForPdf = programPdf ?? (tab === 'overview' ? overviewProgramData : programData);
     const yearForPdf = yearPdf ?? yearData;
     const statusForPdf = statusPdf ?? statusData;
     const salaryForPdf = salaryPdf ?? salaryData;
@@ -921,7 +971,7 @@ export default function Reports() {
       yearForPdf,
       statusForPdf,
       salaryForPdf,
-      selectedDepartment,
+      reportDepartment,
       selectedYear,
     );
 
@@ -936,7 +986,7 @@ export default function Reports() {
     pdf.setTextColor(30, 30, 30);
     pdf.setFontSize(11);
     pdf.text(`Generated: ${new Date().toLocaleString()}`, marginLeft, 144);
-    pdf.text(`Department: ${selectedDepartment === 'all' ? 'All Departments' : selectedDepartment}`, marginLeft, 162);
+    pdf.text(`Department: ${reportDepartment === 'all' ? 'All Departments' : reportDepartment}`, marginLeft, 162);
     pdf.text(`Year Scope: ${selectedYear === 'all' ? 'All Years' : selectedYear}`, marginLeft, 180);
     pdf.setFontSize(11);
     const coverDescription = pdf.splitTextToSize(sectionDescriptions.cover, pageWidth - 80);
@@ -1028,7 +1078,7 @@ export default function Reports() {
         pdf.text(sectionTitle, marginLeft, 42);
         pdf.setFontSize(9);
         pdf.text(
-          `Department: ${selectedDepartment === 'all' ? 'All Departments' : selectedDepartment} | Year: ${selectedYear === 'all' ? 'All Years' : selectedYear}`,
+          `Department: ${reportDepartment === 'all' ? 'All Departments' : reportDepartment} | Year: ${selectedYear === 'all' ? 'All Years' : selectedYear}`,
           marginLeft,
           58,
         );
@@ -1089,7 +1139,7 @@ export default function Reports() {
     }
 
     const yearSuffix = selectedYear !== 'all' ? `_${selectedYear}` : '_all_years';
-    const departmentSuffix = selectedDepartment !== 'all' ? `_${selectedDepartment}` : '_all_departments';
+    const departmentSuffix = reportDepartment !== 'all' ? `_${reportDepartment}` : '_all_departments';
     const fileDate = new Date().toISOString().slice(0, 10);
     pdf.save(`gradtrack_formal_report${departmentSuffix}${yearSuffix}_${fileDate}.pdf`);
   };
@@ -1135,6 +1185,15 @@ export default function Reports() {
 
   const selectedSurvey = surveyItems.find((survey) => Number(survey.id) === selectedSurveyId);
   const overviewUnemployed = overview?.total_unemployed ?? Math.max((overview?.total_graduates ?? 0) - (overview?.total_employed ?? 0), 0);
+  const overviewPrograms = overviewProgramData;
+  const programChartData = programData.map((program) => ({
+    ...program,
+    not_employed: getNotEmployedCount(program),
+  }));
+  const yearChartData = yearData.map((year) => ({
+    ...year,
+    not_employed: getNotEmployedCount(year),
+  }));
   const departmentOptionMap = new Map(DEFAULT_DEPARTMENTS.map((department) => [department.code, department]));
   availableDepartments.forEach((department) => {
     if (department.code) {
@@ -1193,21 +1252,23 @@ export default function Reports() {
               </select>
             </div>
           )}
-          <div className="flex items-center gap-2">
-            <label className="text-sm font-medium text-gray-700">{tab === 'surveys' ? 'Program:' : 'Department:'}</label>
-            <select
-              value={selectedDepartment}
-              onChange={(e) => setSelectedDepartment(e.target.value)}
-              className="border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-            >
-              <option value="all">{tab === 'surveys' ? 'All Programs' : 'All Departments'}</option>
-              {departmentOptions.map((department) => (
-                <option key={department.code} value={department.code}>
-                  {department.code} - {department.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          {tab !== 'overview' && (
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-gray-700">{tab === 'surveys' ? 'Program:' : 'Department:'}</label>
+              <select
+                value={selectedDepartment}
+                onChange={(e) => setSelectedDepartment(e.target.value)}
+                className="border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value="all">{tab === 'surveys' ? 'All Programs' : 'All Departments'}</option>
+                {departmentOptions.map((department) => (
+                  <option key={department.code} value={department.code}>
+                    {department.code} - {department.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <button
             onClick={handleExportPdf}
             disabled={isSurveyExportDisabled}
@@ -1381,14 +1442,14 @@ export default function Reports() {
                         <ResponsiveContainer width="100%" height="100%">
                           <PieChart>
                             <Pie 
-                              data={programData.map((p) => ({ name: p.code, value: p.employed }))} 
+                              data={overviewPrograms.map((p) => ({ name: p.code, value: p.employed }))} 
                               cx="50%" 
                               cy="50%" 
                               outerRadius={80} 
                               dataKey="value"
                               label={({ name, value }) => `${name}: ${value}`}
                             >
-                              {programData.map((p, i) => (
+                              {overviewPrograms.map((p, i) => (
                                 <Cell key={i} fill={PROGRAM_COLORS[p.code] || COLORS[i % COLORS.length]} />
                               ))}
                             </Pie>
@@ -1397,7 +1458,7 @@ export default function Reports() {
                         </ResponsiveContainer>
                       </div>
                       <div className="flex flex-wrap justify-center gap-2 mt-2">
-                        {programData.map((p, i) => (
+                        {overviewPrograms.map((p, i) => (
                           <div key={p.code} className="flex items-center gap-1">
                             <div className="w-3 h-3 rounded-full" style={{ backgroundColor: PROGRAM_COLORS[p.code] || COLORS[i % COLORS.length] }} />
                             <span className="text-xs text-gray-600">{p.code}</span>
@@ -1413,14 +1474,14 @@ export default function Reports() {
                         <ResponsiveContainer width="100%" height="100%">
                           <PieChart>
                             <Pie 
-                              data={programData.map((p) => ({ name: p.code, value: p.aligned }))} 
+                              data={overviewPrograms.map((p) => ({ name: p.code, value: p.aligned }))} 
                               cx="50%" 
                               cy="50%" 
                               outerRadius={80} 
                               dataKey="value"
                               label={({ name, value }) => `${name}: ${value}`}
                             >
-                              {programData.map((p, i) => (
+                              {overviewPrograms.map((p, i) => (
                                 <Cell key={i} fill={PROGRAM_COLORS[p.code] || COLORS[i % COLORS.length]} />
                               ))}
                             </Pie>
@@ -1429,7 +1490,7 @@ export default function Reports() {
                         </ResponsiveContainer>
                       </div>
                       <div className="flex flex-wrap justify-center gap-2 mt-2">
-                        {programData.map((p, i) => (
+                        {overviewPrograms.map((p, i) => (
                           <div key={p.code} className="flex items-center gap-1">
                             <div className="w-3 h-3 rounded-full" style={{ backgroundColor: PROGRAM_COLORS[p.code] || COLORS[i % COLORS.length] }} />
                             <span className="text-xs text-gray-600">{p.code}</span>
@@ -1445,7 +1506,7 @@ export default function Reports() {
                         <ResponsiveContainer width="100%" height="100%">
                           <PieChart>
                             <Pie 
-                              data={programData.map((p) => ({ 
+                              data={overviewPrograms.map((p) => ({ 
                                 name: p.code, 
                                 value: p.total_graduates > 0 ? Math.round((p.employed / p.total_graduates) * 100) : 0 
                               }))} 
@@ -1455,7 +1516,7 @@ export default function Reports() {
                               dataKey="value"
                               label={({ name, value }) => `${name}: ${value}%`}
                             >
-                              {programData.map((p, i) => (
+                              {overviewPrograms.map((p, i) => (
                                 <Cell key={i} fill={PROGRAM_COLORS[p.code] || COLORS[i % COLORS.length]} />
                               ))}
                             </Pie>
@@ -1464,7 +1525,7 @@ export default function Reports() {
                         </ResponsiveContainer>
                       </div>
                       <div className="flex flex-wrap justify-center gap-2 mt-2">
-                        {programData.map((p, i) => (
+                        {overviewPrograms.map((p, i) => (
                           <div key={p.code} className="flex items-center gap-1">
                             <div className="w-3 h-3 rounded-full" style={{ backgroundColor: PROGRAM_COLORS[p.code] || COLORS[i % COLORS.length] }} />
                             <span className="text-xs text-gray-600">{p.code}</span>
@@ -1482,15 +1543,16 @@ export default function Reports() {
               {tab === 'program' && (
                 <div className="space-y-6">
                   <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={programData}>
+                    <BarChart data={programChartData}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} />
                       <XAxis dataKey="code" tick={{ fontSize: 12 }} />
                       <YAxis tick={{ fontSize: 12 }} />
                       <Tooltip contentStyle={{ borderRadius: 8 }} />
                       <Legend />
                       <Bar dataKey="employed" name="Employed" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="not_employed" name="Not Employed" fill="#ef4444" radius={[4, 4, 0, 0]} />
                       <Bar dataKey="aligned" name="Aligned" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="not_aligned" name="Not Aligned" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="not_aligned" name="Not Aligned" fill="#f59e0b" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
 
@@ -1501,9 +1563,9 @@ export default function Reports() {
                           <th className="text-left px-4 py-3 font-semibold text-gray-600">Program</th>
                           <th className="text-center px-4 py-3 font-semibold text-gray-600">Graduates</th>
                           <th className="text-center px-4 py-3 font-semibold text-gray-600">Employed</th>
+                          <th className="text-center px-4 py-3 font-semibold text-gray-600">Not Employed</th>
                           <th className="text-center px-4 py-3 font-semibold text-gray-600">Aligned</th>
-                          <th className="text-center px-4 py-3 font-semibold text-gray-600">Avg Time (mo)</th>
-                          <th className="text-center px-4 py-3 font-semibold text-gray-600">Avg Salary</th>
+                          <th className="text-center px-4 py-3 font-semibold text-gray-600">Not Aligned</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1512,9 +1574,9 @@ export default function Reports() {
                             <td className="px-4 py-3 font-medium">{p.code} — {p.name}</td>
                             <td className="px-4 py-3 text-center">{p.total_graduates}</td>
                             <td className="px-4 py-3 text-center">{p.employed}</td>
+                            <td className="px-4 py-3 text-center">{getNotEmployedCount(p)}</td>
                             <td className="px-4 py-3 text-center">{p.aligned}</td>
-                            <td className="px-4 py-3 text-center">{p.avg_time_to_employment ?? '—'}</td>
-                            <td className="px-4 py-3 text-center">{p.avg_salary ? `₱${Number(p.avg_salary).toLocaleString()}` : '—'}</td>
+                            <td className="px-4 py-3 text-center">{p.not_aligned}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -1529,7 +1591,7 @@ export default function Reports() {
               {tab === 'year' && (
                 <div className="space-y-6">
                   <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={yearData}>
+                    <BarChart data={yearChartData}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} />
                       <XAxis dataKey="year_graduated" tick={{ fontSize: 12 }} />
                       <YAxis tick={{ fontSize: 12 }} />
@@ -1537,6 +1599,7 @@ export default function Reports() {
                       <Legend />
                       <Bar dataKey="total_graduates" name="Total" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                       <Bar dataKey="employed" name="Employed" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="not_employed" name="Not Employed" fill="#ef4444" radius={[4, 4, 0, 0]} />
                       <Bar dataKey="aligned" name="Aligned" fill="#f59e0b" radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
@@ -1548,8 +1611,8 @@ export default function Reports() {
                           <th className="text-left px-4 py-3 font-semibold text-gray-600">Year</th>
                           <th className="text-center px-4 py-3 font-semibold text-gray-600">Graduates</th>
                           <th className="text-center px-4 py-3 font-semibold text-gray-600">Employed</th>
+                          <th className="text-center px-4 py-3 font-semibold text-gray-600">Not Employed</th>
                           <th className="text-center px-4 py-3 font-semibold text-gray-600">Aligned</th>
-                          <th className="text-center px-4 py-3 font-semibold text-gray-600">Avg Salary</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1558,8 +1621,8 @@ export default function Reports() {
                             <td className="px-4 py-3 font-medium">{y.year_graduated}</td>
                             <td className="px-4 py-3 text-center">{y.total_graduates}</td>
                             <td className="px-4 py-3 text-center">{y.employed}</td>
+                            <td className="px-4 py-3 text-center">{getNotEmployedCount(y)}</td>
                             <td className="px-4 py-3 text-center">{y.aligned}</td>
-                            <td className="px-4 py-3 text-center">{y.avg_salary ? `₱${Number(y.avg_salary).toLocaleString()}` : '—'}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -1574,10 +1637,18 @@ export default function Reports() {
               {tab === 'employment' && (
                 <div className="space-y-6">
                   <div className="flex flex-col lg:flex-row items-center gap-8">
-                    <div className="w-80 h-80">
+                    <div className="w-full max-w-[520px] h-96">
                       <ResponsiveContainer width="100%" height="100%">
-                        <PieChart>
-                          <Pie data={statusData.map((s) => ({ name: s.employment_status, value: parseInt(String(s.count)) }))} cx="50%" cy="50%" outerRadius={120} dataKey="value" label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}>
+                        <PieChart margin={{ top: 24, right: 72, bottom: 36, left: 72 }}>
+                          <Pie
+                            data={statusData.map((s) => ({ name: s.employment_status, value: parseInt(String(s.count)) }))}
+                            cx="50%"
+                            cy="48%"
+                            outerRadius={105}
+                            dataKey="value"
+                            labelLine={{ strokeWidth: 1 }}
+                            label={({ name, percent }) => `${getEmploymentStatusChartLabel(String(name))} ${((percent ?? 0) * 100).toFixed(0)}%`}
+                          >
                             {statusData.map((_, i) => (
                               <Cell key={i} fill={COLORS[i % COLORS.length]} />
                             ))}
@@ -2378,12 +2449,13 @@ function getPdfTableForTab(
 
   if (tab === 'program') {
     return {
-      headers: ['Code', 'Program', 'Graduates', 'Employed', 'Aligned', 'Partially', 'Not Aligned'],
+      headers: ['Code', 'Program', 'Graduates', 'Employed', 'Not Employed', 'Aligned', 'Partially', 'Not Aligned'],
       rows: programData.map((item) => [
         item.code,
         item.name,
         item.total_graduates,
         item.employed,
+        getNotEmployedCount(item),
         item.aligned,
         item.partially_aligned,
         item.not_aligned,
@@ -2393,13 +2465,13 @@ function getPdfTableForTab(
 
   if (tab === 'year') {
     return {
-      headers: ['Year', 'Graduates', 'Employed', 'Aligned', 'Avg Salary'],
+      headers: ['Year', 'Graduates', 'Employed', 'Not Employed', 'Aligned'],
       rows: yearData.map((item) => [
         item.year_graduated,
         item.total_graduates,
         item.employed,
+        getNotEmployedCount(item),
         item.aligned,
-        item.avg_salary || 0,
       ]),
     };
   }
@@ -2459,37 +2531,55 @@ function getPdfChartConfig(
             data: programData.map((item) => item.employed),
           },
           {
+            label: 'Not Employed',
+            backgroundColor: '#ef4444',
+            data: programData.map((item) => getNotEmployedCount(item)),
+          },
+          {
             label: 'Aligned',
             backgroundColor: '#3b82f6',
             data: programData.map((item) => item.aligned),
           },
+          {
+            label: 'Not Aligned',
+            backgroundColor: '#f59e0b',
+            data: programData.map((item) => item.not_aligned),
+          },
         ],
       },
-      options: { title: { display: true, text: 'Employment by Department' } },
+      options: { title: { display: true, text: 'Employment by Program' } },
     };
   }
 
   if (tab === 'year' && yearData.length > 0) {
     return {
-      type: 'line',
+      type: 'bar',
       data: {
         labels: yearData.map((item) => item.year_graduated),
         datasets: [
           {
+            label: 'Graduates',
+            backgroundColor: '#3b82f6',
+            data: yearData.map((item) => item.total_graduates),
+          },
+          {
             label: 'Employed',
-            borderColor: '#22c55e',
-            fill: false,
+            backgroundColor: '#22c55e',
             data: yearData.map((item) => item.employed),
           },
           {
+            label: 'Not Employed',
+            backgroundColor: '#ef4444',
+            data: yearData.map((item) => getNotEmployedCount(item)),
+          },
+          {
             label: 'Aligned',
-            borderColor: '#f59e0b',
-            fill: false,
+            backgroundColor: '#f59e0b',
             data: yearData.map((item) => item.aligned),
           },
         ],
       },
-      options: { title: { display: true, text: 'Yearly Trend' } },
+      options: { title: { display: true, text: 'Employment by Year' } },
     };
   }
 

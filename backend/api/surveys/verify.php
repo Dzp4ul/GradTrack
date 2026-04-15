@@ -95,6 +95,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ]);
             exit();
         }
+
+        $graduateProfile = [
+            "student_id" => $graduate['student_id'],
+            "first_name" => $graduate['first_name'],
+            "middle_name" => $graduate['middle_name'],
+            "last_name" => $graduate['last_name'],
+            "email" => $graduate['email'],
+            "phone" => $graduate['phone'],
+            "year_graduated" => $graduate['year_graduated'],
+            "address" => $graduate['address'],
+            "program_id" => $graduate['program_id'],
+            "program_name" => $graduate['program_name'],
+            "program_code" => $graduate['program_code']
+        ];
         
         // Step 3: Check if survey exists and is active
         if ($surveyId) {
@@ -205,7 +219,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     "token" => $token,
                     "graduate_id" => $graduate['id'],
                     "graduate_name" => $graduate['first_name'] . ' ' . $graduate['last_name'],
-                    "program" => $graduate['program_name']
+                    "program" => $graduate['program_name'],
+                    "profile" => $graduateProfile
                 ]
             ]);
         } else {
@@ -217,7 +232,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 "data" => [
                     "graduate_id" => $graduate['id'],
                     "graduate_name" => $graduate['first_name'] . ' ' . $graduate['last_name'],
-                    "program" => $graduate['program_name']
+                    "program" => $graduate['program_name'],
+                    "profile" => $graduateProfile
                 ]
             ]);
         }

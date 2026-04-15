@@ -122,6 +122,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 "survey_title" => $tokenData['survey_title'],
                 "expires_at" => $tokenData['expires_at'],
                 "profile" => [
+                    "student_id" => $tokenData['student_id'],
                     "first_name" => $tokenData['first_name'],
                     "middle_name" => $tokenData['middle_name'],
                     "last_name" => $tokenData['last_name'],

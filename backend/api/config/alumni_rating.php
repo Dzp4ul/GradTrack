@@ -98,6 +98,77 @@ if (!function_exists('gradtrack_rating_answer_to_text')) {
     }
 }
 
+if (!function_exists('gradtrack_rating_detect_response_key_offset')) {
+    function gradtrack_rating_detect_response_key_offset(array $questions, array $responses): ?int
+    {
+        $questionIds = [];
+        foreach ($questions as $question) {
+            $questionId = (string) ($question['id'] ?? '');
+            if ($questionId !== '' && ctype_digit($questionId)) {
+                $questionIds[] = (int) $questionId;
+            }
+        }
+
+        $responseKeySet = [];
+        foreach (array_keys($responses) as $key) {
+            $responseKey = (string) $key;
+            if ($responseKey !== '' && ctype_digit($responseKey)) {
+                $responseKeySet[(int) $responseKey] = true;
+            }
+        }
+
+        if (!$questionIds || !$responseKeySet) {
+            return null;
+        }
+
+        $scores = [];
+        foreach ($questionIds as $questionId) {
+            foreach (array_keys($responseKeySet) as $responseKey) {
+                $offset = $questionId - (int) $responseKey;
+                $scores[$offset] = ($scores[$offset] ?? 0) + 1;
+            }
+        }
+
+        arsort($scores);
+        $minimumMatches = max(2, min(5, (int) floor(count($questionIds) * 0.2)));
+
+        foreach ($scores as $offset => $score) {
+            $offset = (int) $offset;
+            $matches = 0;
+
+            foreach ($questionIds as $questionId) {
+                if (isset($responseKeySet[$questionId - $offset])) {
+                    $matches++;
+                }
+            }
+
+            if ($matches >= $minimumMatches) {
+                return $offset;
+            }
+        }
+
+        return null;
+    }
+}
+
+if (!function_exists('gradtrack_rating_response_for_question')) {
+    function gradtrack_rating_response_for_question(array $responses, string $questionId, ?int $responseKeyOffset)
+    {
+        if (array_key_exists($questionId, $responses)) {
+            return $responses[$questionId];
+        }
+
+        if ($responseKeyOffset !== null && ctype_digit($questionId)) {
+            $legacyQuestionId = (string) ((int) $questionId - $responseKeyOffset);
+            if (array_key_exists($legacyQuestionId, $responses)) {
+                return $responses[$legacyQuestionId];
+            }
+        }
+
+        return null;
+    }
+}
+
 if (!function_exists('gradtrack_rating_parse_employment_from_answer')) {
     function gradtrack_rating_parse_employment_from_answer(string $answerText): ?bool
     {
@@ -109,7 +180,17 @@ if (!function_exists('gradtrack_rating_parse_employment_from_answer')) {
             return false;
         }
 
-        if (strpos($answerText, 'employed') !== false || $answerText === 'yes' || strpos($answerText, 'self-employed') !== false || strpos($answerText, 'freelance') !== false) {
+        if (
+            strpos($answerText, 'employed') !== false
+            || $answerText === 'yes'
+            || strpos($answerText, 'self-employed') !== false
+            || strpos($answerText, 'freelance') !== false
+            || strpos($answerText, 'regular') !== false
+            || strpos($answerText, 'permanent') !== false
+            || strpos($answerText, 'temporary') !== false
+            || strpos($answerText, 'contractual') !== false
+            || strpos($answerText, 'casual') !== false
+        ) {
             return true;
         }
 
@@ -245,15 +326,16 @@ if (!function_exists('gradtrack_get_alumni_rating')) {
             $decodedResponses = json_decode((string) $latestSurvey['responses'], true);
             $responses = is_array($decodedResponses) ? $decodedResponses : [];
 
-            $questionStmt = $db->prepare('SELECT id, is_required, question_text FROM survey_questions WHERE survey_id = :survey_id');
+            $questionStmt = $db->prepare('SELECT id, is_required, question_text FROM survey_questions WHERE survey_id = :survey_id ORDER BY sort_order ASC, id ASC');
             $questionStmt->bindParam(':survey_id', $latestSurvey['survey_id']);
             $questionStmt->execute();
             $questions = $questionStmt->fetchAll(PDO::FETCH_ASSOC);
+            $responseKeyOffset = gradtrack_rating_detect_response_key_offset($questions, $responses);
 
             foreach ($questions as $question) {
                 $questionId = (string) $question['id'];
                 $isRequired = (int) $question['is_required'] === 1;
-                $answer = $responses[$questionId] ?? null;
+                $answer = gradtrack_rating_response_for_question($responses, $questionId, $responseKeyOffset);
                 $isAnswered = gradtrack_rating_answered($answer);
                 $questionText = strtolower((string) ($question['question_text'] ?? ''));
                 $answerText = gradtrack_rating_answer_to_text($answer);

@@ -10,6 +10,12 @@ interface Program {
   code: string;
 }
 
+interface SurveySummary {
+  id: number;
+  title: string;
+  status: string;
+}
+
 type VerificationMethod = 'student_number' | 'email';
 
 function SurveyVerification() {
@@ -25,7 +31,7 @@ function SurveyVerification() {
   const [programs, setPrograms] = useState<Program[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingPrograms, setLoadingPrograms] = useState(true);
-  const [activeSurvey, setActiveSurvey] = useState<any>(null);
+  const [activeSurvey, setActiveSurvey] = useState<SurveySummary | null>(null);
   const [msgBox, setMsgBox] = useState<{
     isOpen: boolean;
     type: 'success' | 'error' | 'warning' | 'info';
@@ -55,7 +61,7 @@ function SurveyVerification() {
       
       if (result.success && result.data.length > 0) {
         // Find the first active survey
-        const active = result.data.find((s: any) => s.status === 'active');
+        const active = result.data.find((s: SurveySummary) => s.status === 'active');
         if (active) {
           setActiveSurvey(active);
         }
@@ -141,6 +147,11 @@ function SurveyVerification() {
           sessionStorage.setItem('survey_token', result.data.token);
           sessionStorage.setItem('graduate_id', result.data.graduate_id);
           sessionStorage.setItem('graduate_name', result.data.graduate_name);
+          if (result.data.profile) {
+            sessionStorage.setItem('graduate_profile', JSON.stringify(result.data.profile));
+          } else {
+            sessionStorage.removeItem('graduate_profile');
+          }
           
           console.log('Token stored:', result.data.token);
         }

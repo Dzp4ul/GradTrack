@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ShieldCheck, ChevronRight, ChevronLeft, ClipboardList, Save } from 'lucide-react';
 import MessageBox from '../components/MessageBox';
 import { API_ENDPOINTS, API_ROOT } from '../config/api';
+import { philippineProvinces, philippineRegions } from '../data/philippineAddress';
 
 interface Question {
   id?: number;
@@ -35,28 +36,284 @@ interface AccountPrefillData {
 }
 
 interface TokenProfileData {
+  student_id?: string | null;
   first_name?: string | null;
   middle_name?: string | null;
   last_name?: string | null;
   email?: string | null;
+  mobile?: string | null;
   phone?: string | null;
+  telephone?: string | null;
   year_graduated?: number | string | null;
   address?: string | null;
+  region?: string | null;
+  province?: string | null;
+  city?: string | null;
+  municipality?: string | null;
+  civil_status?: string | null;
+  sex?: string | null;
+  gender?: string | null;
+  birthday?: string | null;
+  birth_date?: string | null;
+  date_of_birth?: string | null;
   program_id?: number | string | null;
   program_name?: string | null;
   program_code?: string | null;
 }
 
+type SurveyAnswer = string | number | string[] | null | undefined;
+type SurveyResponses = Record<number, SurveyAnswer>;
+
+const normalizeComparable = (value: string) =>
+  value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+const getProfileText = (profile: TokenProfileData, keys: Array<keyof TokenProfileData>) => {
+  for (const key of keys) {
+    const value = profile[key];
+    if (value !== null && value !== undefined && String(value).trim() !== '') {
+      return String(value).trim();
+    }
+  }
+
+  return '';
+};
+
+const hasAnswer = (value: unknown) => {
+  if (value === null || value === undefined) return false;
+  if (Array.isArray(value)) return value.length > 0;
+  return String(value).trim() !== '';
+};
+
+const isChoiceQuestion = (question: Question) =>
+  question.question_type === 'multiple_choice' || question.question_type === 'radio';
+
+const getProvinceRegion = (provinceName: string) => {
+  const normalizedProvince = normalizeComparable(provinceName);
+
+  for (const [regionCode, provinces] of Object.entries(philippineProvinces)) {
+    const match = provinces.find((province) => normalizeComparable(province) === normalizedProvince);
+    if (match) {
+      const region = philippineRegions.find((item) => item.code === regionCode);
+      return { province: match, region: region?.name || regionCode };
+    }
+  }
+
+  return { province: provinceName, region: '' };
+};
+
+const extractAddressParts = (profile: TokenProfileData) => {
+  const address = getProfileText(profile, ['address']);
+  const directProvince = getProfileText(profile, ['province']);
+  const directCity = getProfileText(profile, ['city', 'municipality']);
+  const directRegion = getProfileText(profile, ['region']);
+  const addressParts = address.split(',').map((part) => part.trim()).filter(Boolean);
+  const normalizedAddress = normalizeComparable(address);
+
+  let province = directProvince;
+  let region = directRegion;
+
+  if (!province && normalizedAddress) {
+    for (const provinces of Object.values(philippineProvinces)) {
+      const match = provinces.find((item) => normalizedAddress.includes(normalizeComparable(item)));
+      if (match) {
+        province = match;
+        break;
+      }
+    }
+  }
+
+  if (!region && province) {
+    region = getProvinceRegion(province).region;
+  }
+
+  let city = directCity;
+  if (!city && addressParts.length > 0) {
+    const provinceIndex = province
+      ? addressParts.findIndex((part) => normalizeComparable(part).includes(normalizeComparable(province)))
+      : -1;
+
+    if (provinceIndex > 0) {
+      city = addressParts[provinceIndex - 1];
+    } else {
+      city = addressParts.find((part) => {
+        const normalizedPart = normalizeComparable(part);
+        return normalizedPart !== normalizeComparable(province) && !normalizedPart.includes('region');
+      }) || '';
+    }
+  }
+
+  return { region, province, city };
+};
+
+const matchQuestionOption = (question: Question, candidates: string[]) => {
+  const options = question.options || [];
+  if (options.length === 0) {
+    return candidates.find(Boolean) || '';
+  }
+
+  for (const candidate of candidates) {
+    const normalizedCandidate = normalizeComparable(candidate);
+    if (!normalizedCandidate) continue;
+
+    const exactMatch = options.find((option) => normalizeComparable(option) === normalizedCandidate);
+    if (exactMatch) return exactMatch;
+
+    const closeMatch = options.find((option) => {
+      const normalizedOption = normalizeComparable(option);
+      return normalizedOption.includes(normalizedCandidate) || normalizedCandidate.includes(normalizedOption);
+    });
+    if (closeMatch) return closeMatch;
+  }
+
+  return '';
+};
+
+const formatValueForQuestion = (question: Question, candidates: string[]) => {
+  const cleanCandidates = candidates.map((value) => String(value || '').trim()).filter(Boolean);
+  if (cleanCandidates.length === 0) return '';
+
+  if (question.question_type === 'date') {
+    return cleanCandidates[0].slice(0, 10);
+  }
+
+  if (isChoiceQuestion(question)) {
+    return matchQuestionOption(question, cleanCandidates);
+  }
+
+  return cleanCandidates[0];
+};
+
+const getGraduateAutofillValue = (question: Question, profile: TokenProfileData) => {
+  const questionText = normalizeComparable(question.question_text);
+  const addressParts = extractAddressParts(profile);
+
+  if (questionText.includes('first name') || questionText.includes('given name')) {
+    return formatValueForQuestion(question, [getProfileText(profile, ['first_name'])]);
+  }
+
+  if (questionText.includes('middle name')) {
+    return formatValueForQuestion(question, [getProfileText(profile, ['middle_name'])]);
+  }
+
+  if (questionText.includes('last name') || questionText.includes('surname') || questionText.includes('family name')) {
+    return formatValueForQuestion(question, [getProfileText(profile, ['last_name'])]);
+  }
+
+  if (questionText.includes('student number') || questionText.includes('student no') || questionText.includes('student id')) {
+    return formatValueForQuestion(question, [getProfileText(profile, ['student_id'])]);
+  }
+
+  if (questionText.includes('email') || questionText.includes('e mail')) {
+    return formatValueForQuestion(question, [getProfileText(profile, ['email'])]);
+  }
+
+  if (questionText.includes('mobile') || questionText.includes('cellphone')) {
+    return formatValueForQuestion(question, [getProfileText(profile, ['mobile', 'phone', 'telephone'])]);
+  }
+
+  if (
+    questionText.includes('telephone')
+    || questionText.includes('phone')
+    || questionText.includes('contact number')
+    || questionText.includes('contact no')
+    || questionText.includes('contact #')
+  ) {
+    return formatValueForQuestion(question, [getProfileText(profile, ['telephone', 'phone', 'mobile'])]);
+  }
+
+  if (questionText.includes('region')) {
+    return formatValueForQuestion(question, [addressParts.region]);
+  }
+
+  if (questionText.includes('province')) {
+    return formatValueForQuestion(question, [addressParts.province]);
+  }
+
+  if (questionText.includes('city') || questionText.includes('municipality')) {
+    return formatValueForQuestion(question, [addressParts.city]);
+  }
+
+  if (questionText.includes('address')) {
+    return formatValueForQuestion(question, [getProfileText(profile, ['address'])]);
+  }
+
+  if (questionText.includes('civil status')) {
+    return formatValueForQuestion(question, [getProfileText(profile, ['civil_status'])]);
+  }
+
+  if (/\bsex\b/.test(questionText) || questionText.includes('gender')) {
+    return formatValueForQuestion(question, [getProfileText(profile, ['sex', 'gender'])]);
+  }
+
+  if (questionText.includes('birthday') || questionText.includes('birth date') || questionText.includes('date of birth')) {
+    return formatValueForQuestion(question, [getProfileText(profile, ['birthday', 'birth_date', 'date_of_birth'])]);
+  }
+
+  if (
+    questionText.includes('year graduated')
+    || questionText.includes('year of graduation')
+    || questionText.includes('yr graduated')
+    || questionText.includes('graduation year')
+  ) {
+    return formatValueForQuestion(question, [getProfileText(profile, ['year_graduated'])]);
+  }
+
+  if (
+    questionText.includes('degree program')
+    || questionText.includes('degree program specialization')
+    || questionText.includes('degree course')
+    || questionText.includes('degree completed')
+    || questionText.includes('program completed')
+    || questionText.includes('course completed')
+    || questionText === 'program'
+    || questionText === 'course'
+  ) {
+    return formatValueForQuestion(question, [
+      getProfileText(profile, ['program_name']),
+      getProfileText(profile, ['program_code']),
+    ]);
+  }
+
+  return '';
+};
+
+const applyGraduateAutofill = (
+  questions: Question[],
+  profile: TokenProfileData,
+  initialResponses: SurveyResponses,
+) => {
+  const nextResponses = { ...initialResponses };
+  const filledQuestionIds: number[] = [];
+
+  questions.forEach((question) => {
+    if (!question.id || hasAnswer(nextResponses[question.id])) {
+      return;
+    }
+
+    const value = getGraduateAutofillValue(question, profile);
+    if (!hasAnswer(value)) {
+      return;
+    }
+
+    nextResponses[question.id] = value;
+    filledQuestionIds.push(question.id);
+  });
+
+  return { responses: nextResponses, filledQuestionIds };
+};
+
 function Survey() {
   const [searchParams] = useSearchParams();
   const surveyIdFromUrl = searchParams.get('survey_id');
+  const hydratedSurveyIdRef = useRef<number | null>(null);
   
   const [agreed, setAgreed] = useState(false);
   const [agreedCheckbox, setAgreedCheckbox] = useState(false);
   const [loading, setLoading] = useState(true);
   const [activeSurvey, setActiveSurvey] = useState<Survey | null>(null);
   const [currentSection, setCurrentSection] = useState(0);
-  const [responses, setResponses] = useState<Record<number, any>>({});
+  const [responses, setResponses] = useState<SurveyResponses>({});
+  const [autoFilledQuestionIds, setAutoFilledQuestionIds] = useState<Set<number>>(new Set());
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [msgBox, setMsgBox] = useState<{ isOpen: boolean; type: 'success' | 'error' | 'warning' | 'info'; message: string; title?: string }>({ isOpen: false, type: 'info', message: '' });
   const [token, setToken] = useState<string | null>(null);
@@ -80,6 +337,16 @@ function Survey() {
     const storedToken = sessionStorage.getItem('survey_token');
     const storedGraduateId = sessionStorage.getItem('graduate_id');
     const storedGraduateName = sessionStorage.getItem('graduate_name');
+    const storedGraduateProfile = sessionStorage.getItem('graduate_profile');
+    let parsedStoredProfile: TokenProfileData | null = null;
+
+    if (storedGraduateProfile) {
+      try {
+        parsedStoredProfile = JSON.parse(storedGraduateProfile);
+      } catch {
+        sessionStorage.removeItem('graduate_profile');
+      }
+    }
 
     console.log('Checking token:', storedToken);
     console.log('Survey ID from URL:', surveyIdFromUrl);
@@ -87,6 +354,7 @@ function Survey() {
     if (!storedToken) {
       // No token, redirect to verification with survey_id
       console.log('No token found, redirecting to verification');
+      sessionStorage.removeItem('graduate_profile');
       const redirectUrl = surveyIdFromUrl 
         ? `/survey-verify?survey_id=${surveyIdFromUrl}`
         : '/survey-verify';
@@ -126,6 +394,7 @@ function Survey() {
         sessionStorage.removeItem('survey_token');
         sessionStorage.removeItem('graduate_id');
         sessionStorage.removeItem('graduate_name');
+        sessionStorage.removeItem('graduate_profile');
         
         const redirectUrl = surveyIdFromUrl 
           ? `/survey-verify?survey_id=${surveyIdFromUrl}`
@@ -144,6 +413,7 @@ function Survey() {
         sessionStorage.removeItem('survey_token');
         sessionStorage.removeItem('graduate_id');
         sessionStorage.removeItem('graduate_name');
+        sessionStorage.removeItem('graduate_profile');
 
         setMsgBox({
           isOpen: true,
@@ -159,9 +429,14 @@ function Survey() {
       }
 
       setToken(storedToken);
-      setGraduateId(parseInt(storedGraduateId || '0'));
+      const verifiedGraduateId = Number(tokenResult?.data?.graduate_id || storedGraduateId || 0);
+      setGraduateId(verifiedGraduateId || null);
       setGraduateName(storedGraduateName || tokenResult?.data?.graduate_name || '');
-      setTokenProfileData(tokenResult?.data?.profile || null);
+      setTokenProfileData({
+        ...(parsedStoredProfile || {}),
+        ...(tokenResult?.data?.profile || {}),
+        student_id: tokenResult?.data?.profile?.student_id || tokenResult?.data?.student_id || parsedStoredProfile?.student_id || null,
+      });
 
       // Fetch survey
       await fetchActiveSurvey(tokenSurveyId || surveyIdFromUrl);
@@ -177,19 +452,35 @@ function Survey() {
     }
   };
 
-  // Load draft from localStorage
+  // Load any saved draft, then fill blank profile fields from the verified registrar record.
   useEffect(() => {
-    if (activeSurvey) {
-      const draftKey = `survey_draft_${activeSurvey.id}`;
-      const saved = localStorage.getItem(draftKey);
-      if (saved) {
+    if (!activeSurvey || !tokenProfileData || hydratedSurveyIdRef.current === activeSurvey.id) {
+      return;
+    }
+
+    hydratedSurveyIdRef.current = activeSurvey.id;
+
+    const draftKey = `survey_draft_${activeSurvey.id}`;
+    const saved = localStorage.getItem(draftKey);
+    let initialResponses: SurveyResponses = {};
+
+    if (saved) {
+      try {
         const draft = JSON.parse(saved);
-        setResponses(draft.responses || {});
+        initialResponses = draft.responses || {};
         setCurrentSection(draft.section || 0);
-        setLastSaved(new Date(draft.timestamp));
+        if (draft.timestamp) {
+          setLastSaved(new Date(draft.timestamp));
+        }
+      } catch {
+        localStorage.removeItem(draftKey);
       }
     }
-  }, [activeSurvey]);
+
+    const autofill = applyGraduateAutofill(activeSurvey.questions, tokenProfileData, initialResponses);
+    setResponses(autofill.responses);
+    setAutoFilledQuestionIds(new Set(autofill.filledQuestionIds));
+  }, [activeSurvey, tokenProfileData]);
 
   // Auto-save draft
   useEffect(() => {
@@ -247,13 +538,25 @@ function Survey() {
     }
   };
 
-  const handleResponseChange = (questionId: number, value: any) => {
+  const handleResponseChange = (questionId: number, value: SurveyAnswer) => {
+    setAutoFilledQuestionIds(prev => {
+      if (!prev.has(questionId)) return prev;
+      const next = new Set(prev);
+      next.delete(questionId);
+      return next;
+    });
     setResponses(prev => ({ ...prev, [questionId]: value }));
   };
 
   const handleCheckboxChange = (questionId: number, option: string) => {
+    setAutoFilledQuestionIds(prev => {
+      if (!prev.has(questionId)) return prev;
+      const next = new Set(prev);
+      next.delete(questionId);
+      return next;
+    });
     setResponses(prev => {
-      const current = prev[questionId] || [];
+      const current = Array.isArray(prev[questionId]) ? prev[questionId] : [];
       const updated = current.includes(option)
         ? current.filter((v: string) => v !== option)
         : [...current, option];
@@ -373,6 +676,7 @@ function Survey() {
     setSubmittedResponseId(null);
     setPrefillData(null);
     setResponses({});
+    setAutoFilledQuestionIds(new Set());
     setCurrentSection(0);
     setAgreed(false);
     setLastSaved(null);
@@ -524,6 +828,7 @@ function Survey() {
         sessionStorage.removeItem('survey_token');
         sessionStorage.removeItem('graduate_id');
         sessionStorage.removeItem('graduate_name');
+        sessionStorage.removeItem('graduate_profile');
 
         setSubmittedResponseId(result.survey_response_id || result.id || null);
         setPrefillData(extractedProfile);
@@ -541,8 +846,17 @@ function Survey() {
     }
   };
 
-  const inputClass = 'w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition text-sm';
-  const selectClass = 'w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition text-sm bg-white';
+  const getQuestionFieldClass = (question: Question) => {
+    const wasAutoFilled = question.id ? autoFilledQuestionIds.has(question.id) : false;
+    const colorClass = wasAutoFilled
+      ? 'border-green-300 bg-green-50 focus:ring-green-500 focus:border-green-400'
+      : 'border-gray-300 bg-white focus:ring-blue-500 focus:border-transparent';
+
+    return `w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 transition text-sm ${colorClass}`;
+  };
+
+  const autoFilledCount = autoFilledQuestionIds.size;
+
   // Loading state
   if (loading) {
     return (
@@ -674,7 +988,7 @@ function Survey() {
             type="text"
             value={value}
             onChange={(e) => handleResponseChange(question.id!, e.target.value)}
-            className={inputClass}
+            className={getQuestionFieldClass(question)}
             required={question.is_required === 1}
           />
         );
@@ -685,7 +999,7 @@ function Survey() {
             type="date"
             value={value}
             onChange={(e) => handleResponseChange(question.id!, e.target.value)}
-            className={inputClass}
+            className={getQuestionFieldClass(question)}
             required={question.is_required === 1}
           />
         );
@@ -695,7 +1009,7 @@ function Survey() {
           <select
             value={value}
             onChange={(e) => handleResponseChange(question.id!, e.target.value)}
-            className={selectClass}
+            className={getQuestionFieldClass(question)}
             required={question.is_required === 1}
           >
             <option value="">Select an option</option>
@@ -725,14 +1039,15 @@ function Survey() {
           </div>
         );
 
-      case 'checkbox':
+      case 'checkbox': {
+        const selectedValues = Array.isArray(value) ? value : [];
         return (
           <div className="space-y-2">
             {question.options?.map((option, idx) => (
               <label key={idx} className="flex items-center space-x-2 text-sm text-gray-700 cursor-pointer">
                 <input
                   type="checkbox"
-                  checked={(value || []).includes(option)}
+                  checked={selectedValues.includes(option)}
                   onChange={() => handleCheckboxChange(question.id!, option)}
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
@@ -741,6 +1056,7 @@ function Survey() {
             ))}
           </div>
         );
+      }
 
       case 'rating':
         return (
@@ -768,7 +1084,7 @@ function Survey() {
             value={value}
             onChange={(e) => handleResponseChange(question.id!, e.target.value)}
             rows={4}
-            className={inputClass}
+            className={getQuestionFieldClass(question)}
             required={question.is_required === 1}
           />
         );
@@ -801,6 +1117,7 @@ function Survey() {
     // Find question 28 (index 27 in 0-based array)
     const question28 = activeSurvey?.questions[27];
     const answer28 = question28?.id ? responses[question28.id] : null;
+    const answer28Text = typeof answer28 === 'string' ? answer28.toLowerCase() : '';
     
     questions.forEach((q) => {
       const globalIdx = activeSurvey?.questions.findIndex(quest => quest.id === q.id) ?? -1;
@@ -809,14 +1126,14 @@ function Survey() {
       // If question is between 29-44
       if (questionNumber >= 29 && questionNumber <= 44) {
         // Only show if answer to question 28 is "Yes"
-        if (answer28?.toLowerCase() === 'yes') {
+        if (answer28Text === 'yes') {
           filtered.push(q);
         }
       }
       // If question is 45
       else if (questionNumber === 45) {
         // Only show if answer to question 28 is "No"
-        if (answer28?.toLowerCase() === 'no') {
+        if (answer28Text === 'no') {
           filtered.push(q);
         }
       }
@@ -879,6 +1196,12 @@ function Survey() {
           </div>
 
           <div className="space-y-8">
+            {autoFilledCount > 0 && (
+              <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+                Some fields were filled from your registrar record. You can still edit them before submitting.
+              </div>
+            )}
+
             {/* Section Header */}
             <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl p-4 mb-4 shadow-md">
               <h3 className="text-xl font-bold text-white uppercase tracking-wide">
