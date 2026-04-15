@@ -18,6 +18,7 @@ import SurveyResponses from './pages/admin/SurveyResponses';
 import SurveyAnalytics from './pages/admin/SurveyAnalytics';
 import Reports from './pages/admin/Reports';
 import Settings from './pages/admin/Settings';
+import BackupDatabase from './pages/admin/BackupDatabase';
 import DeanSurveyStatus from './pages/admin/DeanSurveyStatus';
 import UserManagement from './pages/admin/UserManagement';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -153,6 +154,14 @@ function App() {
               element={
                 <ProtectedRoute allowedRoles={SUPER_ADMIN_ROLES}>
                   <Settings />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="backup-database"
+              element={
+                <ProtectedRoute allowedRoles={SUPER_ADMIN_ROLES}>
+                  <BackupDatabase />
                 </ProtectedRoute>
               }
             />

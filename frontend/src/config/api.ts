@@ -27,6 +27,7 @@ export const API_ENDPOINTS = {
   REPORTS: `${API_ROOT}/reports/index.php`,
   ANNOUNCEMENTS: `${API_ROOT}/announcements/index.php`,
   SETTINGS: `${API_ROOT}/settings/index.php`,
+  BACKUP: `${API_ROOT}/backup/index.php`,
   USERS: `${API_ROOT}/users/index.php`,
   GRADUATE_SURVEY_STATUS: `${API_ROOT}/graduates/survey-status.php`,
   GRADUATE_NOTIFY: `${API_ROOT}/graduates/notify.php`,
