@@ -337,6 +337,7 @@ export default function GraduatePortal() {
   const [hasMentorProfile, setHasMentorProfile] = useState(false);
   const [showMentorProfileForm, setShowMentorProfileForm] = useState(false);
   const [myJobForm, setMyJobForm] = useState<JobForm>(defaultJobForm);
+  const [showJobPostForm, setShowJobPostForm] = useState(false);
   const [mentorSearch, setMentorSearch] = useState('');
   const [mentorProgramTab, setMentorProgramTab] = useState('all');
   const [mentorIndustryFilter, setMentorIndustryFilter] = useState('');
@@ -594,6 +595,22 @@ export default function GraduatePortal() {
   const canUseMentorship = !!ratingSummary?.permissions?.can_use_mentorship;
   const canRequestMentorship = !!ratingSummary?.permissions?.can_request_mentorship;
   const canRegisterMentor = !!ratingSummary?.permissions?.can_register_mentor;
+
+  const getDefaultJobForm = (): JobForm => ({
+    ...defaultJobForm,
+    contact_email: user?.email || '',
+    course_program_fit: user?.program_code || user?.program_name || '',
+  });
+
+  const openCreateJobForm = () => {
+    setMyJobForm(getDefaultJobForm());
+    setShowJobPostForm(true);
+  };
+
+  const closeJobPostForm = () => {
+    setMyJobForm(getDefaultJobForm());
+    setShowJobPostForm(false);
+  };
 
   const normalizeProgramKey = (programCode?: string | null, programName?: string | null) => {
     const code = (programCode || '').trim();
@@ -1044,11 +1061,7 @@ export default function GraduatePortal() {
         notify('success', 'Job post published successfully.');
       }
 
-      setMyJobForm({
-        ...defaultJobForm,
-        contact_email: user?.email || '',
-        course_program_fit: user?.program_code || user?.program_name || '',
-      });
+      closeJobPostForm();
       await fetchAll();
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to save job post');
@@ -1076,6 +1089,7 @@ export default function GraduatePortal() {
         application_method: data.application_method || '',
         is_active: !!data.is_active,
       });
+      setShowJobPostForm(true);
       setActiveTab('job_posting');
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to load job details');
@@ -2223,6 +2237,34 @@ export default function GraduatePortal() {
 
             {activeTab === 'job_posting' && (
               <section className="space-y-6">
+                {!showJobPostForm && (
+                  <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
+                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                      <div>
+                        <h2 className="text-2xl font-bold text-blue-900">Job Posting</h2>
+                        <p className="text-sm text-gray-600 mt-1">
+                          Share an opening with eligible graduates when you are ready.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={openCreateJobForm}
+                        disabled={!canPostJobs}
+                        className="inline-flex items-center justify-center px-5 py-2.5 rounded-lg bg-green-600 hover:bg-green-700 text-white font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        Create Job Post
+                      </button>
+                    </div>
+
+                    {!canPostJobs && (
+                      <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                        Job posting requires: employed status.
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {showJobPostForm && (
                 <form onSubmit={handleJobSubmit} className="bg-white rounded-2xl border border-gray-200 p-6 space-y-5 shadow-sm">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
@@ -2396,19 +2438,26 @@ export default function GraduatePortal() {
                       <button
                         type="button"
                         onClick={() => {
-                          setMyJobForm({
-                            ...defaultJobForm,
-                            contact_email: user?.email || '',
-                            course_program_fit: user?.program_code || user?.program_name || '',
-                          });
+                          closeJobPostForm();
                         }}
                         className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 rounded-lg font-medium"
                       >
                         Cancel Editing
                       </button>
                     )}
+
+                    {!myJobForm.id && (
+                      <button
+                        type="button"
+                        onClick={closeJobPostForm}
+                        className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 rounded-lg font-medium"
+                      >
+                        Cancel
+                      </button>
+                    )}
                   </fieldset>
                 </form>
+                )}
 
                 <div className="bg-white rounded-2xl border border-gray-200 p-5 shadow-sm">
                   <h2 className="text-xl font-bold text-blue-900 mb-4">My Job Posts</h2>
