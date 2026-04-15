@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -46,29 +46,19 @@ function SignIn() {
             className="h-32 w-32 object-contain mx-auto mb-8"
           />
           <h2 className="text-3xl font-bold text-white mb-4">Norzagaray College</h2>
-          <p className="text-blue-200 text-lg mb-8">GradTrack Alumni Tracking System</p>
-          <Link
-            to="/"
-            className="inline-block bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white px-8 py-3 rounded-lg font-medium transition border-2 border-white/30"
-          >
-            Back to Home
-          </Link>
+          <p className="text-blue-200 text-lg">Graduate Tracer System</p>
         </div>
       </div>
 
       {/* Right Side - Sign In Form */}
       <div className="w-full md:w-1/2 md:ml-[50%] min-h-screen bg-gray-50 flex items-center justify-center p-8">
         <div className="w-full max-w-lg">
-          {/* Mobile back link */}
           <div className="md:hidden mb-8 text-center">
             <img
               src="/logo.png"
               alt="Norzagaray College"
-              className="h-16 w-16 object-contain mx-auto mb-4"
+              className="h-16 w-16 object-contain mx-auto"
             />
-            <Link to="/" className="text-blue-600 hover:text-blue-800 text-sm font-medium">
-              ← Back to Home
-            </Link>
           </div>
 
           <div className="flex justify-center mb-6">
@@ -140,12 +130,6 @@ function SignIn() {
             </button>
           </form>
 
-          <p className="text-center text-gray-600 mt-6">
-            Don't have an account?{' '}
-            <Link to="/signup" className="text-blue-600 hover:text-blue-800 font-semibold">
-              Sign Up
-            </Link>
-          </p>
         </div>
       </div>
     </div>
