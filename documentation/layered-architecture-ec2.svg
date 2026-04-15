@@ -1,0 +1,224 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000" role="img" aria-labelledby="title desc">
+  <title id="title">GradTrack Layered Architecture Diagram - AWS EC2 Frontend and Backend</title>
+  <desc id="desc">Layered architecture diagram for GradTrack showing user roles, EC2 frontend hosting, EC2 PHP backend services, Amazon RDS MySQL, EC2 upload storage, SMTP mail, and Groq AI analytics.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1f2937"/>
+    </marker>
+    <marker id="arrowBlue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1d4ed8"/>
+    </marker>
+    <style>
+      .bg { fill: #ffffff; }
+      .title { font-family: Arial, Helvetica, sans-serif; font-size: 28px; font-weight: 700; fill: #111827; }
+      .subtitle { font-family: Arial, Helvetica, sans-serif; font-size: 14px; fill: #4b5563; }
+      .section { fill: #f8fafc; stroke: #1f2937; stroke-width: 1.5; rx: 8; }
+      .layerTitle { font-family: Arial, Helvetica, sans-serif; font-size: 17px; font-weight: 700; fill: #111827; }
+      .layerNote { font-family: Arial, Helvetica, sans-serif; font-size: 12px; fill: #475569; }
+      .box { fill: #ffffff; stroke: #334155; stroke-width: 1.3; rx: 6; }
+      .boxBlue { fill: #eff6ff; stroke: #1d4ed8; stroke-width: 1.4; rx: 6; }
+      .boxGreen { fill: #ecfdf5; stroke: #047857; stroke-width: 1.4; rx: 6; }
+      .boxYellow { fill: #fff7ed; stroke: #c2410c; stroke-width: 1.4; rx: 6; }
+      .boxGray { fill: #f1f5f9; stroke: #475569; stroke-width: 1.2; rx: 6; }
+      .label { font-family: Arial, Helvetica, sans-serif; font-size: 13px; fill: #111827; }
+      .labelBold { font-family: Arial, Helvetica, sans-serif; font-size: 14px; font-weight: 700; fill: #111827; }
+      .small { font-family: Arial, Helvetica, sans-serif; font-size: 11px; fill: #334155; }
+      .tiny { font-family: Arial, Helvetica, sans-serif; font-size: 10px; fill: #334155; }
+      .arrow { stroke: #1f2937; stroke-width: 1.5; fill: none; marker-end: url(#arrow); }
+      .arrowBlue { stroke: #1d4ed8; stroke-width: 1.7; fill: none; marker-end: url(#arrowBlue); }
+      .dash { stroke-dasharray: 6 5; }
+      .cloud { fill: #ffffff; stroke: #334155; stroke-width: 1.5; }
+      .aws { fill: #f8fafc; stroke: #111827; stroke-width: 1.6; rx: 8; }
+      .dataCylinder { fill: #ffffff; stroke: #334155; stroke-width: 1.5; }
+      .dataTop { fill: #e0f2fe; stroke: #334155; stroke-width: 1.5; }
+      .dataTopGreen { fill: #dcfce7; stroke: #047857; stroke-width: 1.5; }
+    </style>
+  </defs>
+
+  <rect class="bg" width="1600" height="1000"/>
+  <text x="800" y="38" text-anchor="middle" class="title">GradTrack Layered Architecture</text>
+  <text x="800" y="60" text-anchor="middle" class="subtitle">Updated for AWS EC2 frontend hosting, AWS EC2 backend hosting, current GradTrack modules, and supporting cloud services</text>
+
+  <!-- User layer -->
+  <rect x="25" y="95" width="205" height="805" class="section"/>
+  <text x="127.5" y="126" text-anchor="middle" class="layerTitle">User / Client Layer</text>
+  <text x="127.5" y="146" text-anchor="middle" class="layerNote">Web browsers</text>
+
+  <rect x="52" y="175" width="152" height="52" class="boxGray"/>
+  <text x="128" y="198" text-anchor="middle" class="labelBold">Public Visitor</text>
+  <text x="128" y="215" text-anchor="middle" class="small">homepage, FAQ</text>
+
+  <rect x="52" y="252" width="152" height="52" class="boxGray"/>
+  <text x="128" y="275" text-anchor="middle" class="labelBold">Super Admin</text>
+  <text x="128" y="292" text-anchor="middle" class="small">users, settings, backup</text>
+
+  <rect x="52" y="329" width="152" height="52" class="boxGray"/>
+  <text x="128" y="352" text-anchor="middle" class="labelBold">Administrator</text>
+  <text x="128" y="369" text-anchor="middle" class="small">surveys, reports</text>
+
+  <rect x="52" y="406" width="152" height="52" class="boxGray"/>
+  <text x="128" y="429" text-anchor="middle" class="labelBold">Registrar</text>
+  <text x="128" y="446" text-anchor="middle" class="small">graduate records</text>
+
+  <rect x="52" y="483" width="152" height="52" class="boxGray"/>
+  <text x="128" y="506" text-anchor="middle" class="labelBold">Dean</text>
+  <text x="128" y="523" text-anchor="middle" class="small">program survey status</text>
+
+  <rect x="52" y="560" width="152" height="58" class="boxGray"/>
+  <text x="128" y="583" text-anchor="middle" class="labelBold">Graduate / Alumni</text>
+  <text x="128" y="600" text-anchor="middle" class="small">survey, portal, jobs</text>
+
+  <rect x="52" y="645" width="152" height="72" class="boxGray"/>
+  <text x="128" y="670" text-anchor="middle" class="labelBold">Survey Respondent</text>
+  <text x="128" y="687" text-anchor="middle" class="small">token verification</text>
+  <text x="128" y="703" text-anchor="middle" class="small">dynamic answers</text>
+
+  <!-- Internet -->
+  <g transform="translate(270 427)">
+    <ellipse cx="60" cy="35" rx="62" ry="34" class="cloud"/>
+    <ellipse cx="20" cy="41" rx="31" ry="24" class="cloud"/>
+    <ellipse cx="100" cy="42" rx="38" ry="25" class="cloud"/>
+    <rect x="18" y="35" width="88" height="36" fill="#ffffff"/>
+    <text x="60" y="44" text-anchor="middle" class="labelBold">Internet</text>
+    <text x="60" y="61" text-anchor="middle" class="small">HTTPS</text>
+  </g>
+
+  <!-- AWS boundary -->
+  <rect x="430" y="95" width="1138" height="805" class="aws"/>
+  <text x="999" y="126" text-anchor="middle" class="layerTitle">AWS Cloud - GradTrack Production</text>
+  <text x="999" y="146" text-anchor="middle" class="layerNote">Frontend and backend are hosted on EC2 instances; data is stored in Amazon RDS MySQL</text>
+
+  <!-- Presentation Layer -->
+  <rect x="465" y="178" width="330" height="645" class="section"/>
+  <text x="630" y="207" text-anchor="middle" class="layerTitle">Presentation Layer</text>
+  <text x="630" y="226" text-anchor="middle" class="layerNote">AWS EC2 Frontend Instance</text>
+
+  <rect x="494" y="254" width="272" height="76" class="boxBlue"/>
+  <text x="630" y="279" text-anchor="middle" class="labelBold">Static Web Hosting</text>
+  <text x="630" y="298" text-anchor="middle" class="small">Nginx or Apache</text>
+  <text x="630" y="315" text-anchor="middle" class="small">React + TypeScript + Vite</text>
+
+  <rect x="494" y="362" width="272" height="68" class="box"/>
+  <text x="630" y="386" text-anchor="middle" class="labelBold">Public Pages</text>
+  <text x="630" y="405" text-anchor="middle" class="small">Home, About, FAQ, Privacy</text>
+
+  <rect x="494" y="462" width="272" height="76" class="box"/>
+  <text x="630" y="486" text-anchor="middle" class="labelBold">Survey Experience</text>
+  <text x="630" y="505" text-anchor="middle" class="small">Token verification</text>
+  <text x="630" y="522" text-anchor="middle" class="small">Dynamic survey form</text>
+
+  <rect x="494" y="570" width="272" height="84" class="box"/>
+  <text x="630" y="594" text-anchor="middle" class="labelBold">Admin Console</text>
+  <text x="630" y="613" text-anchor="middle" class="small">Dashboard, Graduates, Surveys</text>
+  <text x="630" y="630" text-anchor="middle" class="small">Reports, Users, Settings</text>
+
+  <rect x="494" y="686" width="272" height="84" class="box"/>
+  <text x="630" y="710" text-anchor="middle" class="labelBold">Graduate Portal</text>
+  <text x="630" y="729" text-anchor="middle" class="small">Profile, Mentorship, Jobs</text>
+  <text x="630" y="746" text-anchor="middle" class="small">Alumni rating and documents</text>
+
+  <!-- Application Layer -->
+  <rect x="835" y="178" width="405" height="645" class="section"/>
+  <text x="1037.5" y="207" text-anchor="middle" class="layerTitle">Application Layer</text>
+  <text x="1037.5" y="226" text-anchor="middle" class="layerNote">AWS EC2 Backend Instance</text>
+
+  <rect x="868" y="254" width="340" height="76" class="boxGreen"/>
+  <text x="1038" y="279" text-anchor="middle" class="labelBold">Apache + PHP REST API</text>
+  <text x="1038" y="298" text-anchor="middle" class="small">Session auth, CORS, JSON</text>
+  <text x="1038" y="315" text-anchor="middle" class="small">Multipart uploads and downloads</text>
+
+  <rect x="868" y="354" width="340" height="70" class="box"/>
+  <text x="1038" y="379" text-anchor="middle" class="labelBold">Authentication and Access Control</text>
+  <text x="1038" y="398" text-anchor="middle" class="small">Staff auth, graduate auth, RBAC</text>
+
+  <rect x="868" y="448" width="340" height="88" class="box"/>
+  <text x="1038" y="473" text-anchor="middle" class="labelBold">Graduate and Survey Services</text>
+  <text x="1038" y="492" text-anchor="middle" class="small">Graduate management, survey builder</text>
+  <text x="1038" y="509" text-anchor="middle" class="small">Tokens, responses, dean status</text>
+  <text x="1038" y="526" text-anchor="middle" class="small">Survey reminder notifications</text>
+
+  <rect x="868" y="560" width="340" height="88" class="box"/>
+  <text x="1038" y="585" text-anchor="middle" class="labelBold">Reports and Analytics</text>
+  <text x="1038" y="604" text-anchor="middle" class="small">Dashboard stats, survey analytics</text>
+  <text x="1038" y="621" text-anchor="middle" class="small">Exports, predictive regression</text>
+  <text x="1038" y="638" text-anchor="middle" class="small">AI-generated descriptive insights</text>
+
+  <rect x="868" y="672" width="340" height="70" class="box"/>
+  <text x="1038" y="697" text-anchor="middle" class="labelBold">Alumni Engagement</text>
+  <text x="1038" y="716" text-anchor="middle" class="small">Announcements, mentorship, jobs, rating</text>
+
+  <rect x="868" y="766" width="340" height="70" class="box"/>
+  <text x="1038" y="791" text-anchor="middle" class="labelBold">Administration and File Handling</text>
+  <text x="1038" y="810" text-anchor="middle" class="small">Users, settings, DB backup, uploads</text>
+
+  <!-- Data layer -->
+  <rect x="1278" y="178" width="250" height="645" class="section"/>
+  <text x="1403" y="207" text-anchor="middle" class="layerTitle">Data and External Layer</text>
+  <text x="1403" y="226" text-anchor="middle" class="layerNote">Persistence and integrations</text>
+
+  <g>
+    <path d="M1310 268 C1310 249 1496 249 1496 268 L1496 392 C1496 412 1310 412 1310 392 Z" class="dataCylinder"/>
+    <ellipse cx="1403" cy="268" rx="93" ry="19" class="dataTop"/>
+    <text x="1403" y="302" text-anchor="middle" class="labelBold">Amazon RDS MySQL</text>
+    <text x="1403" y="324" text-anchor="middle" class="small">users, roles, graduates</text>
+    <text x="1403" y="341" text-anchor="middle" class="small">programs, surveys, responses</text>
+    <text x="1403" y="358" text-anchor="middle" class="small">reports, mentorship, jobs</text>
+    <text x="1403" y="375" text-anchor="middle" class="small">alumni rating data</text>
+  </g>
+
+  <g>
+    <path d="M1310 455 C1310 438 1496 438 1496 455 L1496 561 C1496 578 1310 578 1310 561 Z" class="dataCylinder"/>
+    <ellipse cx="1403" cy="455" rx="93" ry="17" class="dataTopGreen"/>
+    <text x="1403" y="486" text-anchor="middle" class="labelBold">EC2 EBS / Upload Storage</text>
+    <text x="1403" y="508" text-anchor="middle" class="small">profile images</text>
+    <text x="1403" y="525" text-anchor="middle" class="small">alumni documents</text>
+    <text x="1403" y="542" text-anchor="middle" class="small">job requirement files</text>
+  </g>
+
+  <rect x="1310" y="620" width="186" height="74" class="boxYellow"/>
+  <text x="1403" y="646" text-anchor="middle" class="labelBold">SMTP Mail Service</text>
+  <text x="1403" y="665" text-anchor="middle" class="small">PHPMailer</text>
+  <text x="1403" y="681" text-anchor="middle" class="small">survey reminders</text>
+
+  <rect x="1310" y="732" width="186" height="74" class="boxYellow"/>
+  <text x="1403" y="758" text-anchor="middle" class="labelBold">Groq Cloud API</text>
+  <text x="1403" y="777" text-anchor="middle" class="small">LLaMA model</text>
+  <text x="1403" y="793" text-anchor="middle" class="small">AI analytics insights</text>
+
+  <!-- Arrows -->
+  <path d="M230 498 L270 498" class="arrow"/>
+  <path d="M392 498 L465 292" class="arrowBlue"/>
+  <text x="411" y="381" text-anchor="middle" class="tiny">HTTPS page requests</text>
+
+  <path d="M766 292 L868 292" class="arrowBlue"/>
+  <text x="817" y="275" text-anchor="middle" class="tiny">REST API over HTTPS</text>
+  <text x="817" y="289" text-anchor="middle" class="tiny">JSON / multipart</text>
+
+  <path d="M1208 389 C1245 389 1260 310 1310 310" class="arrow"/>
+  <text x="1253" y="336" text-anchor="middle" class="tiny">PDO MySQL</text>
+
+  <path d="M1208 801 C1250 801 1260 516 1310 516" class="arrow"/>
+  <text x="1251" y="681" text-anchor="middle" class="tiny">uploaded files</text>
+
+  <path d="M1208 494 C1260 494 1260 657 1310 657" class="arrow"/>
+  <text x="1252" y="598" text-anchor="middle" class="tiny">email reminders</text>
+
+  <path d="M1208 604 C1261 604 1260 769 1310 769" class="arrow"/>
+  <text x="1252" y="718" text-anchor="middle" class="tiny">AI prompts / results</text>
+
+  <!-- Internal arrows -->
+  <path d="M630 330 L630 362" class="arrow dash"/>
+  <path d="M630 430 L630 462" class="arrow dash"/>
+  <path d="M630 538 L630 570" class="arrow dash"/>
+  <path d="M630 654 L630 686" class="arrow dash"/>
+
+  <path d="M1038 330 L1038 354" class="arrow dash"/>
+  <path d="M1038 424 L1038 448" class="arrow dash"/>
+  <path d="M1038 536 L1038 560" class="arrow dash"/>
+  <path d="M1038 648 L1038 672" class="arrow dash"/>
+  <path d="M1038 742 L1038 766" class="arrow dash"/>
+
+  <!-- Legend -->
+  <rect x="465" y="850" width="1063" height="34" class="boxGray"/>
+  <text x="482" y="872" class="small">Note: Upload storage reflects the current EC2/local upload behavior. Amazon S3 can replace or supplement this storage later for more durable object storage.</text>
+</svg>

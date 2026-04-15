@@ -41,6 +41,11 @@ Welcome to GradTrack! This index will help you find the right documentation for 
   - Scalability considerations
   - Security features
 
+- **[LAYERED_ARCHITECTURE_EC2.md](LAYERED_ARCHITECTURE_EC2.md)**
+  - Updated layered architecture diagram
+  - AWS EC2 frontend and backend deployment
+  - Current GradTrack modules and integrations
+
 ---
 
 ## 🚀 Deployment Guides
