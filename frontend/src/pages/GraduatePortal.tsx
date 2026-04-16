@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Award,
   BarChart3,
@@ -17,9 +18,12 @@ import type { LucideIcon } from 'lucide-react';
 import { API_BASE_URL, API_ENDPOINTS } from '../config/api';
 import { useGraduateAuth } from '../contexts/GraduateAuthContext';
 import MessageBox from '../components/MessageBox';
+import NotificationBell from '../components/NotificationBell';
 
 type PortalTab = 'dashboard' | 'mentors' | 'requests' | 'jobs' | 'my_profile' | 'mentor_profile' | 'job_posting';
 type ApprovalStatus = 'pending' | 'approved' | 'declined';
+
+const portalTabKeys: PortalTab[] = ['dashboard', 'mentors', 'requests', 'jobs', 'my_profile', 'mentor_profile', 'job_posting'];
 
 interface Mentor {
   id: number;
@@ -331,6 +335,7 @@ const defaultJobForm: JobForm = {
 
 export default function GraduatePortal() {
   const { user, logout, checkAuth } = useGraduateAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [activeTab, setActiveTab] = useState<PortalTab>('mentors');
   const [loading, setLoading] = useState(false);
@@ -462,6 +467,11 @@ export default function GraduatePortal() {
     setMsgBox({ isOpen: true, type, message, title });
   };
 
+  const selectTab = (tab: PortalTab) => {
+    setActiveTab(tab);
+    setSearchParams(tab === 'mentors' ? {} : { tab });
+  };
+
   const authenticatedFetch = async (url: string, options?: RequestInit) => {
     const hasFormData = options?.body instanceof FormData;
     const headers = new Headers(options?.headers || {});
@@ -570,6 +580,13 @@ export default function GraduatePortal() {
     fetchAll();
     fetchProgramOptions();
   }, []);
+
+  useEffect(() => {
+    const tabParam = searchParams.get('tab');
+    if (tabParam && portalTabKeys.includes(tabParam as PortalTab)) {
+      setActiveTab(tabParam as PortalTab);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     setProfileForm((prev) => ({
@@ -1124,7 +1141,7 @@ export default function GraduatePortal() {
         is_active: !!data.is_active,
       });
       setShowJobPostForm(true);
-      setActiveTab('job_posting');
+      selectTab('job_posting');
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to load job details');
     }
@@ -1205,7 +1222,7 @@ export default function GraduatePortal() {
           {navItems.map((item) => (
             <button
               key={item.key}
-              onClick={() => setActiveTab(item.key)}
+              onClick={() => selectTab(item.key)}
               className={`w-[calc(100%-1rem)] mx-2 flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${
                 activeTab === item.key
                   ? 'bg-yellow-500 text-blue-900 font-semibold'
@@ -1246,64 +1263,68 @@ export default function GraduatePortal() {
               </div>
             </div>
 
-            <div className="relative w-full sm:w-auto" ref={profileMenuRef}>
-              <button
-                onClick={() => setProfileMenuOpen((prev) => !prev)}
-                className="flex w-full min-w-0 items-center gap-3 bg-white/10 hover:bg-white/20 rounded-full px-3 py-1.5 sm:min-w-[260px]"
-                aria-haspopup="menu"
-                aria-expanded={profileMenuOpen}
-              >
-                {profileImagePreview ? (
-                  <img src={profileImagePreview} alt="Profile" className="w-9 h-9 rounded-full object-cover border border-white/30" />
-                ) : (
-                  <div className="w-9 h-9 rounded-full bg-white text-blue-900 flex items-center justify-center font-bold text-sm">
-                    {userInitials}
+            <div className="flex w-full items-center justify-end gap-3 sm:w-auto">
+              <NotificationBell audience="graduate" colorScheme="dark" />
+
+              <div className="relative min-w-0 flex-1 sm:w-auto sm:flex-none" ref={profileMenuRef}>
+                <button
+                  onClick={() => setProfileMenuOpen((prev) => !prev)}
+                  className="flex w-full min-w-0 items-center gap-3 bg-white/10 hover:bg-white/20 rounded-full px-3 py-1.5 sm:min-w-[260px]"
+                  aria-haspopup="menu"
+                  aria-expanded={profileMenuOpen}
+                >
+                  {profileImagePreview ? (
+                    <img src={profileImagePreview} alt="Profile" className="w-9 h-9 rounded-full object-cover border border-white/30" />
+                  ) : (
+                    <div className="w-9 h-9 rounded-full bg-white text-blue-900 flex items-center justify-center font-bold text-sm">
+                      {userInitials}
+                    </div>
+                  )}
+                  <div className="text-left leading-tight flex-1">
+                    <p className="font-semibold text-white text-lg truncate">{user?.full_name || 'Graduate User'}</p>
+                    <p className="text-blue-100 text-sm">{userRoleLabel}</p>
+                  </div>
+                  <ChevronDown className={`w-4 h-4 text-blue-100 transition-transform ${profileMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {profileMenuOpen && (
+                  <div className="absolute right-0 mt-2 w-full bg-white rounded-2xl shadow-xl overflow-hidden z-50 text-gray-800 border border-gray-200 sm:w-[320px]">
+                    <div className="p-4 border-b border-gray-100 flex items-center gap-3">
+                      {profileImagePreview ? (
+                        <img src={profileImagePreview} alt="Profile" className="w-11 h-11 rounded-full object-cover border border-gray-200" />
+                      ) : (
+                        <div className="w-11 h-11 rounded-full bg-blue-900 text-white flex items-center justify-center font-bold">
+                          {userInitials}
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="font-semibold text-xl text-gray-900 truncate">{user?.full_name || 'Graduate User'}</p>
+                        <p className="text-sm text-gray-500 truncate">{user?.email || 'No email available'}</p>
+                        <p className="text-sm text-gray-500">{userRoleLabel}</p>
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        selectTab('my_profile');
+                        setProfileMenuOpen(false);
+                      }}
+                      className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-2 text-lg"
+                    >
+                      <User className="w-4 h-4" />
+                      My Profile
+                    </button>
+
+                    <button
+                      onClick={handleLogout}
+                      className="w-full px-4 py-3 text-left hover:bg-red-50 flex items-center gap-2 text-lg text-red-600"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      Logout
+                    </button>
                   </div>
                 )}
-                <div className="text-left leading-tight flex-1">
-                  <p className="font-semibold text-white text-lg truncate">{user?.full_name || 'Graduate User'}</p>
-                  <p className="text-blue-100 text-sm">{userRoleLabel}</p>
-                </div>
-                <ChevronDown className={`w-4 h-4 text-blue-100 transition-transform ${profileMenuOpen ? 'rotate-180' : ''}`} />
-              </button>
-
-              {profileMenuOpen && (
-                <div className="absolute right-0 mt-2 w-full bg-white rounded-2xl shadow-xl overflow-hidden z-50 text-gray-800 border border-gray-200 sm:w-[320px]">
-                  <div className="p-4 border-b border-gray-100 flex items-center gap-3">
-                    {profileImagePreview ? (
-                      <img src={profileImagePreview} alt="Profile" className="w-11 h-11 rounded-full object-cover border border-gray-200" />
-                    ) : (
-                      <div className="w-11 h-11 rounded-full bg-blue-900 text-white flex items-center justify-center font-bold">
-                        {userInitials}
-                      </div>
-                    )}
-                    <div className="min-w-0">
-                      <p className="font-semibold text-xl text-gray-900 truncate">{user?.full_name || 'Graduate User'}</p>
-                      <p className="text-sm text-gray-500 truncate">{user?.email || 'No email available'}</p>
-                      <p className="text-sm text-gray-500">{userRoleLabel}</p>
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={() => {
-                      setActiveTab('my_profile');
-                      setProfileMenuOpen(false);
-                    }}
-                    className="w-full px-4 py-3 text-left hover:bg-gray-50 flex items-center gap-2 text-lg"
-                  >
-                    <User className="w-4 h-4" />
-                    My Profile
-                  </button>
-
-                  <button
-                    onClick={handleLogout}
-                    className="w-full px-4 py-3 text-left hover:bg-red-50 flex items-center gap-2 text-lg text-red-600"
-                  >
-                    <LogOut className="w-4 h-4" />
-                    Logout
-                  </button>
-                </div>
-              )}
+              </div>
             </div>
           </div>
         </header>
@@ -1313,7 +1334,7 @@ export default function GraduatePortal() {
             {navItems.map((tab) => (
               <button
                 key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
+                onClick={() => selectTab(tab.key)}
                 className={`shrink-0 px-3 py-2 rounded-lg text-sm font-medium transition ${
                   activeTab === tab.key ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}

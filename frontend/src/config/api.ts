@@ -29,6 +29,7 @@ export const API_ENDPOINTS = {
   DASHBOARD: `${API_ROOT}/dashboard/stats.php`,
   REPORTS: `${API_ROOT}/reports/index.php`,
   ANNOUNCEMENTS: `${API_ROOT}/announcements/index.php`,
+  NOTIFICATIONS: `${API_ROOT}/notifications/index.php`,
   SETTINGS: `${API_ROOT}/settings/index.php`,
   BACKUP: `${API_ROOT}/backup/index.php`,
   USERS: `${API_ROOT}/users/index.php`,

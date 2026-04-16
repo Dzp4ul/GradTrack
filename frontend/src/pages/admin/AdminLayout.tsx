@@ -10,7 +10,6 @@ import {
   Users,
   Menu,
   X,
-  Bell,
   LogOut,
   ChevronDown,
   DatabaseBackup,
@@ -19,6 +18,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import MessageBox from '../../components/MessageBox';
+import NotificationBell from '../../components/NotificationBell';
 
 type NavItem = {
   to: string;
@@ -202,11 +202,7 @@ export default function AdminLayout() {
             <div className="flex-1" />
 
             <div className="flex items-center gap-4">
-              {/* Notifications */}
-              <button className="relative p-2 rounded-lg hover:bg-gray-100 transition-colors">
-                <Bell className="w-5 h-5 text-gray-600" />
-                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full" />
-              </button>
+              <NotificationBell audience="admin" colorScheme="light" />
 
               {/* Profile dropdown */}
               <div className="relative" ref={profileMenuRef}>
