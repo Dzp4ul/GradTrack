@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
-  Plus, Edit2, Trash2, X, ClipboardList, ChevronDown, ChevronUp, ShieldCheck, BarChart3, FileText, Briefcase, Star, Users, Award, Info,
+  Plus, Edit2, Trash2, X, ClipboardList, ChevronDown, ChevronUp, ShieldCheck, BarChart3, Briefcase, Info,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import MessageBox from '../../components/MessageBox';
@@ -37,17 +37,6 @@ interface FormData {
   questions: Question[];
 }
 
-interface Template {
-  id: string;
-  name: string;
-  description: string;
-  category: string;
-  icon: string;
-  questions_count: number;
-  analytics_enabled: boolean;
-  questions?: Question[];
-}
-
 const emptyForm: FormData = {
   title: '', description: '', status: 'draft', questions: [],
 };
@@ -62,6 +51,20 @@ const statusStyle: Record<string, string> = {
   draft: 'bg-yellow-100 text-yellow-700',
 };
 
+const isProfessionalExamHeader = (question: Question) =>
+  question.question_text.toLowerCase().startsWith('professional examination(s) passed');
+
+const isHeaderQuestion = (question: Question) =>
+  question.question_type === 'header' || isProfessionalExamHeader(question);
+
+const getQuestionDisplayText = (question: Question) =>
+  isProfessionalExamHeader(question) && !question.question_text.toLowerCase().includes('if applicable')
+    ? `${question.question_text} (if applicable)`
+    : question.question_text;
+
+const getAnswerableQuestionCount = (questions?: Question[], fallback = 0) =>
+  questions ? questions.filter((question) => !isHeaderQuestion(question)).length : fallback;
+
 export default function Surveys() {
   const [surveys, setSurveys] = useState<Survey[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,7 +74,6 @@ export default function Surveys() {
   const [expandedQ, setExpandedQ] = useState<number | null>(null);
   const [expandedSurvey, setExpandedSurvey] = useState<number | null>(null);
   const [showTemplates, setShowTemplates] = useState(false);
-  const [templates, setTemplates] = useState<Template[]>([]);
   const navigate = useNavigate();
   const [msgBox, setMsgBox] = useState<{
     isOpen: boolean;
@@ -120,17 +122,7 @@ export default function Surveys() {
 
   useEffect(() => { 
     fetchSurveys();
-    fetchTemplates();
   }, []);
-
-  const fetchTemplates = () => {
-    fetch(`${API_BASE}/surveys/templates.php`)
-      .then((r) => r.json())
-      .then((res) => {
-        if (res.success) setTemplates(res.data);
-      })
-      .catch(() => {});
-  };
 
   const activeSurvey = surveys.find((survey) => survey.status === 'active');
   const createSurveyButtonClass = `flex items-center gap-2 text-white px-6 py-2.5 rounded-lg transition-colors font-semibold shadow-md hover:shadow-lg ${
@@ -151,35 +143,7 @@ export default function Surveys() {
     setShowTemplates(true);
   };
 
-  const createFromScratch = () => {
-    loadDefaultTemplate();
-    setShowTemplates(false);
-  };
-
-  const loadTemplate = (templateId: string) => {
-    fetch(`${API_BASE}/surveys/templates.php?id=${templateId}`)
-      .then((r) => r.json())
-      .then((res) => {
-        if (res.success) {
-          const template = res.data;
-          setFormData({
-            title: template.name,
-            description: template.description,
-            status: 'draft',
-            questions: template.questions.map((q: Question) => ({
-              ...q,
-              options: q.options
-            }))
-          });
-          setIsEditing(false);
-          setShowTemplates(false);
-          setShowModal(true);
-        }
-      })
-      .catch(() => setMsgBox({ isOpen: true, type: 'error', message: 'Failed to load template' }));
-  };
-
-  const loadDefaultTemplate = () => {
+  const loadGraduateTracerTemplate = () => {
     const defaultSurvey: FormData = {
       title: 'Graduate Tracer Study Survey',
       description: 'Comprehensive survey for tracking graduate employment and career outcomes',
@@ -195,15 +159,15 @@ export default function Surveys() {
         { question_text: 'Email Address', question_type: 'text', options: null, is_required: 1, sort_order: 7, section: 'Personal Information' },
         { question_text: 'Mobile Number', question_type: 'text', options: null, is_required: 1, sort_order: 8, section: 'Personal Information' },
         { question_text: 'Telephone or Contact Number', question_type: 'text', options: null, is_required: 0, sort_order: 9, section: 'Personal Information' },
-        { question_text: 'Civil Status', question_type: 'multiple_choice', options: ['Single', 'Married', 'Widowed', 'Separated', 'Divorced'], is_required: 1, sort_order: 10, section: 'Personal Information' },
-        { question_text: 'Sex', question_type: 'multiple_choice', options: ['Male', 'Female', 'Prefer not to say'], is_required: 1, sort_order: 11, section: 'Personal Information' },
+        { question_text: 'Civil Status', question_type: 'multiple_choice', options: ['Single', 'Married', 'Separated', 'Single Parent', 'Widowed'], is_required: 1, sort_order: 10, section: 'Personal Information' },
+        { question_text: 'Sex', question_type: 'multiple_choice', options: ['Male', 'Female'], is_required: 1, sort_order: 11, section: 'Personal Information' },
         { question_text: 'Birthday', question_type: 'date', options: null, is_required: 1, sort_order: 12, section: 'Personal Information' },
         
         // SECTION 2: EDUCATIONAL BACKGROUND
         { question_text: 'Degree Program & Specialization', question_type: 'multiple_choice', options: ['Bachelor of Secondary Education Major in General Science', 'Bachelor of Elementary Education', 'Bachelor of Science in Hospitality Management', 'Bachelor of Science in Computer Science', 'Associate in Computer Technology' ], is_required: 1, sort_order: 13, section: 'Educational Background' },
         { question_text: 'Year Graduated', question_type: 'multiple_choice', options: ['2021', '2022', '2023', '2024', '2025'], is_required: 1, sort_order: 14, section: 'Educational Background' },
         { question_text: 'Honors / Awards Received', question_type: 'checkbox', options: ['Cum Laude', 'Magna Cum Laude', 'Leadership Award', 'Best in Thesis', 'Dean\'s lister', 'Academic Excellence', 'Other' ], is_required: 0, sort_order: 15, section: 'Educational Background' },
-        { question_text: 'Professional Examination(s) Passed', question_type: 'text', options: null, is_required: 0, sort_order: 16, section: 'Educational Background' },
+        { question_text: 'Professional Examination(s) Passed (if applicable)', question_type: 'header', options: null, is_required: 0, sort_order: 16, section: 'Educational Background' },
         { question_text: 'Name of Examination', question_type: 'radio', options: ['Licensure Examination for Teachers', 'Civil Service Examination'], is_required: 0, sort_order: 17, section: 'Educational Background' },
         { question_text: 'Date Taken', question_type: 'date', options: null, is_required: 0, sort_order: 18, section: 'Educational Background' },
         { question_text: 'Rating', question_type: 'text', options: null, is_required: 0, sort_order: 19, section: 'Educational Background' },
@@ -243,6 +207,7 @@ export default function Surveys() {
     };
     setFormData(defaultSurvey);
     setIsEditing(false);
+    setShowTemplates(false);
     setShowModal(true);
     // Scroll modal to top after a brief delay
     setTimeout(() => {
@@ -289,11 +254,17 @@ export default function Surveys() {
             description: d.description || '',
             status: d.status,
             questions: (d.questions || []).map((q: any) => {
-              const parsedQuestion = {
+              const parsedQuestion: Question = {
                 ...q,
                 question_type: q.question_type || 'text',
                 options: typeof q.options === 'string' ? JSON.parse(q.options) : q.options,
               };
+              if (isProfessionalExamHeader(parsedQuestion)) {
+                parsedQuestion.question_text = getQuestionDisplayText(parsedQuestion);
+                parsedQuestion.question_type = 'header';
+                parsedQuestion.options = null;
+                parsedQuestion.is_required = 0;
+              }
               console.log('Parsed question:', parsedQuestion);
               return parsedQuestion;
             }),
@@ -421,7 +392,7 @@ export default function Surveys() {
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 text-center sm:p-12">
           <ClipboardList className="w-16 h-16 text-gray-300 mx-auto mb-4" />
           <p className="text-gray-600 text-lg font-medium">No surveys yet</p>
-          <p className="text-gray-500 text-sm mb-6">Create your first survey or load the default template</p>
+          <p className="text-gray-500 text-sm mb-6">Create your first survey using the Graduate Tracer Study template</p>
           <button onClick={openAdd} className={`${createSurveyButtonClass} mx-auto`}>
             <Plus className="w-5 h-5" /> Create Survey
           </button>
@@ -447,7 +418,7 @@ export default function Surveys() {
                     </div>
                     <p className="text-gray-600 mb-4">{s.description}</p>
                     <div className="flex flex-wrap items-center gap-3 text-sm text-gray-500 sm:gap-6">
-                      <span className="flex items-center gap-1"><ClipboardList className="w-4 h-4" /> {s.question_count} questions</span>
+                      <span className="flex items-center gap-1"><ClipboardList className="w-4 h-4" /> {getAnswerableQuestionCount(s.questions, s.question_count)} questions</span>
                       <span className="flex items-center gap-1"><ShieldCheck className="w-4 h-4" /> {s.response_count} responses</span>
                       <span>Created: {new Date(s.created_at).toLocaleDateString()}</span>
                     </div>
@@ -485,25 +456,29 @@ export default function Surveys() {
 
                     {expandedSurvey === s.id && (
                       <div className="mt-4 space-y-3 bg-blue-50 p-4 rounded-lg max-h-80 overflow-y-auto">
-                        {s.questions.map((q, idx) => (
-                          <div key={idx} className="bg-white rounded-lg p-3 border border-blue-100">
-                            <p className="text-sm font-semibold text-blue-900 mb-2">
-                              Q{idx + 1}: {q.question_text}
-                              {q.is_required ? <span className="text-red-500 ml-1">*</span> : null}
-                            </p>
-                            <p className="text-xs text-gray-500 capitalize mb-2">{q.question_type.replace('_', ' ')}</p>
-                            {q.options && Array.isArray(q.options) && q.options.length > 0 && (
-                              <div className="space-y-1 ml-2">
-                                {q.options.map((option, oi) => (
-                                  <div key={oi} className="text-xs text-gray-700 flex items-center gap-2">
-                                    <div className="w-3 h-3 rounded-full border border-blue-600 flex-shrink-0" />
-                                    {option}
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        ))}
+                        {s.questions.map((q, idx) => {
+                          const isHeader = isHeaderQuestion(q);
+
+                          return (
+                            <div key={idx} className="bg-white rounded-lg p-3 border border-blue-100">
+                              <p className={`text-sm font-semibold mb-2 ${isHeader ? 'text-gray-900' : 'text-blue-900'}`}>
+                                {isHeader ? `${idx + 1}. ` : `Q${idx + 1}: `}{getQuestionDisplayText(q)}
+                                {!isHeader && q.is_required ? <span className="text-red-500 ml-1">*</span> : null}
+                              </p>
+                              <p className="text-xs text-gray-500 capitalize mb-2">{isHeader ? 'Header' : q.question_type.replace('_', ' ')}</p>
+                              {!isHeader && q.options && Array.isArray(q.options) && q.options.length > 0 && (
+                                <div className="space-y-1 ml-2">
+                                  {q.options.map((option, oi) => (
+                                    <div key={oi} className="text-xs text-gray-700 flex items-center gap-2">
+                                      <div className="w-3 h-3 rounded-full border border-blue-600 flex-shrink-0" />
+                                      {option}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -522,7 +497,7 @@ export default function Surveys() {
             <div className="flex items-start justify-between gap-4 p-4 border-b sticky top-0 bg-white rounded-t-2xl z-10 sm:p-6">
               <div>
                 <h2 className="text-xl font-bold text-blue-900 sm:text-2xl">Choose Survey Template</h2>
-                <p className="text-sm text-gray-500 mt-1">Select a template or start from scratch</p>
+                <p className="text-sm text-gray-500 mt-1">Select the Graduate Tracer Study template</p>
               </div>
               <button onClick={() => setShowTemplates(false)} className="p-2 rounded-lg hover:bg-gray-100">
                 <X className="w-6 h-6" />
@@ -530,65 +505,36 @@ export default function Surveys() {
             </div>
 
             <div className="p-4 space-y-4 sm:p-6">
-              {/* Create from Scratch Option */}
-              <div
-                onClick={createFromScratch}
-                className="border-2 border-dashed border-blue-300 rounded-xl p-4 hover:border-blue-500 hover:bg-blue-50 transition-all cursor-pointer group sm:p-6"
+              <button
+                type="button"
+                onClick={loadGraduateTracerTemplate}
+                className="w-full text-left border-2 border-gray-200 rounded-xl p-5 hover:border-blue-500 hover:shadow-lg transition-all cursor-pointer group"
               >
-                <div className="flex items-center gap-4">
-                  <div className="p-4 bg-blue-100 rounded-xl group-hover:bg-blue-200 transition">
-                    <Plus className="w-8 h-8 text-blue-600" />
+                <div className="flex items-start gap-4">
+                  <div className="p-3 bg-gradient-to-br from-blue-100 to-blue-50 rounded-lg group-hover:from-blue-200 group-hover:to-blue-100 transition">
+                    <Briefcase className="w-6 h-6 text-blue-600" />
                   </div>
-                  <div>
-                    <h3 className="text-lg font-bold text-blue-900">Create from Scratch</h3>
-                    <p className="text-sm text-gray-600">Build a custom survey with your own questions</p>
+                  <div className="flex-1">
+                    <div className="flex items-start justify-between mb-2">
+                      <h3 className="text-base font-bold text-blue-900 group-hover:text-blue-700">
+                        Graduate Tracer Study Survey
+                      </h3>
+                      <span title="Analytics Enabled">
+                        <BarChart3 className="w-4 h-4 text-green-600" />
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-600 mb-3">
+                      Comprehensive survey for tracking graduate employment and career outcomes
+                    </p>
+                    <div className="flex items-center gap-3 text-xs text-gray-500">
+                      <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full font-medium">
+                        Employment
+                      </span>
+                      <span>44 questions</span>
+                    </div>
                   </div>
                 </div>
-              </div>
-
-              {/* Template Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {templates.map((template) => {
-                  const IconComponent = 
-                    template.icon === 'briefcase' ? Briefcase :
-                    template.icon === 'star' ? Star :
-                    template.icon === 'users' ? Users :
-                    template.icon === 'award' ? Award : FileText;
-                  
-                  return (
-                    <div
-                      key={template.id}
-                      onClick={() => loadTemplate(template.id)}
-                      className="border-2 border-gray-200 rounded-xl p-5 hover:border-blue-500 hover:shadow-lg transition-all cursor-pointer group"
-                    >
-                      <div className="flex items-start gap-4">
-                        <div className="p-3 bg-gradient-to-br from-blue-100 to-blue-50 rounded-lg group-hover:from-blue-200 group-hover:to-blue-100 transition">
-                          <IconComponent className="w-6 h-6 text-blue-600" />
-                        </div>
-                        <div className="flex-1">
-                          <div className="flex items-start justify-between mb-2">
-                            <h3 className="text-base font-bold text-blue-900 group-hover:text-blue-700">
-                              {template.name}
-                            </h3>
-                            {template.analytics_enabled && (
-                              <span title="Analytics Enabled">
-                                <BarChart3 className="w-4 h-4 text-green-600" />
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-sm text-gray-600 mb-3">{template.description}</p>
-                          <div className="flex items-center gap-3 text-xs text-gray-500">
-                            <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded-full font-medium">
-                              {template.category}
-                            </span>
-                            <span>{template.questions_count} questions</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+              </button>
             </div>
           </div>
         </div>
@@ -648,7 +594,7 @@ export default function Surveys() {
                 {/* Questions */}
                 <div className="border-t pt-6">
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-bold text-blue-900">Questions ({formData.questions.length})</h3>
+                    <h3 className="text-lg font-bold text-blue-900">Questions ({getAnswerableQuestionCount(formData.questions)})</h3>
                     <div className="flex gap-2">
                       <button type="button" onClick={addQuestion} className="flex items-center gap-2 text-sm bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded-lg font-semibold transition">
                         <Plus className="w-4 h-4" /> Add Question
@@ -666,6 +612,7 @@ export default function Surveys() {
                     {formData.questions.map((q, i) => {
                       const prevSection = i > 0 ? formData.questions[i - 1].section : null;
                       const showSectionBadge = q.section && q.section !== prevSection;
+                      const isHeader = isHeaderQuestion(q);
                       
                       return (
                         <div key={i}>
@@ -684,7 +631,7 @@ export default function Surveys() {
                             >
                               <div className="flex-1">
                                 <span className="text-sm font-semibold text-blue-900">
-                                  Q{i + 1}: {q.question_text || '(untitled)'}
+                                  {isHeader ? `Header ${i + 1}: ` : `Q${i + 1}: `}{q.question_text ? getQuestionDisplayText(q) : '(untitled)'}
                                 </span>
                                 {q.section && (
                                   <span className="ml-2 text-xs bg-blue-200 text-blue-800 px-2 py-1 rounded-full">
@@ -727,12 +674,12 @@ export default function Surveys() {
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-sm font-semibold text-gray-700 mb-2">Question Text</label>
+                                  <label className="block text-sm font-semibold text-gray-700 mb-2">{isHeader ? 'Header Text' : 'Question Text'}</label>
                                   <input
                                     type="text"
                                     value={q.question_text}
                                     onChange={(e) => updateQuestion(i, 'question_text', e.target.value)}
-                                    placeholder="Enter your question"
+                                    placeholder={isHeader ? 'Enter your header' : 'Enter your question'}
                                     className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
                                   />
                                 </div>
@@ -744,6 +691,11 @@ export default function Surveys() {
                                       onChange={(e) => {
                                         const newType = e.target.value;
                                         updateQuestion(i, 'question_type', newType);
+                                        if (newType === 'header') {
+                                          updateQuestion(i, 'options', null);
+                                          updateQuestion(i, 'is_required', 0);
+                                          return;
+                                        }
                                         // Clear options if switching to text or date type
                                         if (newType === 'text' || newType === 'date') {
                                           updateQuestion(i, 'options', null);
@@ -754,6 +706,7 @@ export default function Surveys() {
                                       }}
                                       className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition bg-white"
                                     >
+                                      <option value="header">Header</option>
                                       <option value="text">Text</option>
                                       <option value="date">Date</option>
                                       <option value="multiple_choice">Multiple Choice</option>
@@ -764,17 +717,23 @@ export default function Surveys() {
                                   </div>
                                   <div>
                                     <label className="block text-sm font-semibold text-gray-700 mb-2">Required</label>
-                                    <select
-                                      value={q.is_required}
-                                      onChange={(e) => updateQuestion(i, 'is_required', parseInt(e.target.value))}
-                                      className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition bg-white"
-                                    >
-                                      <option value={1}>Yes</option>
-                                      <option value={0}>No</option>
-                                    </select>
+                                    {isHeader ? (
+                                      <div className="border-2 border-gray-200 rounded-lg px-3 py-2 text-sm bg-white text-gray-500">
+                                        No, display only
+                                      </div>
+                                    ) : (
+                                      <select
+                                        value={q.is_required}
+                                        onChange={(e) => updateQuestion(i, 'is_required', parseInt(e.target.value))}
+                                        className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition bg-white"
+                                      >
+                                        <option value={1}>Yes</option>
+                                        <option value={0}>No</option>
+                                      </select>
+                                    )}
                                   </div>
                                 </div>
-                                {(q.question_type === 'multiple_choice' || q.question_type === 'radio' || q.question_type === 'checkbox') && (
+                                {!isHeader && (q.question_type === 'multiple_choice' || q.question_type === 'radio' || q.question_type === 'checkbox') && (
                                   <div>
                                     <label className="block text-sm font-semibold text-gray-700 mb-2">Options (one per line)</label>
                                     <textarea

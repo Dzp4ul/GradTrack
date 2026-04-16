@@ -84,8 +84,92 @@ const hasAnswer = (value: unknown) => {
   return String(value).trim() !== '';
 };
 
+const isProfessionalExamHeader = (question: Question) =>
+  normalizeComparable(question.question_text).startsWith('professional examination s passed');
+
+const isHeaderQuestion = (question: Question) =>
+  question.question_type === 'header' || isProfessionalExamHeader(question);
+
+const splitHeaderText = (text: string) => {
+  const match = text.match(/^(.*?)(\s*\([^)]*\))$/);
+  const isProfessionalHeader = normalizeComparable(text).startsWith('professional examination s passed');
+
+  return {
+    title: (match?.[1] || text).trim(),
+    suffix: (match?.[2] || (isProfessionalHeader ? '(if applicable)' : '')).trim(),
+  };
+};
+
 const isChoiceQuestion = (question: Question) =>
   question.question_type === 'multiple_choice' || question.question_type === 'radio';
+
+const isOtherOption = (option: string) => {
+  const normalized = normalizeComparable(option);
+  return normalized === 'other' || normalized === 'others';
+};
+
+const isOtherStoredValue = (value: string, option: string) => {
+  const trimmedValue = value.trim();
+  const normalizedValue = normalizeComparable(trimmedValue);
+  const normalizedOption = normalizeComparable(option);
+
+  return (
+    normalizedValue === normalizedOption ||
+    trimmedValue.toLowerCase().startsWith(`${option.toLowerCase()}:`) ||
+    (isOtherOption(option) && /^(other|others)\s*:/.test(trimmedValue.toLowerCase()))
+  );
+};
+
+const getOtherOption = (question: Question) =>
+  question.options?.find(isOtherOption) || null;
+
+const buildOtherAnswer = (option: string, text: string) => {
+  const trimmedText = text.trim();
+  return trimmedText ? `${option}: ${trimmedText}` : option;
+};
+
+const getOtherTextFromValue = (value: string, option: string) => {
+  const trimmedValue = value.trim();
+  const lowerValue = trimmedValue.toLowerCase();
+  const optionPrefix = `${option.toLowerCase()}:`;
+
+  if (lowerValue.startsWith(optionPrefix)) {
+    return trimmedValue.slice(optionPrefix.length).trimStart();
+  }
+
+  if (isOtherOption(option)) {
+    const fallbackMatch = trimmedValue.match(/^(other|others)\s*:\s*(.*)$/i);
+    return fallbackMatch?.[2] || '';
+  }
+
+  return '';
+};
+
+const getOtherTextFromAnswer = (answer: SurveyAnswer, option: string) => {
+  if (Array.isArray(answer)) {
+    const otherValue = answer.find((item) => isOtherStoredValue(String(item), option));
+    return otherValue ? getOtherTextFromValue(String(otherValue), option) : '';
+  }
+
+  if (typeof answer === 'string' && isOtherStoredValue(answer, option)) {
+    return getOtherTextFromValue(answer, option);
+  }
+
+  return '';
+};
+
+const hasBlankOtherSelection = (question: Question, answer: SurveyAnswer) => {
+  const otherOption = getOtherOption(question);
+  if (!otherOption) {
+    return false;
+  }
+
+  if (Array.isArray(answer)) {
+    return answer.some((item) => isOtherStoredValue(String(item), otherOption)) && !getOtherTextFromAnswer(answer, otherOption).trim();
+  }
+
+  return typeof answer === 'string' && isOtherStoredValue(answer, otherOption) && !getOtherTextFromAnswer(answer, otherOption).trim();
+};
 
 const getProvinceRegion = (provinceName: string) => {
   const normalizedProvince = normalizeComparable(provinceName);
@@ -286,7 +370,7 @@ const applyGraduateAutofill = (
   const filledQuestionIds: number[] = [];
 
   questions.forEach((question) => {
-    if (!question.id || hasAnswer(nextResponses[question.id])) {
+    if (isHeaderQuestion(question) || !question.id || hasAnswer(nextResponses[question.id])) {
       return;
     }
 
@@ -556,11 +640,32 @@ function Survey() {
       return next;
     });
     setResponses(prev => {
-      const current = Array.isArray(prev[questionId]) ? prev[questionId] : [];
-      const updated = current.includes(option)
-        ? current.filter((v: string) => v !== option)
+      const current = Array.isArray(prev[questionId]) ? prev[questionId].map(String) : [];
+      const isSelected = isOtherOption(option)
+        ? current.some((value) => isOtherStoredValue(value, option))
+        : current.includes(option);
+      const updated = isSelected
+        ? current.filter((value) => (isOtherOption(option) ? !isOtherStoredValue(value, option) : value !== option))
         : [...current, option];
       return { ...prev, [questionId]: updated };
+    });
+  };
+
+  const handleSingleOtherTextChange = (questionId: number, option: string, text: string) => {
+    handleResponseChange(questionId, buildOtherAnswer(option, text));
+  };
+
+  const handleCheckboxOtherTextChange = (questionId: number, option: string, text: string) => {
+    setAutoFilledQuestionIds(prev => {
+      if (!prev.has(questionId)) return prev;
+      const next = new Set(prev);
+      next.delete(questionId);
+      return next;
+    });
+    setResponses(prev => {
+      const current = Array.isArray(prev[questionId]) ? prev[questionId].map(String) : [];
+      const withoutOther = current.filter((value) => !isOtherStoredValue(value, option));
+      return { ...prev, [questionId]: [...withoutOther, buildOtherAnswer(option, text)] };
     });
   };
 
@@ -586,7 +691,7 @@ function Survey() {
 
     Object.entries(responses).forEach(([questionId, answer]) => {
       const q = questionMap.get(Number(questionId));
-      if (!q || answer === null || answer === undefined) {
+      if (!q || isHeaderQuestion(q) || answer === null || answer === undefined) {
         return;
       }
 
@@ -786,7 +891,7 @@ function Survey() {
   // Validate current section before moving to next
   const validateCurrentSection = () => {
     const requiredQuestions = currentSectionQuestions.filter(
-      q => Number(q.is_required) === 1
+      q => !isHeaderQuestion(q) && Number(q.is_required) === 1
     );
     
     for (const question of requiredQuestions) {
@@ -799,6 +904,20 @@ function Survey() {
         setMsgBox({ isOpen: true, type: 'warning', message: `Please answer the required question: "${question.question_text}"`, title: 'Required Field' });
         return false;
       }
+    }
+
+    const blankOtherQuestion = currentSectionQuestions.find(
+      q => !isHeaderQuestion(q) && hasBlankOtherSelection(q, responses[q.id!])
+    );
+
+    if (blankOtherQuestion) {
+      setMsgBox({
+        isOpen: true,
+        type: 'warning',
+        message: `Please specify your answer for "Other" in: "${blankOtherQuestion.question_text}"`,
+        title: 'Other Answer Required'
+      });
+      return false;
     }
     
     return true;
@@ -982,6 +1101,9 @@ function Survey() {
     const value = responses[question.id!] || '';
 
     switch (question.question_type) {
+      case 'header':
+        return null;
+
       case 'text':
         return (
           <input
@@ -1005,55 +1127,123 @@ function Survey() {
         );
 
       case 'multiple_choice':
-        return (
-          <select
-            value={value}
-            onChange={(e) => handleResponseChange(question.id!, e.target.value)}
-            className={getQuestionFieldClass(question)}
-            required={question.is_required === 1}
-          >
-            <option value="">Select an option</option>
-            {question.options?.map((option, idx) => (
-              <option key={idx} value={option}>{option}</option>
-            ))}
-          </select>
-        );
+      {
+        const otherOption = getOtherOption(question);
+        const selectValue = otherOption && typeof value === 'string' && isOtherStoredValue(value, otherOption)
+          ? otherOption
+          : (typeof value === 'string' || typeof value === 'number' ? value : '');
+        const showOtherInput = otherOption && typeof value === 'string' && isOtherStoredValue(value, otherOption);
 
-      case 'radio':
         return (
           <div className="space-y-2">
-            {question.options?.map((option, idx) => (
-              <label key={idx} className="flex items-center space-x-3 text-sm text-gray-700 cursor-pointer hover:bg-blue-100 p-2 rounded-lg transition">
-                <input
-                  type="radio"
-                  name={`question-${question.id}`}
-                  value={option}
-                  checked={value === option}
-                  onChange={(e) => handleResponseChange(question.id!, e.target.value)}
-                  className="w-4 h-4 text-blue-600 focus:ring-blue-500"
-                  required={question.is_required === 1}
-                />
-                <span>{option}</span>
-              </label>
-            ))}
+            <select
+              value={selectValue}
+              onChange={(e) => handleResponseChange(question.id!, e.target.value)}
+              className={getQuestionFieldClass(question)}
+              required={Number(question.is_required) === 1}
+            >
+              <option value="">Select an option</option>
+              {question.options?.map((option, idx) => (
+                <option key={idx} value={option}>{option}</option>
+              ))}
+            </select>
+            {showOtherInput && (
+              <input
+                type="text"
+                value={getOtherTextFromAnswer(value, otherOption)}
+                onChange={(e) => handleSingleOtherTextChange(question.id!, otherOption, e.target.value)}
+                className={getQuestionFieldClass(question)}
+                placeholder="Please specify"
+                aria-label={`Specify other answer for ${question.question_text}`}
+              />
+            )}
           </div>
         );
+      }
 
-      case 'checkbox': {
-        const selectedValues = Array.isArray(value) ? value : [];
+      case 'radio':
+      {
+        const otherOption = getOtherOption(question);
+
         return (
           <div className="space-y-2">
-            {question.options?.map((option, idx) => (
-              <label key={idx} className="flex items-center space-x-2 text-sm text-gray-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={selectedValues.includes(option)}
-                  onChange={() => handleCheckboxChange(question.id!, option)}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <span>{option}</span>
-              </label>
-            ))}
+            {question.options?.map((option, idx) => {
+              const isOther = isOtherOption(option);
+              const checked = isOther
+                ? typeof value === 'string' && isOtherStoredValue(value, option)
+                : value === option;
+
+              return (
+                <div key={idx}>
+                  <label className="flex items-center space-x-3 text-sm text-gray-700 cursor-pointer hover:bg-blue-100 p-2 rounded-lg transition">
+                    <input
+                      type="radio"
+                      name={`question-${question.id}`}
+                      value={option}
+                      checked={checked}
+                      onChange={(e) => handleResponseChange(question.id!, e.target.value)}
+                      className="w-4 h-4 text-blue-600 focus:ring-blue-500"
+                      required={Number(question.is_required) === 1}
+                    />
+                    <span>{option}</span>
+                  </label>
+                  {isOther && checked && otherOption && (
+                    <div className="ml-7 mt-2">
+                      <input
+                        type="text"
+                        value={getOtherTextFromAnswer(value, otherOption)}
+                        onChange={(e) => handleSingleOtherTextChange(question.id!, otherOption, e.target.value)}
+                        className={getQuestionFieldClass(question)}
+                        placeholder="Please specify"
+                        aria-label={`Specify other answer for ${question.question_text}`}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        );
+      }
+
+      case 'checkbox': {
+        const selectedValues = Array.isArray(value) ? value.map(String) : [];
+        const otherOption = getOtherOption(question);
+
+        return (
+          <div className="space-y-2">
+            {question.options?.map((option, idx) => {
+              const isOther = isOtherOption(option);
+              const checked = isOther
+                ? selectedValues.some((selectedValue) => isOtherStoredValue(selectedValue, option))
+                : selectedValues.includes(option);
+
+              return (
+                <div key={idx}>
+                  <label className="flex items-center space-x-2 text-sm text-gray-700 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => handleCheckboxChange(question.id!, option)}
+                      className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span>{option}</span>
+                  </label>
+                  {isOther && checked && otherOption && (
+                    <div className="ml-6 mt-2">
+                      <input
+                        type="text"
+                        value={getOtherTextFromAnswer(value, otherOption)}
+                        onChange={(e) => handleCheckboxOtherTextChange(question.id!, otherOption, e.target.value)}
+                        className={getQuestionFieldClass(question)}
+                        placeholder="Please specify"
+                        aria-label={`Specify other answer for ${question.question_text}`}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         );
       }
@@ -1219,6 +1409,21 @@ function Survey() {
                   const question = currentSectionQuestions[i];
                   const globalIdx = activeSurvey.questions.findIndex(q => q.id === question.id);
                   const questionText = question.question_text.toLowerCase();
+
+                  if (isHeaderQuestion(question)) {
+                    const { title, suffix } = splitHeaderText(question.question_text);
+
+                    renderedQuestions.push(
+                      <div key={`header-${question.id || i}`} className="bg-white rounded-lg p-5 border border-gray-200">
+                        <p className="text-base text-gray-900">
+                          <span className="font-bold">{globalIdx + 1}. {title}</span>
+                          {suffix && <span className="italic"> {suffix}</span>}
+                        </p>
+                      </div>
+                    );
+                    i++;
+                    continue;
+                  }
                   
                   // Check if this is Last Name and next two are First Name and Middle Name
                   if (questionText.includes('last name') &&

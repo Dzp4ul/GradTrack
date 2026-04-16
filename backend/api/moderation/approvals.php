@@ -25,7 +25,7 @@ function gradtrack_moderation_reviewer(): array
     $canReviewAll = in_array($role, gradtrack_engagement_admin_roles(), true);
 
     if (!$canReviewAll && !isset($deanScopes[$role])) {
-        gradtrack_moderation_json_error(403, 'Only admin and dean accounts can review approvals');
+        gradtrack_moderation_json_error(403, 'Only dean accounts can review approvals');
     }
 
     return [

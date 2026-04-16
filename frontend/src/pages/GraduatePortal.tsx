@@ -438,7 +438,7 @@ export default function GraduatePortal() {
   const approvalStatusMessage = (status?: ApprovalStatus | null, feature = 'item') => {
     if (status === 'approved') return `This ${feature} is approved and visible when active.`;
     if (status === 'declined') return `This ${feature} was declined. Update it and submit again for review.`;
-    if (status === 'pending') return `This ${feature} is pending dean or admin approval and is not visible yet.`;
+    if (status === 'pending') return `This ${feature} is pending dean approval and is not visible yet.`;
     return `This ${feature} has not been submitted for approval yet.`;
   };
 
@@ -1033,7 +1033,7 @@ export default function GraduatePortal() {
       setMyMentorApprovalStatus('pending');
       setMyMentorApprovalNotes('');
       setShowMentorProfileForm(true);
-      notify('success', 'Mentor profile submitted for dean or admin approval. It will appear in Find Mentors after approval.', 'Mentorship');
+      notify('success', 'Mentor profile submitted for dean approval. It will appear in Find Mentors after approval.', 'Mentorship');
       await fetchAll();
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to save mentor profile');
@@ -1086,13 +1086,13 @@ export default function GraduatePortal() {
           method: 'POST',
           body: formData,
         });
-        notify('success', 'Job post submitted for dean or admin approval.');
+        notify('success', 'Job post submitted for dean approval.');
       } else {
         await authenticatedFetch(API_ENDPOINTS.JOBS.POSTS, {
           method: 'POST',
           body: formData,
         });
-        notify('success', 'Job post submitted for dean or admin approval.');
+        notify('success', 'Job post submitted for dean approval.');
       }
 
       closeJobPostForm();

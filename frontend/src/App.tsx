@@ -30,7 +30,6 @@ import { GraduateProtectedRoute } from './lib/GraduateProtectedRoute';
 const SUPER_ADMIN_ROLES = ['super_admin'];
 const ADMIN_ROLES = ['admin'];
 const DEAN_ROLES = ['dean_cs', 'dean_coed', 'dean_hm'];
-const APPROVAL_ROLES = [...ADMIN_ROLES, ...DEAN_ROLES];
 
 function AdminHome() {
   const { user } = useAuth();
@@ -118,7 +117,7 @@ function App() {
             <Route
               path="mentor-approvals"
               element={
-                <ProtectedRoute allowedRoles={APPROVAL_ROLES}>
+                <ProtectedRoute allowedRoles={DEAN_ROLES}>
                   <EngagementApprovals mode="mentor" />
                 </ProtectedRoute>
               }
@@ -126,7 +125,7 @@ function App() {
             <Route
               path="job-approvals"
               element={
-                <ProtectedRoute allowedRoles={APPROVAL_ROLES}>
+                <ProtectedRoute allowedRoles={DEAN_ROLES}>
                   <EngagementApprovals mode="job" />
                 </ProtectedRoute>
               }

@@ -70,6 +70,10 @@ try {
 
     // Analyze each question
     foreach ($questions as $question) {
+        if (isDisplayOnlyQuestion($question)) {
+            continue;
+        }
+
         $questionId = (string)$question['id'];
         $questionAnalytics = [
             'question_id' => $question['id'],
@@ -137,6 +141,13 @@ try {
 } catch (Exception $e) {
     http_response_code(500);
     echo json_encode(["success" => false, "error" => $e->getMessage()]);
+}
+
+function isDisplayOnlyQuestion($question) {
+    $questionType = strtolower((string)($question['question_type'] ?? ''));
+    $questionText = strtolower((string)($question['question_text'] ?? ''));
+
+    return $questionType === 'header' || strpos($questionText, 'professional examination(s) passed') === 0;
 }
 
 function calculateResponseRate($db, $surveyId) {

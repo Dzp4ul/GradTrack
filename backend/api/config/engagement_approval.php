@@ -14,7 +14,7 @@ if (!function_exists('gradtrack_engagement_dean_program_scopes')) {
 if (!function_exists('gradtrack_engagement_admin_roles')) {
     function gradtrack_engagement_admin_roles(): array
     {
-        return ['admin', 'super_admin'];
+        return [];
     }
 }
 

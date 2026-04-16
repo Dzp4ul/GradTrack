@@ -36,7 +36,7 @@ try {
             } else {
                 $stmt = $db->query("
                     SELECT s.*, 
-                        (SELECT COUNT(*) FROM survey_questions WHERE survey_id = s.id) as question_count,
+                        (SELECT COUNT(*) FROM survey_questions WHERE survey_id = s.id AND question_type <> 'header' AND LOWER(question_text) NOT LIKE 'professional examination(s) passed%') as question_count,
                         (SELECT COUNT(*) FROM survey_responses WHERE survey_id = s.id) as response_count
                     FROM surveys s
                     ORDER BY s.created_at DESC

@@ -30,8 +30,6 @@ type NavItem = {
 const adminNavItems: NavItem[] = [
   { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true },
   { to: '/admin/graduates', icon: GraduationCap, label: 'Graduates' },
-  { to: '/admin/mentor-approvals', icon: Users, label: 'Mentor Approval' },
-  { to: '/admin/job-approvals', icon: Briefcase, label: 'Job Approval' },
   { to: '/admin/surveys', icon: ClipboardList, label: 'Survey Management' },
   { to: '/admin/reports', icon: BarChart3, label: 'Reports & Analytics' },
 ];

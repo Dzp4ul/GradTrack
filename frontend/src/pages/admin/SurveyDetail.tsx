@@ -28,6 +28,17 @@ interface Survey {
   questions?: Question[];
 }
 
+const isProfessionalExamHeader = (question: Question) =>
+  question.question_text.toLowerCase().startsWith('professional examination(s) passed');
+
+const isHeaderQuestion = (question: Question) =>
+  question.question_type === 'header' || isProfessionalExamHeader(question);
+
+const getQuestionDisplayText = (question: Question) =>
+  isProfessionalExamHeader(question) && !question.question_text.toLowerCase().includes('if applicable')
+    ? `${question.question_text} (if applicable)`
+    : question.question_text;
+
 export default function SurveyDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -167,6 +178,7 @@ export default function SurveyDetail() {
           {survey.questions?.map((q, idx) => {
             const prevSection = idx > 0 ? survey.questions![idx - 1].section : null;
             const showSectionHeader = q.section && q.section !== prevSection;
+            const isHeader = isHeaderQuestion(q);
 
             return (
               <div key={idx}>
@@ -178,14 +190,14 @@ export default function SurveyDetail() {
                 <div className="bg-white rounded-lg p-5 border border-gray-200">
                   <div className="mb-3">
                     <span className="inline-block bg-gray-100 text-gray-600 text-xs px-2 py-1 rounded mb-2 uppercase">
-                      {q.question_type.replace('_', ' ')}
+                      {isHeader ? 'Header' : q.question_type.replace('_', ' ')}
                     </span>
                     <p className="text-base font-semibold text-gray-900">
-                      {idx + 1}. {q.question_text}
-                      {q.is_required ? <span className="text-red-500 ml-1">*</span> : null}
+                      {idx + 1}. {getQuestionDisplayText(q)}
+                      {!isHeader && q.is_required ? <span className="text-red-500 ml-1">*</span> : null}
                     </p>
                   </div>
-                  {q.options && Array.isArray(q.options) && q.options.length > 0 && (
+                  {!isHeader && q.options && Array.isArray(q.options) && q.options.length > 0 && (
                     <div className="space-y-2 ml-4">
                       {q.options.map((option, oi) => (
                         <div key={oi} className="flex items-center gap-3 text-gray-700">
@@ -199,7 +211,7 @@ export default function SurveyDetail() {
                       ))}
                     </div>
                   )}
-                  {q.question_type === 'text' && (
+                  {!isHeader && q.question_type === 'text' && (
                     <div className="ml-4">
                       <input
                         type="text"
@@ -209,7 +221,7 @@ export default function SurveyDetail() {
                       />
                     </div>
                   )}
-                  {q.question_type === 'date' && (
+                  {!isHeader && q.question_type === 'date' && (
                     <div className="ml-4">
                       <input
                         type="date"
