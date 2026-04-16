@@ -219,21 +219,21 @@ export default function UserManagement() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[#1b2a4a]">User Management</h1>
           <p className="text-sm text-gray-500">Manage Admin, Super Admin, Dean, and Registrar accounts</p>
         </div>
         <button
           onClick={openAddModal}
-          className="flex items-center gap-2 bg-[#1b2a4a] text-white px-4 py-2.5 rounded-lg hover:bg-[#263c66] transition-colors text-sm font-medium"
+          className="flex w-full items-center justify-center gap-2 bg-[#1b2a4a] text-white px-4 py-2.5 rounded-lg hover:bg-[#263c66] transition-colors text-sm font-medium sm:w-auto"
         >
           <Plus className="w-4 h-4" /> Add User
         </button>
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border p-4 flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-[240px]">
+        <div className="relative w-full min-w-0 flex-1 sm:min-w-[240px]">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
@@ -247,7 +247,7 @@ export default function UserManagement() {
         <select
           value={roleFilter}
           onChange={(e) => setRoleFilter(e.target.value)}
-          className="border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 sm:w-auto"
         >
           <option value="">All Roles</option>
           {roleOptions.map((option) => (
@@ -258,7 +258,7 @@ export default function UserManagement() {
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 sm:w-auto"
         >
           <option value="">All Status</option>
           <option value="1">Active</option>
@@ -267,8 +267,63 @@ export default function UserManagement() {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+        <div className="divide-y md:hidden">
+          {loading ? (
+            <div className="py-10 text-center text-gray-400">Loading...</div>
+          ) : users.length === 0 ? (
+            <div className="py-10 text-center text-gray-400">No users found</div>
+          ) : (
+            users.map((account) => {
+              const isSelfSuperAdmin = user?.id === account.id && user?.role === 'super_admin';
+              const canDeactivate = !(isSelfSuperAdmin && account.is_active === 1);
+
+              return (
+                <div key={account.id} className="p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-[#1b2a4a]">{account.full_name || '-'}</p>
+                      <p className="mt-1 truncate text-sm text-gray-600">{account.email}</p>
+                      <p className="mt-1 font-mono text-xs text-gray-500">{account.username}</p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        onClick={() => openEditModal(account)}
+                        className="p-2 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors"
+                        title="Edit User"
+                      >
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => handleToggleActive(account)}
+                        disabled={account.is_active === 1 && !canDeactivate}
+                        className={`p-2 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                          account.is_active === 1
+                            ? 'hover:bg-red-50 text-red-600'
+                            : 'hover:bg-green-50 text-green-600'
+                        }`}
+                        title={account.is_active === 1 ? 'Deactivate User' : 'Activate User'}
+                      >
+                        {account.is_active === 1 ? <UserX className="w-4 h-4" /> : <UserCheck className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <span className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded font-medium">
+                      {roleLabels[account.role] || account.role}
+                    </span>
+                    <span className={`text-xs px-2 py-1 rounded font-medium ${account.is_active === 1 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                      {account.is_active === 1 ? 'Active' : 'Inactive'}
+                    </span>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <div className="hidden overflow-x-auto md:block">
+          <table className="w-full min-w-[760px] text-sm">
             <thead className="bg-gray-50 border-b">
               <tr>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Name</th>
@@ -337,8 +392,8 @@ export default function UserManagement() {
       </div>
 
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto m-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-5 border-b">
               <h2 className="text-lg font-bold text-[#1b2a4a]">
                 {isEditing ? 'Edit User Account' : 'Add User Account'}
@@ -348,7 +403,7 @@ export default function UserManagement() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-5 space-y-4">
+            <form onSubmit={handleSubmit} className="p-4 space-y-4 sm:p-5">
               <Input label="Full Name" value={formData.full_name} onChange={(value) => setFormData({ ...formData, full_name: value })} />
               <Input label="Username" value={formData.username} onChange={(value) => setFormData({ ...formData, username: value })} required />
               <Input label="Email" value={formData.email} onChange={(value) => setFormData({ ...formData, email: value })} type="email" required />
@@ -386,7 +441,7 @@ export default function UserManagement() {
                 </select>
               </div>
 
-              <div className="flex justify-end gap-3 pt-2">
+              <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}

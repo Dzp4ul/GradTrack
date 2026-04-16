@@ -59,12 +59,12 @@ export default function GraduateSignIn() {
 
   return (
     <div
-      className="min-h-screen bg-cover bg-center bg-fixed relative flex items-center justify-center p-6"
+      className="min-h-screen bg-cover bg-center bg-fixed relative flex items-center justify-center p-4 sm:p-6"
       style={{ backgroundImage: 'url(/520382375_1065446909052636_3412465913398569974_n.jpg)' }}
     >
       <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80"></div>
 
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 border border-blue-100 relative z-10">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-5 border border-blue-100 relative z-10 sm:p-8">
         <div className="flex justify-center mb-5">
           <img src="/GRADTRACK_LOGO1.png" alt="GradTrack Logo" className="h-20 object-contain" />
         </div>

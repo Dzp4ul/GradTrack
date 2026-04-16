@@ -395,9 +395,9 @@ export default function Surveys() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-blue-900">Survey Management</h1>
+          <h1 className="text-2xl font-bold text-blue-900 sm:text-3xl">Survey Management</h1>
           <p className="text-sm text-gray-500 mt-1">{surveys.length} surveys created</p>
           {activeSurvey && (
             <p className="text-xs text-amber-700 mt-1">
@@ -405,8 +405,8 @@ export default function Surveys() {
             </p>
           )}
         </div>
-        <div className="flex gap-3">
-          <button onClick={openAdd} className={createSurveyButtonClass} title={activeSurvey ? 'Inactive the active survey first' : 'Create Survey'}>
+        <div className="flex w-full gap-3 sm:w-auto">
+          <button onClick={openAdd} className={`${createSurveyButtonClass} w-full justify-center sm:w-auto`} title={activeSurvey ? 'Inactive the active survey first' : 'Create Survey'}>
             <Plus className="w-5 h-5" /> Create Survey
           </button>
         </div>
@@ -418,7 +418,7 @@ export default function Surveys() {
           <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-900" />
         </div>
       ) : surveys.length === 0 ? (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-12 text-center">
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 text-center sm:p-12">
           <ClipboardList className="w-16 h-16 text-gray-300 mx-auto mb-4" />
           <p className="text-gray-600 text-lg font-medium">No surveys yet</p>
           <p className="text-gray-500 text-sm mb-6">Create your first survey or load the default template</p>
@@ -429,30 +429,30 @@ export default function Surveys() {
       ) : (
         <>
           <div className="flex justify-end mb-4">
-            <button onClick={clearAllSurveys} className="flex items-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors font-semibold text-sm">
+            <button onClick={clearAllSurveys} className="flex w-full items-center justify-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors font-semibold text-sm sm:w-auto">
               <Trash2 className="w-4 h-4" /> Clear All Surveys
             </button>
           </div>
           <div className="grid gap-4">
           {surveys.map((s) => (
             <div key={s.id} className="bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow hover:border-yellow-200 overflow-hidden">
-              <div className="p-6">
-                <div className="flex items-start justify-between mb-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <h3 className="text-xl font-bold text-blue-900">{s.title}</h3>
+              <div className="p-4 sm:p-6">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:mb-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-3 mb-2">
+                      <h3 className="text-lg font-bold text-blue-900 sm:text-xl">{s.title}</h3>
                       <span className={`text-xs font-semibold px-3 py-1 rounded-full capitalize ${statusStyle[s.status] || 'bg-gray-100'}`}>
                         {s.status}
                       </span>
                     </div>
                     <p className="text-gray-600 mb-4">{s.description}</p>
-                    <div className="flex items-center gap-6 text-sm text-gray-500">
+                    <div className="flex flex-wrap items-center gap-3 text-sm text-gray-500 sm:gap-6">
                       <span className="flex items-center gap-1"><ClipboardList className="w-4 h-4" /> {s.question_count} questions</span>
                       <span className="flex items-center gap-1"><ShieldCheck className="w-4 h-4" /> {s.response_count} responses</span>
                       <span>Created: {new Date(s.created_at).toLocaleDateString()}</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 ml-4 flex-shrink-0">
+                  <div className="flex items-center gap-2 flex-shrink-0 sm:ml-4">
                     <button onClick={() => navigate(`/admin/surveys/${s.id}`)} className="p-2 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors font-medium" title="View Details">
                       <Info className="w-5 h-5" />
                     </button>
@@ -517,11 +517,11 @@ export default function Surveys() {
 
       {/* Template Selection Modal */}
       {showTemplates && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto m-4">
-            <div className="flex items-center justify-between p-6 border-b sticky top-0 bg-white rounded-t-2xl z-10">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-start justify-between gap-4 p-4 border-b sticky top-0 bg-white rounded-t-2xl z-10 sm:p-6">
               <div>
-                <h2 className="text-2xl font-bold text-blue-900">Choose Survey Template</h2>
+                <h2 className="text-xl font-bold text-blue-900 sm:text-2xl">Choose Survey Template</h2>
                 <p className="text-sm text-gray-500 mt-1">Select a template or start from scratch</p>
               </div>
               <button onClick={() => setShowTemplates(false)} className="p-2 rounded-lg hover:bg-gray-100">
@@ -529,11 +529,11 @@ export default function Surveys() {
               </button>
             </div>
 
-            <div className="p-6 space-y-4">
+            <div className="p-4 space-y-4 sm:p-6">
               {/* Create from Scratch Option */}
               <div
                 onClick={createFromScratch}
-                className="border-2 border-dashed border-blue-300 rounded-xl p-6 hover:border-blue-500 hover:bg-blue-50 transition-all cursor-pointer group"
+                className="border-2 border-dashed border-blue-300 rounded-xl p-4 hover:border-blue-500 hover:bg-blue-50 transition-all cursor-pointer group sm:p-6"
               >
                 <div className="flex items-center gap-4">
                   <div className="p-4 bg-blue-100 rounded-xl group-hover:bg-blue-200 transition">
@@ -596,10 +596,10 @@ export default function Surveys() {
 
       {/* Create/Edit Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col m-4">
-            <div className="flex items-center justify-between p-6 border-b bg-white rounded-t-2xl flex-shrink-0">
-              <h2 className="text-2xl font-bold text-blue-900">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between gap-4 p-4 border-b bg-white rounded-t-2xl flex-shrink-0 sm:p-6">
+              <h2 className="text-xl font-bold text-blue-900 sm:text-2xl">
                 {isEditing ? 'Edit Survey' : 'Create New Survey'}
               </h2>
               <button onClick={() => setShowModal(false)} className="p-2 rounded-lg hover:bg-gray-100">
@@ -608,7 +608,7 @@ export default function Surveys() {
             </div>
 
             <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
-              <div className="p-6 space-y-6">
+              <div className="p-4 space-y-6 sm:p-6">
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-bold text-blue-900 mb-2">Survey Title</label>

@@ -38,7 +38,7 @@ function SignUp() {
   const years = Array.from({ length: 30 }, (_, i) => currentYear - i);
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen overflow-x-hidden">
       {/* Left Side - Fixed Branding */}
       <div className="hidden md:flex md:w-1/2 bg-cover bg-center fixed top-0 left-0 h-screen items-center justify-center" style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
         <div className="absolute inset-0 bg-gradient-to-br from-blue-900/85 via-blue-800/85 to-blue-900/85"></div>
@@ -64,7 +64,7 @@ function SignUp() {
 
       {/* Right Side - Scrollable Sign Up Form */}
       <div className="w-full md:w-1/2 md:ml-[50%] min-h-screen bg-gray-50 overflow-y-auto">
-        <div className="w-full max-w-2xl mx-auto px-10 py-10">
+        <div className="w-full max-w-2xl mx-auto px-4 py-8 sm:px-10 sm:py-10">
           {/* Mobile back link */}
           <div className="md:hidden mb-8 text-center">
             <img
@@ -89,7 +89,7 @@ function SignUp() {
 
           <form onSubmit={handleSubmit} className="space-y-5">
             {/* Name Fields */}
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
               <div>
                 <label htmlFor="firstName" className="block text-sm font-semibold text-gray-700 mb-1">
                   First name
@@ -178,7 +178,7 @@ function SignUp() {
             </div>
 
             {/* Date of Birth and Gender */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label htmlFor="dateOfBirth" className="block text-sm font-semibold text-gray-700 mb-1">
                   Date of birth
@@ -277,7 +277,7 @@ function SignUp() {
             </div>
 
             {/* Password Fields */}
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div>
                 <label htmlFor="password" className="block text-sm font-semibold text-gray-700 mb-1">
                   Password

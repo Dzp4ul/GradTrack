@@ -106,18 +106,18 @@ export default function Announcements() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[#1b2a4a]">Announcement Manager</h1>
           <p className="text-sm text-gray-500">{announcements.length} announcements</p>
         </div>
-        <button onClick={openAdd} className="flex items-center gap-2 bg-[#1b2a4a] text-white px-4 py-2.5 rounded-lg hover:bg-[#263c66] transition-colors text-sm font-medium">
+        <button onClick={openAdd} className="flex w-full items-center justify-center gap-2 bg-[#1b2a4a] text-white px-4 py-2.5 rounded-lg hover:bg-[#263c66] transition-colors text-sm font-medium sm:w-auto">
           <Plus className="w-4 h-4" /> New Announcement
         </button>
       </div>
 
       {/* Filters */}
-      <div className="flex gap-2">
+      <div className="flex gap-2 overflow-x-auto pb-1">
         {['', 'published', 'draft', 'archived'].map((s) => (
           <button
             key={s}
@@ -146,8 +146,8 @@ export default function Announcements() {
       ) : (
         <div className="grid gap-4">
           {announcements.map((a) => (
-            <div key={a.id} className="bg-white rounded-xl shadow-sm border p-5 hover:shadow-md transition-shadow">
-              <div className="flex items-start justify-between gap-4">
+            <div key={a.id} className="bg-white rounded-xl shadow-sm border p-4 hover:shadow-md transition-shadow sm:p-5">
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-2 flex-wrap">
                     <h3 className="text-lg font-semibold text-[#1b2a4a]">{a.title}</h3>
@@ -159,7 +159,7 @@ export default function Announcements() {
                     </span>
                   </div>
                   <p className="text-sm text-gray-600 line-clamp-2 mb-3">{a.content}</p>
-                  <div className="flex items-center gap-4 text-xs text-gray-400">
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-gray-400 sm:gap-4">
                     <span className="flex items-center gap-1">
                       <Calendar className="w-3.5 h-3.5" />
                       Created: {new Date(a.created_at).toLocaleDateString()}
@@ -188,8 +188,8 @@ export default function Announcements() {
 
       {/* Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto m-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-5 border-b">
               <h2 className="text-lg font-bold text-[#1b2a4a]">
                 {isEditing ? 'Edit Announcement' : 'New Announcement'}
@@ -199,7 +199,7 @@ export default function Announcements() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-5 space-y-4">
+            <form onSubmit={handleSubmit} className="p-4 space-y-4 sm:p-5">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Title</label>
                 <input
@@ -224,7 +224,7 @@ export default function Announcements() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Category</label>
                   <select
@@ -252,7 +252,7 @@ export default function Announcements() {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3 pt-2">
+              <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">
                 <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2.5 border rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
                   Cancel
                 </button>

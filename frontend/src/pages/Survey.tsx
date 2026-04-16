@@ -872,14 +872,14 @@ function Survey() {
   // No active survey
   if (!activeSurvey) {
     return (
-      <div className="min-h-screen bg-cover bg-center bg-fixed relative flex flex-col items-center justify-center p-6" style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
+      <div className="min-h-screen bg-cover bg-center bg-fixed relative flex flex-col items-center justify-center p-4 sm:p-6" style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
         <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80 pointer-events-none"></div>
         <div className="flex justify-center mb-6 relative z-10">
           <img src="/Gradtrack_Logo2.png" alt="GradTrack Logo" className="h-20 object-contain" />
         </div>
-        <div className="w-full max-w-2xl bg-white rounded-2xl shadow-xl p-10 border border-blue-100 relative z-10 text-center">
+        <div className="w-full max-w-2xl bg-white rounded-2xl shadow-xl p-5 border border-blue-100 relative z-10 text-center sm:p-10">
           <ClipboardList className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <h1 className="text-3xl font-bold text-blue-900 mb-4">No Active Survey</h1>
+          <h1 className="text-2xl font-bold text-blue-900 mb-4 sm:text-3xl">No Active Survey</h1>
           <p className="text-gray-600 mb-6">There are currently no active surveys available. Please check back later.</p>
           <Link to="/" className="inline-block bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-semibold transition">
             Back to Home
@@ -892,7 +892,7 @@ function Survey() {
   // ─── DATA PRIVACY CONSENT ───
   if (!agreed) {
     return (
-      <div className="min-h-screen bg-cover bg-center bg-fixed relative flex flex-col items-center justify-center p-6" style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
+      <div className="min-h-screen bg-cover bg-center bg-fixed relative flex flex-col items-center justify-center p-4 sm:p-6" style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
         <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80 pointer-events-none"></div>
         <div className="flex justify-center mb-6 relative z-10">
           <img
@@ -901,16 +901,16 @@ function Survey() {
             className="h-20 object-contain"
           />
         </div>
-        <div className="w-full max-w-2xl bg-white rounded-2xl shadow-xl p-10 border border-blue-100 relative z-10">
+        <div className="w-full max-w-2xl bg-white rounded-2xl shadow-xl p-5 border border-blue-100 relative z-10 sm:p-10">
           <div className="flex justify-center mb-6">
             <div className="bg-blue-600 p-4 rounded-full">
               <ShieldCheck className="w-10 h-10 text-white" />
             </div>
           </div>
-          <h1 className="text-3xl font-bold text-blue-900 text-center mb-2">
+          <h1 className="text-2xl font-bold text-blue-900 text-center mb-2 sm:text-3xl">
             Data Privacy Notice & Informed Consent
           </h1>
-          <div className="mt-6 bg-blue-50 rounded-xl p-6 border border-blue-100">
+          <div className="mt-6 bg-blue-50 rounded-xl p-4 border border-blue-100 sm:p-6">
             <p className="text-gray-700 leading-relaxed text-sm">
               By proceeding with this form, you voluntarily consent to participate in this research. The information you provide will be collected and processed in accordance with the <strong>Data Privacy Act of 2012 (RA 10173)</strong> and will be used for academic research purposes only. Your responses will be kept confidential, reported in aggregated form, and accessed only by the researcher. Participation is voluntary.
             </p>
@@ -949,10 +949,10 @@ function Survey() {
 
   // Progress Bar
   const ProgressBar = () => (
-    <div className="w-full max-w-5xl mx-auto mb-10">
-      <div className="flex items-center justify-between">
+    <div className="w-full max-w-5xl mx-auto mb-6 overflow-x-auto pb-2 sm:mb-10">
+      <div className="flex min-w-max items-start justify-between gap-2 px-1 sm:min-w-0 sm:gap-0">
         {allSections.map((section, i) => (
-          <div key={i} className="flex-1 flex flex-col items-center relative">
+          <div key={i} className="relative flex w-24 flex-col items-center sm:flex-1">
             <button
               onClick={() => setCurrentSection(i)}
               className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm transition z-10 ${
@@ -1166,7 +1166,7 @@ function Survey() {
         </div>
       </nav>
 
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 relative">
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 relative">
         <div className="flex justify-center mb-6">
           <img
             src="/Gradtrack_Logo2.png"
@@ -1176,10 +1176,10 @@ function Survey() {
         </div>
         <ProgressBar />
 
-        <div className="bg-white rounded-2xl shadow-lg p-8 border border-gray-100">
-          <div className="flex justify-between items-start mb-4">
+        <div className="bg-white rounded-2xl shadow-lg p-5 border border-gray-100 sm:p-8">
+          <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start mb-4">
             <div>
-              <h2 className="text-2xl font-bold text-blue-900">{activeSurvey.title}</h2>
+              <h2 className="text-xl font-bold text-blue-900 sm:text-2xl">{activeSurvey.title}</h2>
               {graduateName && (
                 <p className="text-green-600 font-medium mt-1">Welcome, {graduateName}!</p>
               )}
@@ -1232,7 +1232,7 @@ function Survey() {
                     const middleNameIdx = activeSurvey.questions.findIndex(q => q.id === middleNameQ.id);
                     
                     renderedQuestions.push(
-                      <div key={`name-group-${question.id}`} className="bg-blue-50 rounded-xl p-5 border border-blue-100">
+                      <div key={`name-group-${question.id}`} className="bg-blue-50 rounded-xl p-4 border border-blue-100 sm:p-5">
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
@@ -1279,7 +1279,7 @@ function Survey() {
                     const telephoneIdx = activeSurvey.questions.findIndex(q => q.id === telephoneQ.id);
                     
                     renderedQuestions.push(
-                      <div key={`contact-group-${question.id}`} className="bg-blue-50 rounded-xl p-5 border border-blue-100">
+                      <div key={`contact-group-${question.id}`} className="bg-blue-50 rounded-xl p-4 border border-blue-100 sm:p-5">
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
@@ -1327,7 +1327,7 @@ function Survey() {
                     const birthdayIdx = activeSurvey.questions.findIndex(q => q.id === birthdayQ.id);
                     
                     renderedQuestions.push(
-                      <div key={`personal-group-${question.id}`} className="bg-blue-50 rounded-xl p-5 border border-blue-100">
+                      <div key={`personal-group-${question.id}`} className="bg-blue-50 rounded-xl p-4 border border-blue-100 sm:p-5">
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
@@ -1374,7 +1374,7 @@ function Survey() {
                     const cityIdx = activeSurvey.questions.findIndex(q => q.id === cityQ.id);
                     
                     renderedQuestions.push(
-                      <div key={`address-group-${question.id}`} className="bg-blue-50 rounded-xl p-5 border border-blue-100">
+                      <div key={`address-group-${question.id}`} className="bg-blue-50 rounded-xl p-4 border border-blue-100 sm:p-5">
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
@@ -1417,7 +1417,7 @@ function Survey() {
                     const yearGradIdx = activeSurvey.questions.findIndex(q => q.id === yearGradQ.id);
                     
                     renderedQuestions.push(
-                      <div key={`degree-group-${question.id}`} className="bg-blue-50 rounded-xl p-5 border border-blue-100">
+                      <div key={`degree-group-${question.id}`} className="bg-blue-50 rounded-xl p-4 border border-blue-100 sm:p-5">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
@@ -1445,7 +1445,7 @@ function Survey() {
                   else {
                     // Render normal question
                     renderedQuestions.push(
-                      <div key={question.id} className="bg-blue-50 rounded-xl p-5 border border-blue-100">
+                      <div key={question.id} className="bg-blue-50 rounded-xl p-4 border border-blue-100 sm:p-5">
                         <label className="block text-base font-semibold text-gray-800 mb-3">
                           {globalIdx + 1}. {question.question_text}
                           {Number(question.is_required) === 1 && (
@@ -1465,11 +1465,11 @@ function Survey() {
           </div>
 
           {/* Navigation Buttons */}
-          <div className="flex justify-between mt-10 pt-6 border-t border-gray-100">
+          <div className="flex flex-col-reverse gap-3 mt-8 pt-6 border-t border-gray-100 sm:mt-10 sm:flex-row sm:justify-between">
             <button
               onClick={() => setCurrentSection(prev => prev - 1)}
               disabled={currentSection === 0}
-              className={`flex items-center space-x-2 px-6 py-3 rounded-lg font-semibold transition ${
+              className={`flex w-full items-center justify-center space-x-2 px-6 py-3 rounded-lg font-semibold transition sm:w-auto ${
                 currentSection === 0
                   ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
                   : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
@@ -1486,7 +1486,7 @@ function Survey() {
                     setCurrentSection(prev => prev + 1);
                   }
                 }}
-                className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition shadow-md hover:shadow-lg"
+                className="flex w-full items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition shadow-md hover:shadow-lg sm:w-auto"
               >
                 <span>Next</span>
                 <ChevronRight className="w-5 h-5" />
@@ -1498,7 +1498,7 @@ function Survey() {
                     handleSubmit();
                   }
                 }}
-                className="bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-lg font-semibold transition shadow-md hover:shadow-lg"
+                className="w-full bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-lg font-semibold transition shadow-md hover:shadow-lg sm:w-auto"
               >
                 Submit Survey
               </button>
@@ -1518,15 +1518,15 @@ function Survey() {
       {postSubmitModalOpen && (
         <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-blue-100 overflow-hidden">
-            <div className="bg-blue-50 border-b border-blue-100 px-6 py-5">
-              <h3 className="text-xl font-bold text-blue-900">Your survey has been submitted successfully.</h3>
+            <div className="bg-blue-50 border-b border-blue-100 px-4 py-5 sm:px-6">
+              <h3 className="text-lg font-bold text-blue-900 sm:text-xl">Your survey has been submitted successfully.</h3>
               <p className="text-sm text-gray-600 mt-1">
                 Would you like to create a GradTrack account using the information you already provided?
               </p>
             </div>
 
             {!showCreateAccountForm ? (
-              <div className="p-6 space-y-4">
+              <div className="p-4 space-y-4 sm:p-6">
                 <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-sm text-gray-700 space-y-1">
                   <p><span className="font-semibold">Name:</span> {prefillData?.first_name || '-'} {prefillData?.middle_name || ''} {prefillData?.last_name || ''}</p>
                   <p><span className="font-semibold">Email:</span> {prefillData?.email || '-'}</p>
@@ -1573,7 +1573,7 @@ function Survey() {
                 </div>
               </div>
             ) : (
-              <div className="p-6 space-y-4">
+              <div className="p-4 space-y-4 sm:p-6">
                 <div className="grid sm:grid-cols-2 gap-4 text-sm">
                   <div>
                     <label className="block text-gray-600 mb-1">Name</label>

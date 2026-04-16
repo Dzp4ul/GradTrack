@@ -48,7 +48,9 @@ const deanNavItems: NavItem[] = [
 ];
 
 export default function AdminLayout() {
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() =>
+    typeof window === 'undefined' ? true : window.innerWidth >= 1024
+  );
   const [profileOpen, setProfileOpen] = useState(false);
   const navigate = useNavigate();
   const { user, logout } = useAuth();
@@ -84,11 +86,11 @@ export default function AdminLayout() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
+    <div className="min-h-screen bg-gray-50 flex overflow-x-hidden">
       {/* Sidebar */}
       <aside
-        className={`fixed inset-y-0 left-0 z-30 bg-blue-900 text-white transition-all duration-300 flex flex-col ${
-          sidebarOpen ? 'w-64' : 'w-20'
+        className={`fixed inset-y-0 left-0 z-40 bg-blue-900 text-white transition-all duration-300 flex w-72 max-w-[calc(100vw-2rem)] flex-col lg:max-w-none ${
+          sidebarOpen ? 'translate-x-0 lg:w-64' : '-translate-x-full lg:translate-x-0 lg:w-20'
         }`}
       >
         {/* Logo */}
@@ -130,14 +132,24 @@ export default function AdminLayout() {
         </button>
       </aside>
 
+      {sidebarOpen && (
+        <button
+          type="button"
+          onClick={() => setSidebarOpen(false)}
+          className="fixed inset-0 z-30 bg-black/40 lg:hidden"
+          aria-label="Close sidebar"
+        />
+      )}
+
       {/* Main content */}
-      <div className={`flex-1 transition-all duration-300 ${sidebarOpen ? 'ml-64' : 'ml-20'}`}>
+      <div className={`flex-1 min-w-0 transition-all duration-300 ${sidebarOpen ? 'lg:ml-64' : 'lg:ml-20'}`}>
         {/* Top bar */}
         <header className="bg-white shadow-sm sticky top-0 z-20 border-b-4 border-yellow-500">
-          <div className="flex items-center justify-between px-6 py-3">
+          <div className="flex items-center justify-between px-4 py-3 sm:px-6">
             <button
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="lg:hidden p-2 rounded-lg hover:bg-gray-100"
+              className="p-2 rounded-lg hover:bg-gray-100 lg:hidden"
+              aria-label="Open sidebar"
             >
               <Menu className="w-5 h-5" />
             </button>
@@ -164,7 +176,7 @@ export default function AdminLayout() {
                 </button>
 
                 {profileOpen && (
-                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border py-2 z-50">
+                  <div className="absolute right-0 mt-2 w-72 max-w-[calc(100vw-2rem)] bg-white rounded-lg shadow-lg border py-2 z-50 sm:w-80">
                     <div className="px-4 py-2 border-b">
                       <p className="text-sm font-semibold text-gray-800">{user?.full_name || 'User'}</p>
                       <p className="text-xs text-gray-500">{user?.email}</p>
@@ -184,7 +196,7 @@ export default function AdminLayout() {
         </header>
 
         {/* Page content */}
-        <main className="p-6">
+        <main className="p-4 sm:p-6">
           <Outlet />
         </main>
       </div>

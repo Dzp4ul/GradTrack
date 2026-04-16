@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, Users, TrendingUp, Target, Clock, Download,
-  BarChart3, PieChart as PieChartIcon, CheckCircle2,
+  ArrowLeft, Users, TrendingUp, Target, Download,
+  BarChart3, CheckCircle2,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend,
+  PieChart, Pie, Cell,
 } from 'recharts';
 import { API_ROOT } from '../../config/api';
 
@@ -85,8 +85,8 @@ export default function SurveyAnalytics() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
           <button
             onClick={() => navigate('/admin/surveys')}
             className="p-2 hover:bg-gray-100 rounded-lg transition"
@@ -94,11 +94,11 @@ export default function SurveyAnalytics() {
             <ArrowLeft className="w-5 h-5" />
           </button>
           <div>
-            <h1 className="text-2xl font-bold text-blue-900">{analytics.survey_title}</h1>
+            <h1 className="text-xl font-bold text-blue-900 sm:text-2xl">{analytics.survey_title}</h1>
             <p className="text-sm text-gray-500">Survey Analytics & Insights</p>
           </div>
         </div>
-        <button className="flex items-center gap-2 border px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50 transition">
+        <button className="flex w-full items-center justify-center gap-2 border px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-50 transition sm:w-auto">
           <Download className="w-4 h-4" /> Export Report
         </button>
       </div>
@@ -133,19 +133,19 @@ export default function SurveyAnalytics() {
 
       {/* Employment Insights */}
       {analytics.employment_insights && (
-        <div className="bg-white rounded-xl shadow-sm border p-6">
+        <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
           <h2 className="text-xl font-bold text-blue-900 mb-6">Employment Insights</h2>
           
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
             {/* Employment Rate */}
-            <div className="border rounded-xl p-5">
+            <div className="border rounded-xl p-4 sm:p-5">
               <div className="flex items-center gap-3 mb-4">
                 <div className="p-3 bg-green-100 rounded-lg">
                   <Target className="w-6 h-6 text-green-700" />
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Employment Rate</p>
-                  <p className="text-3xl font-bold text-blue-900">
+                  <p className="text-2xl font-bold text-blue-900 sm:text-3xl">
                     {analytics.employment_insights.employment_rate}%
                   </p>
                 </div>
@@ -163,14 +163,14 @@ export default function SurveyAnalytics() {
             </div>
 
             {/* Alignment Rate */}
-            <div className="border rounded-xl p-5">
+            <div className="border rounded-xl p-4 sm:p-5">
               <div className="flex items-center gap-3 mb-4">
                 <div className="p-3 bg-blue-100 rounded-lg">
                   <Target className="w-6 h-6 text-blue-700" />
                 </div>
                 <div>
                   <p className="text-sm text-gray-600">Job Alignment Rate</p>
-                  <p className="text-3xl font-bold text-blue-900">
+                  <p className="text-2xl font-bold text-blue-900 sm:text-3xl">
                     {analytics.employment_insights.alignment_rate}%
                   </p>
                 </div>
@@ -227,7 +227,7 @@ export default function SurveyAnalytics() {
       )}
 
       {/* Question Analytics */}
-      <div className="bg-white rounded-xl shadow-sm border p-6">
+      <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
         <h2 className="text-xl font-bold text-blue-900 mb-6">Question-by-Question Analysis</h2>
         
         <div className="space-y-8">
@@ -312,7 +312,7 @@ export default function SurveyAnalytics() {
               {/* Text */}
               {qa.question_type === 'text' && qa.data && (
                 <div className="bg-gray-50 rounded-lg p-4">
-                  <div className="grid grid-cols-3 gap-4 mb-4 text-center">
+                  <div className="grid grid-cols-1 gap-3 mb-4 text-center sm:grid-cols-3 sm:gap-4">
                     <div>
                       <p className="text-2xl font-bold text-blue-900">{qa.data.total_responses}</p>
                       <p className="text-xs text-gray-600">Responses</p>
@@ -359,7 +359,7 @@ function StatCard({ icon: Icon, label, value, color }: {
         </div>
         <span className="text-sm font-medium text-gray-600">{label}</span>
       </div>
-      <p className="text-3xl font-bold text-blue-900">{value}</p>
+      <p className="text-2xl font-bold text-blue-900 sm:text-3xl">{value}</p>
     </div>
   );
 }

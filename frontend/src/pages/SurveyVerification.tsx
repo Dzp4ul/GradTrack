@@ -200,7 +200,7 @@ function SurveyVerification() {
 
   return (
     <div
-      className="min-h-screen bg-cover bg-center bg-fixed relative flex flex-col items-center justify-center p-6"
+      className="min-h-screen bg-cover bg-center bg-fixed relative flex flex-col items-center justify-center p-4 sm:p-6"
       style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}
     >
       <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80 pointer-events-none"></div>
@@ -209,7 +209,7 @@ function SurveyVerification() {
         <img src="/Gradtrack_Logo2.png" alt="GradTrack Logo" className="h-20 object-contain" />
       </div>
 
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8 border border-blue-100 relative z-10">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-5 border border-blue-100 relative z-10 sm:p-8">
         <div className="flex justify-center mb-6">
           <div className="bg-blue-600 p-4 rounded-full">
             <ShieldCheck className="w-10 h-10 text-white" />
@@ -240,7 +240,7 @@ function SurveyVerification() {
             <label className="block text-sm font-semibold text-gray-700 mb-2">
               Verify Using
             </label>
-            <div className="flex gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row">
               <button
                 type="button"
                 className={methodButtonClass('student_number')}

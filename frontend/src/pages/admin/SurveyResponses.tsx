@@ -79,8 +79,8 @@ export default function SurveyResponses() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
           <button
             onClick={() => navigate('/admin/surveys')}
             className="flex items-center gap-2 text-blue-900 hover:text-blue-700 font-semibold"
@@ -89,14 +89,14 @@ export default function SurveyResponses() {
             Back to Surveys
           </button>
           <div>
-            <h1 className="text-3xl font-bold text-blue-900">Survey Responses</h1>
+            <h1 className="text-2xl font-bold text-blue-900 sm:text-3xl">Survey Responses</h1>
             <p className="text-sm text-gray-500 mt-1">{responses.length} responses</p>
           </div>
         </div>
         <button
           onClick={downloadCSV}
           disabled={responses.length === 0}
-          className="flex items-center gap-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-6 py-2.5 rounded-lg font-semibold transition-colors shadow-md hover:shadow-lg"
+          className="flex w-full items-center justify-center gap-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-6 py-2.5 rounded-lg font-semibold transition-colors shadow-md hover:shadow-lg sm:w-auto"
         >
           <Download className="w-5 h-5" />
           Export CSV
@@ -115,7 +115,7 @@ export default function SurveyResponses() {
       ) : (
         <div className="space-y-4">
           {responses.map((r) => (
-            <div key={r.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow">
+            <div key={r.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow sm:p-6">
               <div className="flex items-start justify-between mb-4">
                 <div>
                   <h3 className="text-lg font-bold text-blue-900">

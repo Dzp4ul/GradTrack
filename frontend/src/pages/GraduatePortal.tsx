@@ -1153,7 +1153,7 @@ export default function GraduatePortal() {
   ];
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
+    <div className="min-h-screen bg-gray-50 flex overflow-x-hidden">
       <aside
         className={`fixed inset-y-0 left-0 z-40 bg-blue-900 text-white transition-all duration-300 hidden lg:flex flex-col ${
           sidebarOpen ? 'w-64' : 'w-20'
@@ -1193,9 +1193,9 @@ export default function GraduatePortal() {
         </button>
       </aside>
 
-      <div className={`flex-1 transition-all duration-300 ${sidebarOpen ? 'lg:ml-64' : 'lg:ml-20'}`}>
+      <div className={`flex-1 min-w-0 transition-all duration-300 ${sidebarOpen ? 'lg:ml-64' : 'lg:ml-20'}`}>
         <header className="bg-blue-900 text-white shadow sticky top-0 z-30 border-b-4 border-yellow-500">
-          <div className="px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-4">
+          <div className="px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-3 sm:gap-4">
             <div className="flex items-center gap-3">
               <button
                 onClick={() => setSidebarOpen((prev) => !prev)}
@@ -1205,17 +1205,17 @@ export default function GraduatePortal() {
                 <Menu className="w-5 h-5" />
               </button>
               <div>
-                <h1 className="text-2xl font-bold">Graduate Ecosystem Portal</h1>
-                <p className="text-blue-100 text-sm">
+                <h1 className="text-lg font-bold sm:text-2xl">Graduate Ecosystem Portal</h1>
+                <p className="text-blue-100 text-xs sm:text-sm">
                   Welcome, {user?.full_name}. Explore mentorship and career opportunities.
                 </p>
               </div>
             </div>
 
-            <div className="relative" ref={profileMenuRef}>
+            <div className="relative w-full sm:w-auto" ref={profileMenuRef}>
               <button
                 onClick={() => setProfileMenuOpen((prev) => !prev)}
-                className="flex items-center gap-3 bg-white/10 hover:bg-white/20 rounded-full px-3 py-1.5 min-w-[260px]"
+                className="flex w-full min-w-0 items-center gap-3 bg-white/10 hover:bg-white/20 rounded-full px-3 py-1.5 sm:min-w-[260px]"
                 aria-haspopup="menu"
                 aria-expanded={profileMenuOpen}
               >
@@ -1234,7 +1234,7 @@ export default function GraduatePortal() {
               </button>
 
               {profileMenuOpen && (
-                <div className="absolute right-0 mt-2 w-[320px] bg-white rounded-2xl shadow-xl overflow-hidden z-50 text-gray-800 border border-gray-200">
+                <div className="absolute right-0 mt-2 w-full bg-white rounded-2xl shadow-xl overflow-hidden z-50 text-gray-800 border border-gray-200 sm:w-[320px]">
                   <div className="p-4 border-b border-gray-100 flex items-center gap-3">
                     {profileImagePreview ? (
                       <img src={profileImagePreview} alt="Profile" className="w-11 h-11 rounded-full object-cover border border-gray-200" />
@@ -1274,13 +1274,13 @@ export default function GraduatePortal() {
           </div>
         </header>
 
-        <main className="p-4 sm:p-6">
-          <div className="bg-white rounded-xl border border-gray-200 p-2 mb-6 flex flex-wrap gap-2 lg:hidden">
+        <main className="p-3 sm:p-6">
+          <div className="bg-white rounded-xl border border-gray-200 p-2 mb-5 flex gap-2 overflow-x-auto lg:hidden">
             {navItems.map((tab) => (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
-                className={`px-3 py-2 rounded-lg text-sm font-medium transition ${
+                className={`shrink-0 px-3 py-2 rounded-lg text-sm font-medium transition ${
                   activeTab === tab.key ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                 }`}
               >
@@ -1296,12 +1296,12 @@ export default function GraduatePortal() {
             {activeTab === 'dashboard' && (
               <section className="space-y-4">
                 {!ratingSummary ? (
-                  <div className="bg-white rounded-xl border border-gray-200 p-6 text-gray-600">
+                  <div className="bg-white rounded-xl border border-gray-200 p-4 text-gray-600 sm:p-6">
                     Dashboard data is not available yet. Try refreshing the page.
                   </div>
                 ) : (
                   <>
-                    <div className="bg-white rounded-xl border border-gray-200 p-5">
+                    <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-5">
                       <div className="flex flex-wrap items-start justify-between gap-4">
                         <div>
                           <p className="text-sm text-gray-500">Graduate Access Overview</p>
@@ -1310,7 +1310,7 @@ export default function GraduatePortal() {
                             <span className="text-sm text-gray-500">live eligibility status</span>
                           </div>
                         </div>
-                        <div className="grid sm:grid-cols-2 gap-2 text-sm min-w-[280px]">
+                        <div className="grid w-full gap-2 text-sm sm:min-w-[280px] sm:grid-cols-2">
                           <div className={`rounded-lg px-3 py-2 border ${canPostJobs ? 'bg-green-50 border-green-200 text-green-800' : 'bg-amber-50 border-amber-200 text-amber-800'}`}>
                             {canPostJobs ? 'Job posting unlocked' : 'Job posting locked until employment status is set to employed.'}
                           </div>
@@ -1515,7 +1515,7 @@ export default function GraduatePortal() {
                 </div>
 
                 {filteredMentors.length === 0 ? (
-                  <div className="bg-white rounded-xl border border-gray-200 p-6 text-center text-gray-500">
+                  <div className="bg-white rounded-xl border border-gray-200 p-4 text-center text-gray-500 sm:p-6">
                     No mentors found for this program filter yet.
                   </div>
                 ) : (
@@ -1829,7 +1829,7 @@ export default function GraduatePortal() {
                 </div>
 
                 {filteredJobs.length === 0 ? (
-                  <div className="bg-white rounded-xl border border-gray-200 p-6 text-center text-gray-500">
+                  <div className="bg-white rounded-xl border border-gray-200 p-4 text-center text-gray-500 sm:p-6">
                     No jobs found for this program filter yet.
                   </div>
                 ) : (
@@ -2035,7 +2035,7 @@ export default function GraduatePortal() {
             {activeTab === 'mentor_profile' && (
               <section className="max-w-4xl mx-auto space-y-6">
                 {!hasMentorProfile && !showMentorProfileForm && (
-                  <div className="bg-white rounded-2xl border border-blue-100 shadow-sm p-8 text-center max-w-2xl mx-auto">
+                  <div className="bg-white rounded-2xl border border-blue-100 shadow-sm p-5 text-center max-w-2xl mx-auto sm:p-8">
                     <h2 className="text-3xl font-bold text-blue-900">Become a Mentor</h2>
                     <p className="text-gray-600 mt-2 max-w-xl mx-auto">
                       Share your experience with fellow graduates. Build your mentor profile and start receiving mentorship requests.
@@ -2051,7 +2051,7 @@ export default function GraduatePortal() {
                 )}
 
                 {(hasMentorProfile || showMentorProfileForm) && (
-                  <form onSubmit={handleMentorProfileSubmit} className="bg-white rounded-2xl border border-gray-200 p-6 space-y-5 shadow-sm">
+                  <form onSubmit={handleMentorProfileSubmit} className="bg-white rounded-2xl border border-gray-200 p-4 space-y-5 shadow-sm sm:p-6">
                     <div>
                       <h2 className="text-2xl font-bold text-blue-900">
                         {hasMentorProfile ? 'Update Mentor Profile' : 'Create Mentor Profile'}
@@ -2238,7 +2238,7 @@ export default function GraduatePortal() {
             {activeTab === 'job_posting' && (
               <section className="space-y-6">
                 {!showJobPostForm && (
-                  <div className="bg-white rounded-2xl border border-gray-200 p-6 shadow-sm">
+                  <div className="bg-white rounded-2xl border border-gray-200 p-4 shadow-sm sm:p-6">
                     <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
                       <div>
                         <h2 className="text-2xl font-bold text-blue-900">Job Posting</h2>
@@ -2265,7 +2265,7 @@ export default function GraduatePortal() {
                 )}
 
                 {showJobPostForm && (
-                <form onSubmit={handleJobSubmit} className="bg-white rounded-2xl border border-gray-200 p-6 space-y-5 shadow-sm">
+                <form onSubmit={handleJobSubmit} className="bg-white rounded-2xl border border-gray-200 p-4 space-y-5 shadow-sm sm:p-6">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <h2 className="text-2xl font-bold text-blue-900">Post / Update Job Opportunity</h2>

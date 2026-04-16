@@ -73,20 +73,20 @@ export default function SurveyDetail() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
           <button
             onClick={() => navigate('/admin/surveys')}
             className="p-2 hover:bg-gray-100 rounded-lg transition"
           >
             <ArrowLeft className="w-6 h-6 text-gray-600" />
           </button>
-          <h1 className="text-3xl font-bold text-blue-900">{survey.title}</h1>
+          <h1 className="min-w-0 text-xl font-bold text-blue-900 sm:text-3xl">{survey.title}</h1>
         </div>
-        <div className="flex gap-3">
+        <div className="flex w-full gap-3 sm:w-auto">
           <button
             onClick={() => navigate(`/admin/surveys/${id}/edit`)}
-            className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg transition font-semibold"
+            className="flex w-full items-center justify-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2 rounded-lg transition font-semibold sm:w-auto"
           >
             <Edit className="w-4 h-4" /> Edit
           </button>
@@ -94,9 +94,9 @@ export default function SurveyDetail() {
       </div>
 
       {/* Survey Information */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-6">
         <h2 className="text-xl font-bold text-blue-900 mb-4">Survey Information</h2>
-        <div className="grid grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6">
           <div>
             <label className="text-sm font-semibold text-gray-600">Survey Name</label>
             <p className="text-gray-900 mt-1">{survey.title}</p>
@@ -135,13 +135,13 @@ export default function SurveyDetail() {
       </div>
 
       {/* Preview Section */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-        <div className="flex items-center justify-between mb-6">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-6">
+        <div className="flex flex-col gap-3 mb-6 sm:flex-row sm:items-center sm:justify-between">
           <h2 className="text-xl font-bold text-blue-900">Preview</h2>
-          <div className="flex gap-2">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
             <button
               onClick={() => setViewMode('student')}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition ${
+              className={`flex w-full items-center justify-center gap-2 px-4 py-2 rounded-lg font-semibold transition sm:w-auto ${
                 viewMode === 'student'
                   ? 'bg-blue-600 text-white'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -151,7 +151,7 @@ export default function SurveyDetail() {
             </button>
             <button
               onClick={() => navigate(`/admin/surveys/${id}/analytics`)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition ${
+              className={`flex w-full items-center justify-center gap-2 px-4 py-2 rounded-lg font-semibold transition sm:w-auto ${
                 viewMode === 'reports'
                   ? 'bg-blue-600 text-white'
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
@@ -163,7 +163,7 @@ export default function SurveyDetail() {
         </div>
 
         {/* Questions List */}
-        <div className="space-y-4 bg-gray-50 p-6 rounded-lg max-h-[600px] overflow-y-auto">
+        <div className="space-y-4 bg-gray-50 p-4 rounded-lg max-h-[600px] overflow-y-auto sm:p-6">
           {survey.questions?.map((q, idx) => {
             const prevSection = idx > 0 ? survey.questions![idx - 1].section : null;
             const showSectionHeader = q.section && q.section !== prevSection;

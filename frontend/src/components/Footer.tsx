@@ -5,7 +5,7 @@ export default function Footer() {
     <footer className="bg-blue-950 text-white py-16">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-12">
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center space-x-3 mb-4">
               <img src="/Gradtrack_small.png" alt="GradTrack" className="h-12 w-12 object-contain" />
               <div>
@@ -32,7 +32,7 @@ export default function Footer() {
             <ul className="space-y-3 text-sm">
               <li className="flex items-start space-x-2">
                 <span className="text-yellow-400 mt-1"></span>
-                <span className="text-blue-200">norzagaraycollege2007@gmail.com</span>
+                <span className="break-words text-blue-200">norzagaraycollege2007@gmail.com</span>
               </li>
               <li className="flex items-start space-x-2">
                 <span className="text-yellow-400 mt-1"></span>

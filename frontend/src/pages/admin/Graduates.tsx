@@ -65,19 +65,6 @@ const PROGRAM_OPTIONS = [
 
 const YEAR_TAB_OPTIONS = ['2021', '2022', '2023', '2024', '2025'];
 
-const statusColors: Record<string, string> = {
-  employed: 'bg-green-100 text-green-700',
-  self_employed: 'bg-blue-100 text-blue-700',
-  freelance: 'bg-purple-100 text-purple-700',
-  unemployed: 'bg-red-100 text-red-700',
-};
-
-const alignColors: Record<string, string> = {
-  aligned: 'bg-green-100 text-green-700',
-  partially_aligned: 'bg-yellow-100 text-yellow-700',
-  not_aligned: 'bg-red-100 text-red-700',
-};
-
 const normalizeText = (value: unknown): string => {
   if (value === null || value === undefined) return '';
   return String(value).trim();
@@ -476,13 +463,13 @@ export default function Graduates() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[#1b2a4a]">Manage Graduates</h1>
           <p className="text-sm text-gray-500">{total} total graduates</p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
           <input
             ref={fileInputRef}
             type="file"
@@ -494,7 +481,7 @@ export default function Graduates() {
           <button
             onClick={handleImportClick}
             disabled={isImporting}
-            className="flex items-center gap-2 border border-blue-200 text-blue-700 px-4 py-2.5 rounded-lg hover:bg-blue-50 transition-colors text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed"
+            className="flex w-full items-center justify-center gap-2 border border-blue-200 text-blue-700 px-4 py-2.5 rounded-lg hover:bg-blue-50 transition-colors text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed sm:w-auto"
           >
             <Download className="w-4 h-4" />
             {isImporting ? 'Importing...' : 'Import Excel'}
@@ -503,7 +490,7 @@ export default function Graduates() {
           <button
             onClick={handleExportExcel}
             disabled={isExporting}
-            className="flex items-center gap-2 border border-emerald-200 text-emerald-700 px-4 py-2.5 rounded-lg hover:bg-emerald-50 transition-colors text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed"
+            className="flex w-full items-center justify-center gap-2 border border-emerald-200 text-emerald-700 px-4 py-2.5 rounded-lg hover:bg-emerald-50 transition-colors text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed sm:w-auto"
           >
             <Upload className="w-4 h-4" />
             {isExporting ? 'Exporting...' : 'Export Excel'}
@@ -511,7 +498,7 @@ export default function Graduates() {
 
           <button
             onClick={openAdd}
-            className="flex items-center gap-2 bg-[#1b2a4a] text-white px-4 py-2.5 rounded-lg hover:bg-[#263c66] transition-colors text-sm font-medium"
+            className="flex w-full items-center justify-center gap-2 bg-[#1b2a4a] text-white px-4 py-2.5 rounded-lg hover:bg-[#263c66] transition-colors text-sm font-medium sm:w-auto"
           >
             <Plus className="w-4 h-4" /> Add Graduate
           </button>
@@ -519,7 +506,7 @@ export default function Graduates() {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border">
-        <div className="flex items-center gap-1 px-4 pt-4 border-b">
+        <div className="flex items-center gap-1 px-4 pt-4 border-b overflow-x-auto">
           {PROGRAM_OPTIONS.map((program) => (
             <button
               key={program.id}
@@ -579,7 +566,7 @@ export default function Graduates() {
             <select
               value={filterYear}
               onChange={(e) => { setFilterYear(e.target.value); setPage(1); }}
-              className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 sm:w-auto"
             >
               <option value="">All Years</option>
               {YEAR_TAB_OPTIONS.map((year) => (
@@ -591,7 +578,46 @@ export default function Graduates() {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="divide-y md:hidden">
+          {loading ? (
+            <div className="py-12 text-center text-gray-400">Loading...</div>
+          ) : graduates.length === 0 ? (
+            <div className="py-12 text-center text-gray-400">No graduates found</div>
+          ) : (
+            graduates.map((g) => (
+              <div key={g.id} className="p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="font-semibold text-[#1b2a4a]">
+                      {g.last_name}, {g.first_name}{g.middle_name ? ` ${g.middle_name.charAt(0)}.` : ''}
+                    </p>
+                    <p className="mt-1 font-mono text-xs text-gray-500">{g.student_id}</p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button onClick={() => openEdit(g)} className="p-2 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors" aria-label="Edit graduate">
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => handleDelete(g.id)} className="p-2 rounded-lg hover:bg-red-50 text-red-600 transition-colors" aria-label="Delete graduate">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+                <div className="mt-3 grid grid-cols-2 gap-2 text-sm text-gray-600">
+                  <p className="col-span-2 truncate">{g.email || '-'}</p>
+                  <p>{g.phone || '-'}</p>
+                  <p className="text-right">{g.year_graduated || '-'}</p>
+                  <p>
+                    <span className="bg-blue-50 text-blue-700 text-xs font-medium px-2 py-1 rounded">
+                      {g.program_code || '-'}
+                    </span>
+                  </p>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="hidden overflow-x-auto md:block">
           <table className="w-full min-w-[1100px] text-sm">
             <thead className="bg-gray-50 border-b">
               <tr>
@@ -644,7 +670,7 @@ export default function Graduates() {
         </div>
 
         {totalPages > 1 && (
-          <div className="flex items-center justify-between px-4 py-3 border-t bg-gray-50">
+          <div className="flex items-center justify-between gap-3 px-4 py-3 border-t bg-gray-50">
             <p className="text-sm text-gray-500">
               Page {page} of {totalPages}
             </p>
@@ -669,8 +695,8 @@ export default function Graduates() {
       </div>
 
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto m-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-5 border-b">
               <h2 className="text-lg font-bold text-[#1b2a4a]">
                 {isEditing ? 'Edit Graduate' : 'Add Graduate'}
@@ -680,8 +706,8 @@ export default function Graduates() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="p-5 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
+            <form onSubmit={handleSubmit} className="p-4 space-y-4 sm:p-5">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Input label="Student No." value={formData.student_id} onChange={(v) => updateField('student_id', v)} required />
                 <Input label="First Name" value={formData.first_name} onChange={(v) => updateField('first_name', v)} required />
                 <Input label="Middle Name" value={formData.middle_name} onChange={(v) => updateField('middle_name', v)} />
@@ -705,7 +731,7 @@ export default function Graduates() {
                 <Input label="Year Graduated" type="number" value={formData.year_graduated} onChange={(v) => updateField('year_graduated', v)} required />
               </div>
 
-              <div className="flex justify-end gap-3 pt-2">
+              <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}

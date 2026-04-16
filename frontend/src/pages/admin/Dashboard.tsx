@@ -246,7 +246,7 @@ export default function Dashboard() {
     <div className="space-y-6">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-bold text-[#1b2a4a]">GradTrack Dashboard</h1>
+        <h1 className="text-xl font-bold text-[#1b2a4a] sm:text-2xl">GradTrack Dashboard</h1>
         <p className="text-sm text-gray-500">Norzagaray College</p>
       </div>
 
@@ -260,7 +260,7 @@ export default function Dashboard() {
             </div>
             <span className="text-sm font-medium text-gray-600">Employment Rate</span>
           </div>
-          <p className="text-4xl font-bold text-[#1b2a4a]">
+          <p className="text-3xl font-bold text-[#1b2a4a] sm:text-4xl">
             {data.employment_rate}<span className="text-2xl">%</span>
           </p>
           <p className="text-xs text-gray-400 mt-1">{data.employment_rate}% Employed</p>
@@ -274,7 +274,7 @@ export default function Dashboard() {
             </div>
             <span className="text-sm font-medium text-gray-600">Alignment Rate</span>
           </div>
-          <p className="text-4xl font-bold text-[#1b2a4a]">
+          <p className="text-3xl font-bold text-[#1b2a4a] sm:text-4xl">
             {data.alignment_rate}<span className="text-2xl">%</span>
           </p>
           <p className="text-xs text-gray-400 mt-1">{data.alignment_rate}% Aligned to Course</p>
@@ -291,7 +291,7 @@ export default function Dashboard() {
             </div>
             <span className="text-sm font-medium text-gray-600">Active Surveys</span>
           </div>
-          <p className="text-4xl font-bold text-[#1b2a4a]">
+          <p className="text-3xl font-bold text-[#1b2a4a] sm:text-4xl">
             {formatNumber(data.active_surveys)}
           </p>
           <p className="text-xs text-gray-400 mt-1 truncate">
@@ -313,7 +313,7 @@ export default function Dashboard() {
             </div>
             <span className="text-sm font-medium text-gray-600">Survey Coverage</span>
           </div>
-          <p className="text-4xl font-bold text-[#1b2a4a]">
+          <p className="text-3xl font-bold text-[#1b2a4a] sm:text-4xl">
             {formatPercent(surveySummary.rate)}<span className="text-2xl">%</span>
           </p>
           <p className="text-xs text-gray-400 mt-1">
@@ -389,7 +389,7 @@ export default function Dashboard() {
         {/* Job Alignment Distribution */}
         <div className="bg-white rounded-xl shadow-sm border p-5">
           <h3 className="text-lg font-semibold text-[#1b2a4a] mb-4">Job Alignment Distribution</h3>
-          <div className="flex items-center gap-4">
+          <div className="flex flex-col items-center gap-4 sm:flex-row">
             <div className="w-40 h-40">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>

@@ -1204,27 +1204,27 @@ export default function Reports() {
   const isSurveyExportDisabled = tab === 'surveys' && (
     surveyLoading || surveyAnalyticsLoading || !selectedSurveyId || !surveyAnalytics
   );
-  const exportButtonClass = (disabled: boolean) => `flex items-center gap-2 border px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+  const exportButtonClass = (disabled: boolean) => `flex w-full items-center justify-center gap-2 border px-4 py-2.5 rounded-lg text-sm font-medium transition-colors sm:w-auto ${
     disabled ? 'cursor-not-allowed bg-gray-100 text-gray-400' : 'hover:bg-gray-50'
   }`;
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[#1b2a4a]">Reports & Analytics</h1>
           <p className="text-sm text-gray-500">
             {selectedSurvey ? `Viewing analytics for ${selectedSurvey.title}` : 'Graduate employment data insights'}
           </p>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-3">
+        <div className="flex w-full flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center lg:w-auto lg:justify-end">
           {tab !== 'surveys' && surveyItems.length > 0 && (
-            <div className="flex items-center gap-2">
+            <div className="flex w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
               <label className="text-sm font-medium text-gray-700">Survey:</label>
               <select
                 value={selectedSurveyId ?? ''}
                 onChange={(e) => handleSelectedSurveyChange(e.target.value ? Number(e.target.value) : null)}
-                className="border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white min-w-[240px]"
+                className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white sm:min-w-[240px]"
               >
                 <option value="">No active survey selected</option>
                 {surveyItems.map((survey) => (
@@ -1238,12 +1238,12 @@ export default function Reports() {
           )}
           {/* Year Filter */}
           {(tab === 'program' || tab === 'employment' || tab === 'salary') && availableYears.length > 0 && (
-            <div className="flex items-center gap-2">
+            <div className="flex w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
               <label className="text-sm font-medium text-gray-700">Filter by Year:</label>
               <select
                 value={selectedYear}
                 onChange={(e) => setSelectedYear(e.target.value)}
-                className="border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white sm:w-auto"
               >
                 <option value="all">All Years</option>
                 {availableYears.map((year) => (
@@ -1253,12 +1253,12 @@ export default function Reports() {
             </div>
           )}
           {tab !== 'overview' && (
-            <div className="flex items-center gap-2">
+            <div className="flex w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
               <label className="text-sm font-medium text-gray-700">{tab === 'surveys' ? 'Program:' : 'Department:'}</label>
               <select
                 value={selectedDepartment}
                 onChange={(e) => setSelectedDepartment(e.target.value)}
-                className="border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white sm:w-auto"
               >
                 <option value="all">{tab === 'surveys' ? 'All Programs' : 'All Departments'}</option>
                 {departmentOptions.map((department) => (
@@ -1314,7 +1314,7 @@ export default function Reports() {
               {/* Overview */}
               {tab === 'overview' && overview && (
                 <div className="space-y-6">
-                  <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                     <StatCard icon={Users} label="Total Graduates" value={overview.total_graduates.toString()} color="bg-blue-100 text-blue-700" />
                     <StatCard icon={Briefcase} label="Employed (Total)" value={overview.total_employed.toString()} sub={`${overview.employment_rate}%`} color="bg-green-100 text-green-700" />
                     <StatCard icon={Briefcase} label="Employed (Local)" value={overview.total_employed_local.toString()} color="bg-teal-100 text-teal-700" />
@@ -1818,7 +1818,7 @@ export default function Reports() {
                     </BarChart>
                   </ResponsiveContainer>
 
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
                     {salaryData.map((s) => (
                       <div key={s.salary_range} className="border rounded-xl p-4 text-center">
                         <p className="text-2xl font-bold text-[#1b2a4a]">{s.count}</p>

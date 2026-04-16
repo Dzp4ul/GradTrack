@@ -35,7 +35,7 @@ function SignIn() {
   };
 
   return (
-    <div className="flex min-h-screen">
+    <div className="flex min-h-screen overflow-x-hidden">
       {/* Left Side - Fixed Branding */}
       <div className="hidden md:flex md:w-1/2 bg-cover bg-center fixed top-0 left-0 h-screen items-center justify-center" style={{ backgroundImage: 'url(/520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
         <div className="absolute inset-0 bg-gradient-to-br from-blue-900/85 via-blue-800/85 to-blue-900/85"></div>
@@ -51,7 +51,7 @@ function SignIn() {
       </div>
 
       {/* Right Side - Sign In Form */}
-      <div className="w-full md:w-1/2 md:ml-[50%] min-h-screen bg-gray-50 flex items-center justify-center p-8">
+      <div className="w-full md:w-1/2 md:ml-[50%] min-h-screen bg-gray-50 flex items-center justify-center p-4 sm:p-8">
         <div className="w-full max-w-lg">
           <div className="md:hidden mb-8 text-center">
             <img
@@ -68,7 +68,7 @@ function SignIn() {
               className="h-20 object-contain"
             />
           </div>
-          <h1 className="text-3xl font-bold text-blue-900 text-center mb-2">Sign In</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold text-blue-900 text-center mb-2">Sign In</h1>
           <p className="text-gray-500 text-center mb-8">Welcome back.</p>
 
           {error && (
