@@ -1,11 +1,6 @@
-const isLocalViteDev =
-  import.meta.env.DEV
-  && typeof window !== 'undefined'
-  && ['5173', '5174', '5175', '5176'].includes(window.location.port);
+const DEFAULT_API_BASE_URL = 'http://localhost/GradTrack/backend';
 
-const rawApiBaseUrl = isLocalViteDev
-  ? 'http://localhost:8000'
-  : import.meta.env.VITE_API_BASE_URL || 'http://localhost/GradTrack/backend';
+const rawApiBaseUrl = import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL;
 
 export const API_BASE_URL = rawApiBaseUrl.replace(/\/+$/, '');
 export const API_ROOT = `${API_BASE_URL}/api`;

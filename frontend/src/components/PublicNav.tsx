@@ -41,12 +41,6 @@ export default function PublicNav({ active, featureHref = '/#why-gradtrack' }: P
               FAQ
             </Link>
             <Link
-              to="/survey"
-              className="rounded-lg bg-yellow-500 px-5 py-2.5 font-semibold text-blue-900 shadow-md transition hover:bg-yellow-600"
-            >
-              Take Survey
-            </Link>
-            <Link
               to="/graduate/signin"
               className="rounded-lg bg-white px-5 py-2.5 font-semibold text-blue-900 shadow-md transition hover:bg-gray-100"
             >
@@ -76,13 +70,6 @@ export default function PublicNav({ active, featureHref = '/#why-gradtrack' }: P
               </a>
               <Link to="/faq" onClick={() => setOpen(false)} className={navLinkClass(active === 'faq')}>
                 FAQ
-              </Link>
-              <Link
-                to="/survey"
-                onClick={() => setOpen(false)}
-                className="rounded-lg bg-yellow-500 px-4 py-3 text-center font-semibold text-blue-900 transition hover:bg-yellow-600"
-              >
-                Take Survey
               </Link>
               <Link
                 to="/graduate/signin"
