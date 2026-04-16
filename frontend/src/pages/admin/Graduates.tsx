@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Search, Plus, Edit2, Trash2, X, ChevronLeft, ChevronRight, Upload, Download,
+  Search, Plus, Edit2, Trash2, X, ChevronLeft, ChevronRight, Download,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import MessageBox from '../../components/MessageBox';
@@ -157,7 +157,6 @@ export default function Graduates() {
   const [formData, setFormData] = useState<FormData>(emptyForm);
   const [isEditing, setIsEditing] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [msgBox, setMsgBox] = useState<{ isOpen: boolean; type: MessageType; message: string; onConfirm?: () => void }>({ isOpen: false, type: 'success', message: '' });
 
@@ -302,90 +301,6 @@ export default function Graduates() {
     });
   };
 
-  const fetchAllGraduates = async () => {
-    const rows: Graduate[] = [];
-    let currentPage = 1;
-    let pages = 1;
-
-    while (currentPage <= pages) {
-      const params = buildQueryParams(currentPage, 200);
-      const response = await fetch(`${API_BASE}/graduates/index.php?${params}`, {
-        credentials: 'include',
-      });
-      const res = await response.json();
-
-      if (!response.ok || !res.success) {
-        throw new Error(res.error || 'Unable to fetch graduates for export');
-      }
-
-      rows.push(...res.data);
-      pages = res.pagination.pages;
-      currentPage += 1;
-    }
-
-    return rows;
-  };
-
-  const handleExportExcel = async () => {
-    setIsExporting(true);
-
-    try {
-      const exportRows = await fetchAllGraduates();
-      const sheetData = exportRows.map((g) => ({
-        'Student ID': g.student_id || '',
-        'First Name': g.first_name || '',
-        'Last Name': g.last_name || '',
-        Email: g.email || '',
-        Phone: g.phone || '',
-        'Program ID': g.program_id || '',
-        'Program Code': g.program_code || '',
-        'Year Graduated': g.year_graduated || '',
-        Address: g.address || '',
-        'Employment Status': g.employment_status || '',
-        'Course Alignment': g.is_aligned || '',
-        'Company Name': g.company_name || '',
-        'Job Title': g.job_title || '',
-      }));
-
-      const worksheet = XLSX.utils.json_to_sheet(sheetData, {
-        header: [
-          'Student ID',
-          'First Name',
-          'Last Name',
-          'Email',
-          'Phone',
-          'Program ID',
-          'Program Code',
-          'Year Graduated',
-          'Address',
-          'Employment Status',
-          'Course Alignment',
-          'Company Name',
-          'Job Title',
-        ],
-      });
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Graduates');
-
-      const dateStamp = new Date().toISOString().slice(0, 10);
-      XLSX.writeFile(workbook, `graduates-${dateStamp}.xlsx`);
-
-      setMsgBox({
-        isOpen: true,
-        type: 'success',
-        message: `Exported ${exportRows.length} graduate record(s) to Excel.`,
-      });
-    } catch (error) {
-      setMsgBox({
-        isOpen: true,
-        type: 'error',
-        message: error instanceof Error ? error.message : 'Excel export failed',
-      });
-    } finally {
-      setIsExporting(false);
-    }
-  };
-
   const handleImportClick = () => {
     fileInputRef.current?.click();
   };
@@ -485,15 +400,6 @@ export default function Graduates() {
           >
             <Download className="w-4 h-4" />
             {isImporting ? 'Importing...' : 'Import Excel'}
-          </button>
-
-          <button
-            onClick={handleExportExcel}
-            disabled={isExporting}
-            className="flex w-full items-center justify-center gap-2 border border-emerald-200 text-emerald-700 px-4 py-2.5 rounded-lg hover:bg-emerald-50 transition-colors text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed sm:w-auto"
-          >
-            <Upload className="w-4 h-4" />
-            {isExporting ? 'Exporting...' : 'Export Excel'}
           </button>
 
           <button

@@ -953,9 +953,9 @@ function Survey() {
       <div className="flex min-w-max items-start justify-between gap-2 px-1 sm:min-w-0 sm:gap-0">
         {allSections.map((section, i) => (
           <div key={i} className="relative flex w-24 flex-col items-center sm:flex-1">
-            <button
-              onClick={() => setCurrentSection(i)}
-              className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm transition z-10 ${
+            <div
+              aria-current={i === currentSection ? 'step' : undefined}
+              className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm select-none z-10 ${
                 i < currentSection
                   ? 'bg-green-500 text-white'
                   : i === currentSection
@@ -964,7 +964,7 @@ function Survey() {
               }`}
             >
               {i < currentSection ? '✓' : i + 1}
-            </button>
+            </div>
             <span className={`text-xs mt-2 font-medium text-center max-w-[100px] truncate ${i === currentSection ? 'text-yellow-400' : 'text-blue-200'}`} title={section}>
               {section}
             </span>
