@@ -9,6 +9,7 @@ import SurveyVerification from './pages/SurveyVerification';
 import GraduateSignIn from './pages/GraduateSignIn';
 import GraduatePortal from './pages/GraduatePortal';
 import AdminLayout from './pages/admin/AdminLayout';
+import AdminProfile from './pages/admin/AdminProfile';
 import Dashboard from './pages/admin/Dashboard';
 import Graduates from './pages/admin/Graduates';
 import GraduateParticipation from './pages/admin/GraduateParticipation';
@@ -94,6 +95,7 @@ function App() {
             }
           >
             <Route index element={<AdminHome />} />
+            <Route path="profile" element={<AdminProfile />} />
             <Route
               path="graduates"
               element={

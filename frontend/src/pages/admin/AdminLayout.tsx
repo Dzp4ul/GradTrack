@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -14,6 +14,7 @@ import {
   LogOut,
   ChevronDown,
   DatabaseBackup,
+  User,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
@@ -48,11 +49,32 @@ const deanNavItems: NavItem[] = [
   { to: '/admin/job-approvals', icon: Briefcase, label: 'Job Approval' },
 ];
 
+const roleLabels: Record<string, string> = {
+  super_admin: 'Super Admin',
+  admin: 'Admin',
+  registrar: 'Registrar',
+  dean_cs: 'Dean - CS',
+  dean_coed: 'Dean - COED',
+  dean_hm: 'Dean - HM',
+};
+
+function getInitials(name?: string, fallback?: string) {
+  const source = (name || fallback || 'User').trim();
+  const parts = source.split(/\s+/).filter(Boolean);
+
+  if (parts.length >= 2) {
+    return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
+  }
+
+  return source.slice(0, 2).toUpperCase();
+}
+
 export default function AdminLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(() =>
     typeof window === 'undefined' ? true : window.innerWidth >= 1024
   );
   const [profileOpen, setProfileOpen] = useState(false);
+  const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const [msgBox, setMsgBox] = useState<{
@@ -71,6 +93,23 @@ export default function AdminLayout() {
       : ['dean_cs', 'dean_coed', 'dean_hm'].includes(user?.role || '')
         ? deanNavItems
         : adminNavItems;
+  const userInitials = useMemo(
+    () => getInitials(user?.full_name, user?.username || user?.email),
+    [user?.email, user?.full_name, user?.username]
+  );
+  const userRoleLabel = user?.role ? roleLabels[user.role] || user.role : 'User';
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (!profileMenuRef.current) return;
+      if (!profileMenuRef.current.contains(event.target as Node)) {
+        setProfileOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const handleLogout = () => {
     setMsgBox({
@@ -84,6 +123,11 @@ export default function AdminLayout() {
         navigate('/signin');
       }
     });
+  };
+
+  const openProfile = () => {
+    setProfileOpen(false);
+    navigate('/admin/profile');
   };
 
   return (
@@ -165,23 +209,46 @@ export default function AdminLayout() {
               </button>
 
               {/* Profile dropdown */}
-              <div className="relative">
+              <div className="relative" ref={profileMenuRef}>
                 <button
                   onClick={() => setProfileOpen(!profileOpen)}
-                  className="flex items-center gap-2 p-2 rounded-lg hover:bg-gray-100 transition-colors"
+                  className="flex items-center gap-2 rounded-lg p-2 text-left hover:bg-gray-100 transition-colors sm:min-w-[210px]"
+                  aria-haspopup="menu"
+                  aria-expanded={profileOpen}
                 >
                   <div className="w-8 h-8 rounded-full bg-blue-900 flex items-center justify-center">
-                    <span className="text-white text-sm font-semibold">A</span>
+                    <span className="text-white text-sm font-semibold">{userInitials}</span>
                   </div>
-                  <ChevronDown className="w-4 h-4 text-gray-500" />
+                  <div className="hidden min-w-0 flex-1 leading-tight sm:block">
+                    <p className="truncate text-sm font-semibold text-gray-800">{user?.full_name || 'User'}</p>
+                    <p className="truncate text-xs text-gray-500">{userRoleLabel}</p>
+                  </div>
+                  <ChevronDown className={`w-4 h-4 text-gray-500 transition-transform ${profileOpen ? 'rotate-180' : ''}`} />
                 </button>
 
                 {profileOpen && (
                   <div className="absolute right-0 mt-2 w-72 max-w-[calc(100vw-2rem)] bg-white rounded-lg shadow-lg border py-2 z-50 sm:w-80">
-                    <div className="px-4 py-2 border-b">
-                      <p className="text-sm font-semibold text-gray-800">{user?.full_name || 'User'}</p>
-                      <p className="text-xs text-gray-500">{user?.email}</p>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={openProfile}
+                      className="flex w-full items-center gap-3 border-b px-4 py-3 text-left transition-colors hover:bg-gray-50"
+                    >
+                      <div className="w-10 h-10 rounded-full bg-blue-900 flex items-center justify-center">
+                        <span className="text-white text-sm font-semibold">{userInitials}</span>
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-gray-800">{user?.full_name || 'User'}</p>
+                        <p className="truncate text-xs text-gray-500">{user?.email || 'No email available'}</p>
+                        <p className="text-xs text-gray-500">{userRoleLabel}</p>
+                      </div>
+                    </button>
+                    <button
+                      onClick={openProfile}
+                      className="w-full flex items-center gap-2 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                    >
+                      <User className="w-4 h-4" />
+                      My Profile
+                    </button>
                     <button
                       onClick={handleLogout}
                       className="w-full flex items-center gap-2 px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"

@@ -10,6 +10,7 @@ export const API_ENDPOINTS = {
     LOGIN: `${API_ROOT}/auth/login.php`,
     LOGOUT: `${API_ROOT}/auth/logout.php`,
     CHECK: `${API_ROOT}/auth/check.php`,
+    PROFILE: `${API_ROOT}/auth/profile.php`,
   },
   GRADUATE_AUTH: {
     LOGIN: `${API_ROOT}/graduate-auth/login.php`,
