@@ -8,7 +8,6 @@ import {
   ClipboardList,
   BarChart3,
   Users,
-  Settings,
   Menu,
   X,
   Bell,
@@ -36,7 +35,6 @@ const adminNavItems: NavItem[] = [
 
 const superAdminNavItems: NavItem[] = [
   { to: '/admin/user-management', icon: Users, label: 'User Management' },
-  { to: '/admin/settings', icon: Settings, label: 'System Settings' },
   { to: '/admin/backup-database', icon: DatabaseBackup, label: 'Backup Database' },
 ];
 
