@@ -10,19 +10,19 @@ const faqs: { category: string; items: { q: string; a: string }[] }[] = [
     items: [
       {
         q: 'What is GradTrack?',
-        a: 'GradTrack is Norzagaray College\'s official graduate tracer and survey management system. It allows the college to send tracer surveys to graduates and receive clear employment outcome data in one place. The system helps the institution measure program effectiveness and support accreditation reporting.\n\nSurveys can be customized per program or batch, and graduates can complete them online at any time — no paper forms or manual encoding required.',
+        a: 'GradTrack is Norzagaray College\'s graduate tracer and alumni engagement system. It helps the college collect verified tracer survey responses, organize graduate records, generate outcome reports, and support graduates through mentorship and job opportunities.\n\nThe system keeps survey data, graduate profiles, analytics, reports, mentor profiles, and job posts in one connected platform.',
       },
       {
         q: 'Who can use GradTrack?',
-        a: 'GradTrack is used by three groups: Graduates (to complete tracer surveys and submit employment information), Administrators such as the Registrar and Super Admin (to manage graduates, create surveys, and view reports), and Deans (to monitor survey completion and graduate outcomes for their specific college and programs).',
+        a: 'Norzagaray College graduates can use GradTrack to answer tracer surveys, create a Graduate Portal account, update their profile, find mentors, request mentorship, and browse job opportunities.\n\nAuthorized college personnel use GradTrack to manage surveys, monitor graduate participation, review mentor and job submissions, and generate reports for planning and accreditation needs.',
       },
       {
-        q: 'Is GradTrack the same as a regular survey tool like Google Forms?',
-        a: 'No. Unlike generic survey tools, GradTrack is purpose-built for graduate tracer studies. It automatically links survey responses to graduate profiles, tracks course-to-career alignment, and generates employment reports per program — features that general survey tools do not provide.',
+        q: 'Do graduates need an account before taking the survey?',
+        a: 'No. Graduates can start by clicking "Take Survey" and verifying their identity using their student number or email. After submitting the survey, they can create a GradTrack account to access the Graduate Portal.',
       },
       {
-        q: 'How user-friendly is GradTrack for graduates and administrators?',
-        a: 'GradTrack is designed to be simple for both sides. Graduates only need to access the survey link from the homepage and fill out the form — no account creation required. Administrators have a dedicated dashboard with clear navigation for managing graduates, surveys, and reports.',
+        q: 'Is GradTrack the same as a regular survey tool?',
+        a: 'No. GradTrack is built specifically for graduate tracer activities. It verifies graduates before they answer, connects responses to graduate records, tracks completion, analyzes employment and course-career alignment, and extends the survey into a Graduate Portal for mentorship and job opportunities.',
       },
     ],
   },
@@ -31,15 +31,40 @@ const faqs: { category: string; items: { q: string; a: string }[] }[] = [
     items: [
       {
         q: 'How does a graduate complete a tracer survey?',
-        a: 'Graduates visit the GradTrack homepage and click "Take Survey." They fill out the survey form which includes questions about their employment status, job title, company, industry, and how their job relates to their degree program. Once submitted, the response is saved and linked to their graduate profile.',
+        a: 'Graduates click "Take Survey" on the homepage, verify their identity, and answer the active tracer survey online. The survey may include profile details, educational background, trainings, employment status, job details, salary range, course relevance, and feedback.',
       },
       {
         q: 'Can a graduate submit the survey more than once?',
-        a: 'Each survey is designed to be completed once per graduate per survey period. The system tracks which graduates have already responded to prevent duplicate submissions.',
+        a: 'Each active survey is designed to be submitted once per verified graduate. GradTrack checks the graduate record and survey response status to help prevent duplicate submissions.',
       },
       {
-        q: 'What types of questions are in the tracer survey?',
-        a: 'The tracer survey includes various question types such as text fields, multiple choice, radio buttons, dropdowns, and date fields. Admins can customize the survey questions to gather the specific information the college needs.',
+        q: 'What happens after the survey is submitted?',
+        a: 'The response is saved and linked to the verified graduate record. GradTrack then offers the graduate the option to create an account using the information already provided, so they can continue into the Graduate Portal.',
+      },
+      {
+        q: 'Can survey questions be customized?',
+        a: 'Yes. The survey can include sections and different question types such as text, multiple choice, radio buttons, checkboxes, and date fields. Saved survey responses can also be reviewed through analytics and reports.',
+      },
+    ],
+  },
+  {
+    category: 'Graduate Portal',
+    items: [
+      {
+        q: 'What can graduates do in the Graduate Portal?',
+        a: 'Graduates can update their profile, browse approved mentors, send mentorship requests when eligible, browse approved job opportunities, and manage their own mentor profile or job posts if they meet the requirements.',
+      },
+      {
+        q: 'Why are some portal features locked?',
+        a: 'GradTrack unlocks some features based on survey information. Job posting is available to graduates marked as employed. Mentor profile creation requires employed status and course-career alignment. Mentorship requests are available for graduates marked as not employed.',
+      },
+      {
+        q: 'How do mentor profiles and job posts appear in the portal?',
+        a: 'Graduates can submit mentor profiles or job posts from the portal. New or updated submissions are reviewed first, and only approved active items appear in Find Mentors or Browse Jobs.',
+      },
+      {
+        q: 'Can graduates leave feedback after mentorship?',
+        a: 'Yes. Mentorship requests can be accepted, scheduled, completed, or cancelled. Graduates can leave mentor feedback, and mentors can also submit session remarks after a mentorship activity.',
       },
     ],
   },
@@ -47,16 +72,16 @@ const faqs: { category: string; items: { q: string; a: string }[] }[] = [
     category: 'Data & Reports',
     items: [
       {
-        q: 'What kind of reports can administrators generate?',
-        a: 'Administrators can generate reports on graduate employment rates, industry distribution, course-to-career alignment percentages, and survey response rates — all filterable by program, batch year, or college.',
+        q: 'What reports can GradTrack generate?',
+        a: 'GradTrack can produce reports for survey participation, response rates, employment status, program and year trends, salary distribution, and course-career alignment. Reports can support academic planning, accreditation, and graduate outcome review.',
       },
       {
         q: 'What is course-career alignment?',
-        a: 'Course-career alignment measures whether a graduate\'s current job is related to the degree program they completed at Norzagaray College. GradTrack automatically analyzes this based on the graduate\'s submitted job information and their enrolled program.',
+        a: 'Course-career alignment checks whether a graduate\'s work is related to the program they completed. This helps the college understand how well academic programs connect to actual career paths.',
       },
       {
-        q: 'Is graduate data kept private and secure?',
-        a: 'Yes. Graduate data is only accessible to authorized users based on their role. Deans can only view data for their own college, Registrars manage graduate records, and Super Admins have full system access. Graduates\' personal information is not publicly visible.',
+        q: 'Is graduate data kept private?',
+        a: 'Yes. Graduate records and survey responses are used for official Norzagaray College tracer, reporting, and alumni engagement purposes. Personal information is not publicly visible, and portal items such as mentor profiles or job posts appear only after review and approval.',
       },
     ],
   },

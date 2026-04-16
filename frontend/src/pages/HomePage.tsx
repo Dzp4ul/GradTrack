@@ -148,7 +148,7 @@ function HomePage() {
             <div className="text-center mb-10 sm:mb-16">
               <h2 className="text-3xl sm:text-4xl font-bold text-blue-900 mb-4">How It Works</h2>
               <p className="text-base sm:text-xl text-gray-600 max-w-3xl mx-auto">
-                GradTrack connects graduates and college administrators through a simple, structured process — from survey creation to data-driven decision making.
+                GradTrack starts with verified tracer survey responses, then connects graduates to mentorship, job opportunities, and outcome reports in one system.
               </p>
             </div>
 
@@ -161,9 +161,9 @@ function HomePage() {
                     </svg>
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold text-blue-900 mb-2">Admin Creates a Survey</h3>
+                    <h3 className="text-xl font-bold text-blue-900 mb-2">Graduate Verifies Identity</h3>
                     <p className="text-gray-600">
-                      The Registrar or Super Admin builds a tracer survey with custom questions — text, multiple choice, radio, date, and more.
+                      Graduates confirm their record using their student number or email before accessing the active tracer survey.
                     </p>
                   </div>
                 </div>
@@ -175,9 +175,9 @@ function HomePage() {
                     </svg>
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold text-blue-900 mb-2">Graduate Fills Out the Survey</h3>
+                    <h3 className="text-xl font-bold text-blue-900 mb-2">Graduate Completes the Survey</h3>
                     <p className="text-gray-600">
-                      Graduates access the survey from the home page, answer questions about their employment status, job title, company, and industry.
+                      The survey collects graduate profile, education, employment, training, career alignment, and feedback information online.
                     </p>
                   </div>
                 </div>
@@ -189,9 +189,9 @@ function HomePage() {
                     </svg>
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold text-blue-900 mb-2">System Analyzes Responses</h3>
+                    <h3 className="text-xl font-bold text-blue-900 mb-2">Account Opens the Portal</h3>
                     <p className="text-gray-600">
-                      GradTrack automatically checks course-to-career alignment and aggregates employment data into charts and reports for each department.
+                      After submitting the survey, graduates can create a GradTrack account to browse mentors, request guidance, and view job opportunities.
                     </p>
                   </div>
                 </div>
@@ -203,9 +203,9 @@ function HomePage() {
                     </svg>
                   </div>
                   <div>
-                    <h3 className="text-xl font-bold text-blue-900 mb-2">Deans & Admins Act on Data</h3>
+                    <h3 className="text-xl font-bold text-blue-900 mb-2">College Reviews the Results</h3>
                     <p className="text-gray-600">
-                      Deans review survey status and outcomes for their college. Admins post announcements and use insights to improve academic programs.
+                      GradTrack turns responses into analytics, reports, and approval queues for mentor profiles and job posts before they appear in the portal.
                     </p>
                   </div>
                 </div>
