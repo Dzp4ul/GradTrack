@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/alumni_rating.php';
+require_once __DIR__ . '/../config/engagement_approval.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -43,6 +44,8 @@ function gradtrack_ensure_mentor_schema(PDO $db): void
     if (!gradtrack_column_info($db, 'mentors', 'mentor_type')) {
         $db->exec("ALTER TABLE mentors ADD COLUMN mentor_type VARCHAR(120) NULL AFTER job_alignment");
     }
+
+    gradtrack_ensure_engagement_approval_schema($db);
 }
 
 try {
@@ -84,6 +87,7 @@ try {
         $sql = "SELECT m.id, m.current_job_title, m.company, m.industry, m.skills, m.bio,
                        m.job_alignment, m.mentor_type,
                        m.availability_status, m.preferred_topics, m.created_at,
+                       m.approval_status, m.approval_reviewed_at, m.approval_notes,
                        g.id AS graduate_id, g.first_name, g.middle_name, g.last_name, g.year_graduated,
                        ga.email AS contact_email,
                        gpi.file_path AS profile_image_path,
@@ -97,7 +101,8 @@ try {
                 LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
                 LEFT JOIN mentorship_requests mr ON mr.mentor_id = m.id
                 LEFT JOIN mentorship_feedback mf ON mf.mentorship_request_id = mr.id
-                WHERE m.is_active = 1";
+                WHERE m.is_active = 1
+                  AND m.approval_status = 'approved'";
 
         $params = [];
 
@@ -216,7 +221,11 @@ try {
                                 bio = :bio,
                                 availability_status = :availability_status,
                                 preferred_topics = :preferred_topics,
-                                is_active = :is_active
+                                is_active = :is_active,
+                                approval_status = 'pending',
+                                approval_reviewed_by = NULL,
+                                approval_reviewed_at = NULL,
+                                approval_notes = NULL
                             WHERE id = :id";
             $updateStmt = $db->prepare($updateQuery);
             $updateStmt->bindParam(':id', $mentorId);
@@ -233,9 +242,9 @@ try {
             $updateStmt->execute();
         } else {
             $insertQuery = "INSERT INTO mentors
-                            (graduate_account_id, graduate_id, current_job_title, company, industry, job_alignment, mentor_type, skills, bio, availability_status, preferred_topics, is_active)
+                            (graduate_account_id, graduate_id, current_job_title, company, industry, job_alignment, mentor_type, skills, bio, availability_status, preferred_topics, is_active, approval_status)
                             VALUES
-                            (:account_id, :graduate_id, :current_job_title, :company, :industry, :job_alignment, :mentor_type, :skills, :bio, :availability_status, :preferred_topics, :is_active)";
+                            (:account_id, :graduate_id, :current_job_title, :company, :industry, :job_alignment, :mentor_type, :skills, :bio, :availability_status, :preferred_topics, :is_active, 'pending')";
             $insertStmt = $db->prepare($insertQuery);
             $insertStmt->bindParam(':account_id', $user['account_id']);
             $insertStmt->bindParam(':graduate_id', $user['graduate_id']);
@@ -255,8 +264,9 @@ try {
 
         echo json_encode([
             'success' => true,
-            'message' => 'Mentor profile saved successfully',
-            'mentor_id' => $mentorId
+            'message' => 'Mentor profile submitted for approval',
+            'mentor_id' => $mentorId,
+            'approval_status' => 'pending'
         ]);
         exit;
     }

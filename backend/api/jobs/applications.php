@@ -2,9 +2,11 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
+require_once __DIR__ . '/../config/engagement_approval.php';
 
 $database = new Database();
 $db = $database->getConnection();
+gradtrack_ensure_engagement_approval_schema($db);
 $method = $_SERVER['REQUEST_METHOD'];
 
 try {
@@ -58,7 +60,7 @@ try {
             exit;
         }
 
-        $jobStmt = $db->prepare('SELECT posted_by_account_id, is_active FROM job_posts WHERE id = :id');
+        $jobStmt = $db->prepare('SELECT posted_by_account_id, is_active, approval_status FROM job_posts WHERE id = :id');
         $jobStmt->bindParam(':id', $jobPostId);
         $jobStmt->execute();
         $job = $jobStmt->fetch(PDO::FETCH_ASSOC);
@@ -72,6 +74,12 @@ try {
         if ((int) $job['is_active'] !== 1) {
             http_response_code(400);
             echo json_encode(['success' => false, 'error' => 'This job post is not active']);
+            exit;
+        }
+
+        if (($job['approval_status'] ?? '') !== 'approved') {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'This job post is not yet approved']);
             exit;
         }
 

@@ -34,6 +34,7 @@ export const API_ENDPOINTS = {
   GRADUATE_SURVEY_STATUS: `${API_ROOT}/graduates/survey-status.php`,
   GRADUATE_NOTIFY: `${API_ROOT}/graduates/notify.php`,
   DEAN_SURVEY_STATUS: `${API_ROOT}/dean/survey-status.php`,
+  ENGAGEMENT_APPROVALS: `${API_ROOT}/moderation/approvals.php`,
   MENTORSHIP: {
     MENTORS: `${API_ROOT}/mentorship/mentors.php`,
     REQUESTS: `${API_ROOT}/mentorship/requests.php`,

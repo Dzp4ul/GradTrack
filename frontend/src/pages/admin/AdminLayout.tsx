@@ -3,6 +3,7 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   GraduationCap,
+  Briefcase,
   ClipboardCheck,
   ClipboardList,
   BarChart3,
@@ -29,6 +30,8 @@ type NavItem = {
 const adminNavItems: NavItem[] = [
   { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true },
   { to: '/admin/graduates', icon: GraduationCap, label: 'Graduates' },
+  { to: '/admin/mentor-approvals', icon: Users, label: 'Mentor Approval' },
+  { to: '/admin/job-approvals', icon: Briefcase, label: 'Job Approval' },
   { to: '/admin/surveys', icon: ClipboardList, label: 'Survey Management' },
   { to: '/admin/reports', icon: BarChart3, label: 'Reports & Analytics' },
 ];
@@ -45,6 +48,8 @@ const registrarNavItems: NavItem[] = [
 
 const deanNavItems: NavItem[] = [
   { to: '/admin/survey-status', icon: ClipboardCheck, label: 'Survey Participation' },
+  { to: '/admin/mentor-approvals', icon: Users, label: 'Mentor Approval' },
+  { to: '/admin/job-approvals', icon: Briefcase, label: 'Job Approval' },
 ];
 
 export default function AdminLayout() {

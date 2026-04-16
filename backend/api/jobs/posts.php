@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/alumni_rating.php';
+require_once __DIR__ . '/../config/engagement_approval.php';
 
 function gradtrack_jobs_request_data(): array
 {
@@ -264,6 +265,7 @@ function gradtrack_jobs_require_application_contact(?string $contactEmail, ?stri
 $database = new Database();
 $db = $database->getConnection();
 gradtrack_jobs_ensure_schema($db);
+gradtrack_ensure_engagement_approval_schema($db);
 $method = $_SERVER['REQUEST_METHOD'];
 
 if ($method === 'POST' && isset($_POST['_method']) && strtoupper((string) $_POST['_method']) === 'PUT') {
@@ -294,6 +296,14 @@ try {
                 exit;
             }
 
+            $currentUser = gradtrack_current_graduate_user($db);
+            $isOwner = $currentUser && (int) $job['posted_by_account_id'] === (int) $currentUser['account_id'];
+            if (($job['approval_status'] ?? 'approved') !== 'approved' && !$isOwner) {
+                http_response_code(404);
+                echo json_encode(['success' => false, 'error' => 'Job not found']);
+                exit;
+            }
+
             $job['id'] = (int) $job['id'];
             $job['posted_by_account_id'] = (int) $job['posted_by_account_id'];
             $job['is_active'] = (int) $job['is_active'];
@@ -318,7 +328,7 @@ try {
         $sql = "SELECT jp.id, jp.title, jp.company, jp.location, jp.salary_range, jp.job_type, jp.industry,
                        jp.description, jp.required_skills, jp.course_program_fit,
                        jp.application_deadline, jp.contact_email, jp.application_link, jp.application_method,
-                       jp.is_active, jp.created_at,
+                       jp.is_active, jp.approval_status, jp.approval_reviewed_at, jp.approval_notes, jp.created_at,
                        g.first_name, g.last_name,
                        p.name AS poster_program_name, p.code AS poster_program_code
                 FROM job_posts jp
@@ -331,6 +341,10 @@ try {
 
         if ($activeOnly) {
             $sql .= ' AND jp.is_active = 1';
+        }
+
+        if (!$mineOnly) {
+            $sql .= " AND jp.approval_status = 'approved'";
         }
 
         if ($mineOnly && $currentUser) {
@@ -425,9 +439,9 @@ try {
         }
 
         $insertQuery = "INSERT INTO job_posts
-                        (posted_by_account_id, title, company, location, salary_range, job_type, industry, description, qualifications, required_skills, course_program_fit, application_deadline, contact_email, application_link, application_method)
+                        (posted_by_account_id, title, company, location, salary_range, job_type, industry, description, qualifications, required_skills, course_program_fit, application_deadline, contact_email, application_link, application_method, approval_status)
                         VALUES
-                        (:posted_by_account_id, :title, :company, :location, :salary_range, :job_type, :industry, :description, :qualifications, :required_skills, :course_program_fit, :application_deadline, :contact_email, :application_link, :application_method)";
+                        (:posted_by_account_id, :title, :company, :location, :salary_range, :job_type, :industry, :description, :qualifications, :required_skills, :course_program_fit, :application_deadline, :contact_email, :application_link, :application_method, 'pending')";
 
         $stmt = $db->prepare($insertQuery);
         $stmt->bindParam(':posted_by_account_id', $user['account_id']);
@@ -457,8 +471,9 @@ try {
 
         echo json_encode([
             'success' => true,
-            'message' => 'Job post created successfully',
-            'id' => $newJobId
+            'message' => 'Job post submitted for approval',
+            'id' => $newJobId,
+            'approval_status' => 'pending'
         ]);
         exit;
     }
@@ -539,7 +554,11 @@ try {
                             contact_email = :contact_email,
                             application_link = :application_link,
                             application_method = :application_method,
-                            is_active = :is_active
+                            is_active = :is_active,
+                            approval_status = 'pending',
+                            approval_reviewed_by = NULL,
+                            approval_reviewed_at = NULL,
+                            approval_notes = NULL
                         WHERE id = :id";
 
         $updateStmt = $db->prepare($updateQuery);
@@ -572,7 +591,7 @@ try {
             }
         }
 
-        echo json_encode(['success' => true, 'message' => 'Job post updated successfully']);
+        echo json_encode(['success' => true, 'message' => 'Job post submitted for approval', 'approval_status' => 'pending']);
         exit;
     }
 

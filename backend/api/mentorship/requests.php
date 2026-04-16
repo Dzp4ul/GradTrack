@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/alumni_rating.php';
+require_once __DIR__ . '/../config/engagement_approval.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -73,6 +74,7 @@ function gradtrack_ensure_mentorship_request_schema(PDO $db): void
 try {
     $user = gradtrack_require_graduate_auth($db);
     gradtrack_ensure_mentorship_request_schema($db);
+    gradtrack_ensure_engagement_approval_schema($db);
 
     if ($method === 'GET') {
         $type = isset($_GET['type']) ? trim((string) $_GET['type']) : 'outgoing';
@@ -182,14 +184,18 @@ try {
             exit;
         }
 
-        $mentorOwnerStmt = $db->prepare('SELECT graduate_account_id FROM mentors WHERE id = :id AND is_active = 1');
+        $mentorOwnerStmt = $db->prepare("SELECT graduate_account_id
+                                         FROM mentors
+                                         WHERE id = :id
+                                           AND is_active = 1
+                                           AND approval_status = 'approved'");
         $mentorOwnerStmt->bindParam(':id', $mentorId);
         $mentorOwnerStmt->execute();
         $mentor = $mentorOwnerStmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$mentor) {
             http_response_code(404);
-            echo json_encode(['success' => false, 'error' => 'Mentor not found or inactive']);
+            echo json_encode(['success' => false, 'error' => 'Mentor not found, inactive, or not yet approved']);
             exit;
         }
 

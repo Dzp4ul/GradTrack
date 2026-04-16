@@ -21,6 +21,7 @@ import Settings from './pages/admin/Settings';
 import BackupDatabase from './pages/admin/BackupDatabase';
 import DeanSurveyStatus from './pages/admin/DeanSurveyStatus';
 import UserManagement from './pages/admin/UserManagement';
+import EngagementApprovals from './pages/admin/EngagementApprovals';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ProtectedRoute } from './lib/ProtectedRoute';
 import { GraduateAuthProvider } from './contexts/GraduateAuthContext';
@@ -29,6 +30,7 @@ import { GraduateProtectedRoute } from './lib/GraduateProtectedRoute';
 const SUPER_ADMIN_ROLES = ['super_admin'];
 const ADMIN_ROLES = ['admin'];
 const DEAN_ROLES = ['dean_cs', 'dean_coed', 'dean_hm'];
+const APPROVAL_ROLES = [...ADMIN_ROLES, ...DEAN_ROLES];
 
 function AdminHome() {
   const { user } = useAuth();
@@ -106,6 +108,26 @@ function App() {
               element={
                 <ProtectedRoute allowedRoles={DEAN_ROLES}>
                   <DeanSurveyStatus />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="approvals"
+              element={<Navigate to="/admin/mentor-approvals" replace />}
+            />
+            <Route
+              path="mentor-approvals"
+              element={
+                <ProtectedRoute allowedRoles={APPROVAL_ROLES}>
+                  <EngagementApprovals mode="mentor" />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="job-approvals"
+              element={
+                <ProtectedRoute allowedRoles={APPROVAL_ROLES}>
+                  <EngagementApprovals mode="job" />
                 </ProtectedRoute>
               }
             />

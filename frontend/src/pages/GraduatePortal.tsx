@@ -19,6 +19,7 @@ import { useGraduateAuth } from '../contexts/GraduateAuthContext';
 import MessageBox from '../components/MessageBox';
 
 type PortalTab = 'dashboard' | 'mentors' | 'requests' | 'jobs' | 'my_profile' | 'mentor_profile' | 'job_posting';
+type ApprovalStatus = 'pending' | 'approved' | 'declined';
 
 interface Mentor {
   id: number;
@@ -37,6 +38,9 @@ interface Mentor {
   contact_email?: string | null;
   profile_image_path?: string | null;
   availability_status: string | null;
+  approval_status?: ApprovalStatus;
+  approval_reviewed_at?: string | null;
+  approval_notes?: string | null;
   avg_rating: number;
   feedback_count: number;
 }
@@ -93,6 +97,9 @@ interface JobPost {
   application_method?: string | null;
   poster_program_name?: string | null;
   poster_program_code?: string | null;
+  approval_status?: ApprovalStatus;
+  approval_reviewed_at?: string | null;
+  approval_notes?: string | null;
   is_active: number;
 }
 
@@ -335,6 +342,8 @@ export default function GraduatePortal() {
   const [programOptions, setProgramOptions] = useState<ProgramOption[]>([]);
   const [myMentorProfile, setMyMentorProfile] = useState<MentorProfileForm>(defaultMentorProfile);
   const [hasMentorProfile, setHasMentorProfile] = useState(false);
+  const [myMentorApprovalStatus, setMyMentorApprovalStatus] = useState<ApprovalStatus | null>(null);
+  const [myMentorApprovalNotes, setMyMentorApprovalNotes] = useState('');
   const [showMentorProfileForm, setShowMentorProfileForm] = useState(false);
   const [myJobForm, setMyJobForm] = useState<JobForm>(defaultJobForm);
   const [showJobPostForm, setShowJobPostForm] = useState(false);
@@ -413,6 +422,25 @@ export default function GraduatePortal() {
 
   const formatStatus = (status: MentorshipRequest['status']) =>
     status.charAt(0).toUpperCase() + status.slice(1);
+
+  const formatApprovalStatus = (status?: ApprovalStatus | null) => {
+    if (!status) return 'Not submitted';
+    return status.charAt(0).toUpperCase() + status.slice(1);
+  };
+
+  const approvalStatusClass = (status?: ApprovalStatus | null) => {
+    if (status === 'approved') return 'border-green-200 bg-green-50 text-green-700';
+    if (status === 'declined') return 'border-red-200 bg-red-50 text-red-700';
+    if (status === 'pending') return 'border-amber-200 bg-amber-50 text-amber-700';
+    return 'border-gray-200 bg-gray-50 text-gray-600';
+  };
+
+  const approvalStatusMessage = (status?: ApprovalStatus | null, feature = 'item') => {
+    if (status === 'approved') return `This ${feature} is approved and visible when active.`;
+    if (status === 'declined') return `This ${feature} was declined. Update it and submit again for review.`;
+    if (status === 'pending') return `This ${feature} is pending dean or admin approval and is not visible yet.`;
+    return `This ${feature} has not been submitted for approval yet.`;
+  };
 
   const userRoleLabel = useMemo(() => {
     const rawRole = (user?.role || 'graduate') as string;
@@ -498,6 +526,8 @@ export default function GraduatePortal() {
       if (myMentor.data) {
         setHasMentorProfile(true);
         setShowMentorProfileForm(true);
+        setMyMentorApprovalStatus(myMentor.data.approval_status || 'pending');
+        setMyMentorApprovalNotes(myMentor.data.approval_notes || '');
         setMyMentorProfile({
           contact_email: myMentor.data.contact_email || user?.email || '',
           current_job_title: myMentor.data.current_job_title || '',
@@ -511,6 +541,8 @@ export default function GraduatePortal() {
         });
       } else {
         setHasMentorProfile(false);
+        setMyMentorApprovalStatus(null);
+        setMyMentorApprovalNotes('');
         setShowMentorProfileForm(false);
         setMyMentorProfile({ ...defaultMentorProfile, contact_email: user?.email || '' });
       }
@@ -998,8 +1030,10 @@ export default function GraduatePortal() {
         body: JSON.stringify(mentorPayload),
       });
       setHasMentorProfile(true);
+      setMyMentorApprovalStatus('pending');
+      setMyMentorApprovalNotes('');
       setShowMentorProfileForm(true);
-      notify('success', 'Mentor profile saved. You can now appear in mentor search.', 'Mentorship');
+      notify('success', 'Mentor profile submitted for dean or admin approval. It will appear in Find Mentors after approval.', 'Mentorship');
       await fetchAll();
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to save mentor profile');
@@ -1052,13 +1086,13 @@ export default function GraduatePortal() {
           method: 'POST',
           body: formData,
         });
-        notify('success', 'Job post updated successfully.');
+        notify('success', 'Job post submitted for dean or admin approval.');
       } else {
         await authenticatedFetch(API_ENDPOINTS.JOBS.POSTS, {
           method: 'POST',
           body: formData,
         });
-        notify('success', 'Job post published successfully.');
+        notify('success', 'Job post submitted for dean or admin approval.');
       }
 
       closeJobPostForm();
@@ -2057,9 +2091,21 @@ export default function GraduatePortal() {
                         {hasMentorProfile ? 'Update Mentor Profile' : 'Create Mentor Profile'}
                       </h2>
                       <p className="text-sm text-gray-600 mt-1">
-                        Keep your mentor details up to date so graduates can easily contact and request guidance from you.
+                        Keep your mentor details up to date. Approved active profiles appear in Find Mentors.
                       </p>
                     </div>
+
+                    {hasMentorProfile && (
+                      <div className={`rounded-lg border px-3 py-2 text-sm ${approvalStatusClass(myMentorApprovalStatus)}`}>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-semibold">Approval Status: {formatApprovalStatus(myMentorApprovalStatus)}</span>
+                          <span>{approvalStatusMessage(myMentorApprovalStatus, 'mentor profile')}</span>
+                        </div>
+                        {myMentorApprovalNotes && (
+                          <p className="mt-1 whitespace-pre-line text-xs">Review notes: {myMentorApprovalNotes}</p>
+                        )}
+                      </div>
+                    )}
 
                     {!canRegisterMentor && (
                       <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
@@ -2227,7 +2273,7 @@ export default function GraduatePortal() {
                       </div>
 
                       <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-lg font-semibold">
-                        {hasMentorProfile ? 'Update Mentor Profile' : 'Save Mentor Profile'}
+                        {hasMentorProfile ? 'Submit Updated Profile for Approval' : 'Submit Mentor Profile for Approval'}
                       </button>
                     </fieldset>
                   </form>
@@ -2243,7 +2289,7 @@ export default function GraduatePortal() {
                       <div>
                         <h2 className="text-2xl font-bold text-blue-900">Job Posting</h2>
                         <p className="text-sm text-gray-600 mt-1">
-                          Share an opening with eligible graduates when you are ready.
+                          Share an opening with eligible graduates. Approved active posts appear in Browse Jobs.
                         </p>
                       </div>
                       <button
@@ -2270,7 +2316,7 @@ export default function GraduatePortal() {
                     <div>
                       <h2 className="text-2xl font-bold text-blue-900">Post / Update Job Opportunity</h2>
                       <p className="text-sm text-gray-600 mt-1">
-                        Eligible employed graduates can share openings. Applicants use the email, link, or contact details you provide.
+                        Eligible employed graduates can share openings. New and updated posts are reviewed before they appear in Browse Jobs.
                       </p>
                     </div>
                     <span className="text-xs px-3 py-1 rounded-full bg-blue-50 text-blue-700 border border-blue-100">
@@ -2427,11 +2473,11 @@ export default function GraduatePortal() {
                         checked={myJobForm.is_active}
                         onChange={(e) => setMyJobForm((prev) => ({ ...prev, is_active: e.target.checked }))}
                       />
-                      Job is active
+                      Job is active after approval
                     </label>
 
                     <button type="submit" className="w-full bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-lg font-semibold">
-                      {myJobForm.id ? 'Update Job Post' : 'Publish Job Post'}
+                      {myJobForm.id ? 'Submit Updated Job for Approval' : 'Submit Job Post for Approval'}
                     </button>
 
                     {myJobForm.id && (
@@ -2472,14 +2518,25 @@ export default function GraduatePortal() {
                             <p className="font-semibold text-gray-800">{job.title}</p>
                             <p className="text-sm text-gray-600">{job.company}</p>
                           </div>
-                          <button
-                            onClick={() => beginEditJob(job.id)}
-                            disabled={!canPostJobs}
-                            className="text-sm px-3 py-1.5 bg-gray-100 rounded hover:bg-gray-200 disabled:opacity-60 disabled:cursor-not-allowed"
-                          >
-                            Edit
-                          </button>
+                          <div className="flex flex-wrap items-center justify-end gap-2">
+                            <span className={`text-xs px-2 py-1 rounded-full border ${approvalStatusClass(job.approval_status)}`}>
+                              {formatApprovalStatus(job.approval_status)}
+                            </span>
+                            <button
+                              onClick={() => beginEditJob(job.id)}
+                              disabled={!canPostJobs}
+                              className="text-sm px-3 py-1.5 bg-gray-100 rounded hover:bg-gray-200 disabled:opacity-60 disabled:cursor-not-allowed"
+                            >
+                              Edit
+                            </button>
+                          </div>
                         </div>
+                        <p className="text-xs text-gray-500 mt-2">
+                          {approvalStatusMessage(job.approval_status, 'job post')}
+                        </p>
+                        {job.approval_notes && (
+                          <p className="text-xs text-red-600 mt-1 whitespace-pre-line">Review notes: {job.approval_notes}</p>
+                        )}
                         <p className="text-xs text-gray-500 mt-2">
                           {job.location || 'No location'} | {formatEmploymentType(job.job_type)}
                         </p>
