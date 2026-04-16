@@ -48,7 +48,7 @@ function HomePage() {
             <div className="text-center mb-10 sm:mb-16">
               <h2 className="text-3xl sm:text-4xl font-bold text-blue-900 mb-4">About GradTrack</h2>
               <p className="text-base sm:text-xl text-gray-600 max-w-3xl mx-auto">
-                GradTrack is Norzagaray College's official graduate tracking and survey management system — built to monitor alumni outcomes, measure program effectiveness, and strengthen the bond between the college and its graduates.
+                GradTrack is Norzagaray College's official graduate tracking and survey management system built to monitor alumni outcomes, measure program effectiveness, and strengthen the bond between the college and its graduates.
               </p>
             </div>
 
@@ -59,7 +59,7 @@ function HomePage() {
                 </div>
                 <h3 className="text-2xl font-bold text-blue-900 mb-3">For Graduates</h3>
                 <p className="text-gray-600 leading-relaxed">
-                  Complete tracer surveys, submit your employment details, and receive announcements from Norzagaray College — all in one place.
+                  Complete tracer surveys, submit your employment details, and receive announcements from Norzagaray College all in one place.
                 </p>
               </div>
 
@@ -69,7 +69,7 @@ function HomePage() {
                 </div>
                 <h3 className="text-2xl font-bold text-blue-900 mb-3">Institutional Insights</h3>
                 <p className="text-gray-600 leading-relaxed">
-                  Gain a clear picture of graduate outcomes — employment rates, industry distribution, and course-career alignment — to guide program improvements.
+                  Gain a clear picture of graduate outcomes employment rates, industry distribution, and course-career alignment.
                 </p>
               </div>
 
@@ -100,9 +100,9 @@ function HomePage() {
                 <div className="bg-blue-100 p-4 rounded-full mb-5">
                   <BarChart2 className="w-8 h-8 text-blue-700" />
                 </div>
-                <h3 className="text-xl font-bold text-blue-900 mb-2">Real Employment Data</h3>
+                <h3 className="text-xl font-bold text-blue-900 mb-2">Graduate Career Insights</h3>
                 <p className="text-gray-500 text-sm leading-relaxed">
-                  Collect verified employment status, job titles, companies, and industries directly from graduates through structured tracer surveys.
+                  Turn graduate responses into clear insights about employment status, job roles, companies, and industry trends.
                 </p>
               </div>
 
@@ -120,17 +120,16 @@ function HomePage() {
                 <div className="bg-blue-100 p-4 rounded-full mb-5">
                   <ShieldCheck className="w-8 h-8 text-blue-700" />
                 </div>
-                <h3 className="text-xl font-bold text-blue-900 mb-2">Role-Based Access</h3>
+                <h3 className="text-xl font-bold text-blue-900 mb-2">Protected Graduate Records</h3>
                 <p className="text-gray-500 text-sm leading-relaxed">
-                  Super Admins, Registrars, and Deans each have dedicated dashboards ensuring the right people see the right data.
+                  Keep alumni information organized, protected, and ready for reports that support better academic planning.
                 </p>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 sm:gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6">
               {[
                 { value: '4', label: 'Degree Programs Tracked', sub: 'BSCS, ACT, BSED/BEED, BSHM' },
-                { value: '3', label: 'Admin Role Levels', sub: 'Super Admin · Registrar · Dean' },
                 { value: '100%', label: 'Online Survey Process', sub: 'No paper forms needed' },
                 { value: '1', label: 'Centralized Platform', sub: 'Surveys, data & reports in one place' },
               ].map((stat, i) => (
