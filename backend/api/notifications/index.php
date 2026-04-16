@@ -130,7 +130,7 @@ function gradtrack_notifications_add_admin_surveys(PDO $db, array &$notification
         }
     }
 
-    $recentStmt = $db->query("SELECT sr.id, sr.survey_id, sr.submitted_at, s.title AS survey_title,
+    $recentStmt = $db->query("SELECT sr.id, sr.survey_id, sr.graduate_id, sr.submitted_at, s.title AS survey_title,
                                     g.first_name, g.last_name
                              FROM survey_responses sr
                              LEFT JOIN surveys s ON s.id = sr.survey_id
@@ -140,6 +140,13 @@ function gradtrack_notifications_add_admin_surveys(PDO $db, array &$notification
 
     foreach ($recentStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $name = trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? ''));
+        $link = '/admin/surveys/' . $row['survey_id'] . '/responses';
+        if (!empty($row['graduate_id'])) {
+            $link = '/admin/graduates?survey_id=' . (int) $row['survey_id']
+                . '&graduate_id=' . (int) $row['graduate_id']
+                . '&open_answers=1';
+        }
+
         gradtrack_notifications_add(
             $notifications,
             'survey-response:' . $row['id'],
@@ -147,7 +154,7 @@ function gradtrack_notifications_add_admin_surveys(PDO $db, array &$notification
             'New survey response',
             ($name !== '' ? $name : 'A graduate') . ' submitted "' . ($row['survey_title'] ?: 'a survey') . '".',
             $row['submitted_at'],
-            '/admin/surveys/' . $row['survey_id'] . '/responses'
+            $link
         );
     }
 }
@@ -442,6 +449,7 @@ function gradtrack_notifications_current_user(PDO $db, string $audience = ''): a
         }
 
         gradtrack_notifications_json_error(401, 'Graduate authentication required');
+        return [];
     }
 
     if ($audience === 'admin') {
@@ -458,6 +466,7 @@ function gradtrack_notifications_current_user(PDO $db, string $audience = ''): a
         }
 
         gradtrack_notifications_json_error(401, 'Admin authentication required');
+        return [];
     }
 
     if (isset($_SESSION['user_id'])) {
@@ -483,6 +492,7 @@ function gradtrack_notifications_current_user(PDO $db, string $audience = ''): a
     }
 
     gradtrack_notifications_json_error(401, 'Authentication required');
+    return [];
 }
 
 function gradtrack_notifications_generate(PDO $db, array $auth): array

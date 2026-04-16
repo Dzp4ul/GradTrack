@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Search,
   Filter,
@@ -87,6 +88,9 @@ const DEFAULT_EMAIL_MESSAGE =
   'Please complete the Graduate Tracer Study Survey. Your response helps Norzagaray College improve its programs and support graduates with better alumni services.';
 
 export default function GraduateParticipation() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const autoOpenRequestRef = useRef<string>('');
   const [rows, setRows] = useState<GraduateParticipationRow[]>([]);
   const [summary, setSummary] = useState<ParticipationSummary>({ total: 0, answered: 0, not_answered: 0 });
   const [surveys, setSurveys] = useState<SurveyOption[]>([]);
@@ -157,8 +161,12 @@ export default function GraduateParticipation() {
       const surveyOptions = (data.data || []) as SurveyOption[];
       setSurveys(surveyOptions);
 
-      const defaultSurvey = surveyOptions.find((survey) => survey.status === 'active') || surveyOptions[0];
-      if (defaultSurvey) {
+      const surveyIdFromUrl = new URLSearchParams(location.search).get('survey_id');
+      const preferredSurvey = surveyIdFromUrl
+        ? surveyOptions.find((survey) => String(survey.id) === surveyIdFromUrl)
+        : null;
+      const defaultSurvey = preferredSurvey || surveyOptions.find((survey) => survey.status === 'active') || surveyOptions[0];
+      if (defaultSurvey && !selectedSurveyId) {
         setSelectedSurveyId(String(defaultSurvey.id));
       }
     } catch (error) {
@@ -348,21 +356,23 @@ export default function GraduateParticipation() {
     });
   };
 
-  const openAnswerViewer = async (row: GraduateParticipationRow) => {
-    if (!row.has_answered || !selectedSurveyId) return;
+  const openAnswerViewerByIds = useCallback(async (surveyId: string, graduateId: number, rowHint?: GraduateParticipationRow | null) => {
+    if (!surveyId || !Number.isFinite(graduateId) || graduateId <= 0) return;
+
+    const existingRow = rowHint || rows.find((item) => item.id === graduateId) || null;
 
     setAnswerViewer({
       isOpen: true,
       loading: true,
-      row,
+      row: existingRow,
       response: null,
       error: '',
     });
 
     try {
       const params = new URLSearchParams({
-        survey_id: selectedSurveyId,
-        graduate_id: String(row.id),
+        survey_id: surveyId,
+        graduate_id: String(graduateId),
       });
       const response = await fetch(`${API_ENDPOINTS.SURVEY_RESPONSES}?${params.toString()}`, {
         credentials: 'include',
@@ -378,10 +388,26 @@ export default function GraduateParticipation() {
         throw new Error('No submitted answers were found for this graduate.');
       }
 
+      const modalRow = existingRow || {
+        id: graduateId,
+        student_id: surveyResponse.student_id ?? null,
+        first_name: surveyResponse.first_name ?? 'Graduate',
+        middle_name: surveyResponse.middle_name ?? null,
+        last_name: surveyResponse.last_name ?? '',
+        email: surveyResponse.email ?? null,
+        year_graduated: surveyResponse.year_graduated ?? null,
+        program_code: surveyResponse.program_code ?? null,
+        program_name: null,
+        response_count: 1,
+        has_answered: true,
+        has_email: Boolean(surveyResponse.email),
+        last_submitted_at: surveyResponse.submitted_at ?? null,
+      } as GraduateParticipationRow;
+
       setAnswerViewer({
         isOpen: true,
         loading: false,
-        row,
+        row: modalRow,
         response: surveyResponse,
         error: '',
       });
@@ -389,12 +415,52 @@ export default function GraduateParticipation() {
       setAnswerViewer({
         isOpen: true,
         loading: false,
-        row,
+        row: existingRow,
         response: null,
         error: error instanceof Error ? error.message : 'Unable to load survey answers',
       });
     }
+  }, [rows]);
+
+  const openAnswerViewer = async (row: GraduateParticipationRow) => {
+    if (!row.has_answered || !selectedSurveyId) return;
+    await openAnswerViewerByIds(selectedSurveyId, row.id, row);
   };
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const openAnswers = params.get('open_answers');
+    const surveyIdParam = params.get('survey_id');
+    const graduateIdParam = params.get('graduate_id');
+
+    if (!openAnswers || !surveyIdParam || !graduateIdParam) return;
+
+    const graduateId = Number(graduateIdParam);
+    if (!Number.isFinite(graduateId) || graduateId <= 0) return;
+
+    const requestKey = `${surveyIdParam}:${graduateId}`;
+    if (autoOpenRequestRef.current === requestKey) return;
+    autoOpenRequestRef.current = requestKey;
+
+    if (selectedSurveyId !== surveyIdParam) {
+      setSelectedSurveyId(surveyIdParam);
+    }
+    if (statusFilter !== 'answered') {
+      setStatusFilter('answered');
+    }
+
+    void openAnswerViewerByIds(surveyIdParam, graduateId, rows.find((item) => item.id === graduateId) || null);
+
+    params.delete('open_answers');
+    const nextSearch = params.toString();
+    navigate(
+      {
+        pathname: location.pathname,
+        search: nextSearch ? `?${nextSearch}` : '',
+      },
+      { replace: true }
+    );
+  }, [location.pathname, location.search, navigate, openAnswerViewerByIds, rows, selectedSurveyId, statusFilter]);
 
   const closeAnswerViewer = () => {
     setAnswerViewer({
