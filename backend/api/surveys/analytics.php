@@ -132,9 +132,10 @@ try {
         $analytics['employment_insights'] = $employmentAnalytics;
     }
 
-    $programFilter = getSelectedProgramFilter();
-    $analytics['selected_program'] = $programFilter;
-    $analytics['report_tables'] = buildSurveyReportTables($db, (int)$surveyId, $responses, $questions, $questionResponseKeys, $programFilter);
+    $programFilters = getSelectedProgramFilters();
+    $analytics['selected_program'] = !empty($programFilters) ? $programFilters[0] : null;
+    $analytics['selected_programs'] = $programFilters;
+    $analytics['report_tables'] = buildSurveyReportTables($db, (int)$surveyId, $responses, $questions, $questionResponseKeys, $programFilters);
 
     echo json_encode(["success" => true, "data" => $analytics]);
 
@@ -426,18 +427,52 @@ function parseEmploymentAnswer($answer) {
     return null;
 }
 
-function getSelectedProgramFilter() {
+function getSelectedProgramFilters() {
     $value = $_GET['program'] ?? ($_GET['department'] ?? null);
     if (!is_scalar($value)) {
         return null;
     }
 
     $value = strtoupper(trim((string)$value));
-    return $value !== '' && $value !== 'ALL' ? $value : null;
+    if ($value === '' || $value === 'ALL') {
+        return null;
+    }
+
+    $collegeMap = [
+        'COLLEGE OF COMPUTING STUDIES' => ['BSCS', 'ACT'],
+        'CCS' => ['BSCS', 'ACT'],
+        'COLLEGE OF EDUCATION' => ['BSED', 'BEED'],
+        'COE' => ['BSED', 'BEED'],
+        'COLLEGE OF HOTEL AND RESTAURANT MANAGEMENT' => ['BSHM'],
+        'CHRM' => ['BSHM'],
+    ];
+
+    if (isset($collegeMap[$value])) {
+        return $collegeMap[$value];
+    }
+
+    $validPrograms = ['BSCS', 'ACT', 'BSED', 'BEED', 'BSHM'];
+    $parts = array_filter(array_map('trim', explode(',', $value)), function ($part) {
+        return $part !== '';
+    });
+
+    if (empty($parts)) {
+        return null;
+    }
+
+    $programs = [];
+    foreach ($parts as $part) {
+        $programCode = strtoupper($part);
+        if (in_array($programCode, $validPrograms, true) && !in_array($programCode, $programs, true)) {
+            $programs[] = $programCode;
+        }
+    }
+
+    return !empty($programs) ? $programs : null;
 }
 
-function buildSurveyReportTables($db, $surveyId, $responses, $questions, $questionResponseKeys, $programFilter = null) {
-    $programs = $programFilter ? [$programFilter] : ['BSCS', 'ACT'];
+function buildSurveyReportTables($db, $surveyId, $responses, $questions, $questionResponseKeys, $programFilters = null) {
+    $programs = (!empty($programFilters) && is_array($programFilters)) ? $programFilters : ['BSCS', 'ACT'];
     $questionIds = [
         'program' => findSurveyQuestionId($questions, ['degree program']),
         'year' => findSurveyQuestionId($questions, ['year graduated']),

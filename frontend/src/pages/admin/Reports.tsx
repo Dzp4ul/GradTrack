@@ -147,6 +147,24 @@ const DEFAULT_DEPARTMENTS = [
   { code: 'BSHM', name: 'Bachelor of Science in Hospitality Management' },
 ];
 
+const SURVEY_DEPARTMENT_OPTIONS = [
+  {
+    value: 'ccs',
+    label: 'College of Computing Studies',
+    programCodes: ['BSCS', 'ACT'],
+  },
+  {
+    value: 'coe',
+    label: 'College of Education',
+    programCodes: ['BSED', 'BEED'],
+  },
+  {
+    value: 'chrm',
+    label: 'College of Hotel and Restaurant Management',
+    programCodes: ['BSHM'],
+  },
+] as const;
+
 type ExcelRow = Record<string, string | number>;
 
 const normalizeSurveySummary = (survey: SurveySummary): SurveySummary => ({
@@ -197,6 +215,7 @@ export default function Reports() {
   const [loading, setLoading] = useState(true);
   const [selectedYear, setSelectedYear] = useState<string>('all');
   const [selectedDepartment, setSelectedDepartment] = useState<string>('all');
+  const [selectedSurveyDepartment, setSelectedSurveyDepartment] = useState<string>(SURVEY_DEPARTMENT_OPTIONS[0].value);
   const [availableYears, setAvailableYears] = useState<string[]>([]);
   const [availableDepartments, setAvailableDepartments] = useState<Array<{ code: string; name: string }>>([]);
   const [aiAnalysis, setAiAnalysis] = useState<string>('');
@@ -288,7 +307,7 @@ export default function Reports() {
             localStorage.setItem(SELECTED_SURVEY_STORAGE_KEY, NO_SURVEY_SELECTION_VALUE);
           }
           if (loadAnalytics && surveyIdToLoad) {
-            fetchSurveyAnalytics(surveyIdToLoad);
+            fetchSurveyAnalytics(surveyIdToLoad, selectedSurveyDepartment);
           } else if (loadAnalytics) {
             setSurveyAnalytics(null);
           }
@@ -314,12 +333,18 @@ export default function Reports() {
     fetchSurveyItems(true);
   };
 
-  const fetchSurveyAnalytics = (surveyId: number) => {
+  const getSurveyDepartmentOption = (departmentValue: string) => (
+    SURVEY_DEPARTMENT_OPTIONS.find((option) => option.value === departmentValue) ?? SURVEY_DEPARTMENT_OPTIONS[0]
+  );
+
+  const getSurveyProgramFilterParam = (departmentValue: string) => (
+    getSurveyDepartmentOption(departmentValue).programCodes.join(',')
+  );
+
+  const fetchSurveyAnalytics = (surveyId: number, surveyDepartment: string = selectedSurveyDepartment) => {
     setSurveyAnalyticsLoading(true);
     const params = new URLSearchParams({ survey_id: surveyId.toString() });
-    if (selectedDepartment !== 'all') {
-      params.set('program', selectedDepartment);
-    }
+    params.set('program', getSurveyProgramFilterParam(surveyDepartment));
 
     fetch(`${API_BASE}/surveys/analytics.php?${params.toString()}`)
       .then((r) => r.json())
@@ -347,7 +372,7 @@ export default function Reports() {
     localStorage.setItem(SELECTED_SURVEY_STORAGE_KEY, surveyId.toString());
 
     if (tab === 'surveys') {
-      fetchSurveyAnalytics(surveyId);
+      fetchSurveyAnalytics(surveyId, selectedSurveyDepartment);
     }
   };
 
@@ -407,6 +432,12 @@ export default function Reports() {
     fetchReport(typeMap[tab], selectedYear, reportDepartment);
   }, [tab, selectedYear, selectedDepartment, selectedSurveyId]);
 
+  useEffect(() => {
+    if (tab === 'surveys' && selectedSurveyId) {
+      fetchSurveyAnalytics(selectedSurveyId, selectedSurveyDepartment);
+    }
+  }, [tab, selectedSurveyDepartment, selectedSurveyId]);
+
   const fetchAIAnalytics = (
     reportType: string,
     reportData: unknown,
@@ -456,16 +487,7 @@ export default function Reports() {
       .finally(() => setAiLoading(false));
   };
 
-  const getSelectedSurveyProgramLabel = () => {
-    if (selectedDepartment === 'all') {
-      return 'All Programs';
-    }
-
-    const department = availableDepartments.find((item) => item.code === selectedDepartment)
-      ?? DEFAULT_DEPARTMENTS.find((item) => item.code === selectedDepartment);
-
-    return department ? `${department.code} - ${department.name}` : selectedDepartment;
-  };
+  const getSelectedSurveyDepartmentLabel = () => getSurveyDepartmentOption(selectedSurveyDepartment).label;
 
   const handleSurveyExcelExport = async () => {
     if (!surveyAnalytics) {
@@ -477,7 +499,7 @@ export default function Reports() {
     workbook.creator = 'GradTrack';
     workbook.created = generatedAt;
 
-    addSurveyExportSummarySheet(workbook, surveyAnalytics, getSelectedSurveyProgramLabel(), generatedAt);
+    addSurveyExportSummarySheet(workbook, surveyAnalytics, getSelectedSurveyDepartmentLabel(), generatedAt);
 
     if (surveyAnalytics.report_tables && surveyAnalytics.report_tables.length > 0) {
       surveyAnalytics.report_tables.forEach((table, index) => {
@@ -488,7 +510,7 @@ export default function Reports() {
     }
 
     const fileDate = generatedAt.toISOString().slice(0, 10);
-    const programSuffix = selectedDepartment !== 'all' ? `_${toFileSafePart(selectedDepartment)}` : '_all_programs';
+    const programSuffix = `_${toFileSafePart(selectedSurveyDepartment)}`;
     const buffer = await workbook.xlsx.writeBuffer();
     const blob = new Blob([buffer], {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -512,7 +534,7 @@ export default function Reports() {
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
     const marginLeft = 36;
-    const programLabel = getSelectedSurveyProgramLabel();
+    const departmentLabel = getSelectedSurveyDepartmentLabel();
 
     const drawSurveyPdfHeader = (title: string, subtitle?: string) => {
       pdf.setFillColor(27, 42, 74);
@@ -534,7 +556,7 @@ export default function Reports() {
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(9);
     pdf.text(`Generated: ${generatedAt.toLocaleString()}`, marginLeft, 106);
-    pdf.text(`Program: ${programLabel}`, marginLeft, 120);
+    pdf.text(`Department: ${departmentLabel}`, marginLeft, 120);
 
     autoTable(pdf, {
       startY: 146,
@@ -626,7 +648,7 @@ export default function Reports() {
     }
 
     const fileDate = generatedAt.toISOString().slice(0, 10);
-    const programSuffix = selectedDepartment !== 'all' ? `_${toFileSafePart(selectedDepartment)}` : '_all_programs';
+    const programSuffix = `_${toFileSafePart(selectedSurveyDepartment)}`;
     pdf.save(`gradtrack_survey_analytics${programSuffix}_${fileDate}.pdf`);
   };
 
@@ -1252,18 +1274,34 @@ export default function Reports() {
               </select>
             </div>
           )}
-          {tab !== 'overview' && (
+          {tab !== 'overview' && tab !== 'surveys' && (
             <div className="flex w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
-              <label className="text-sm font-medium text-gray-700">{tab === 'surveys' ? 'Program:' : 'Department:'}</label>
+              <label className="text-sm font-medium text-gray-700">Department:</label>
               <select
                 value={selectedDepartment}
                 onChange={(e) => setSelectedDepartment(e.target.value)}
                 className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white sm:w-auto"
               >
-                <option value="all">{tab === 'surveys' ? 'All Programs' : 'All Departments'}</option>
+                <option value="all">All Departments</option>
                 {departmentOptions.map((department) => (
                   <option key={department.code} value={department.code}>
                     {department.code} - {department.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {tab === 'surveys' && (
+            <div className="flex w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
+              <label className="text-sm font-medium text-gray-700">Department:</label>
+              <select
+                value={selectedSurveyDepartment}
+                onChange={(e) => setSelectedSurveyDepartment(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white sm:w-auto"
+              >
+                {SURVEY_DEPARTMENT_OPTIONS.map((department) => (
+                  <option key={department.value} value={department.value}>
+                    {department.label}
                   </option>
                 ))}
               </select>
@@ -2033,7 +2071,7 @@ function getReportCellAlignClass(align?: 'left' | 'center' | 'right') {
 function addSurveyExportSummarySheet(
   workbook: ExcelJS.Workbook,
   analytics: SurveyAnalyticsData,
-  programLabel: string,
+  departmentLabel: string,
   generatedAt: Date,
 ) {
   const sheet = workbook.addWorksheet('Summary');
@@ -2043,7 +2081,7 @@ function addSurveyExportSummarySheet(
   sheet.addRow([]);
   sheet.addRow(['Survey Title', analytics.survey_title]);
   sheet.addRow(['Generated At', generatedAt.toLocaleString()]);
-  sheet.addRow(['Program Filter', programLabel]);
+  sheet.addRow(['Department Filter', departmentLabel]);
   sheet.addRow(['Total Responses', analytics.total_responses]);
   sheet.addRow(['Response Rate (%)', analytics.response_rate]);
   sheet.addRow(['Completion Rate (%)', analytics.completion_rate]);
