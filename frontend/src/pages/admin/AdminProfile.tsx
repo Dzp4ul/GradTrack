@@ -1,6 +1,6 @@
-import { type FormEvent, useEffect, useMemo, useState } from 'react';
-import { KeyRound, Mail, RefreshCw, Save, ShieldCheck, UserCircle } from 'lucide-react';
-import { API_ENDPOINTS } from '../../config/api';
+import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { Camera, KeyRound, Mail, RefreshCw, Save, ShieldCheck, UserCircle } from 'lucide-react';
+import { API_BASE_URL, API_ENDPOINTS } from '../../config/api';
 import { useAuth } from '../../contexts/AuthContext';
 import MessageBox from '../../components/MessageBox';
 
@@ -45,7 +45,10 @@ function getInitials(name?: string, fallback?: string) {
 export default function AdminProfile() {
   const { user, checkAuth } = useAuth();
   const [formData, setFormData] = useState<ProfileForm>(emptyForm);
+  const [profileImageFile, setProfileImageFile] = useState<File | null>(null);
+  const [profileImagePreview, setProfileImagePreview] = useState('');
   const [saving, setSaving] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [msgBox, setMsgBox] = useState<{
     isOpen: boolean;
     type: 'success' | 'error';
@@ -57,6 +60,12 @@ export default function AdminProfile() {
     () => getInitials(user?.full_name, user?.username || user?.email),
     [user?.email, user?.full_name, user?.username]
   );
+  const existingProfileImageUrl = useMemo(() => {
+    const path = user?.profile_image_path;
+    if (!path) return '';
+    if (/^https?:\/\//i.test(path)) return path;
+    return `${API_BASE_URL}/${path.replace(/^\/+/, '')}`;
+  }, [user?.profile_image_path]);
 
   useEffect(() => {
     setFormData((prev) => ({
@@ -68,6 +77,10 @@ export default function AdminProfile() {
       confirm_password: '',
     }));
   }, [user?.email, user?.full_name, user?.username]);
+
+  useEffect(() => {
+    setProfileImagePreview(existingProfileImageUrl);
+  }, [existingProfileImageUrl]);
 
   const updateField = (field: keyof ProfileForm, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -81,6 +94,37 @@ export default function AdminProfile() {
       new_password: '',
       confirm_password: '',
     });
+    setProfileImageFile(null);
+    setProfileImagePreview(existingProfileImageUrl);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleProfileImageChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] || null;
+    if (!file) {
+      setProfileImageFile(null);
+      setProfileImagePreview(existingProfileImageUrl);
+      return;
+    }
+
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+    if (!allowedTypes.includes(file.type)) {
+      setMsgBox({ isOpen: true, type: 'error', message: 'Unsupported image type. Allowed: JPG, PNG, WEBP, GIF.' });
+      event.target.value = '';
+      return;
+    }
+
+    const maxSizeBytes = 5 * 1024 * 1024;
+    if (file.size > maxSizeBytes) {
+      setMsgBox({ isOpen: true, type: 'error', message: 'Profile image must be 5 MB or smaller.' });
+      event.target.value = '';
+      return;
+    }
+
+    setProfileImageFile(file);
+    setProfileImagePreview(URL.createObjectURL(file));
   };
 
   const handleSubmit = async (event: FormEvent) => {
@@ -120,16 +164,33 @@ export default function AdminProfile() {
     setSaving(true);
 
     try {
-      const response = await fetch(API_ENDPOINTS.AUTH.PROFILE, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          full_name: fullName,
-          current_password: formData.current_password,
-          new_password: changingPassword ? formData.new_password : '',
-        }),
-      });
+      const usingMultipart = profileImageFile !== null;
+      const response = await fetch(
+        API_ENDPOINTS.AUTH.PROFILE,
+        usingMultipart
+          ? {
+              method: 'POST',
+              credentials: 'include',
+              body: (() => {
+                const form = new FormData();
+                form.append('full_name', fullName);
+                form.append('current_password', formData.current_password);
+                form.append('new_password', changingPassword ? formData.new_password : '');
+                form.append('profile_image', profileImageFile);
+                return form;
+              })(),
+            }
+          : {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({
+                full_name: fullName,
+                current_password: formData.current_password,
+                new_password: changingPassword ? formData.new_password : '',
+              }),
+            }
+      );
       const data = await response.json();
 
       if (!response.ok || !data.success) {
@@ -143,6 +204,10 @@ export default function AdminProfile() {
         new_password: '',
         confirm_password: '',
       }));
+      setProfileImageFile(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
       setMsgBox({ isOpen: true, type: 'success', message: 'Profile updated successfully.' });
     } catch (error) {
       setMsgBox({
@@ -167,14 +232,37 @@ export default function AdminProfile() {
       <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
         <aside className="bg-white rounded-lg border p-5 shadow-sm">
           <div className="flex flex-col items-center text-center">
-            <div className="flex h-20 w-20 items-center justify-center rounded-full bg-blue-900 text-2xl font-bold text-white">
-              {initials}
+            <div className="relative">
+              <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-blue-900 text-2xl font-bold text-white">
+                {profileImagePreview ? (
+                  <img src={profileImagePreview} alt="Profile" className="h-full w-full object-cover" />
+                ) : (
+                  initials
+                )}
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                className="hidden"
+                onChange={handleProfileImageChange}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="absolute -bottom-1 -right-1 rounded-full bg-[#1b2a4a] p-1.5 text-white shadow hover:bg-[#263c66]"
+                aria-label="Upload profile image"
+                title="Upload profile image"
+              >
+                <Camera className="h-3.5 w-3.5" />
+              </button>
             </div>
             <h2 className="mt-4 text-xl font-bold text-[#1b2a4a]">{user?.full_name || 'User'}</h2>
             <p className="mt-1 text-sm text-gray-500">{user?.email || 'No email available'}</p>
             <span className="mt-3 rounded bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
               {roleLabel}
             </span>
+            <p className="mt-3 text-xs text-gray-400">PNG, JPG, WEBP, or GIF up to 5 MB</p>
           </div>
 
           <div className="mt-6 space-y-3 text-sm text-gray-600">

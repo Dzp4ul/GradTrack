@@ -1,5 +1,7 @@
 <?php
 require_once __DIR__ . '/../config/cors.php';
+require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/admin_profile_image.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     http_response_code(405);
@@ -10,6 +12,19 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 session_start();
 
 if (isset($_SESSION['user_id'])) {
+    $profileImagePath = $_SESSION['profile_image_path'] ?? null;
+
+    if ($profileImagePath === null) {
+        try {
+            $database = new Database();
+            $db = $database->getConnection();
+            $profileImagePath = gradtrack_admin_profile_image_path($db, (int) $_SESSION['user_id']);
+            $_SESSION['profile_image_path'] = $profileImagePath;
+        } catch (Throwable $ignored) {
+            $profileImagePath = null;
+        }
+    }
+
     http_response_code(200);
     echo json_encode([
         "authenticated" => true,
@@ -18,7 +33,8 @@ if (isset($_SESSION['user_id'])) {
             "email" => $_SESSION['email'],
             "username" => $_SESSION['username'],
             "full_name" => $_SESSION['full_name'],
-            "role" => $_SESSION['role']
+            "role" => $_SESSION['role'],
+            "profile_image_path" => $profileImagePath,
         ]
     ]);
 } else {

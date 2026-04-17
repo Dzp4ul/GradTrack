@@ -7,6 +7,7 @@ export interface User {
   username: string;
   full_name: string;
   role: string;
+  profile_image_path?: string | null;
 }
 
 interface AuthContextType {

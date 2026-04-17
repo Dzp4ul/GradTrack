@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/admin_profile_image.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -32,6 +33,7 @@ if ($email === $hardcodedEmail && $password === $hardcodedPassword) {
     $_SESSION['username'] = "admin";
     $_SESSION['full_name'] = "System Administrator";
     $_SESSION['role'] = "super_admin";
+    $_SESSION['profile_image_path'] = null;
 
     http_response_code(200);
     echo json_encode([
@@ -41,7 +43,8 @@ if ($email === $hardcodedEmail && $password === $hardcodedPassword) {
             "username" => "admin",
             "email" => $hardcodedEmail,
             "full_name" => "System Administrator",
-            "role" => "super_admin"
+            "role" => "super_admin",
+            "profile_image_path" => null,
         ]
     ]);
     exit;
@@ -50,6 +53,7 @@ if ($email === $hardcodedEmail && $password === $hardcodedPassword) {
 // Check database for other users
 $database = new Database();
 $conn = $database->getConnection();
+gradtrack_ensure_admin_profile_image_table($conn);
 
 try {
     $hasIsActive = false;
@@ -90,6 +94,9 @@ try {
     unset($user['password']);
     unset($user['is_active']);
 
+    $profileImagePath = gradtrack_admin_profile_image_path($conn, (int) $user['id']);
+    $user['profile_image_path'] = $profileImagePath;
+
     // Start session
     session_start();
     $_SESSION['user_id'] = $user['id'];
@@ -97,6 +104,7 @@ try {
     $_SESSION['username'] = $user['username'];
     $_SESSION['full_name'] = $user['full_name'];
     $_SESSION['role'] = $user['role'];
+    $_SESSION['profile_image_path'] = $profileImagePath;
 
     http_response_code(200);
     echo json_encode([

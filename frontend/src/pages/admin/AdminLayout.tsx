@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { API_BASE_URL } from '../../config/api';
 import MessageBox from '../../components/MessageBox';
 import NotificationBell from '../../components/NotificationBell';
 
@@ -98,6 +99,12 @@ export default function AdminLayout() {
     [user?.email, user?.full_name, user?.username]
   );
   const userRoleLabel = user?.role ? roleLabels[user.role] || user.role : 'User';
+  const profileImageUrl = useMemo(() => {
+    const path = user?.profile_image_path;
+    if (!path) return '';
+    if (/^https?:\/\//i.test(path)) return path;
+    return `${API_BASE_URL}/${path.replace(/^\/+/, '')}`;
+  }, [user?.profile_image_path]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -212,8 +219,12 @@ export default function AdminLayout() {
                   aria-haspopup="menu"
                   aria-expanded={profileOpen}
                 >
-                  <div className="w-8 h-8 rounded-full bg-blue-900 flex items-center justify-center">
-                    <span className="text-white text-sm font-semibold">{userInitials}</span>
+                  <div className="w-8 h-8 overflow-hidden rounded-full bg-blue-900 flex items-center justify-center">
+                    {profileImageUrl ? (
+                      <img src={profileImageUrl} alt="Profile" className="h-full w-full object-cover" />
+                    ) : (
+                      <span className="text-white text-sm font-semibold">{userInitials}</span>
+                    )}
                   </div>
                   <div className="hidden min-w-0 flex-1 leading-tight sm:block">
                     <p className="truncate text-sm font-semibold text-gray-800">{user?.full_name || 'User'}</p>
@@ -229,8 +240,12 @@ export default function AdminLayout() {
                       onClick={openProfile}
                       className="flex w-full items-center gap-3 border-b px-4 py-3 text-left transition-colors hover:bg-gray-50"
                     >
-                      <div className="w-10 h-10 rounded-full bg-blue-900 flex items-center justify-center">
-                        <span className="text-white text-sm font-semibold">{userInitials}</span>
+                      <div className="w-10 h-10 overflow-hidden rounded-full bg-blue-900 flex items-center justify-center">
+                        {profileImageUrl ? (
+                          <img src={profileImageUrl} alt="Profile" className="h-full w-full object-cover" />
+                        ) : (
+                          <span className="text-white text-sm font-semibold">{userInitials}</span>
+                        )}
                       </div>
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-gray-800">{user?.full_name || 'User'}</p>
