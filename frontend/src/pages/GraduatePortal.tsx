@@ -962,11 +962,18 @@ export default function GraduatePortal() {
     }
 
     try {
-      await authenticatedFetch(API_ENDPOINTS.MENTORSHIP.REQUESTS, {
+      const response = await authenticatedFetch(API_ENDPOINTS.MENTORSHIP.REQUESTS, {
         method: 'PUT',
         body: JSON.stringify({ id, status, ...extraPayload }),
       });
       notify('success', `Request marked as ${status}.`);
+      const sessionEmail = response?.mentee_session_email_notification;
+      if (status === 'accepted' && sessionEmail && sessionEmail.sent === false) {
+        const reason = typeof sessionEmail.reason === 'string' && sessionEmail.reason.trim() !== ''
+          ? sessionEmail.reason
+          : 'Unknown reason';
+        notify('warning', `Session details email was not sent to the mentee: ${reason}`);
+      }
       await fetchAll();
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to update request');

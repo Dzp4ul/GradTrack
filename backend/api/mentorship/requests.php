@@ -243,9 +243,11 @@ HTML;
 
 function gradtrack_send_mentee_session_details_email(PDO $db, int $requestId): array
 {
-        $stmt = $db->prepare("SELECT mr.id, mr.request_message, mr.reason_for_request, mr.topic, mr.preferred_schedule,
+    $stmt = $db->prepare("SELECT mr.id, mr.request_message, mr.reason_for_request, mr.topic, mr.preferred_schedule,
                                                              mr.session_date, mr.session_time, mr.session_type, mr.meeting_link, mr.meeting_location, mr.session_notes,
-                                                             ga_mentee.email AS mentee_email,
+                                 mr.mentee_email AS mentee_request_email,
+                                 ga_mentee.email AS mentee_account_email,
+                                 g_mentee.email AS mentee_graduate_email,
                                                              COALESCE(mr.mentee_name, CONCAT(g_mentee.first_name, ' ', g_mentee.last_name)) AS mentee_name,
                                                              COALESCE(mr.mentee_program, p_mentee.code, p_mentee.name) AS mentee_program,
                                                              CONCAT(g_mentor.first_name, ' ', g_mentor.last_name) AS mentor_name,
@@ -266,7 +268,20 @@ function gradtrack_send_mentee_session_details_email(PDO $db, int $requestId): a
                 return ['sent' => false, 'reason' => 'Mentorship request not found'];
         }
 
-        $menteeEmail = gradtrack_mail_clean_text($row['mentee_email'] ?? '');
+        $candidateEmails = [
+            gradtrack_mail_clean_text($row['mentee_request_email'] ?? ''),
+            gradtrack_mail_clean_text($row['mentee_account_email'] ?? ''),
+            gradtrack_mail_clean_text($row['mentee_graduate_email'] ?? ''),
+        ];
+
+        $menteeEmail = '';
+        foreach ($candidateEmails as $candidateEmail) {
+            if ($candidateEmail !== '' && filter_var($candidateEmail, FILTER_VALIDATE_EMAIL)) {
+                $menteeEmail = $candidateEmail;
+                break;
+            }
+        }
+
         if ($menteeEmail === '' || !filter_var($menteeEmail, FILTER_VALIDATE_EMAIL)) {
                 return ['sent' => false, 'reason' => 'Missing or invalid mentee email'];
         }
