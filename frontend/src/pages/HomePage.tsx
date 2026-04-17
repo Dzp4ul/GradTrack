@@ -7,7 +7,7 @@ function HomePage() {
   return (
     <div className="min-h-screen overflow-x-hidden bg-cover bg-center bg-fixed relative" style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
       <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80 pointer-events-none"></div>
-      <PublicNav featureHref="#why-gradtrack" />
+      <PublicNav />
 
       <main className="relative">
         <section className="relative overflow-hidden">
@@ -32,9 +32,6 @@ function HomePage() {
                   <Link to="/survey" className="w-full bg-yellow-500 hover:bg-yellow-600 text-blue-900 px-8 py-4 rounded-lg font-bold text-base sm:text-lg transition shadow-xl text-center sm:w-auto">
                     Take Survey
                   </Link>
-                  <a href="#about" className="w-full bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white px-8 py-4 rounded-lg font-bold text-base sm:text-lg transition border-2 border-white/30 text-center sm:w-auto">
-                    Learn More
-                  </a>
                 </div>
               </div>
             </div>

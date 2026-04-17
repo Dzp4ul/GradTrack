@@ -169,11 +169,16 @@ function SurveyVerification() {
           navigate(`/survey?survey_id=${targetSurveyId}`);
         }, 1500);
       } else {
+        const failureMessage = result.message || result.error || 'Verification failed';
+        const isAlreadyAnswered = /already completed this survey|already answered|already submitted/i.test(failureMessage);
+
         setMsgBox({
           isOpen: true,
-          type: 'error',
-          message: result.message || result.error || 'Verification failed',
-          title: 'Verification Failed'
+          type: isAlreadyAnswered ? 'info' : 'error',
+          message: isAlreadyAnswered
+            ? 'You already answered this survey. Thank you for your response.'
+            : failureMessage,
+          title: isAlreadyAnswered ? 'Survey Already Answered' : 'Verification Failed'
         });
       }
     } catch (error) {

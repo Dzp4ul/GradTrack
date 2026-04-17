@@ -4,10 +4,9 @@ import { Menu, X } from 'lucide-react';
 
 type PublicNavProps = {
   active?: 'about' | 'faq' | 'privacy';
-  featureHref?: string;
 };
 
-export default function PublicNav({ active, featureHref = '/#why-gradtrack' }: PublicNavProps) {
+export default function PublicNav({ active }: PublicNavProps) {
   const [open, setOpen] = useState(false);
   const navLinkClass = (isActive = false) =>
     `block rounded-lg px-3 py-2 font-medium transition ${
@@ -34,11 +33,8 @@ export default function PublicNav({ active, featureHref = '/#why-gradtrack' }: P
             <Link to="/about" className={navLinkClass(active === 'about')}>
               About
             </Link>
-            <a href={featureHref} className={navLinkClass()}>
-              Features
-            </a>
             <Link to="/faq" className={navLinkClass(active === 'faq')}>
-              FAQ
+              FAQs
             </Link>
             <Link
               to="/graduate/signin"
@@ -65,9 +61,6 @@ export default function PublicNav({ active, featureHref = '/#why-gradtrack' }: P
               <Link to="/about" onClick={() => setOpen(false)} className={navLinkClass(active === 'about')}>
                 About
               </Link>
-              <a href={featureHref} onClick={() => setOpen(false)} className={navLinkClass()}>
-                Features
-              </a>
               <Link to="/faq" onClick={() => setOpen(false)} className={navLinkClass(active === 'faq')}>
                 FAQ
               </Link>
