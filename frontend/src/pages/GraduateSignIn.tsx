@@ -1,6 +1,6 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { LogIn } from 'lucide-react';
+import { Eye, EyeOff, LogIn } from 'lucide-react';
 import { useGraduateAuth } from '../contexts/GraduateAuthContext';
 import MessageBox from '../components/MessageBox';
 
@@ -8,8 +8,9 @@ export default function GraduateSignIn() {
   const navigate = useNavigate();
   const { login } = useGraduateAuth();
 
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const emailInputRef = useRef<HTMLInputElement>(null);
+  const passwordInputRef = useRef<HTMLInputElement>(null);
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [msgBox, setMsgBox] = useState<{
     isOpen: boolean;
@@ -24,6 +25,8 @@ export default function GraduateSignIn() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    const email = emailInputRef.current?.value ?? '';
+    const password = passwordInputRef.current?.value ?? '';
 
     if (!email.trim() || !password.trim()) {
       setMsgBox({
@@ -38,6 +41,13 @@ export default function GraduateSignIn() {
     setLoading(true);
     try {
       await login(email.trim(), password);
+      setShowPassword(false);
+      if (emailInputRef.current) {
+        emailInputRef.current.value = '';
+      }
+      if (passwordInputRef.current) {
+        passwordInputRef.current.value = '';
+      }
       setMsgBox({
         isOpen: true,
         type: 'success',
@@ -46,6 +56,13 @@ export default function GraduateSignIn() {
       });
       setTimeout(() => navigate('/graduate/portal'), 900);
     } catch (error) {
+      setShowPassword(false);
+      if (emailInputRef.current) {
+        emailInputRef.current.value = '';
+      }
+      if (passwordInputRef.current) {
+        passwordInputRef.current.value = '';
+      }
       setMsgBox({
         isOpen: true,
         type: 'error',
@@ -77,24 +94,35 @@ export default function GraduateSignIn() {
             <label className="block text-sm font-semibold text-gray-700 mb-1">Email</label>
             <input
               type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              ref={emailInputRef}
               className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="you@example.com"
               required
+              autoComplete="email"
             />
           </div>
 
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-1">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Enter your password"
-              required
-            />
+            <div className="relative">
+              <input
+                ref={passwordInputRef}
+                type={showPassword ? 'text' : 'password'}
+                className="w-full px-4 py-2.5 pr-11 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                placeholder="Enter your password"
+                required
+                autoComplete="current-password"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((prev) => !prev)}
+                className="absolute inset-y-0 right-0 px-3 text-gray-500 hover:text-blue-600 focus:outline-none"
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                title={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
           </div>
 
           <button

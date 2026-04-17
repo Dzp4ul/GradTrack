@@ -974,8 +974,8 @@ export default function GraduatePortal() {
   };
 
   const openMenteeFeedbackForm = (request: MentorshipRequest) => {
-    if (!canUseMentorship) {
-      notify('warning', 'Mentorship access is currently locked due to unmet eligibility rules.');
+    if (request.status !== 'completed') {
+      notify('warning', 'Feedback is available after the mentorship request is completed.');
       return;
     }
 
