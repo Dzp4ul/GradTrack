@@ -67,12 +67,15 @@ function formatRelativeTime(value: string | null) {
 export default function NotificationBell({ audience, colorScheme = 'light', className = '' }: NotificationBellProps) {
   const navigate = useNavigate();
   const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const streamRef = useRef<EventSource | null>(null);
+  const reconnectTimerRef = useRef<number | null>(null);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [markingAll, setMarkingAll] = useState(false);
   const [error, setError] = useState('');
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
+  const isLiveNotificationsEnabled = import.meta.env.PROD && import.meta.env.VITE_ENABLE_NOTIFICATIONS_SSE === '1';
 
   const fetchNotifications = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -99,9 +102,70 @@ export default function NotificationBell({ audience, colorScheme = 'light', clas
 
   useEffect(() => {
     void fetchNotifications();
-    const intervalId = window.setInterval(() => void fetchNotifications(true), 60000);
+    const intervalId = window.setInterval(() => void fetchNotifications(true), 30000);
     return () => window.clearInterval(intervalId);
   }, [fetchNotifications]);
+
+  useEffect(() => {
+    if (!isLiveNotificationsEnabled) {
+      return;
+    }
+
+    if (typeof window === 'undefined' || typeof EventSource === 'undefined') {
+      return;
+    }
+
+    let disposed = false;
+
+    const connect = () => {
+      if (disposed) {
+        return;
+      }
+
+      if (streamRef.current) {
+        streamRef.current.close();
+      }
+
+      const streamUrl = `${API_ENDPOINTS.NOTIFICATIONS}?limit=20&audience=${audience}&stream=1`;
+      const eventSource = new EventSource(streamUrl, { withCredentials: true });
+      streamRef.current = eventSource;
+
+      eventSource.addEventListener('notifications', () => {
+        void fetchNotifications(true);
+        window.dispatchEvent(new CustomEvent('gradtrack:notifications-updated', {
+          detail: { audience },
+        }));
+      });
+
+      eventSource.addEventListener('close', () => {
+        eventSource.close();
+      });
+
+      eventSource.onerror = () => {
+        eventSource.close();
+        if (reconnectTimerRef.current === null && !disposed) {
+          reconnectTimerRef.current = window.setTimeout(() => {
+            reconnectTimerRef.current = null;
+            connect();
+          }, 3000);
+        }
+      };
+    };
+
+    connect();
+
+    return () => {
+      disposed = true;
+      if (reconnectTimerRef.current !== null) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      if (streamRef.current) {
+        streamRef.current.close();
+        streamRef.current = null;
+      }
+    };
+  }, [audience, fetchNotifications, isLiveNotificationsEnabled]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {

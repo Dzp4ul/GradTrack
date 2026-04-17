@@ -25,6 +25,17 @@ function gradtrack_column_info(PDO $db, string $table, string $column): ?array
     return $row ?: null;
 }
 
+function gradtrack_table_exists(PDO $db, string $table): bool
+{
+        $stmt = $db->prepare("SELECT 1
+                                                    FROM INFORMATION_SCHEMA.TABLES
+                                                    WHERE TABLE_SCHEMA = DATABASE()
+                                                        AND TABLE_NAME = :table
+                                                    LIMIT 1");
+        $stmt->execute([':table' => $table]);
+        return (bool) $stmt->fetchColumn();
+}
+
 function gradtrack_ensure_mentor_schema(PDO $db): void
 {
     gradtrack_ensure_graduate_profile_image_table($db);
@@ -60,15 +71,36 @@ try {
                                  ga.email AS contact_email,
                                  gpi.file_path AS profile_image_path
                           FROM mentors m
-                          JOIN graduate_accounts ga ON m.graduate_account_id = ga.id
+                          LEFT JOIN graduate_accounts ga ON m.graduate_account_id = ga.id
                           JOIN graduates g ON m.graduate_id = g.id
                           LEFT JOIN programs p ON g.program_id = p.id
                           LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
-                          WHERE m.graduate_account_id = :account_id";
+                          WHERE (m.graduate_account_id = :account_id OR m.graduate_id = :graduate_id)
+                          ORDER BY CASE WHEN m.graduate_account_id = :account_id_priority THEN 0 ELSE 1 END,
+                                   m.id DESC
+                          LIMIT 1";
             $mineStmt = $db->prepare($mineQuery);
-            $mineStmt->bindParam(':account_id', $user['account_id']);
-            $mineStmt->execute();
+            $mineStmt->execute([
+                ':account_id' => $user['account_id'],
+                ':graduate_id' => $user['graduate_id'],
+                ':account_id_priority' => $user['account_id'],
+            ]);
             $mine = $mineStmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($mine && (!isset($mine['graduate_account_id']) || (int) ($mine['graduate_account_id'] ?? 0) === 0)) {
+                $backfillStmt = $db->prepare('UPDATE mentors
+                                             SET graduate_account_id = :account_id
+                                             WHERE id = :id');
+                $backfillStmt->execute([
+                    ':account_id' => $user['account_id'],
+                    ':id' => (int) $mine['id'],
+                ]);
+                $mine['graduate_account_id'] = (int) $user['account_id'];
+            }
+
+            if ($mine && (empty($mine['contact_email']) || $mine['contact_email'] === null)) {
+                $mine['contact_email'] = $user['email'] ?? null;
+            }
 
             echo json_encode(['success' => true, 'data' => $mine ?: null]);
             exit;
@@ -91,16 +123,12 @@ try {
                        g.id AS graduate_id, g.first_name, g.middle_name, g.last_name, g.year_graduated,
                        ga.email AS contact_email,
                        gpi.file_path AS profile_image_path,
-                       p.name AS program_name, p.code AS program_code,
-                       COALESCE(AVG(mf.rating), 0) AS avg_rating,
-                       COUNT(mf.id) AS feedback_count
+                       p.name AS program_name, p.code AS program_code
                 FROM mentors m
                 JOIN graduate_accounts ga ON m.graduate_account_id = ga.id
                 JOIN graduates g ON m.graduate_id = g.id
                 LEFT JOIN programs p ON g.program_id = p.id
                 LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
-                LEFT JOIN mentorship_requests mr ON mr.mentor_id = m.id
-                LEFT JOIN mentorship_feedback mf ON mf.mentorship_request_id = mr.id
                 WHERE m.is_active = 1
                   AND m.approval_status = 'approved'";
 
@@ -109,30 +137,19 @@ try {
         if ($search !== '') {
             $sql .= " AND (
                 g.first_name LIKE :search
-                OR g.last_name LIKE :search2
-                OR m.current_job_title LIKE :search3
-                OR m.company LIKE :search4
-                OR m.bio LIKE :search5
-                OR m.industry LIKE :search6
-                OR m.skills LIKE :search7
-                OR m.preferred_topics LIKE :search8
-                OR m.job_alignment LIKE :search9
-                OR m.mentor_type LIKE :search10
-                OR p.name LIKE :search11
-                OR p.code LIKE :search12
+                OR g.last_name LIKE :search
+                OR m.current_job_title LIKE :search
+                OR m.company LIKE :search
+                OR m.bio LIKE :search
+                OR m.industry LIKE :search
+                OR m.skills LIKE :search
+                OR m.preferred_topics LIKE :search
+                OR m.job_alignment LIKE :search
+                OR m.mentor_type LIKE :search
+                OR p.name LIKE :search
+                OR p.code LIKE :search
             )";
             $params[':search'] = '%' . $search . '%';
-            $params[':search2'] = '%' . $search . '%';
-            $params[':search3'] = '%' . $search . '%';
-            $params[':search4'] = '%' . $search . '%';
-            $params[':search5'] = '%' . $search . '%';
-            $params[':search6'] = '%' . $search . '%';
-            $params[':search7'] = '%' . $search . '%';
-            $params[':search8'] = '%' . $search . '%';
-            $params[':search9'] = '%' . $search . '%';
-            $params[':search10'] = '%' . $search . '%';
-            $params[':search11'] = '%' . $search . '%';
-            $params[':search12'] = '%' . $search . '%';
         }
 
         if ($industry !== '') {
@@ -166,18 +183,40 @@ try {
             $params[':year_graduated'] = $yearGraduated;
         }
 
-        $sql .= ' GROUP BY m.id ORDER BY m.created_at DESC';
+        $sql .= ' ORDER BY m.created_at DESC';
 
         $stmt = $db->prepare($sql);
         $stmt->execute($params);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+        $mentorIds = array_column($rows, 'id');
+        $ratings = [];
+        if (!empty($mentorIds)) {
+            $placeholders = implode(',', array_fill(0, count($mentorIds), '?'));
+            $ratingStmt = $db->prepare(
+                "SELECT mr.mentor_id, 
+                        COALESCE(AVG(mf.rating), 0) AS avg_rating,
+                        COUNT(mf.id) AS feedback_count
+                 FROM mentorship_requests mr
+                 LEFT JOIN mentorship_feedback mf ON mf.mentorship_request_id = mr.id
+                 WHERE mr.mentor_id IN ($placeholders)
+                 GROUP BY mr.mentor_id"
+            );
+            $ratingStmt->execute($mentorIds);
+            foreach ($ratingStmt->fetchAll(PDO::FETCH_ASSOC) as $rating) {
+                $ratings[(int)$rating['mentor_id']] = [
+                    'avg_rating' => round((float)$rating['avg_rating'], 1),
+                    'feedback_count' => (int)$rating['feedback_count']
+                ];
+            }
+        }
+
         foreach ($rows as &$row) {
             $row['id'] = (int) $row['id'];
             $row['graduate_id'] = (int) $row['graduate_id'];
             $row['year_graduated'] = $row['year_graduated'] !== null ? (int) $row['year_graduated'] : null;
-            $row['avg_rating'] = round((float) $row['avg_rating'], 1);
-            $row['feedback_count'] = (int) $row['feedback_count'];
+            $row['avg_rating'] = $ratings[$row['id']]['avg_rating'] ?? 0.0;
+            $row['feedback_count'] = $ratings[$row['id']]['feedback_count'] ?? 0;
         }
 
         echo json_encode(['success' => true, 'data' => $rows]);
@@ -204,15 +243,25 @@ try {
             $availability = 'Available: Saturday 2 PM - 5 PM';
         }
 
-        $existingStmt = $db->prepare('SELECT id FROM mentors WHERE graduate_account_id = :account_id');
-        $existingStmt->bindParam(':account_id', $user['account_id']);
-        $existingStmt->execute();
+        $existingStmt = $db->prepare('SELECT id, graduate_account_id
+                                      FROM mentors
+                                      WHERE graduate_account_id = :account_id
+                                         OR graduate_id = :graduate_id
+                                      ORDER BY CASE WHEN graduate_account_id = :account_id_priority THEN 0 ELSE 1 END,
+                                               id DESC
+                                      LIMIT 1');
+        $existingStmt->execute([
+            ':account_id' => $user['account_id'],
+            ':graduate_id' => $user['graduate_id'],
+            ':account_id_priority' => $user['account_id'],
+        ]);
         $existing = $existingStmt->fetch(PDO::FETCH_ASSOC);
 
         if ($existing) {
             $mentorId = (int) $existing['id'];
             $updateQuery = "UPDATE mentors
                             SET current_job_title = :current_job_title,
+                                graduate_account_id = :graduate_account_id,
                                 company = :company,
                                 industry = :industry,
                                 job_alignment = :job_alignment,
@@ -230,6 +279,7 @@ try {
             $updateStmt = $db->prepare($updateQuery);
             $updateStmt->bindParam(':id', $mentorId);
             $updateStmt->bindParam(':current_job_title', $currentJobTitle);
+            $updateStmt->bindParam(':graduate_account_id', $user['account_id']);
             $updateStmt->bindParam(':company', $company);
             $updateStmt->bindParam(':industry', $industry);
             $updateStmt->bindParam(':job_alignment', $jobAlignment);
@@ -267,6 +317,69 @@ try {
             'message' => 'Mentor profile submitted for approval',
             'mentor_id' => $mentorId,
             'approval_status' => 'pending'
+        ]);
+        exit;
+    }
+
+    if ($method === 'DELETE') {
+        $user = gradtrack_require_graduate_auth($db);
+
+        $mentorStmt = $db->prepare('SELECT id FROM mentors WHERE graduate_account_id = :account_id LIMIT 1');
+        $mentorStmt->execute([':account_id' => $user['account_id']]);
+        $mentor = $mentorStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$mentor) {
+            echo json_encode([
+                'success' => true,
+                'message' => 'No mentor profile found for this account',
+                'deleted' => false,
+            ]);
+            exit;
+        }
+
+        $mentorId = (int) $mentor['id'];
+
+        $db->beginTransaction();
+        try {
+            if (gradtrack_table_exists($db, 'mentorship_feedback')) {
+                $feedbackDeleteStmt = $db->prepare("DELETE FROM mentorship_feedback
+                                                   WHERE mentorship_request_id IN (
+                                                       SELECT id FROM mentorship_requests WHERE mentor_id = :mentor_id
+                                                   )");
+                $feedbackDeleteStmt->execute([':mentor_id' => $mentorId]);
+            }
+
+            if (gradtrack_table_exists($db, 'mentorship_mentor_feedback')) {
+                $mentorFeedbackDeleteStmt = $db->prepare("DELETE FROM mentorship_mentor_feedback
+                                                         WHERE mentorship_request_id IN (
+                                                             SELECT id FROM mentorship_requests WHERE mentor_id = :mentor_id
+                                                         )");
+                $mentorFeedbackDeleteStmt->execute([':mentor_id' => $mentorId]);
+            }
+
+            if (gradtrack_table_exists($db, 'mentorship_requests')) {
+                $requestsDeleteStmt = $db->prepare('DELETE FROM mentorship_requests WHERE mentor_id = :mentor_id');
+                $requestsDeleteStmt->execute([':mentor_id' => $mentorId]);
+            }
+
+            $deleteStmt = $db->prepare('DELETE FROM mentors WHERE id = :id AND graduate_account_id = :account_id');
+            $deleteStmt->execute([
+                ':id' => $mentorId,
+                ':account_id' => $user['account_id'],
+            ]);
+
+            $db->commit();
+        } catch (Throwable $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            throw $e;
+        }
+
+        echo json_encode([
+            'success' => true,
+            'message' => 'Mentor profile deleted successfully',
+            'deleted' => true,
         ]);
         exit;
     }

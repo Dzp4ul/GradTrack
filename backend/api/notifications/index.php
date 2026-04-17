@@ -434,6 +434,54 @@ function gradtrack_notifications_add_graduate(PDO $db, array &$notifications, ar
             '/graduate/portal?tab=job_posting'
         );
     }
+
+    $approvedMentorStmt = $db->prepare("SELECT m.id, m.approval_reviewed_at, m.updated_at, m.created_at,
+                                              g.first_name, g.last_name, p.code AS program_code
+                                       FROM mentors m
+                                       JOIN graduates g ON g.id = m.graduate_id
+                                       LEFT JOIN programs p ON p.id = g.program_id
+                                       WHERE m.approval_status = 'approved'
+                                         AND COALESCE(m.is_active, 1) = 1
+                                       ORDER BY COALESCE(m.approval_reviewed_at, m.updated_at, m.created_at) DESC, m.id DESC
+                                       LIMIT 5");
+    $approvedMentorStmt->execute();
+
+    foreach ($approvedMentorStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $eventDate = $row['approval_reviewed_at'] ?: ($row['updated_at'] ?: $row['created_at']);
+        $mentorName = trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? ''));
+        gradtrack_notifications_add(
+            $notifications,
+            'mentor-approved-feed:' . $row['id'] . ':' . gradtrack_notifications_date_token($eventDate),
+            'mentorship',
+            'New mentor available',
+            ($mentorName !== '' ? $mentorName : 'A graduate mentor')
+                . ((string) ($row['program_code'] ?? '') !== '' ? ' from ' . $row['program_code'] : '')
+                . ' is now available for mentorship.',
+            $eventDate,
+            '/graduate/portal?tab=mentors'
+        );
+    }
+
+    $approvedJobFeedStmt = $db->prepare("SELECT id, title, company, approval_reviewed_at, updated_at, created_at
+                                        FROM job_posts
+                                        WHERE approval_status = 'approved'
+                                          AND COALESCE(is_active, 1) = 1
+                                        ORDER BY COALESCE(approval_reviewed_at, updated_at, created_at) DESC, id DESC
+                                        LIMIT 5");
+    $approvedJobFeedStmt->execute();
+
+    foreach ($approvedJobFeedStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $eventDate = $row['approval_reviewed_at'] ?: ($row['updated_at'] ?: $row['created_at']);
+        gradtrack_notifications_add(
+            $notifications,
+            'job-approved-feed:' . $row['id'] . ':' . gradtrack_notifications_date_token($eventDate),
+            'approval',
+            'New job opportunity',
+            '"' . $row['title'] . '" at ' . $row['company'] . ' is now available in Browse Jobs.',
+            $eventDate,
+            '/graduate/portal?tab=jobs'
+        );
+    }
 }
 
 function gradtrack_notifications_current_user(PDO $db, string $audience = ''): array
@@ -610,6 +658,82 @@ function gradtrack_notifications_mark_read(PDO $db, string $targetType, int $tar
     }
 }
 
+function gradtrack_notifications_payload_signature(array $payload): string
+{
+    $parts = [(string) ($payload['unread_count'] ?? 0)];
+    $items = isset($payload['notifications']) && is_array($payload['notifications']) ? $payload['notifications'] : [];
+
+    foreach ($items as $item) {
+        $parts[] = (string) ($item['key'] ?? '') . ':' . ((bool) ($item['read'] ?? false) ? '1' : '0');
+    }
+
+    return sha1(implode('|', $parts));
+}
+
+function gradtrack_notifications_stream(PDO $db, array $auth, int $limit): void
+{
+    // Release the PHP session lock before entering the long-lived SSE loop.
+    // Without this, other requests for the same logged-in user can block.
+    if (session_status() === PHP_SESSION_ACTIVE) {
+        session_write_close();
+    }
+
+    if (function_exists('apache_setenv')) {
+        @apache_setenv('no-gzip', '1');
+    }
+    @ini_set('zlib.output_compression', '0');
+    @ini_set('output_buffering', 'off');
+
+    while (ob_get_level() > 0) {
+        @ob_end_flush();
+    }
+
+    set_time_limit(0);
+
+    header('Content-Type: text/event-stream; charset=UTF-8');
+    header('Cache-Control: no-cache, no-store, must-revalidate');
+    header('Connection: keep-alive');
+    header('X-Accel-Buffering: no');
+
+    $intervalSeconds = isset($_GET['interval']) ? max(2, min(10, (int) $_GET['interval'])) : 3;
+    $timeoutSeconds = isset($_GET['timeout']) ? max(20, min(120, (int) $_GET['timeout'])) : 60;
+    $startedAt = time();
+    $lastSignature = '';
+
+    do {
+        $notifications = gradtrack_notifications_generate($db, $auth);
+        $payload = gradtrack_notifications_apply_read_state($db, $auth, $notifications, $limit);
+        $signature = gradtrack_notifications_payload_signature($payload);
+
+        if ($signature !== $lastSignature) {
+            echo "event: notifications\n";
+            echo 'data: ' . json_encode([
+                'signature' => $signature,
+                'unread_count' => (int) ($payload['unread_count'] ?? 0),
+                'generated_at' => gmdate('c'),
+            ]) . "\n\n";
+            $lastSignature = $signature;
+        } else {
+            echo ": heartbeat\n\n";
+        }
+
+        @ob_flush();
+        @flush();
+
+        if (connection_aborted()) {
+            break;
+        }
+
+        sleep($intervalSeconds);
+    } while ((time() - $startedAt) < $timeoutSeconds);
+
+    echo "event: close\n";
+    echo "data: {}\n\n";
+    @ob_flush();
+    @flush();
+    exit;
+}
+
 $database = new Database();
 $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
@@ -624,6 +748,11 @@ try {
 
     if ($method === 'GET') {
         $limit = isset($_GET['limit']) ? min(50, max(1, (int) $_GET['limit'])) : 20;
+
+        if (isset($_GET['stream']) && (string) $_GET['stream'] === '1') {
+            gradtrack_notifications_stream($db, $auth, $limit);
+        }
+
         $notifications = gradtrack_notifications_generate($db, $auth);
         $payload = gradtrack_notifications_apply_read_state($db, $auth, $notifications, $limit);
 

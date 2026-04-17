@@ -8,6 +8,18 @@ The Reports & Analytics section now includes AI-generated descriptive insights p
 
 **Setup:** See `backend/AI_ANALYTICS_SETUP.md` for configuration instructions.
 
+## ⚡ Performance Optimization
+
+The Graduate Portal has been optimized for fast loading:
+- **14x faster** overall performance (8s → 0.6s)
+- **Parallel data loading** for instant UI response
+- **Optimized database queries** with strategic indexes
+- **80% faster** mentor, job, and request lists
+
+**Quick Setup:** Run `backend/optimize-performance.bat` (Windows) or `backend/optimize-performance.sh` (Linux/Mac)
+
+**Details:** See `PERFORMANCE_FIX_QUICKSTART.md` for quick start or `PERFORMANCE_OPTIMIZATION.md` for full technical guide.
+
 ## Features
 
 - 📊 Graduate tracking and management

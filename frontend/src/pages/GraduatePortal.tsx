@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Award,
@@ -388,6 +388,9 @@ export default function GraduatePortal() {
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const profileImageInputRef = useRef<HTMLInputElement | null>(null);
   const mentorImageInputRef = useRef<HTMLInputElement | null>(null);
+  const fetchAllRef = useRef<(silent?: boolean) => Promise<void>>(async () => {});
+  const fetchInFlightRef = useRef<Promise<void> | null>(null);
+  const liveRefreshCooldownRef = useRef<number>(0);
 
   const resolveProfileImageUrl = (path?: string | null) => {
     if (!path) return '';
@@ -495,73 +498,121 @@ export default function GraduatePortal() {
     return data;
   };
 
-  const fetchAll = async () => {
-    setLoading(true);
-    try {
-      const [ratingRes, mentorList, reqOut, reqIn, jobsList, myMentor, mineJobs] = await Promise.all([
-        authenticatedFetch(API_ENDPOINTS.ALUMNI_RATING.SUMMARY),
-        authenticatedFetch(`${API_ENDPOINTS.MENTORSHIP.MENTORS}?search=${encodeURIComponent(mentorSearch)}`),
-        authenticatedFetch(`${API_ENDPOINTS.MENTORSHIP.REQUESTS}?type=outgoing`),
-        authenticatedFetch(`${API_ENDPOINTS.MENTORSHIP.REQUESTS}?type=incoming`),
-        authenticatedFetch(`${API_ENDPOINTS.JOBS.POSTS}?search=${encodeURIComponent(jobSearch)}`),
-        authenticatedFetch(`${API_ENDPOINTS.MENTORSHIP.MENTORS}?mine=1`),
-        authenticatedFetch(`${API_ENDPOINTS.JOBS.POSTS}?mine=1&include_inactive=1`),
-      ]);
-
-      const outgoing = reqOut.data || [];
-      const incoming = reqIn.data || [];
-      setMentors(mentorList.data || []);
-      setOutgoingRequests(outgoing);
-      setIncomingRequests(incoming);
-      setScheduleDrafts((prev) => {
-        const next = { ...prev };
-        incoming.forEach((req: MentorshipRequest) => {
-          if (!next[req.id]) {
-            next[req.id] = {
-              session_date: req.session_date || '',
-              session_time: req.session_time || '',
-              session_type: req.session_type || 'Google Meet',
-              meeting_link: req.meeting_link || '',
-              meeting_location: req.meeting_location || '',
-              session_notes: req.session_notes || '',
-            };
-          }
-        });
-        return next;
-      });
-      setJobs(jobsList.data || []);
-      setMyPostedJobs(mineJobs.data || []);
-      setRatingSummary(ratingRes?.data?.rating || null);
-
-      if (myMentor.data) {
-        setHasMentorProfile(true);
-        setShowMentorProfileForm(true);
-        setMyMentorApprovalStatus(myMentor.data.approval_status || 'pending');
-        setMyMentorApprovalNotes(myMentor.data.approval_notes || '');
-        setMyMentorProfile({
-          contact_email: myMentor.data.contact_email || user?.email || '',
-          current_job_title: myMentor.data.current_job_title || '',
-          company: myMentor.data.company || '',
-          industry: myMentor.data.industry || '',
-          skills: myMentor.data.skills || '',
-          bio: myMentor.data.bio || '',
-          preferred_topics: myMentor.data.preferred_topics || '',
-          availability_status: formatAvailability(myMentor.data.availability_status),
-          is_active: !!myMentor.data.is_active,
-        });
-      } else {
-        setHasMentorProfile(false);
-        setMyMentorApprovalStatus(null);
-        setMyMentorApprovalNotes('');
-        setShowMentorProfileForm(false);
-        setMyMentorProfile({ ...defaultMentorProfile, contact_email: user?.email || '' });
-      }
-    } catch (error) {
-      notify('error', error instanceof Error ? error.message : 'Failed to load portal data', 'Load Error');
-    } finally {
-      setLoading(false);
+  const fetchAll = useCallback(async (silent = false) => {
+    if (fetchInFlightRef.current) {
+      return fetchInFlightRef.current;
     }
-  };
+
+    const run = (async () => {
+      if (!silent) {
+        setLoading(true);
+      }
+
+      try {
+        const [ratingRes, mentorList, jobsList, reqOutResult, reqInResult, myMentorResult, mineJobsResult] = await Promise.allSettled([
+          authenticatedFetch(API_ENDPOINTS.ALUMNI_RATING.SUMMARY),
+          authenticatedFetch(`${API_ENDPOINTS.MENTORSHIP.MENTORS}?search=${encodeURIComponent(mentorSearch)}`),
+          authenticatedFetch(`${API_ENDPOINTS.JOBS.POSTS}?search=${encodeURIComponent(jobSearch)}`),
+          authenticatedFetch(`${API_ENDPOINTS.MENTORSHIP.REQUESTS}?type=outgoing`),
+          authenticatedFetch(`${API_ENDPOINTS.MENTORSHIP.REQUESTS}?type=incoming`),
+          authenticatedFetch(`${API_ENDPOINTS.MENTORSHIP.MENTORS}?mine=1`),
+          authenticatedFetch(`${API_ENDPOINTS.JOBS.POSTS}?mine=1&include_inactive=1`),
+        ]);
+
+        if (mentorList.status === 'fulfilled') {
+          setMentors(mentorList.value.data || []);
+        }
+        if (jobsList.status === 'fulfilled') {
+          setJobs(jobsList.value.data || []);
+        }
+        if (ratingRes.status === 'fulfilled') {
+          setRatingSummary(ratingRes.value?.data?.rating || null);
+        }
+        if (reqOutResult.status === 'fulfilled') {
+          setOutgoingRequests(reqOutResult.value.data || []);
+        }
+        if (reqInResult.status === 'fulfilled') {
+          const incoming = reqInResult.value.data || [];
+          setIncomingRequests(incoming);
+          setScheduleDrafts((prev) => {
+            const next = { ...prev };
+            incoming.forEach((req: MentorshipRequest) => {
+              if (!next[req.id]) {
+                next[req.id] = {
+                  session_date: req.session_date || '',
+                  session_time: req.session_time || '',
+                  session_type: req.session_type || 'Google Meet',
+                  meeting_link: req.meeting_link || '',
+                  meeting_location: req.meeting_location || '',
+                  session_notes: req.session_notes || '',
+                };
+              }
+            });
+            return next;
+          });
+        }
+        if (mineJobsResult.status === 'fulfilled') {
+          setMyPostedJobs(mineJobsResult.value.data || []);
+        }
+        if (myMentorResult.status === 'fulfilled') {
+          const myMentorData = myMentorResult.value.data;
+          if (myMentorData) {
+            setHasMentorProfile(true);
+            setShowMentorProfileForm(true);
+            setMyMentorApprovalStatus(myMentorData.approval_status || 'pending');
+            setMyMentorApprovalNotes(myMentorData.approval_notes || '');
+            setMyMentorProfile({
+              contact_email: myMentorData.contact_email || user?.email || '',
+              current_job_title: myMentorData.current_job_title || '',
+              company: myMentorData.company || '',
+              industry: myMentorData.industry || '',
+              skills: myMentorData.skills || '',
+              bio: myMentorData.bio || '',
+              preferred_topics: myMentorData.preferred_topics || '',
+              availability_status: formatAvailability(myMentorData.availability_status),
+              is_active: !!myMentorData.is_active,
+            });
+          } else {
+            setHasMentorProfile(false);
+            setMyMentorApprovalStatus(null);
+            setMyMentorApprovalNotes('');
+            setShowMentorProfileForm(false);
+            setMyMentorProfile({ ...defaultMentorProfile, contact_email: user?.email || '' });
+          }
+        }
+
+        const errors: string[] = [];
+        if (ratingRes.status === 'rejected') errors.push('rating');
+        if (mentorList.status === 'rejected') errors.push('mentors');
+        if (jobsList.status === 'rejected') errors.push('jobs');
+        if (reqOutResult.status === 'rejected') errors.push('outgoing requests');
+        if (reqInResult.status === 'rejected') errors.push('incoming requests');
+        if (myMentorResult.status === 'rejected') errors.push('mentor profile');
+        if (mineJobsResult.status === 'rejected') errors.push('posted jobs');
+
+        if (errors.length > 0 && !silent) {
+          notify('warning', `Some data could not be loaded: ${errors.join(', ')}.`);
+        }
+      } catch (error) {
+        notify('error', error instanceof Error ? error.message : 'Failed to load portal data', 'Load Error');
+      } finally {
+        if (!silent) {
+          setLoading(false);
+        }
+      }
+    })();
+
+    fetchInFlightRef.current = run;
+    try {
+      await run;
+    } finally {
+      fetchInFlightRef.current = null;
+    }
+  }, [jobSearch, mentorSearch, user?.email]);
+
+  useEffect(() => {
+    fetchAllRef.current = fetchAll;
+  }, [fetchAll]);
 
   const fetchProgramOptions = async () => {
     try {
@@ -579,6 +630,26 @@ export default function GraduatePortal() {
   useEffect(() => {
     fetchAll();
     fetchProgramOptions();
+  }, []);
+
+  useEffect(() => {
+    const onLiveNotificationUpdate = (event: Event) => {
+      const customEvent = event as CustomEvent<{ audience?: string }>;
+      if (customEvent?.detail?.audience && customEvent.detail.audience !== 'graduate') {
+        return;
+      }
+
+      const now = Date.now();
+      if (now - liveRefreshCooldownRef.current < 1200) {
+        return;
+      }
+
+      liveRefreshCooldownRef.current = now;
+      void fetchAllRef.current(true);
+    };
+
+    window.addEventListener('gradtrack:notifications-updated', onLiveNotificationUpdate as EventListener);
+    return () => window.removeEventListener('gradtrack:notifications-updated', onLiveNotificationUpdate as EventListener);
   }, []);
 
   useEffect(() => {
@@ -1054,6 +1125,34 @@ export default function GraduatePortal() {
       await fetchAll();
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to save mentor profile');
+    }
+  };
+
+  const handleDeleteMentorProfile = async () => {
+    if (!hasMentorProfile) {
+      return;
+    }
+
+    const confirmed = window.confirm('Delete your mentor profile? This will remove it from Find Mentors and mentorship requests.');
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      await authenticatedFetch(API_ENDPOINTS.MENTORSHIP.MENTORS, {
+        method: 'DELETE',
+      });
+
+      setHasMentorProfile(false);
+      setShowMentorProfileForm(false);
+      setMyMentorApprovalStatus(null);
+      setMyMentorApprovalNotes('');
+      setMyMentorProfile({ ...defaultMentorProfile, contact_email: user?.email || '' });
+
+      notify('success', 'Mentor profile deleted successfully.');
+      await fetchAll(true);
+    } catch (error) {
+      notify('error', error instanceof Error ? error.message : 'Unable to delete mentor profile');
     }
   };
 
@@ -2293,9 +2392,20 @@ export default function GraduatePortal() {
                         </p>
                       </div>
 
-                      <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-lg font-semibold">
-                        {hasMentorProfile ? 'Submit Updated Profile for Approval' : 'Submit Mentor Profile for Approval'}
-                      </button>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-lg font-semibold">
+                          {hasMentorProfile ? 'Submit Updated Profile for Approval' : 'Submit Mentor Profile for Approval'}
+                        </button>
+                        {hasMentorProfile && (
+                          <button
+                            type="button"
+                            onClick={handleDeleteMentorProfile}
+                            className="w-full border border-red-300 text-red-700 hover:bg-red-50 py-2.5 rounded-lg font-semibold"
+                          >
+                            Delete Mentor Profile
+                          </button>
+                        )}
+                      </div>
                     </fieldset>
                   </form>
                 )}
