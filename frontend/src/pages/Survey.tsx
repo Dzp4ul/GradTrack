@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ShieldCheck, ChevronRight, ChevronLeft, ClipboardList, Save } from 'lucide-react';
+import { ShieldCheck, ChevronRight, ChevronLeft, ClipboardList, Save, Eye, EyeOff } from 'lucide-react';
 import MessageBox from '../components/MessageBox';
 import { API_ENDPOINTS, API_ROOT } from '../config/api';
 import { philippineProvinces, philippineRegions } from '../data/philippineAddress';
@@ -186,6 +186,8 @@ const getOtherTextFromAnswer = (answer: SurveyAnswer, option: string) => {
 
   return '';
 };
+
+const PASSWORD_COMPLEXITY_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
 
 const hasBlankOtherSelection = (question: Question, answer: SurveyAnswer) => {
   const otherOption = getOtherOption(question);
@@ -439,6 +441,8 @@ function Survey() {
   const [tokenProfileData, setTokenProfileData] = useState<TokenProfileData | null>(null);
   const [accountPassword, setAccountPassword] = useState('');
   const [accountConfirmPassword, setAccountConfirmPassword] = useState('');
+  const [showAccountPassword, setShowAccountPassword] = useState(false);
+  const [showAccountConfirmPassword, setShowAccountConfirmPassword] = useState(false);
   const [accountSubmitting, setAccountSubmitting] = useState(false);
 
   useEffect(() => {
@@ -811,6 +815,8 @@ function Survey() {
     setShowCreateAccountForm(false);
     setAccountPassword('');
     setAccountConfirmPassword('');
+    setShowAccountPassword(false);
+    setShowAccountConfirmPassword(false);
     setSubmittedResponseId(null);
     setPrefillData(null);
     setResponses({});
@@ -847,12 +853,12 @@ function Survey() {
       return;
     }
 
-    if (accountPassword.length < 8) {
+    if (!PASSWORD_COMPLEXITY_REGEX.test(accountPassword)) {
       setMsgBox({
         isOpen: true,
         type: 'warning',
         title: 'Weak Password',
-        message: 'Password must be at least 8 characters long.',
+        message: 'Password must be 8 or more characters and include uppercase, lowercase, number, and symbol.',
       });
       return;
     }
@@ -1857,27 +1863,53 @@ function Survey() {
                 <div className="grid sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm text-gray-700 mb-1">Password</label>
-                    <input
-                      type="password"
-                      value={accountPassword}
-                      onChange={(e) => setAccountPassword(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      minLength={8}
-                      placeholder="At least 8 characters"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showAccountPassword ? 'text' : 'password'}
+                        value={accountPassword}
+                        onChange={(e) => setAccountPassword(e.target.value)}
+                        className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        minLength={8}
+                        placeholder="Min 8 chars, Aa1!"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowAccountPassword((prev) => !prev)}
+                        className="absolute inset-y-0 right-0 px-3 text-gray-500 hover:text-gray-700"
+                        aria-label={showAccountPassword ? 'Hide password' : 'Show password'}
+                        title={showAccountPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {showAccountPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </div>
                   <div>
                     <label className="block text-sm text-gray-700 mb-1">Confirm Password</label>
-                    <input
-                      type="password"
-                      value={accountConfirmPassword}
-                      onChange={(e) => setAccountConfirmPassword(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      minLength={8}
-                      placeholder="Re-enter password"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showAccountConfirmPassword ? 'text' : 'password'}
+                        value={accountConfirmPassword}
+                        onChange={(e) => setAccountConfirmPassword(e.target.value)}
+                        className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        minLength={8}
+                        placeholder="Re-enter password"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowAccountConfirmPassword((prev) => !prev)}
+                        className="absolute inset-y-0 right-0 px-3 text-gray-500 hover:text-gray-700"
+                        aria-label={showAccountConfirmPassword ? 'Hide password' : 'Show password'}
+                        title={showAccountConfirmPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {showAccountConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </div>
                 </div>
+
+                <p className="text-xs text-gray-500">
+                  Password must be at least 8 characters with uppercase, lowercase, number, and symbol.
+                </p>
 
                 <div className="grid sm:grid-cols-2 gap-3">
                   <button

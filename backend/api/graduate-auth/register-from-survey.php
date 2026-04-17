@@ -28,9 +28,9 @@ if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
     exit;
 }
 
-if (strlen($password) < 8) {
+if (!preg_match('/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/', $password)) {
     http_response_code(400);
-    echo json_encode(['success' => false, 'error' => 'Password must be at least 8 characters']);
+    echo json_encode(['success' => false, 'error' => 'Password must be at least 8 characters and include uppercase, lowercase, number, and symbol']);
     exit;
 }
 
