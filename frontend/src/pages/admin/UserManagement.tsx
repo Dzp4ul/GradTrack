@@ -10,7 +10,7 @@ interface UserAccount {
   email: string;
   full_name: string | null;
   role: string;
-  is_active: number;
+  is_active: number | string;
   created_at: string;
 }
 
@@ -51,6 +51,10 @@ const roleLabels: Record<string, string> = {
   dean_hm: 'Dean - HM',
 };
 
+function normalizeIsActive(value: unknown): 0 | 1 {
+  return Number(value) === 1 ? 1 : 0;
+}
+
 export default function UserManagement() {
   const { user } = useAuth();
   const [users, setUsers] = useState<UserAccount[]>([]);
@@ -62,6 +66,7 @@ export default function UserManagement() {
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState<UserForm>(emptyForm);
   const [saving, setSaving] = useState(false);
+  const [inlineNotice, setInlineNotice] = useState<string>('');
   const [msgBox, setMsgBox] = useState<{
     isOpen: boolean;
     type: 'success' | 'error' | 'confirm';
@@ -86,7 +91,12 @@ export default function UserManagement() {
         throw new Error(data.error || 'Failed to load users');
       }
 
-      setUsers(data.data || []);
+      const normalizedUsers: UserAccount[] = (data.data || []).map((account: UserAccount) => ({
+        ...account,
+        is_active: normalizeIsActive(account.is_active),
+      }));
+
+      setUsers(normalizedUsers);
     } catch (error) {
       setMsgBox({
         isOpen: true,
@@ -109,6 +119,8 @@ export default function UserManagement() {
   };
 
   const openEditModal = (target: UserAccount) => {
+    const activeState = normalizeIsActive(target.is_active);
+
     setFormData({
       id: target.id,
       username: target.username,
@@ -116,7 +128,7 @@ export default function UserManagement() {
       full_name: target.full_name || '',
       role: target.role,
       password: '',
-      is_active: target.is_active === 1 ? 1 : 0,
+      is_active: activeState,
     });
     setIsEditing(true);
     setShowModal(true);
@@ -159,10 +171,18 @@ export default function UserManagement() {
         message: isEditing ? 'User updated successfully.' : 'User created successfully.',
       });
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to save user';
+
+      if (errorMessage.toLowerCase().includes('cannot be deactivated')) {
+        setInlineNotice('Your logged-in super admin account cannot be deactivated.');
+        setShowModal(false);
+        return;
+      }
+
       setMsgBox({
         isOpen: true,
         type: 'error',
-        message: error instanceof Error ? error.message : 'Failed to save user',
+        message: errorMessage,
       });
     } finally {
       setSaving(false);
@@ -170,15 +190,12 @@ export default function UserManagement() {
   };
 
   const handleToggleActive = (target: UserAccount) => {
-    const nextStatus = target.is_active === 1 ? 0 : 1;
+    const currentStatus = normalizeIsActive(target.is_active);
+    const nextStatus = currentStatus === 1 ? 0 : 1;
     const isSelfSuperAdmin = user?.id === target.id && user?.role === 'super_admin';
 
     if (isSelfSuperAdmin && nextStatus === 0) {
-      setMsgBox({
-        isOpen: true,
-        type: 'error',
-        message: 'Your logged-in super admin account cannot be deactivated.',
-      });
+      setInlineNotice('Your logged-in super admin account cannot be deactivated.');
       return;
     }
 
@@ -231,6 +248,22 @@ export default function UserManagement() {
           <Plus className="w-4 h-4" /> Add User
         </button>
       </div>
+
+      {inlineNotice && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <div className="flex items-start justify-between gap-3">
+            <p>{inlineNotice}</p>
+            <button
+              type="button"
+              onClick={() => setInlineNotice('')}
+              className="rounded p-1 text-amber-700 hover:bg-amber-100"
+              aria-label="Dismiss notice"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="bg-white rounded-xl shadow-sm border p-4 flex flex-wrap items-center gap-3">
         <div className="relative w-full min-w-0 flex-1 sm:min-w-[240px]">
