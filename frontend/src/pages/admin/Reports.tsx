@@ -258,8 +258,58 @@ export default function Reports() {
 
   const fetchReport = (type: string, year: string = 'all', department: string = selectedDepartment) => {
     setLoading(true);
+    const reportYear = type === 'overview' ? 'all' : year;
     const reportDepartment = type === 'overview' ? 'all' : department;
-    const url = buildReportUrl(type, year, reportDepartment);
+    const url = buildReportUrl(type, reportYear, reportDepartment);
+
+    const buildAiPayload = (reportType: string, data: unknown) => {
+      if (reportType === 'overview' && data && typeof data === 'object') {
+        return {
+          overview: data,
+          by_program: overviewProgramData,
+          visible_cards: [
+            'Total Graduate Responses',
+            'Employed (Total)',
+            'Employed (Local)',
+            'Employed (Abroad)',
+            'Aligned',
+          ],
+        };
+      }
+
+      if (reportType === 'employment_status' && Array.isArray(data)) {
+        const localCount = Number((data as StatusData[]).find((s) => s.employment_status === 'Employed (Local)')?.count ?? 0);
+        const abroadCount = Number((data as StatusData[]).find((s) => s.employment_status === 'Employed (Abroad)')?.count ?? 0);
+        const unemployedCount = Number((data as StatusData[]).find((s) => s.employment_status === 'Unemployed')?.count ?? 0);
+        const totalEmployed = localCount + abroadCount;
+
+        return {
+          statuses: data,
+          summary: {
+            total_employed: totalEmployed,
+            local_count: localCount,
+            abroad_count: abroadCount,
+            unemployed_count: unemployedCount,
+            local_vs_abroad_ratio: `${localCount}:${abroadCount}`,
+            local_share_percent: totalEmployed > 0 ? Math.round((localCount / totalEmployed) * 100) : 0,
+            abroad_share_percent: totalEmployed > 0 ? Math.round((abroadCount / totalEmployed) * 100) : 0,
+          },
+        };
+      }
+
+      if (reportType === 'salary_distribution' && Array.isArray(data)) {
+        const totalClassified = (data as SalaryData[]).reduce((sum, item) => sum + Number(item.count ?? 0), 0);
+        return {
+          salary_buckets: data,
+          summary: {
+            total_classified: totalClassified,
+          },
+        };
+      }
+
+      return data;
+    };
+
     fetch(url)
       .then((r) => r.json())
       .then((res) => {
@@ -278,7 +328,7 @@ export default function Reports() {
             case 'salary_distribution': setSalaryData(res.data); break;
           }
 
-          fetchAIAnalytics(type, res.data, year, reportDepartment);
+          fetchAIAnalytics(type, buildAiPayload(type, res.data), reportYear, reportDepartment);
         }
       })
       .catch(() => {})
@@ -445,6 +495,29 @@ export default function Reports() {
       fetchSurveyAnalytics(selectedSurveyId, selectedSurveyDepartment);
     }
   }, [tab, selectedSurveyDepartment, selectedSurveyId]);
+
+  useEffect(() => {
+    if (tab !== 'overview' || !overview) {
+      return;
+    }
+
+    fetchAIAnalytics(
+      'overview',
+      {
+        overview,
+        by_program: overviewProgramData,
+        visible_cards: [
+          'Total Graduate Responses',
+          'Employed (Total)',
+          'Employed (Local)',
+          'Employed (Abroad)',
+          'Aligned',
+        ],
+      },
+      'all',
+      'all',
+    );
+  }, [tab, overview, overviewProgramData]);
 
   const fetchAIAnalytics = (
     reportType: string,

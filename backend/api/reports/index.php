@@ -106,6 +106,57 @@ function getNeighborAnswerText(array $data, $questionId, int $offset = -1): stri
     return answerToText($data[$neighborKey]);
 }
 
+function mapSalaryAnswerToRange(string $answerText): ?string
+{
+    $normalized = strtolower(trim($answerText));
+    if ($normalized === '' || $normalized === 'n/a' || $normalized === 'na') {
+        return null;
+    }
+
+    $normalized = str_replace(['php', 'p', '₱', ',', '.00'], ['', '', '', '', ''], $normalized);
+    $normalized = preg_replace('/\s+/', ' ', $normalized ?? '');
+
+    if (strpos($normalized, 'below') !== false && strpos($normalized, '5000') !== false) {
+        return 'Below ₱5,000';
+    }
+    if (strpos($normalized, '25000') !== false && strpos($normalized, 'above') !== false) {
+        return '₱25,000 and above';
+    }
+    if (strpos($normalized, '20000') !== false && strpos($normalized, '25000') !== false) {
+        return '₱20,000 - ₱25,000';
+    }
+    if (strpos($normalized, '15000') !== false && strpos($normalized, '20000') !== false) {
+        return '₱15,000 - ₱20,000';
+    }
+    if (strpos($normalized, '10000') !== false && strpos($normalized, '15000') !== false) {
+        return '₱10,000 - ₱15,000';
+    }
+    if (strpos($normalized, '5000') !== false && strpos($normalized, '10000') !== false) {
+        return '₱5,000 - ₱10,000';
+    }
+
+    return null;
+}
+
+function getProgramDisplayNameByCode(string $programCode): string
+{
+    $map = [
+        'BSCS' => 'Bachelor of Science in Computer Science',
+        'ACT' => 'Associate in Computer Technology',
+        'BSED' => 'Bachelor of Secondary Education',
+        'BEED' => 'Bachelor of Elementary Education',
+        'BSHM' => 'Bachelor of Science in Hospitality Management',
+    ];
+
+    return $map[$programCode] ?? $programCode;
+}
+
+function isYearLikeAnswer(string $value): bool
+{
+    $trimmed = trim($value);
+    return preg_match('/^(19|20)\d{2}$/', $trimmed) === 1;
+}
+
 function getQuestionMap(PDO $db, ?int $surveyId): array
 {
     if ($surveyId === null) {
@@ -193,7 +244,7 @@ function getSurveyResponses(PDO $db, ?int $surveyId): array
     }
 
     $stmt = $db->prepare("
-        SELECT sr.responses, g.year_graduated, p.code AS program_code
+        SELECT sr.responses, g.year_graduated, p.code AS program_code, p.name AS program_name
         FROM survey_responses sr
         LEFT JOIN graduates g ON g.id = sr.graduate_id
         LEFT JOIN programs p ON p.id = g.program_id
@@ -388,7 +439,7 @@ try {
                 $data = json_decode($response['responses'], true);
                 if (!is_array($data)) continue;
                 
-                $degreeProgram = '';
+                $degreeProgram = trim((string)($response['program_name'] ?? ''));
                 $yearGraduated = isset($response['year_graduated']) && $response['year_graduated'] !== null
                     ? (string)$response['year_graduated']
                     : '';
@@ -401,7 +452,10 @@ try {
                     // Find degree program
                     if (strpos($questionText, 'degree program') !== false) {
                         if (is_string($answer) && !empty($answer)) {
-                            $degreeProgram = $answer;
+                            $candidateProgram = trim($answer);
+                            if ($candidateProgram !== '' && !isYearLikeAnswer($candidateProgram)) {
+                                $degreeProgram = $candidateProgram;
+                            }
                         }
                     }
                     
@@ -442,13 +496,16 @@ try {
                     continue;
                 }
                 
-                if (!empty($degreeProgram)) {
-                    $code = !empty($rowProgramCode) ? $rowProgramCode : getProgramCode($degreeProgram);
+                $code = !empty($rowProgramCode) ? $rowProgramCode : (!empty($degreeProgram) ? getProgramCode($degreeProgram) : '');
+                if (!empty($code)) {
+                    $programName = !empty($degreeProgram) && !isYearLikeAnswer($degreeProgram)
+                        ? $degreeProgram
+                        : getProgramDisplayNameByCode($code);
                     
                     if (!isset($programData[$code])) {
                         $programData[$code] = [
                             'code' => $code,
-                            'name' => $degreeProgram,
+                            'name' => $programName,
                             'total_graduates' => 0,
                             'employed' => 0,
                             'aligned' => 0,
@@ -457,6 +514,8 @@ try {
                             'avg_time_to_employment' => null,
                             'avg_salary' => null
                         ];
+                    } elseif (isYearLikeAnswer((string)$programData[$code]['name'])) {
+                        $programData[$code]['name'] = $programName;
                     }
                     
                     $programData[$code]['total_graduates']++;
@@ -694,7 +753,7 @@ try {
                 $yearGraduated = isset($response['year_graduated']) && $response['year_graduated'] !== null
                     ? (string)$response['year_graduated']
                     : '';
-                $salaryAnswer = '';
+                $salaryRange = null;
                 
                 foreach ($data as $questionId => $answer) {
                     $questionText = isset($questionMap[$questionId]) ? $questionMap[$questionId] : '';
@@ -707,9 +766,19 @@ try {
                     }
                     
                     // Check for salary question
-                    if (strpos($questionText, 'gross monthly earning') !== false || strpos($questionText, 'initial gross monthly') !== false) {
-                        if (is_string($answer) && !empty($answer)) {
-                            $salaryAnswer = $answer;
+                    if (
+                        strpos($questionText, 'gross monthly earning') !== false
+                        || strpos($questionText, 'initial gross monthly') !== false
+                        || strpos($questionText, 'job level position') !== false
+                    ) {
+                        $candidateRange = mapSalaryAnswerToRange(answerToText($answer));
+
+                        if ($candidateRange === null && strpos($questionText, 'gross monthly earning') !== false) {
+                            $candidateRange = mapSalaryAnswerToRange(getNeighborAnswerText($data, $questionId, -1));
+                        }
+
+                        if ($candidateRange !== null) {
+                            $salaryRange = $candidateRange;
                         }
                     }
                 }
@@ -719,23 +788,8 @@ try {
                     continue;
                 }
                 
-                // Map salary answer to ranges
-                if (!empty($salaryAnswer)) {
-                    $answerLower = strtolower($salaryAnswer);
-                    
-                    if (strpos($answerLower, 'below') !== false && strpos($answerLower, '5,000') !== false) {
-                        $salaryRanges['Below ₱5,000']++;
-                    } elseif (strpos($answerLower, '25,000') !== false && strpos($answerLower, 'above') !== false) {
-                        $salaryRanges['₱25,000 and above']++;
-                    } elseif (strpos($answerLower, '20,000') !== false && strpos($answerLower, '25,000') !== false) {
-                        $salaryRanges['₱20,000 - ₱25,000']++;
-                    } elseif (strpos($answerLower, '15,000') !== false && strpos($answerLower, '20,000') !== false) {
-                        $salaryRanges['₱15,000 - ₱20,000']++;
-                    } elseif (strpos($answerLower, '10,000') !== false && strpos($answerLower, '15,000') !== false) {
-                        $salaryRanges['₱10,000 - ₱15,000']++;
-                    } elseif (strpos($answerLower, '5,000') !== false && strpos($answerLower, '10,000') !== false) {
-                        $salaryRanges['₱5,000 - ₱10,000']++;
-                    }
+                if ($salaryRange !== null && isset($salaryRanges[$salaryRange])) {
+                    $salaryRanges[$salaryRange]++;
                 }
             }
             

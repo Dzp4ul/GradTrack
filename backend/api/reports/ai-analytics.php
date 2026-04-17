@@ -270,6 +270,25 @@ function buildTypeSpecificPrompt(string $type, string $year, string $department,
     return "Analyze this graduate employment overview dataset and provide a comprehensive narrative summary in 3-4 paragraphs. {$filterContext} Focus on key patterns, interpretation, and actionable insights for educational administrators. Data: {$dataContext}";
 }
 
+function normalizeToParagraphs(string $text): string
+{
+    $normalized = str_replace(["\r\n", "\r"], "\n", $text);
+
+    // Remove common markdown wrappers and heading markers.
+    $normalized = preg_replace('/^\s{0,3}#{1,6}\s*/m', '', $normalized) ?? $normalized;
+    $normalized = preg_replace('/\*\*(.*?)\*\*/s', '$1', $normalized) ?? $normalized;
+    $normalized = preg_replace('/__(.*?)__/s', '$1', $normalized) ?? $normalized;
+    $normalized = preg_replace('/^[\t ]*[-*+]\s+/m', '', $normalized) ?? $normalized;
+
+    // Convert numbered list items to sentence lines.
+    $normalized = preg_replace('/^[\t ]*\d+\.\s+/m', '', $normalized) ?? $normalized;
+
+    // Collapse excessive blank lines while preserving paragraph breaks.
+    $normalized = preg_replace('/\n{3,}/', "\n\n", $normalized) ?? $normalized;
+
+    return trim($normalized);
+}
+
 try {
     $reportType = normalizeReportType((string)($_GET['type'] ?? 'overview'));
     $selectedYear = (string)($_GET['year'] ?? 'all');
@@ -306,43 +325,73 @@ try {
         throw new Exception('GROQ_API_KEY not configured');
     }
 
-    // Call Groq API
-    $ch = curl_init('https://api.groq.com/openai/v1/chat/completions');
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        'Content-Type: application/json',
-        'Authorization: Bearer ' . $groqApiKey
-    ]);
-    
     $prompt = buildTypeSpecificPrompt($reportType, $selectedYear, $selectedDepartment, (string)$dataContext);
-    
-    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
-        'model' => 'llama-3.3-70b-versatile',
-        'messages' => [
-            ['role' => 'system', 'content' => 'You are an expert data analyst specializing in graduate employment outcomes and educational analytics.'],
-            ['role' => 'user', 'content' => $prompt]
-        ],
-        'temperature' => 0.7,
-        'max_tokens' => 800
-    ]));
-    
-    $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-    
-    if ($httpCode !== 200) {
-        throw new Exception('AI service unavailable');
+
+    $candidateModels = [
+        'llama-3.3-70b-versatile',
+        'llama-3.1-8b-instant',
+    ];
+
+    $response = null;
+    $httpCode = 0;
+    $selectedModel = null;
+
+    foreach ($candidateModels as $model) {
+        $ch = curl_init('https://api.groq.com/openai/v1/chat/completions');
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Content-Type: application/json',
+            'Authorization: Bearer ' . $groqApiKey
+        ]);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 40);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
+            'model' => $model,
+            'messages' => [
+                ['role' => 'system', 'content' => 'You are an expert data analyst specializing in graduate employment outcomes and educational analytics. Return plain text only: no markdown, no headings, no bullets, no numbered lists, and no special formatting. Write 3 to 4 concise paragraphs.'],
+                ['role' => 'user', 'content' => $prompt]
+            ],
+            'temperature' => 0.7,
+            'max_tokens' => 700
+        ]));
+
+        $attemptResponse = curl_exec($ch);
+        $attemptCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $response = $attemptResponse;
+        $httpCode = (int)$attemptCode;
+        if ($httpCode === 200) {
+            $selectedModel = $model;
+            break;
+        }
+
+        // Retry with next Groq model when rate-limited.
+        if ($httpCode !== 429) {
+            // Non-rate-limit errors should stop retries to avoid masking real issues.
+            break;
+        }
     }
     
-    $result = json_decode($response, true);
-    $aiAnalysis = $result['choices'][0]['message']['content'] ?? 'Analysis unavailable';
+    $aiAnalysis = null;
+    if ($httpCode === 200 && is_string($response) && $response !== '') {
+        $result = json_decode($response, true);
+        $aiAnalysis = $result['choices'][0]['message']['content'] ?? null;
+    }
+
+    if (!is_string($aiAnalysis) || trim($aiAnalysis) === '') {
+        $errorPreview = is_string($response) ? substr($response, 0, 240) : '';
+        throw new Exception('Groq AI request failed (HTTP ' . (int)$httpCode . '). ' . $errorPreview);
+    }
+
+    $aiAnalysis = normalizeToParagraphs($aiAnalysis);
 
     $responseData = [
         'report_type' => $reportType,
         'survey_id' => $selectedSurveyId,
         'selected_year' => $selectedYear,
         'selected_department' => $selectedDepartment,
+        'ai_model' => $selectedModel,
         'ai_analysis' => $aiAnalysis,
     ];
 
