@@ -40,6 +40,7 @@ interface TokenProfileData {
   first_name?: string | null;
   middle_name?: string | null;
   last_name?: string | null;
+  name_extension?: string | null;
   email?: string | null;
   mobile?: string | null;
   phone?: string | null;
@@ -188,6 +189,10 @@ const getOtherTextFromAnswer = (answer: SurveyAnswer, option: string) => {
 };
 
 const PASSWORD_COMPLEXITY_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
+const NAME_EXTENSION_OPTIONS = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V', 'VI'];
+
+const isNameExtensionQuestion = (question: Question) =>
+  normalizeComparable(question.question_text).includes('name extension');
 
 const hasBlankOtherSelection = (question: Question, answer: SurveyAnswer) => {
   const otherOption = getOtherOption(question);
@@ -312,6 +317,10 @@ const getGraduateAutofillValue = (question: Question, profile: TokenProfileData)
 
   if (questionText.includes('last name') || questionText.includes('surname') || questionText.includes('family name')) {
     return formatValueForQuestion(question, [getProfileText(profile, ['last_name'])]);
+  }
+
+  if (questionText.includes('name extension') || questionText.includes('suffix')) {
+    return formatValueForQuestion(question, [getProfileText(profile, ['name_extension'])]);
   }
 
   if (questionText.includes('student number') || questionText.includes('student no') || questionText.includes('student id')) {
@@ -1147,6 +1156,23 @@ function Survey() {
         return null;
 
       case 'text':
+        if (isNameExtensionQuestion(question)) {
+          const normalizedValue = typeof value === 'string' ? value : '';
+          return (
+            <select
+              value={normalizedValue}
+              onChange={(e) => handleResponseChange(question.id!, e.target.value)}
+              className={getQuestionFieldClass(question)}
+              required={Number(question.is_required) === 1}
+            >
+              <option value="">Select name extension</option>
+              {NAME_EXTENSION_OPTIONS.map((option) => (
+                <option key={option} value={option}>{option}</option>
+              ))}
+            </select>
+          );
+        }
+
         return (
           <input
             type="text"
@@ -1475,12 +1501,20 @@ function Survey() {
                     
                     const firstNameQ = currentSectionQuestions[i + 1];
                     const middleNameQ = currentSectionQuestions[i + 2];
+                    const maybeNameExtensionQ = currentSectionQuestions[i + 3];
+                    const hasNameExtension = Boolean(
+                      maybeNameExtensionQ
+                      && maybeNameExtensionQ.question_text.toLowerCase().includes('name extension')
+                    );
                     const firstNameIdx = activeSurvey.questions.findIndex(q => q.id === firstNameQ.id);
                     const middleNameIdx = activeSurvey.questions.findIndex(q => q.id === middleNameQ.id);
+                    const nameExtensionIdx = hasNameExtension
+                      ? activeSurvey.questions.findIndex(q => q.id === maybeNameExtensionQ?.id)
+                      : -1;
                     
                     renderedQuestions.push(
                       <div key={`name-group-${question.id}`} className="bg-blue-50 rounded-xl p-4 border border-blue-100 sm:p-5">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className={`grid grid-cols-1 gap-4 ${hasNameExtension ? 'md:grid-cols-2 xl:grid-cols-4' : 'md:grid-cols-3'}`}>
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
                               {globalIdx + 1}. {question.question_text}
@@ -1508,10 +1542,21 @@ function Survey() {
                             </label>
                             {renderQuestion(middleNameQ)}
                           </div>
+                          {hasNameExtension && maybeNameExtensionQ && (
+                            <div>
+                              <label className="block text-base font-semibold text-gray-800 mb-3">
+                                {nameExtensionIdx + 1}. {maybeNameExtensionQ.question_text}
+                                {Number(maybeNameExtensionQ.is_required) === 1 && (
+                                  <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
+                                )}
+                              </label>
+                              {renderQuestion(maybeNameExtensionQ)}
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
-                    i += 3;
+                    i += hasNameExtension ? 4 : 3;
                   }
                   // Check if this is Email and next two are Mobile Number and Telephone/Contact Number
                   else if (questionText.includes('email') &&

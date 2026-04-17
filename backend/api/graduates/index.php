@@ -11,6 +11,32 @@ function normalize_nullable_text($value) {
     return $trimmed === '' ? null : $trimmed;
 }
 
+function normalize_name_extension($value) {
+    $normalized = normalize_nullable_text($value);
+    if ($normalized === null) {
+        return null;
+    }
+
+    return substr($normalized, 0, 20);
+}
+
+function graduates_has_name_extension_column($db) {
+    static $hasColumn = null;
+
+    if ($hasColumn !== null) {
+        return $hasColumn;
+    }
+
+    try {
+        $stmt = $db->query("SHOW COLUMNS FROM graduates LIKE 'name_extension'");
+        $hasColumn = $stmt !== false && (bool)$stmt->fetch(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {
+        $hasColumn = false;
+    }
+
+    return $hasColumn;
+}
+
 $database = new Database();
 $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
@@ -129,7 +155,9 @@ try {
             $email = normalize_nullable_text($data['email'] ?? null);
             $phone = normalize_nullable_text($data['phone'] ?? null);
             $middleName = normalize_nullable_text($data['middle_name'] ?? null);
+            $nameExtension = normalize_name_extension($data['name_extension'] ?? null);
             $address = normalize_nullable_text($data['address'] ?? null);
+            $hasNameExtensionColumn = graduates_has_name_extension_column($db);
 
             if ($email !== null) {
                 $emailCheckStmt = $db->prepare("SELECT id FROM graduates WHERE email = :email LIMIT 1");
@@ -141,21 +169,40 @@ try {
                 }
             }
 
-            $stmt = $db->prepare("
-                INSERT INTO graduates (student_id, first_name, middle_name, last_name, email, phone, program_id, year_graduated, address)
-                VALUES (:student_id, :first_name, :middle_name, :last_name, :email, :phone, :program_id, :year_graduated, :address)
-            ");
-            $stmt->execute([
-                ':student_id' => $studentId,
-                ':first_name' => $data['first_name'],
-                ':middle_name' => $middleName,
-                ':last_name' => $data['last_name'],
-                ':email' => $email,
-                ':phone' => $phone,
-                ':program_id' => $data['program_id'] ?? null,
-                ':year_graduated' => $data['year_graduated'] ?? null,
-                ':address' => $address,
-            ]);
+            if ($hasNameExtensionColumn) {
+                $stmt = $db->prepare("
+                    INSERT INTO graduates (student_id, first_name, middle_name, last_name, name_extension, email, phone, program_id, year_graduated, address)
+                    VALUES (:student_id, :first_name, :middle_name, :last_name, :name_extension, :email, :phone, :program_id, :year_graduated, :address)
+                ");
+                $stmt->execute([
+                    ':student_id' => $studentId,
+                    ':first_name' => $data['first_name'],
+                    ':middle_name' => $middleName,
+                    ':last_name' => $data['last_name'],
+                    ':name_extension' => $nameExtension,
+                    ':email' => $email,
+                    ':phone' => $phone,
+                    ':program_id' => $data['program_id'] ?? null,
+                    ':year_graduated' => $data['year_graduated'] ?? null,
+                    ':address' => $address,
+                ]);
+            } else {
+                $stmt = $db->prepare("
+                    INSERT INTO graduates (student_id, first_name, middle_name, last_name, email, phone, program_id, year_graduated, address)
+                    VALUES (:student_id, :first_name, :middle_name, :last_name, :email, :phone, :program_id, :year_graduated, :address)
+                ");
+                $stmt->execute([
+                    ':student_id' => $studentId,
+                    ':first_name' => $data['first_name'],
+                    ':middle_name' => $middleName,
+                    ':last_name' => $data['last_name'],
+                    ':email' => $email,
+                    ':phone' => $phone,
+                    ':program_id' => $data['program_id'] ?? null,
+                    ':year_graduated' => $data['year_graduated'] ?? null,
+                    ':address' => $address,
+                ]);
+            }
             $graduateId = $db->lastInsertId();
 
             // Create employment record
@@ -190,7 +237,9 @@ try {
             $email = normalize_nullable_text($data['email'] ?? null);
             $phone = normalize_nullable_text($data['phone'] ?? null);
             $middleName = normalize_nullable_text($data['middle_name'] ?? null);
+            $nameExtension = normalize_name_extension($data['name_extension'] ?? null);
             $address = normalize_nullable_text($data['address'] ?? null);
+            $hasNameExtensionColumn = graduates_has_name_extension_column($db);
 
             if ($email !== null) {
                 $emailCheckStmt = $db->prepare("SELECT id FROM graduates WHERE email = :email AND id <> :id LIMIT 1");
@@ -202,25 +251,48 @@ try {
                 }
             }
 
-            $stmt = $db->prepare("
-                UPDATE graduates SET 
-                    student_id = :student_id, first_name = :first_name, middle_name = :middle_name, last_name = :last_name,
-                    email = :email, phone = :phone, program_id = :program_id,
-                    year_graduated = :year_graduated, address = :address
-                WHERE id = :id
-            ");
-            $stmt->execute([
-                ':id' => $data['id'],
-                ':student_id' => $studentId,
-                ':first_name' => $data['first_name'],
-                ':middle_name' => $middleName,
-                ':last_name' => $data['last_name'],
-                ':email' => $email,
-                ':phone' => $phone,
-                ':program_id' => $data['program_id'] ?? null,
-                ':year_graduated' => $data['year_graduated'] ?? null,
-                ':address' => $address,
-            ]);
+            if ($hasNameExtensionColumn) {
+                $stmt = $db->prepare("
+                    UPDATE graduates SET 
+                        student_id = :student_id, first_name = :first_name, middle_name = :middle_name, last_name = :last_name,
+                        name_extension = :name_extension, email = :email, phone = :phone, program_id = :program_id,
+                        year_graduated = :year_graduated, address = :address
+                    WHERE id = :id
+                ");
+                $stmt->execute([
+                    ':id' => $data['id'],
+                    ':student_id' => $studentId,
+                    ':first_name' => $data['first_name'],
+                    ':middle_name' => $middleName,
+                    ':last_name' => $data['last_name'],
+                    ':name_extension' => $nameExtension,
+                    ':email' => $email,
+                    ':phone' => $phone,
+                    ':program_id' => $data['program_id'] ?? null,
+                    ':year_graduated' => $data['year_graduated'] ?? null,
+                    ':address' => $address,
+                ]);
+            } else {
+                $stmt = $db->prepare("
+                    UPDATE graduates SET 
+                        student_id = :student_id, first_name = :first_name, middle_name = :middle_name, last_name = :last_name,
+                        email = :email, phone = :phone, program_id = :program_id,
+                        year_graduated = :year_graduated, address = :address
+                    WHERE id = :id
+                ");
+                $stmt->execute([
+                    ':id' => $data['id'],
+                    ':student_id' => $studentId,
+                    ':first_name' => $data['first_name'],
+                    ':middle_name' => $middleName,
+                    ':last_name' => $data['last_name'],
+                    ':email' => $email,
+                    ':phone' => $phone,
+                    ':program_id' => $data['program_id'] ?? null,
+                    ':year_graduated' => $data['year_graduated'] ?? null,
+                    ':address' => $address,
+                ]);
+            }
 
             // Update employment
             $empStmt = $db->prepare("

@@ -14,6 +14,7 @@ interface Graduate {
   first_name: string;
   middle_name?: string;
   last_name: string;
+  name_extension?: string;
   email: string;
   phone: string;
   program_id: number;
@@ -33,6 +34,7 @@ interface FormData {
   first_name: string;
   middle_name: string;
   last_name: string;
+  name_extension: string;
   email: string;
   phone: string;
   program_id: string;
@@ -49,7 +51,7 @@ interface FormData {
 }
 
 const emptyForm: FormData = {
-  student_id: '', first_name: '', middle_name: '', last_name: '', email: '', phone: '',
+  student_id: '', first_name: '', middle_name: '', last_name: '', name_extension: '', email: '', phone: '',
   program_id: '', year_graduated: '', address: '', employment_status: 'unemployed',
   is_aligned: 'not_aligned', company_name: '', job_title: '', industry: '',
   date_hired: '', monthly_salary: '', time_to_employment: '',
@@ -63,7 +65,9 @@ const PROGRAM_OPTIONS = [
   { id: '5', code: 'ACT', name: 'Associate in Computer Technology (ACT)' },
 ];
 
-const YEAR_TAB_OPTIONS = ['2021', '2022', '2023', '2024', '2025'];
+const NAME_EXTENSION_OPTIONS = ['', 'Jr.', 'Sr.', 'II', 'III', 'IV', 'V', 'VI'];
+
+const DEFAULT_YEAR_TAB_OPTIONS = ['2021', '2022', '2023', '2024', '2025'];
 
 const normalizeText = (value: unknown): string => {
   if (value === null || value === undefined) return '';
@@ -78,6 +82,124 @@ const pickValue = (row: Record<string, unknown>, keys: string[]): string => {
     }
   }
   return '';
+};
+
+const normalizeHeaderKey = (value: unknown): string => normalizeText(value).toLowerCase().replace(/[^a-z0-9]/g, '');
+
+const NAME_EXTENSION_ALIASES: Record<string, string> = {
+  jr: 'Jr.',
+  'jr.': 'Jr.',
+  sr: 'Sr.',
+  'sr.': 'Sr.',
+  ii: 'II',
+  iii: 'III',
+  iv: 'IV',
+  v: 'V',
+  vi: 'VI',
+};
+
+const normalizeNameExtension = (value: string): string => {
+  const normalized = value.trim();
+  if (!normalized) return '';
+  const lower = normalized.toLowerCase();
+  return NAME_EXTENSION_ALIASES[lower] ?? normalized;
+};
+
+const popTrailingNameExtension = (tokens: string[]): string => {
+  if (tokens.length === 0) return '';
+
+  const last = normalizeNameExtension(tokens[tokens.length - 1]);
+  if (last && Object.values(NAME_EXTENSION_ALIASES).includes(last)) {
+    tokens.pop();
+    return last;
+  }
+
+  return '';
+};
+
+const splitName = (fullName: string): { firstName: string; middleName: string; lastName: string; nameExtension: string } => {
+  const normalized = normalizeText(fullName).replace(/\s+/g, ' ');
+  if (!normalized) {
+    return {
+      firstName: '', middleName: '', lastName: '', nameExtension: '',
+    };
+  }
+
+  if (normalized.includes(',')) {
+    const [lastPart, ...restParts] = normalized.split(',');
+    const lastName = normalizeText(lastPart);
+    const given = normalizeText(restParts.join(' '));
+    const nameParts = given ? given.split(' ').filter(Boolean) : [];
+    const nameExtension = popTrailingNameExtension(nameParts);
+    const firstName = nameParts[0] ?? '';
+    const middleName = nameParts.slice(1).join(' ');
+    return {
+      firstName, middleName, lastName, nameExtension,
+    };
+  }
+
+  const tokens = normalized.split(' ').filter(Boolean);
+  const nameExtension = popTrailingNameExtension(tokens);
+
+  if (tokens.length === 1) {
+    return {
+      firstName: tokens[0], middleName: '', lastName: '', nameExtension,
+    };
+  }
+
+  return {
+    firstName: tokens[0],
+    middleName: tokens.slice(1, -1).join(' '),
+    lastName: tokens[tokens.length - 1],
+    nameExtension,
+  };
+};
+
+const formatGraduateDisplayName = (graduate: {
+  first_name: string;
+  middle_name?: string;
+  last_name: string;
+  name_extension?: string;
+}): string => {
+  const middleInitial = graduate.middle_name ? ` ${graduate.middle_name.charAt(0)}.` : '';
+  const extension = normalizeText(graduate.name_extension);
+  const suffix = extension ? ` ${extension}` : '';
+  return `${graduate.last_name}, ${graduate.first_name}${middleInitial}${suffix}`;
+};
+
+const findHeaderRowIndex = (rows: unknown[][]): number => {
+  const required = new Set(['studentnumber', 'studentid', 'name']);
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i] ?? [];
+    const keys = new Set(row.map((cell) => normalizeHeaderKey(cell)).filter(Boolean));
+    const hasStudent = keys.has('studentnumber') || keys.has('studentid');
+    const hasName = keys.has('name') || keys.has('fullname');
+    const hasAnyContact = keys.has('email') || keys.has('emailadd') || keys.has('emailaddress') || keys.has('contactnumber') || keys.has('contactno');
+
+    if (required.has('name') && hasStudent && hasName && hasAnyContact) {
+      return i;
+    }
+  }
+
+  return -1;
+};
+
+const extractGraduationYearFromRows = (rows: unknown[][]): string => {
+  const topRows = rows.slice(0, 20);
+  for (const row of topRows) {
+    const joined = row.map((cell) => normalizeText(cell)).join(' ');
+    const match = joined.match(/(?:19|20)\d{2}/);
+    if (match) {
+      return match[0];
+    }
+  }
+  return '';
+};
+
+const mergeAndSortYears = (prevYears: string[], nextYears: string[]): string[] => {
+  const merged = new Set([...prevYears, ...nextYears].filter(Boolean));
+  return Array.from(merged).sort((a, b) => Number.parseInt(a, 10) - Number.parseInt(b, 10));
 };
 
 const normalizeEmploymentStatus = (value: string): string => {
@@ -117,17 +239,29 @@ const resolveProgramId = (row: Record<string, unknown>): string => {
   return '';
 };
 
-const mapExcelRowToPayload = (row: Record<string, unknown>): FormData => {
-  const rawYear = pickValue(row, ['Year Graduated', 'year_graduated', 'yearGraduated']);
+const mapExcelRowToPayload = (row: Record<string, unknown>, fallbackYear = ''): FormData => {
+  const fullName = pickValue(row, ['Name', 'Full Name', 'full_name', 'fullName']);
+  const parsedName = splitName(fullName);
+
+  const firstName = pickValue(row, ['First Name', 'first_name', 'firstName']) || parsedName.firstName;
+  const middleName = pickValue(row, ['Middle Name', 'middle_name', 'middleName']) || parsedName.middleName;
+  const lastName = pickValue(row, ['Last Name', 'last_name', 'lastName']) || parsedName.lastName;
+  const nameExtension = normalizeNameExtension(
+    pickValue(row, ['Name Extension', 'Name Ext', 'Suffix', 'name_extension', 'nameExtension', 'suffix']) || parsedName.nameExtension
+  );
+
+  const rawYear = pickValue(row, ['Year Graduated', 'Graduation Year', 'year_graduated', 'yearGraduated']) || fallbackYear;
   const parsedYear = rawYear ? Number.parseInt(rawYear, 10) : NaN;
 
   return {
     ...emptyForm,
-    student_id: pickValue(row, ['Student ID', 'student_id', 'studentId']),
-    first_name: pickValue(row, ['First Name', 'first_name', 'firstName']),
-    last_name: pickValue(row, ['Last Name', 'last_name', 'lastName']),
-    email: pickValue(row, ['Email', 'email']),
-    phone: pickValue(row, ['Contact No.', 'Contact Number', 'Phone', 'phone']),
+    student_id: pickValue(row, ['Student ID', 'Student Number', 'student_id', 'studentId']),
+    first_name: firstName,
+    middle_name: middleName,
+    last_name: lastName,
+    name_extension: nameExtension,
+    email: pickValue(row, ['Email', 'Email Add', 'Email Address', 'email']),
+    phone: pickValue(row, ['Contact No.', 'Contact No', 'Contact Number', 'Phone', 'phone']),
     program_id: resolveProgramId(row),
     year_graduated: Number.isNaN(parsedYear) ? '' : String(parsedYear),
     address: pickValue(row, ['Address', 'address']),
@@ -142,7 +276,7 @@ const mapExcelRowToPayload = (row: Record<string, unknown>): FormData => {
   };
 };
 
-type MessageType = 'confirm' | 'success' | 'error';
+type MessageType = 'confirm' | 'success' | 'error' | 'warning' | 'info';
 
 export default function Graduates() {
   const [graduates, setGraduates] = useState<Graduate[]>([]);
@@ -150,6 +284,7 @@ export default function Graduates() {
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState('1');
   const [filterYear, setFilterYear] = useState('');
+  const [yearTabOptions, setYearTabOptions] = useState<string[]>(DEFAULT_YEAR_TAB_OPTIONS);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
@@ -195,6 +330,13 @@ export default function Graduates() {
       setTotalPages(res.pagination.pages);
       setTotal(res.pagination.total);
       setSelectedGraduateIds([]);
+
+      const fetchedYears = (res.data as Graduate[])
+        .map((graduate) => normalizeText(graduate.year_graduated))
+        .filter((year) => /^\d{4}$/.test(year));
+      if (fetchedYears.length > 0) {
+        setYearTabOptions((prev) => mergeAndSortYears(prev, fetchedYears));
+      }
     } catch (error) {
       setMsgBox({
         isOpen: true,
@@ -223,6 +365,7 @@ export default function Graduates() {
       first_name: g.first_name,
       middle_name: g.middle_name || '',
       last_name: g.last_name,
+      name_extension: g.name_extension || '',
       email: g.email || '',
       phone: g.phone || '',
       program_id: g.program_id?.toString() || '',
@@ -437,7 +580,36 @@ export default function Graduates() {
       }
 
       const worksheet = workbook.Sheets[firstSheetName];
-      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: '' });
+      const matrixRows = XLSX.utils.sheet_to_json<unknown[]>(worksheet, {
+        header: 1,
+        defval: '',
+        blankrows: false,
+      }) as unknown[][];
+
+      const inferredYear = extractGraduationYearFromRows(matrixRows);
+      const fallbackYear = filterYear || inferredYear;
+
+      const headerRowIndex = findHeaderRowIndex(matrixRows);
+      let rows: Record<string, unknown>[] = [];
+
+      if (headerRowIndex >= 0) {
+        const rawHeaders = matrixRows[headerRowIndex] ?? [];
+        const headers = rawHeaders.map((cell) => normalizeText(cell));
+
+        rows = matrixRows.slice(headerRowIndex + 1)
+          .map((row) => {
+            const record: Record<string, unknown> = {};
+            headers.forEach((header, index) => {
+              if (header !== '') {
+                record[header] = row[index] ?? '';
+              }
+            });
+            return record;
+          })
+          .filter((row) => Object.values(row).some((value) => normalizeText(value) !== ''));
+      } else {
+        rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: '' });
+      }
 
       if (rows.length === 0) {
         throw new Error('Excel file is empty.');
@@ -445,11 +617,28 @@ export default function Graduates() {
 
       let successCount = 0;
       let failedCount = 0;
+      const importedYears = new Set<string>();
+      const failureReasons: Record<string, number> = {};
+
+      const addFailureReason = (reason: string) => {
+        failureReasons[reason] = (failureReasons[reason] ?? 0) + 1;
+      };
 
       for (const row of rows) {
-        const payload = mapExcelRowToPayload(row);
+        const payload = mapExcelRowToPayload(row, fallbackYear);
+        if (!payload.program_id) {
+          payload.program_id = activeTab;
+        }
+
         if (!payload.first_name || !payload.last_name) {
           failedCount += 1;
+          addFailureReason('Missing name');
+          continue;
+        }
+
+        if (!payload.year_graduated) {
+          failedCount += 1;
+          addFailureReason('Missing graduation year');
           continue;
         }
 
@@ -463,18 +652,51 @@ export default function Graduates() {
 
         if (response.ok && result.success) {
           successCount += 1;
+          if (/^\d{4}$/.test(payload.year_graduated)) {
+            importedYears.add(payload.year_graduated);
+          }
         } else {
           failedCount += 1;
+          const backendError = normalizeText(result?.error);
+          if (backendError) {
+            if (backendError.toLowerCase().includes('email already exists')) {
+              addFailureReason('Duplicate email');
+            } else {
+              addFailureReason(backendError);
+            }
+          } else {
+            addFailureReason('Rejected by server');
+          }
         }
       }
 
       await fetchGraduates();
+      if (importedYears.size > 0) {
+        setYearTabOptions((prev) => mergeAndSortYears(prev, Array.from(importedYears)));
+      }
 
-      const msgType: MessageType = failedCount > 0 ? 'error' : 'success';
+      const sortedReasons = Object.entries(failureReasons)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([reason, count]) => `${reason}: ${count}`)
+        .join(', ');
+
+      const msgType: MessageType = failedCount === 0
+        ? 'success'
+        : successCount > 0
+          ? 'warning'
+          : 'error';
+
+      const statusLabel = failedCount === 0
+        ? 'Import completed successfully.'
+        : successCount > 0
+          ? 'Import completed with some skipped rows.'
+          : 'Import failed.';
+
       setMsgBox({
         isOpen: true,
         type: msgType,
-        message: `Excel import finished. Added: ${successCount}. Failed: ${failedCount}.`,
+        message: `${statusLabel}\nAdded: ${successCount}. Failed: ${failedCount}.${sortedReasons ? `\nReasons: ${sortedReasons}.` : ''}`,
       });
     } catch (error) {
       setMsgBox({
@@ -554,7 +776,7 @@ export default function Graduates() {
           >
             All Years
           </button>
-          {YEAR_TAB_OPTIONS.map((year) => (
+          {yearTabOptions.map((year) => (
             <button
               key={year}
               onClick={() => { setFilterYear(year); setPage(1); }}
@@ -618,7 +840,7 @@ export default function Graduates() {
             className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 sm:w-auto"
             >
               <option value="">All Years</option>
-              {YEAR_TAB_OPTIONS.map((year) => (
+              {yearTabOptions.map((year) => (
                 <option key={year} value={year}>{year}</option>
               ))}
             </select>
@@ -647,7 +869,7 @@ export default function Graduates() {
                       Select
                     </label>
                     <p className="font-semibold text-[#1b2a4a]">
-                      {g.last_name}, {g.first_name}{g.middle_name ? ` ${g.middle_name.charAt(0)}.` : ''}
+                      {formatGraduateDisplayName(g)}
                     </p>
                     <p className="mt-1 font-mono text-xs text-gray-500">{g.student_id}</p>
                   </div>
@@ -717,7 +939,7 @@ export default function Graduates() {
                     <td className="px-4 py-3 font-mono text-xs">{g.student_id}</td>
                     <td className="px-4 py-3">
                       <p className="font-medium text-[#1b2a4a]">
-                        {g.last_name}, {g.first_name}{g.middle_name ? ` ${g.middle_name.charAt(0)}.` : ''}
+                        {formatGraduateDisplayName(g)}
                       </p>
                     </td>
                     <td className="px-4 py-3 text-gray-600">{g.email || '-'}</td>
@@ -788,6 +1010,18 @@ export default function Graduates() {
                 <Input label="First Name" value={formData.first_name} onChange={(v) => updateField('first_name', v)} required />
                 <Input label="Middle Name" value={formData.middle_name} onChange={(v) => updateField('middle_name', v)} />
                 <Input label="Last Name" value={formData.last_name} onChange={(v) => updateField('last_name', v)} required />
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Name Extension</label>
+                  <select
+                    value={formData.name_extension}
+                    onChange={(e) => updateField('name_extension', e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {NAME_EXTENSION_OPTIONS.map((option) => (
+                      <option key={option || 'none'} value={option}>{option || 'None'}</option>
+                    ))}
+                  </select>
+                </div>
                 <Input label="Email" type="email" value={formData.email} onChange={(v) => updateField('email', v)} />
                 <Input label="Contact No." type="tel" value={formData.phone} onChange={(v) => updateField('phone', v)} />
                 <div>
@@ -804,7 +1038,19 @@ export default function Graduates() {
                     ))}
                   </select>
                 </div>
-                <Input label="Year Graduated" type="number" value={formData.year_graduated} onChange={(v) => updateField('year_graduated', v)} required />
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Year Graduated</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]{4}"
+                    maxLength={4}
+                    value={formData.year_graduated}
+                    onChange={(e) => updateField('year_graduated', e.target.value)}
+                    required
+                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
               </div>
 
               <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">

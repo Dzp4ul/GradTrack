@@ -159,6 +159,7 @@ export default function Surveys() {
         { question_text: 'Last Name', question_type: 'text', options: null, is_required: 1, sort_order: 1, section: 'Personal Information' },
         { question_text: 'First Name', question_type: 'text', options: null, is_required: 1, sort_order: 2, section: 'Personal Information' },
         { question_text: 'Middle Name', question_type: 'text', options: null, is_required: 0, sort_order: 3, section: 'Personal Information' },
+        { question_text: 'Name Extension', question_type: 'multiple_choice', options: ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V', 'VI'], is_required: 0, sort_order: 4, section: 'Personal Information' },
         { question_text: 'Region', question_type: 'multiple_choice', options: ['National Capital Region (NCR)', 'Cordillera Administrative Region (CAR)', 'Region I - Ilocos Region', 'Region II - Cagayan Valley', 'Region III - Central Luzon', 'Region IV - CALABARZON', 'Region V - Bicol Region', 'Region VI - Western Visayas', 'Region VII - Central Visayas', 'Region VIII - Eastern Visayas', 'Region IX - Zamboanga Peninsula', 'Region X - Northern Mindanao', 'Region XI - Davao Region', 'Region XII - SOCCSKSARGEN', 'Region XIII - Caraga', 'BARMM' ], is_required: 1, sort_order: 4, section: 'Personal Information' },
         { question_text: 'Province', question_type: 'text', options: null, is_required: 1, sort_order: 5, section: 'Personal Information' },
         { question_text: 'City / Municipality', question_type: 'text', options: null, is_required: 1, sort_order: 6, section: 'Personal Information' },
@@ -211,7 +212,13 @@ export default function Surveys() {
         { question_text: 'Reason(s) why you are not yet employed', question_type: 'checkbox', options: ['Advance or further study', 'Family concern and decided not to find a job', 'Health-related reason(s)', 'Lack of work experience', 'No job opportunity', 'Did not look for a job'], is_required: 0, sort_order: 46, section: 'Employment Data' },
       ]
     };
-    setFormData(defaultSurvey);
+    setFormData({
+      ...defaultSurvey,
+      questions: defaultSurvey.questions.map((question, index) => ({
+        ...question,
+        sort_order: index + 1,
+      })),
+    });
     setIsEditing(false);
     setShowTemplates(false);
     setShowModal(true);
