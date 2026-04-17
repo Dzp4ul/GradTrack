@@ -504,6 +504,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
             $answers = [];
             $orderedQuestions = $questionCache[$responseSurveyId]['ordered'];
             $questionKeyMap = survey_response_build_question_key_map($orderedQuestions, $decodedResponses);
+            $usedResponseKeys = [];
+
+            // Only use historical fallback mapping when this response appears to come
+            // from an older key schema (legacy numeric keys). For current-schema
+            // responses, rely on exact question IDs to avoid cross-field leakage
+            // (e.g., Region appearing under Name Extension).
+            $questionIdSet = [];
+            foreach ($orderedQuestions as $question) {
+                $questionId = (string) ($question['id'] ?? '');
+                if ($questionId !== '' && ctype_digit($questionId)) {
+                    $questionIdSet[$questionId] = true;
+                }
+            }
+
+            $numericResponseKeys = [];
+            $exactQuestionKeyHits = 0;
+            foreach (array_keys($decodedResponses) as $responseKey) {
+                $responseKeyString = (string) $responseKey;
+                if (!ctype_digit($responseKeyString)) {
+                    continue;
+                }
+
+                $numericResponseKeys[$responseKeyString] = true;
+                if (isset($questionIdSet[$responseKeyString])) {
+                    $exactQuestionKeyHits++;
+                }
+            }
+
+            $numericKeyCount = count($numericResponseKeys);
+            $exactHitRatio = $numericKeyCount > 0 ? ($exactQuestionKeyHits / $numericKeyCount) : 0;
+            $allowHistoricalFallback = $exactHitRatio < 0.5;
 
             foreach ($orderedQuestions as $question) {
                 $questionKey = (string) ($question['id'] ?? '');
@@ -511,9 +542,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
                     continue;
                 }
 
-                $answer = survey_response_get_answer_by_keys($decodedResponses, $questionKeyMap[$questionKey]);
-                if ($answer === null) {
+                $questionType = strtolower((string) ($question['question_type'] ?? ''));
+                if ($questionType === 'header') {
                     continue;
+                }
+
+                $answer = null;
+                $sourceKey = null;
+
+                // Prefer exact question-id key first for current schema responses.
+                if (array_key_exists($questionKey, $decodedResponses)) {
+                    $answer = $decodedResponses[$questionKey];
+                    $sourceKey = $questionKey;
+                } elseif ($allowHistoricalFallback) {
+                    // Fall back to historical key candidates, but never reuse a key already mapped.
+                    foreach ($questionKeyMap[$questionKey] as $candidateKey) {
+                        if (!array_key_exists($candidateKey, $decodedResponses)) {
+                            continue;
+                        }
+                        if (isset($usedResponseKeys[$candidateKey])) {
+                            continue;
+                        }
+
+                        $answer = $decodedResponses[$candidateKey];
+                        $sourceKey = (string) $candidateKey;
+                        break;
+                    }
+                }
+
+                if ($sourceKey !== null) {
+                    $usedResponseKeys[$sourceKey] = true;
                 }
 
                 $answers[] = [
