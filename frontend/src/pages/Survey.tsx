@@ -64,6 +64,35 @@ interface TokenProfileData {
 type SurveyAnswer = string | number | string[] | null | undefined;
 type SurveyResponses = Record<number, SurveyAnswer>;
 
+const getSurveyDraftKey = (surveyId: number, graduateId: number | null) =>
+  graduateId && graduateId > 0
+    ? `survey_draft_${surveyId}_g${graduateId}`
+    : `survey_draft_${surveyId}`;
+
+const sanitizeDraftResponses = (draftResponses: unknown, questions: Question[]): SurveyResponses => {
+  if (!draftResponses || typeof draftResponses !== 'object' || Array.isArray(draftResponses)) {
+    return {};
+  }
+
+  const validQuestionIds = new Set(
+    questions
+      .map((question) => Number(question.id))
+      .filter((questionId) => Number.isFinite(questionId) && questionId > 0)
+  );
+
+  const sanitized: SurveyResponses = {};
+  Object.entries(draftResponses as Record<string, unknown>).forEach(([key, value]) => {
+    const questionId = Number(key);
+    if (!Number.isFinite(questionId) || !validQuestionIds.has(questionId)) {
+      return;
+    }
+
+    sanitized[questionId] = value as SurveyAnswer;
+  });
+
+  return sanitized;
+};
+
 const normalizeComparable = (value: string) =>
   value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
@@ -389,7 +418,7 @@ const applyGraduateAutofill = (
 function Survey() {
   const [searchParams] = useSearchParams();
   const surveyIdFromUrl = searchParams.get('survey_id');
-  const hydratedSurveyIdRef = useRef<number | null>(null);
+  const hydratedDraftKeyRef = useRef<string | null>(null);
   
   const [agreed, setAgreed] = useState(false);
   const [agreedCheckbox, setAgreedCheckbox] = useState(false);
@@ -538,20 +567,24 @@ function Survey() {
 
   // Load any saved draft, then fill blank profile fields from the verified registrar record.
   useEffect(() => {
-    if (!activeSurvey || !tokenProfileData || hydratedSurveyIdRef.current === activeSurvey.id) {
+    if (!activeSurvey || !tokenProfileData || !graduateId) {
       return;
     }
 
-    hydratedSurveyIdRef.current = activeSurvey.id;
+    const draftKey = getSurveyDraftKey(activeSurvey.id, graduateId);
+    if (hydratedDraftKeyRef.current === draftKey) {
+      return;
+    }
 
-    const draftKey = `survey_draft_${activeSurvey.id}`;
+    hydratedDraftKeyRef.current = draftKey;
+
     const saved = localStorage.getItem(draftKey);
     let initialResponses: SurveyResponses = {};
 
     if (saved) {
       try {
         const draft = JSON.parse(saved);
-        initialResponses = draft.responses || {};
+        initialResponses = sanitizeDraftResponses(draft.responses, activeSurvey.questions);
         setCurrentSection(draft.section || 0);
         if (draft.timestamp) {
           setLastSaved(new Date(draft.timestamp));
@@ -564,17 +597,17 @@ function Survey() {
     const autofill = applyGraduateAutofill(activeSurvey.questions, tokenProfileData, initialResponses);
     setResponses(autofill.responses);
     setAutoFilledQuestionIds(new Set(autofill.filledQuestionIds));
-  }, [activeSurvey, tokenProfileData]);
+  }, [activeSurvey, tokenProfileData, graduateId]);
 
   // Auto-save draft
   useEffect(() => {
-    if (activeSurvey && Object.keys(responses).length > 0) {
-      const draftKey = `survey_draft_${activeSurvey.id}`;
+    if (activeSurvey && graduateId && Object.keys(responses).length > 0) {
+      const draftKey = getSurveyDraftKey(activeSurvey.id, graduateId);
       const draft = { responses, section: currentSection, timestamp: new Date().toISOString() };
       localStorage.setItem(draftKey, JSON.stringify(draft));
       setLastSaved(new Date());
     }
-  }, [responses, currentSection, activeSurvey]);
+  }, [responses, currentSection, activeSurvey, graduateId]);
 
   const fetchActiveSurvey = async (targetSurveyId?: string | number | null) => {
     try {
@@ -926,6 +959,8 @@ function Survey() {
   const handleSubmit = async () => {
     if (!activeSurvey || !token || !graduateId) return;
 
+    const submissionResponses = sanitizeDraftResponses(responses, activeSurvey.questions);
+
     try {
       const response = await fetch(`${API_ROOT}/surveys/responses.php`, {
         method: 'POST',
@@ -934,7 +969,7 @@ function Survey() {
           survey_id: activeSurvey.id,
           graduate_id: graduateId,
           token: token,
-          responses: responses,
+          responses: submissionResponses,
         }),
       });
 
@@ -943,6 +978,7 @@ function Survey() {
       if (result.success) {
         const extractedProfile = extractSurveyProfileData();
 
+        localStorage.removeItem(getSurveyDraftKey(activeSurvey.id, graduateId));
         localStorage.removeItem(`survey_draft_${activeSurvey.id}`);
         sessionStorage.removeItem('survey_token');
         sessionStorage.removeItem('graduate_id');

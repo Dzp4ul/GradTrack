@@ -61,6 +61,100 @@ function survey_response_frontend_url(): string
         return $origin !== '' ? rtrim($origin, '/') : 'http://localhost:5173';
 }
 
+    function survey_response_collect_question_keys(array $decodedResponses): array
+    {
+        $keys = [];
+        foreach (array_keys($decodedResponses) as $key) {
+            $stringKey = (string) $key;
+            if ($stringKey !== '' && ctype_digit($stringKey)) {
+                $keys[(int) $stringKey] = (int) $stringKey;
+            }
+        }
+
+        if (empty($keys)) {
+            return [];
+        }
+
+        sort($keys, SORT_NUMERIC);
+        return array_values($keys);
+    }
+
+    function survey_response_build_question_key_map(array $questions, array $decodedResponses): array
+    {
+        $map = [];
+        foreach ($questions as $question) {
+            $questionId = (string) ($question['id'] ?? '');
+            if ($questionId === '' || !ctype_digit($questionId)) {
+                continue;
+            }
+
+            $map[$questionId] = [$questionId];
+        }
+
+        if (empty($map)) {
+            return $map;
+        }
+
+        $responseKeys = survey_response_collect_question_keys($decodedResponses);
+        if (empty($responseKeys)) {
+            return $map;
+        }
+
+        usort($questions, static function ($a, $b) {
+            return ((int) ($a['sort_order'] ?? 0)) <=> ((int) ($b['sort_order'] ?? 0));
+        });
+
+        $firstQuestion = $questions[0] ?? null;
+        if ($firstQuestion === null || !isset($firstQuestion['id'])) {
+            return $map;
+        }
+
+        $firstQuestionId = (int) $firstQuestion['id'];
+        $firstSortOrder = (int) ($firstQuestion['sort_order'] ?? 0);
+        $firstResponseKey = (int) min($responseKeys);
+        $idOffset = $firstQuestionId - $firstResponseKey;
+
+        foreach ($questions as $question) {
+            if (!isset($question['id'])) {
+                continue;
+            }
+
+            $questionId = (string) $question['id'];
+            if (!isset($map[$questionId])) {
+                continue;
+            }
+
+            $historicalKeys = [
+                $firstResponseKey + ((int) ($question['sort_order'] ?? 0) - $firstSortOrder),
+                (int) $question['id'] - $idOffset,
+            ];
+
+            foreach ($historicalKeys as $historicalKey) {
+                if ($historicalKey <= 0) {
+                    continue;
+                }
+
+                $historicalKeyString = (string) $historicalKey;
+                if (!in_array($historicalKeyString, $map[$questionId], true)) {
+                    $map[$questionId][] = $historicalKeyString;
+                }
+            }
+        }
+
+        return $map;
+    }
+
+    function survey_response_get_answer_by_keys(array $decodedResponses, array $keys)
+    {
+        foreach ($keys as $key) {
+            if (array_key_exists($key, $decodedResponses)) {
+                return $decodedResponses[$key];
+            }
+        }
+
+        return null;
+    }
+
 function survey_response_send_confirmation_email(PDO $conn, int $graduateId, int $surveyId): array
 {
         $graduateStmt = $conn->prepare("SELECT g.first_name, g.last_name, g.email, p.code AS program_code
@@ -321,10 +415,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
             exit();
         }
 
+        $responseId = isset($_GET['response_id']) && (int) $_GET['response_id'] > 0 ? (int) $_GET['response_id'] : null;
         $surveyId = isset($_GET['survey_id']) && (int) $_GET['survey_id'] > 0 ? (int) $_GET['survey_id'] : null;
         $graduateId = isset($_GET['graduate_id']) && (int) $_GET['graduate_id'] > 0 ? (int) $_GET['graduate_id'] : null;
         $whereParts = [];
         $params = [];
+
+        if ($responseId !== null) {
+            $whereParts[] = 'sr.id = :response_id';
+            $params[':response_id'] = $responseId;
+        }
 
         if ($surveyId !== null) {
             $whereParts[] = 'sr.survey_id = :survey_id';
@@ -403,40 +503,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 
             $answers = [];
             $orderedQuestions = $questionCache[$responseSurveyId]['ordered'];
-            $questionsById = $questionCache[$responseSurveyId]['by_id'];
-            $answerIndex = 0;
-            $questionIdOffset = null;
+            $questionKeyMap = survey_response_build_question_key_map($orderedQuestions, $decodedResponses);
 
-            foreach (array_keys($decodedResponses) as $responseQuestionId) {
-                $responseQuestionKey = (string) $responseQuestionId;
-                if (isset($questionsById[$responseQuestionKey]) || !isset($orderedQuestions[0])) {
-                    break;
+            foreach ($orderedQuestions as $question) {
+                $questionKey = (string) ($question['id'] ?? '');
+                if ($questionKey === '' || !isset($questionKeyMap[$questionKey])) {
+                    continue;
                 }
 
-                if (is_numeric($responseQuestionKey) && is_numeric($orderedQuestions[0]['id'])) {
-                    $questionIdOffset = (int) $orderedQuestions[0]['id'] - (int) $responseQuestionKey;
-                }
-                break;
-            }
-
-            foreach ($decodedResponses as $questionId => $answer) {
-                $questionKey = (string) $questionId;
-                $offsetQuestion = null;
-                if ($questionIdOffset !== null && is_numeric($questionKey)) {
-                    $offsetQuestionKey = (string) ((int) $questionKey + $questionIdOffset);
-                    $offsetQuestion = $questionsById[$offsetQuestionKey] ?? null;
+                $answer = survey_response_get_answer_by_keys($decodedResponses, $questionKeyMap[$questionKey]);
+                if ($answer === null) {
+                    continue;
                 }
 
-                $question = $questionsById[$questionKey] ?? $offsetQuestion ?? ($orderedQuestions[$answerIndex] ?? null);
                 $answers[] = [
                     'question_id' => $questionKey,
                     'question_text' => $question['question_text'] ?? ('Question ' . $questionKey),
                     'question_type' => $question['question_type'] ?? null,
                     'section' => $question['section'] ?? null,
-                    'sort_order' => isset($question['sort_order']) ? (int) $question['sort_order'] : $answerIndex + 1,
+                    'sort_order' => isset($question['sort_order']) ? (int) $question['sort_order'] : 0,
                     'answer' => $answer,
                 ];
-                $answerIndex++;
             }
 
             $response['id'] = (int) $response['id'];

@@ -356,7 +356,12 @@ export default function GraduateParticipation() {
     });
   };
 
-  const openAnswerViewerByIds = useCallback(async (surveyId: string, graduateId: number, rowHint?: GraduateParticipationRow | null) => {
+  const openAnswerViewerByIds = useCallback(async (
+    surveyId: string,
+    graduateId: number,
+    rowHint?: GraduateParticipationRow | null,
+    responseId?: number | null
+  ) => {
     if (!surveyId || !Number.isFinite(graduateId) || graduateId <= 0) return;
 
     const existingRow = rowHint || rows.find((item) => item.id === graduateId) || null;
@@ -374,6 +379,9 @@ export default function GraduateParticipation() {
         survey_id: surveyId,
         graduate_id: String(graduateId),
       });
+      if (responseId && Number.isFinite(responseId) && responseId > 0) {
+        params.append('response_id', String(responseId));
+      }
       const response = await fetch(`${API_ENDPOINTS.SURVEY_RESPONSES}?${params.toString()}`, {
         credentials: 'include',
       });
@@ -424,7 +432,19 @@ export default function GraduateParticipation() {
 
   const openAnswerViewer = async (row: GraduateParticipationRow) => {
     if (!row.has_answered || !selectedSurveyId) return;
-    await openAnswerViewerByIds(selectedSurveyId, row.id, row);
+
+    const params = new URLSearchParams(location.search);
+    params.set('survey_id', selectedSurveyId);
+    params.set('graduate_id', String(row.id));
+    params.set('open_answers', '1');
+
+    navigate(
+      {
+        pathname: location.pathname,
+        search: `?${params.toString()}`,
+      },
+      { replace: false }
+    );
   };
 
   useEffect(() => {
@@ -432,11 +452,16 @@ export default function GraduateParticipation() {
     const openAnswers = params.get('open_answers');
     const surveyIdParam = params.get('survey_id');
     const graduateIdParam = params.get('graduate_id');
+    const responseIdParam = params.get('response_id');
 
     if (!openAnswers || !surveyIdParam || !graduateIdParam) return;
 
     const graduateId = Number(graduateIdParam);
     if (!Number.isFinite(graduateId) || graduateId <= 0) return;
+
+    const responseId = responseIdParam ? Number(responseIdParam) : null;
+    const resolvedResponseId =
+      responseId !== null && Number.isFinite(responseId) && responseId > 0 ? responseId : null;
 
     const requestKey = `${surveyIdParam}:${graduateId}`;
     if (autoOpenRequestRef.current === requestKey) return;
@@ -449,7 +474,12 @@ export default function GraduateParticipation() {
       setStatusFilter('answered');
     }
 
-    void openAnswerViewerByIds(surveyIdParam, graduateId, rows.find((item) => item.id === graduateId) || null);
+    void openAnswerViewerByIds(
+      surveyIdParam,
+      graduateId,
+      rows.find((item) => item.id === graduateId) || null,
+      resolvedResponseId
+    );
 
     params.delete('open_answers');
     const nextSearch = params.toString();
@@ -460,6 +490,9 @@ export default function GraduateParticipation() {
       },
       { replace: true }
     );
+
+    // Allow the same graduate answer link to be triggered again later.
+    autoOpenRequestRef.current = '';
   }, [location.pathname, location.search, navigate, openAnswerViewerByIds, rows, selectedSurveyId, statusFilter]);
 
   const closeAnswerViewer = () => {

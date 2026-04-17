@@ -149,6 +149,7 @@ function gradtrack_notifications_add_admin_surveys(PDO $db, array &$notification
         if (!empty($row['graduate_id'])) {
             $link = '/admin/graduates?survey_id=' . (int) $row['survey_id']
                 . '&graduate_id=' . (int) $row['graduate_id']
+                . '&response_id=' . (int) $row['id']
                 . '&open_answers=1';
         }
 
