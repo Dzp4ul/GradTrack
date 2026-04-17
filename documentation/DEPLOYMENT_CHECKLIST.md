@@ -26,7 +26,7 @@
 
 ## Deployment Steps
 
-### 1. Deploy Backend to 
+### 1. Deploy Backend to AWS EC2
 
 ```bash
 cd backend
@@ -53,7 +53,52 @@ eb open
 
 **Backend URL**: Copy this for frontend configuration
 
-### 2. Deploy Frontend to AWS Amplify
+### 2. Deploy Frontend to AWS EC2 (Same Instance or Separate Instance)
+
+```bash
+# On your EC2 instance
+cd /var/www/html/gradtrack/frontend
+
+# Install dependencies and build
+npm ci
+npm run build
+
+# Copy built files to Apache web root
+sudo rm -rf /var/www/html/frontend
+sudo mkdir -p /var/www/html/frontend
+sudo cp -r dist/* /var/www/html/frontend/
+```
+
+If you are serving frontend and backend from the same EC2 Apache server, add this to your Apache vhost:
+
+```apache
+Alias /app /var/www/html/frontend
+
+<Directory /var/www/html/frontend>
+   Options -Indexes +FollowSymLinks
+   AllowOverride None
+   Require all granted
+
+   # SPA fallback to index.html
+   FallbackResource /app/index.html
+</Directory>
+```
+
+Then restart Apache:
+
+```bash
+sudo apache2ctl configtest
+sudo systemctl restart apache2
+```
+
+Set frontend environment before build:
+
+```bash
+# frontend/.env.production
+VITE_API_BASE_URL=https://your-backend-domain.com
+```
+
+### 3. Deploy Frontend to AWS Amplify (Alternative)
 
 #### Via Amplify Console (Recommended):
 1. Push code to GitHub
@@ -85,7 +130,7 @@ amplify add hosting
 amplify publish
 ```
 
-### 3. Configure CORS
+### 4. Configure CORS
 
 Update backend to allow frontend domain:
 
@@ -94,7 +139,7 @@ cd backend
 eb setenv CORS_ALLOWED_ORIGINS=https://your-amplify-app.amplifyapp.com
 ```
 
-### 4. Test Production
+### 5. Test Production
 
 - [ ] Test login functionality
 - [ ] Test all API endpoints

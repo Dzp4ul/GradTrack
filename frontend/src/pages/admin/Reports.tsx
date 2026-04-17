@@ -70,7 +70,7 @@ interface SurveyQuestionAnalytics {
   options?: string[];
   total_answers: number;
   skipped_answers?: number;
-  data: any;
+  data: unknown;
 }
 
 interface SurveyEmploymentInsights {
@@ -267,12 +267,13 @@ export default function Reports() {
           switch (type) {
             case 'overview': setOverview(res.data); break;
             case 'by_program': setProgramData(res.data); break;
-            case 'by_year': 
+            case 'by_year': {
               setYearData(res.data);
               // Extract available years from the data
               const years = res.data.map((y: YearReport) => y.year_graduated.toString());
               setAvailableYears(years);
               break;
+            }
             case 'employment_status': setStatusData(res.data); break;
             case 'salary_distribution': setSalaryData(res.data); break;
           }
@@ -2461,10 +2462,11 @@ function getSurveyQuestionTableRows(question: SurveyQuestionAnalytics, totalResp
   const isChoiceQuestion = ['multiple_choice', 'radio', 'rating', 'checkbox'].includes(question.question_type);
 
   if (isChoiceQuestion && Array.isArray(question.data)) {
-    question.data.forEach((item: any) => {
+    question.data.forEach((item) => {
+      const choice = item as { option?: unknown; count?: unknown };
       rows.push({
-        label: String(item.option ?? 'No answer'),
-        count: Number(item.count ?? 0),
+        label: String(choice.option ?? 'No answer'),
+        count: Number(choice.count ?? 0),
       });
     });
   } else {

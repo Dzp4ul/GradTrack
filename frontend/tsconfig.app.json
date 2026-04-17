@@ -20,5 +20,9 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": [
+    "src/pages/admin/Reports_backup.tsx",
+    "src/pages/admin/Reports_Predictive.tsx"
+  ]
 }

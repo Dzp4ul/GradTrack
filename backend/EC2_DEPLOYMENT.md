@@ -99,10 +99,10 @@ sudo nano .env
 
 Update with your values:
 ```env
-DB_HOST=gradtrackdb.cry06m2ok5u8.ap-southeast-2.rds.amazonaws.com
-DB_NAME=gradtrackdb
-DB_USER=admin
-DB_PASSWORD=Gradtrack301
+DB_HOST=your-rds-endpoint.rds.amazonaws.com
+DB_NAME=your_database_name
+DB_USER=your_database_user
+DB_PASSWORD=your_database_password
 DB_PORT=3306
 APP_ENV=production
 APP_DEBUG=false
@@ -146,8 +146,8 @@ Add this configuration:
         Require all granted
     </Directory>
     
-    # Enable CORS
-    Header always set Access-Control-Allow-Origin "*"
+   # CORS: use your exact frontend origin when credentials are enabled
+   Header always set Access-Control-Allow-Origin "https://your-frontend-domain.com"
     Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
     Header always set Access-Control-Allow-Headers "Content-Type, Authorization, X-Requested-With"
     Header always set Access-Control-Allow-Credentials "true"
