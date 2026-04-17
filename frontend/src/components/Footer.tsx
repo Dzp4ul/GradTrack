@@ -22,7 +22,6 @@ export default function Footer() {
             <h4 className="font-bold text-lg mb-4">Quick Links</h4>
             <ul className="space-y-2">
               <li><a href="/#about" className="text-blue-200 hover:text-yellow-400 transition text-sm">About Us</a></li>
-              <li><a href="/#why-gradtrack" className="text-blue-200 hover:text-yellow-400 transition text-sm">Features</a></li>
               <li><a href="#" className="text-blue-200 hover:text-yellow-400 transition text-sm">FAQs</a></li>
             </ul>
           </div>
