@@ -379,9 +379,12 @@ export default function GraduatePortal() {
 
   const [msgBox, setMsgBox] = useState<{
     isOpen: boolean;
-    type: 'success' | 'error' | 'warning' | 'info';
+    type: 'success' | 'error' | 'warning' | 'info' | 'confirm';
     title?: string;
     message: string;
+    confirmText?: string;
+    cancelText?: string;
+    onConfirm?: () => void;
   }>({ isOpen: false, type: 'info', message: '' });
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
@@ -1253,9 +1256,20 @@ export default function GraduatePortal() {
     }
   };
 
-  const handleLogout = async () => {
-    await logout();
-    window.location.href = '/graduate/signin';
+  const handleLogout = () => {
+    setProfileMenuOpen(false);
+    setMsgBox({
+      isOpen: true,
+      type: 'confirm',
+      title: 'Logout Confirmation',
+      message: 'Are you sure you want to log out?',
+      confirmText: 'Logout',
+      cancelText: 'Cancel',
+      onConfirm: async () => {
+        await logout();
+        window.location.href = '/graduate/signin';
+      },
+    });
   };
 
   const handleMyProfileSave = async (e: FormEvent) => {
@@ -2917,9 +2931,12 @@ export default function GraduatePortal() {
       <MessageBox
         isOpen={msgBox.isOpen}
         onClose={() => setMsgBox((prev) => ({ ...prev, isOpen: false }))}
+        onConfirm={msgBox.onConfirm}
         type={msgBox.type}
         title={msgBox.title}
         message={msgBox.message}
+        confirmText={msgBox.confirmText}
+        cancelText={msgBox.cancelText}
       />
     </div>
   );
