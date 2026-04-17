@@ -87,13 +87,17 @@ export default function Surveys() {
 
   const fetchSurveys = () => {
     setLoading(true);
-    fetch(`${API_BASE}/surveys/index.php`)
+    fetch(`${API_BASE}/surveys/index.php`, {
+      credentials: 'include',
+    })
       .then((r) => r.json())
       .then((res) => {
         if (res.success) {
           // Fetch full details for each survey to get questions
           const surveysWithDetails = res.data.map((survey: Survey) => {
-            fetch(`${API_BASE}/surveys/index.php?id=${survey.id}`)
+            fetch(`${API_BASE}/surveys/index.php?id=${survey.id}`, {
+              credentials: 'include',
+            })
               .then((r) => r.json())
               .then((detailRes) => {
                 if (detailRes.success) {
@@ -228,6 +232,7 @@ export default function Surveys() {
       onConfirm: () => {
         fetch(`${API_BASE}/surveys/clear.php`, {
           method: 'POST',
+              credentials: 'include',
         })
           .then((r) => r.json())
           .then((res) => {
@@ -244,7 +249,9 @@ export default function Surveys() {
   };
 
   const openEdit = (s: Survey) => {
-    fetch(`${API_BASE}/surveys/index.php?id=${s.id}`)
+    fetch(`${API_BASE}/surveys/index.php?id=${s.id}`, {
+      credentials: 'include',
+    })
       .then((r) => r.json())
       .then((res) => {
         if (res.success) {
@@ -306,6 +313,7 @@ export default function Surveys() {
     fetch(`${API_BASE}/surveys/index.php`, {
       method,
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(formData),
     })
       .then((r) => r.json())
@@ -338,6 +346,7 @@ export default function Surveys() {
         fetch(`${API_BASE}/surveys/index.php`, {
           method: 'DELETE',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify({ id }),
         })
           .then((r) => r.json())
@@ -430,9 +439,6 @@ export default function Surveys() {
                   <div className="flex items-center gap-2 flex-shrink-0 sm:ml-4">
                     <button onClick={() => navigate(`/admin/surveys/${s.id}`)} className="p-2 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors font-medium" title="View Details">
                       <Info className="w-5 h-5" />
-                    </button>
-                    <button onClick={() => navigate(`/admin/reports?tab=surveys&survey_id=${s.id}`)} className="p-2 rounded-lg hover:bg-green-50 text-green-600 transition-colors font-medium" title="View Analytics">
-                      <BarChart3 className="w-5 h-5" />
                     </button>
                     <button onClick={() => openEdit(s)} className="p-2 rounded-lg hover:bg-yellow-50 text-yellow-600 transition-colors font-medium" title="Edit">
                       <Edit2 className="w-5 h-5" />

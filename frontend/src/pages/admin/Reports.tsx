@@ -427,6 +427,7 @@ export default function Reports() {
     };
 
     if (tab === 'surveys') {
+      setLoading(false);
       fetchSurveyAnalyticsList();
       return;
     }

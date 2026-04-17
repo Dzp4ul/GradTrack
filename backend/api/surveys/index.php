@@ -2,13 +2,88 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
 $database = new Database();
 $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
 
+function gradtrack_column_exists(PDO $db, string $table, string $column): bool
+{
+    $stmt = $db->prepare("SHOW COLUMNS FROM `$table` LIKE :column");
+    $stmt->execute([':column' => $column]);
+    return $stmt->fetch(PDO::FETCH_ASSOC) !== false;
+}
+
+function gradtrack_ensure_survey_audit_columns(PDO $db): bool
+{
+    try {
+        if (!gradtrack_column_exists($db, 'surveys', 'created_by')) {
+            $db->exec("ALTER TABLE surveys ADD COLUMN created_by VARCHAR(255) NULL AFTER created_at");
+        }
+
+        if (!gradtrack_column_exists($db, 'surveys', 'modified_by')) {
+            $db->exec("ALTER TABLE surveys ADD COLUMN modified_by VARCHAR(255) NULL AFTER created_by");
+        }
+
+        if (!gradtrack_column_exists($db, 'surveys', 'modified_at')) {
+            $db->exec("ALTER TABLE surveys ADD COLUMN modified_at TIMESTAMP NULL DEFAULT NULL AFTER modified_by");
+        }
+
+        return true;
+    } catch (Throwable $ignored) {
+        return false;
+    }
+}
+
+function gradtrack_current_admin_display_name(): string
+{
+    $fullName = isset($_SESSION['full_name']) ? trim((string) $_SESSION['full_name']) : '';
+    if ($fullName !== '') {
+        return $fullName;
+    }
+
+    $username = isset($_SESSION['username']) ? trim((string) $_SESSION['username']) : '';
+    if ($username !== '') {
+        return $username;
+    }
+
+    $email = isset($_SESSION['email']) ? trim((string) $_SESSION['email']) : '';
+    if ($email !== '') {
+        return $email;
+    }
+
+    return 'System';
+}
+
+function gradtrack_backfill_survey_audit(PDO $db, string $fallbackName): void
+{
+    if (!gradtrack_ensure_survey_audit_columns($db)) {
+        return;
+    }
+
+    $stmt = $db->prepare(
+        "UPDATE surveys
+         SET
+            created_by = COALESCE(NULLIF(TRIM(created_by), ''), :fallback_name),
+            modified_by = COALESCE(NULLIF(TRIM(modified_by), ''), NULLIF(TRIM(created_by), ''), :fallback_name),
+            modified_at = COALESCE(modified_at, created_at)
+         WHERE
+            created_by IS NULL OR TRIM(created_by) = ''
+            OR modified_by IS NULL OR TRIM(modified_by) = ''
+            OR modified_at IS NULL"
+    );
+
+    $stmt->execute([':fallback_name' => $fallbackName]);
+}
+
 try {
     switch ($method) {
         case 'GET':
+            gradtrack_backfill_survey_audit($db, gradtrack_current_admin_display_name());
+
             if (isset($_GET['id'])) {
                 $stmt = $db->prepare("SELECT * FROM surveys WHERE id = :id");
                 $stmt->bindParam(':id', $_GET['id']);
@@ -27,6 +102,9 @@ try {
                     $rStmt->bindParam(':id', $_GET['id']);
                     $rStmt->execute();
                     $survey['response_count'] = (int)$rStmt->fetch(PDO::FETCH_ASSOC)['count'];
+
+                    $survey['created_by'] = trim((string)($survey['created_by'] ?? '')) ?: gradtrack_current_admin_display_name();
+                    $survey['modified_by'] = trim((string)($survey['modified_by'] ?? '')) ?: $survey['created_by'];
 
                     echo json_encode(["success" => true, "data" => $survey]);
                 } else {
@@ -48,6 +126,8 @@ try {
 
         case 'POST':
             $data = json_decode(file_get_contents("php://input"), true);
+            $auditColumnsReady = gradtrack_ensure_survey_audit_columns($db);
+            $actorName = gradtrack_current_admin_display_name();
 
             $activeStmt = $db->query("SELECT id, title FROM surveys WHERE status = 'active' ORDER BY created_at DESC, id DESC LIMIT 1");
             $activeSurvey = $activeStmt->fetch(PDO::FETCH_ASSOC);
@@ -65,12 +145,23 @@ try {
 
             $db->beginTransaction();
 
-            $stmt = $db->prepare("INSERT INTO surveys (title, description, status) VALUES (:title, :desc, :status)");
-            $stmt->execute([
-                ':title' => $data['title'],
-                ':desc' => $data['description'] ?? '',
-                ':status' => $status
-            ]);
+            if ($auditColumnsReady) {
+                $stmt = $db->prepare("INSERT INTO surveys (title, description, status, created_by, modified_by, modified_at) VALUES (:title, :desc, :status, :created_by, :modified_by, NOW())");
+                $stmt->execute([
+                    ':title' => $data['title'],
+                    ':desc' => $data['description'] ?? '',
+                    ':status' => $status,
+                    ':created_by' => $actorName,
+                    ':modified_by' => $actorName,
+                ]);
+            } else {
+                $stmt = $db->prepare("INSERT INTO surveys (title, description, status) VALUES (:title, :desc, :status)");
+                $stmt->execute([
+                    ':title' => $data['title'],
+                    ':desc' => $data['description'] ?? '',
+                    ':status' => $status
+                ]);
+            }
             $surveyId = $db->lastInsertId();
 
             if (isset($data['questions']) && is_array($data['questions'])) {
@@ -97,6 +188,8 @@ try {
 
         case 'PUT':
             $data = json_decode(file_get_contents("php://input"), true);
+            $auditColumnsReady = gradtrack_ensure_survey_audit_columns($db);
+            $actorName = gradtrack_current_admin_display_name();
             if (!isset($data['id'])) {
                 http_response_code(400);
                 echo json_encode(["success" => false, "error" => "ID is required"]);
@@ -122,13 +215,24 @@ try {
                 }
             }
 
-            $stmt = $db->prepare("UPDATE surveys SET title = :title, description = :desc, status = :status WHERE id = :id");
-            $stmt->execute([
-                ':id' => $data['id'],
-                ':title' => $data['title'],
-                ':desc' => $data['description'] ?? '',
-                ':status' => $status
-            ]);
+            if ($auditColumnsReady) {
+                $stmt = $db->prepare("UPDATE surveys SET title = :title, description = :desc, status = :status, modified_by = :modified_by, modified_at = NOW() WHERE id = :id");
+                $stmt->execute([
+                    ':id' => $data['id'],
+                    ':title' => $data['title'],
+                    ':desc' => $data['description'] ?? '',
+                    ':status' => $status,
+                    ':modified_by' => $actorName,
+                ]);
+            } else {
+                $stmt = $db->prepare("UPDATE surveys SET title = :title, description = :desc, status = :status WHERE id = :id");
+                $stmt->execute([
+                    ':id' => $data['id'],
+                    ':title' => $data['title'],
+                    ':desc' => $data['description'] ?? '',
+                    ':status' => $status
+                ]);
+            }
 
             if (isset($data['questions']) && is_array($data['questions'])) {
                 $existingStmt = $db->prepare("SELECT id FROM survey_questions WHERE survey_id = :id");
