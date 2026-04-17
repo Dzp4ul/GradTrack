@@ -81,6 +81,8 @@ export default function Surveys() {
     title?: string;
     message: string;
     onConfirm?: () => void;
+    confirmText?: string;
+    cancelText?: string;
   }>({ isOpen: false, type: 'success', message: '' });
 
   const fetchSurveys = () => {
@@ -330,6 +332,8 @@ export default function Surveys() {
       isOpen: true,
       type: 'confirm',
       message: 'Delete this survey and all its responses?',
+      confirmText: 'Yes, Delete!',
+      cancelText: 'No, keep it.',
       onConfirm: () => {
         fetch(`${API_BASE}/surveys/index.php`, {
           method: 'DELETE',
@@ -775,6 +779,8 @@ export default function Surveys() {
         type={msgBox.type}
         title={msgBox.title}
         message={msgBox.message}
+        confirmText={msgBox.confirmText}
+        cancelText={msgBox.cancelText}
       />
     </div>
   );
