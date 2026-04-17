@@ -375,23 +375,42 @@ export default function GraduateParticipation() {
     });
 
     try {
-      const params = new URLSearchParams({
+      const fetchFirstResponse = async (params: URLSearchParams): Promise<SurveyResponseDetail | null> => {
+        const response = await fetch(`${API_ENDPOINTS.SURVEY_RESPONSES}?${params.toString()}`, {
+          credentials: 'include',
+        });
+        const data = await response.json();
+
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || 'Unable to load survey answers');
+        }
+
+        return ((data.data || []) as SurveyResponseDetail[])[0] || null;
+      };
+
+      const baseParams = new URLSearchParams({
         survey_id: surveyId,
         graduate_id: String(graduateId),
       });
+
+      let surveyResponse: SurveyResponseDetail | null = null;
+
       if (responseId && Number.isFinite(responseId) && responseId > 0) {
-        params.append('response_id', String(responseId));
-      }
-      const response = await fetch(`${API_ENDPOINTS.SURVEY_RESPONSES}?${params.toString()}`, {
-        credentials: 'include',
-      });
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Unable to load survey answers');
+        const strictParams = new URLSearchParams(baseParams);
+        strictParams.append('response_id', String(responseId));
+        surveyResponse = await fetchFirstResponse(strictParams);
       }
 
-      const surveyResponse = ((data.data || []) as SurveyResponseDetail[])[0] || null;
+      // Fallback for stale/mismatched response IDs in deep links.
+      if (!surveyResponse) {
+        surveyResponse = await fetchFirstResponse(baseParams);
+      }
+
+      if (!surveyResponse && responseId && Number.isFinite(responseId) && responseId > 0) {
+        const responseOnlyParams = new URLSearchParams({ response_id: String(responseId) });
+        surveyResponse = await fetchFirstResponse(responseOnlyParams);
+      }
+
       if (!surveyResponse) {
         throw new Error('No submitted answers were found for this graduate.');
       }
