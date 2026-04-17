@@ -111,7 +111,6 @@ function gradtrack_send_mentorship_request_email(PDO $db, int $requestId, array 
                                 <h1 style="margin:18px 0 10px;font-size:24px;line-height:1.3;color:#10213f;">Mentorship request submitted</h1>
                                 <p style="margin:0 0 18px;font-size:15px;line-height:1.7;color:#41516d;">Hello {$safeGraduateName},</p>
                                 <p style="margin:0 0 18px;font-size:15px;line-height:1.7;color:#41516d;">Your mentorship request has been submitted successfully to <strong>{$safeMentorName}</strong>.</p>
-                                <p style="margin:0 0 16px;font-size:14px;line-height:1.7;color:#5d6b83;">Request reference ID: <strong>#{$requestId}</strong></p>
                                 <p style="margin:0;font-size:12px;line-height:1.6;color:#7b8798;">Track your request status here:<br><a href="{$safeLink}" style="color:#173b80;word-break:break-all;">{$safeLink}</a></p>
                             </td>
                         </tr>
@@ -133,7 +132,6 @@ HTML;
 
         $text = "Hello {$graduateName},\n\n"
                 . "Your mentorship request has been submitted successfully to {$mentorName}.\n"
-                . "Request reference ID: #{$requestId}\n"
                 . "Track status: {$requestsLink}\n\n"
                 . "Thank you,\nGRADTRACK";
 
@@ -209,7 +207,6 @@ function gradtrack_send_mentor_incoming_request_email(PDO $db, int $requestId, a
                                 <p style="margin:0 0 14px;font-size:14px;line-height:1.7;color:#5d6b83;">Program: <strong>{$safeMenteeProgram}</strong></p>
                                 <p style="margin:0 0 8px;font-size:14px;line-height:1.7;color:#5d6b83;">Message:</p>
                                 <div style="background:#f7f9fc;border:1px solid #e4eaf3;border-radius:6px;padding:12px;font-size:14px;line-height:1.6;color:#41516d;">{$safeMessage}</div>
-                                <p style="margin:16px 0 0;font-size:14px;line-height:1.7;color:#5d6b83;">Request reference ID: <strong>#{$requestId}</strong></p>
                                 <p style="margin:12px 0 0;font-size:12px;line-height:1.6;color:#7b8798;">Review it here:<br><a href="{$safeIncomingLink}" style="color:#173b80;word-break:break-all;">{$safeIncomingLink}</a></p>
                             </td>
                         </tr>
@@ -225,7 +222,6 @@ HTML;
                 . "{$menteeName} sent you a mentorship request.\n"
                 . "Program: {$menteeProgram}\n"
                 . ($cleanMessage !== '' ? ("Message: {$cleanMessage}\n") : '')
-                . "Request reference ID: #{$requestId}\n"
                 . "Review it here: {$incomingLink}\n\n"
                 . "Thank you,\nGRADTRACK";
 
@@ -341,7 +337,7 @@ function gradtrack_send_mentee_session_details_email(PDO $db, int $requestId): a
                             <td style="padding:30px 28px 20px;">
                                 <h1 style="margin:0 0 10px;font-size:24px;line-height:1.3;color:#10213f;">Your mentorship session is scheduled</h1>
                                 <p style="margin:0 0 12px;font-size:15px;line-height:1.7;color:#41516d;">Hello {$safeMenteeName}, your mentor <strong>{$safeMentorName}</strong> has accepted your request and set a session.</p>
-                                <p style="margin:0 0 16px;font-size:14px;line-height:1.7;color:#5d6b83;">Program: <strong>{$safeProgram}</strong><br>Mentor role: <strong>{$safeMentorRole}</strong><br>Reference ID: <strong>#{$requestId}</strong></p>
+                                <p style="margin:0 0 16px;font-size:14px;line-height:1.7;color:#5d6b83;">Program: <strong>{$safeProgram}</strong><br>Mentor role: <strong>{$safeMentorRole}</strong></p>
                                 <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;border:1px solid #e4eaf3;border-radius:6px;overflow:hidden;">
                                     <tr><td style="padding:10px 12px;background:#f7f9fc;font-weight:700;">Session Date</td><td style="padding:10px 12px;">{$safeDate}</td></tr>
                                     <tr><td style="padding:10px 12px;background:#f7f9fc;font-weight:700;">Session Time</td><td style="padding:10px 12px;">{$safeTime}</td></tr>
@@ -367,7 +363,6 @@ HTML;
 
         $text = "Hello {$menteeName},\n\n"
                 . "Your mentor {$mentorName} accepted your request and set a session.\n"
-                . "Reference ID: #{$requestId}\n"
                 . "Session Date: " . ($sessionDate !== '' ? $sessionDate : 'N/A') . "\n"
                 . "Session Time: " . ($sessionTime !== '' ? $sessionTime : 'N/A') . "\n"
                 . "Session Type: " . ($sessionType !== '' ? $sessionType : 'N/A') . "\n"
