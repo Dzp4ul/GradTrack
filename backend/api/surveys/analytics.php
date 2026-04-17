@@ -359,9 +359,11 @@ function buildQuestionResponseKeys($questions, $responses) {
 
     foreach ($questions as $question) {
         $questionId = (string)$question['id'];
+        // Prefer ID-offset mapping before sort-order mapping to avoid shifted answers
+        // when new questions are inserted into existing surveys.
         $historicalKeys = [
-            $firstResponseKey + ((int)$question['sort_order'] - $firstSortOrder),
             (int)$question['id'] - $idOffset,
+            $firstResponseKey + ((int)$question['sort_order'] - $firstSortOrder),
         ];
 
         foreach ($historicalKeys as $historicalKey) {
@@ -526,8 +528,12 @@ function buildSurveyReportTables($db, $surveyId, $responses, $questions, $questi
     $nextTableNumber = 5;
     $singleProgram = count($programs) === 1 ? $programs[0] : null;
 
-    if ($singleProgram && in_array($singleProgram, ['BEED', 'BSED'], true)) {
-        $tables[] = buildLicensureTable('4a', $singleProgram, $records, $years, $questionIds);
+    $educationPrograms = array_values(array_filter($programs, function ($program) {
+        return in_array($program, ['BEED', 'BSED'], true);
+    }));
+    foreach ($educationPrograms as $index => $educationProgram) {
+        $tableNumber = '4' . chr(ord('a') + $index);
+        $tables[] = buildLicensureTable($tableNumber, $educationProgram, $records, $years, $questionIds);
     }
 
     if ($singleProgram === 'BSHM') {
@@ -769,6 +775,14 @@ function countCategoriesByProgram($records, $programs, $questionId, $categories,
         return $counts;
     }
 
+    $otherCategoryLabel = null;
+    foreach ($categories as $category) {
+        if (normalizeReportText($category['label']) === 'others') {
+            $otherCategoryLabel = $category['label'];
+            break;
+        }
+    }
+
     foreach ($records as $record) {
         $program = $record['program'];
         if (!in_array($program, $programs, true)) {
@@ -779,12 +793,18 @@ function countCategoriesByProgram($records, $programs, $questionId, $categories,
         }
 
         $values = answerValues($record['answers'][$questionId] ?? null);
-        foreach ($categories as $category) {
-            foreach ($values as $value) {
+        foreach ($values as $value) {
+            $matched = false;
+            foreach ($categories as $category) {
                 if (valueMatchesCategory($value, $category)) {
                     $counts[$program][$category['label']]++;
+                    $matched = true;
                     break;
                 }
+            }
+
+            if (!$matched && $otherCategoryLabel !== null) {
+                $counts[$program][$otherCategoryLabel]++;
             }
         }
     }
@@ -1002,7 +1022,13 @@ function buildDemographicTable($records, $programs, $programTotals, $questionIds
     }
     $rows = [];
     $sections = [
-        ['Civil Status', $questionIds['civil_status'], [makeCategory('Single'), makeCategory('Married'), makeCategory('Widowed'), makeCategory('Separated'), makeCategory('Divorced')]],
+        ['Civil Status', $questionIds['civil_status'], [
+            makeCategory('Single', ['single']),
+            makeCategory('Married', ['married']),
+            makeCategory('Separated', ['separated', 'seperated']),
+            makeCategory('Solo Parent', ['solo parent', 'single parent']),
+            makeCategory('Widow/Widower', ['widow', 'widower', 'widowed']),
+        ]],
         ['Gender', $questionIds['sex'], [makeCategory('Male'), makeCategory('Female'), makeCategory('Prefer not to say')]],
     ];
 
@@ -1040,9 +1066,9 @@ function buildLicensureTable($number, $program, $records, $years, $questionIds) 
         [
             reportCell('Year Graduated', 1, 2),
             reportCell('Respondents n = ' . $totalRespondents, 1, 2),
-            reportCell('Number of BLEPT Takers', 2),
+            reportCell('Number of Professional Examination Takers', 2),
             reportCell('Number of Graduates who plan not to take the exam yet', 2),
-            reportCell('Number of BLEPT Passers', 2),
+            reportCell('Number of Professional Examination Passers', 2),
         ],
         [reportCell('f'), reportCell('%'), reportCell('f'), reportCell('%'), reportCell('f'), reportCell('%')],
     ];
@@ -1733,13 +1759,13 @@ function reportAnswerContainsAny($answer, $needles) {
 }
 
 function isBleptTaker($record, $questionIds) {
-    $needles = ['Licensure Examination for Teachers', 'BLEPT', 'LET'];
+    $needles = ['Licensure Examination for Teachers', 'BLEPT', 'LET', 'Civil Service Examination', 'Civil Service'];
     return reportAnswerContainsAny($record['answers'][$questionIds['exam_name'] ?? ''] ?? null, $needles)
         || reportAnswerContainsAny($record['answers'][$questionIds['exam_passed'] ?? ''] ?? null, $needles);
 }
 
 function isBleptPasser($record, $questionIds) {
-    $needles = ['Licensure Examination for Teachers', 'BLEPT', 'LET'];
+    $needles = ['Licensure Examination for Teachers', 'BLEPT', 'LET', 'Civil Service Examination', 'Civil Service'];
     if (reportAnswerContainsAny($record['answers'][$questionIds['exam_passed'] ?? ''] ?? null, $needles)) {
         return true;
     }
