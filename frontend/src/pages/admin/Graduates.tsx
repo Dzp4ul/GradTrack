@@ -157,8 +157,16 @@ export default function Graduates() {
   const [formData, setFormData] = useState<FormData>(emptyForm);
   const [isEditing, setIsEditing] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [selectedGraduateIds, setSelectedGraduateIds] = useState<number[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [msgBox, setMsgBox] = useState<{ isOpen: boolean; type: MessageType; message: string; onConfirm?: () => void }>({ isOpen: false, type: 'success', message: '' });
+  const [msgBox, setMsgBox] = useState<{
+    isOpen: boolean;
+    type: MessageType;
+    message: string;
+    onConfirm?: () => void;
+    confirmText?: string;
+    cancelText?: string;
+  }>({ isOpen: false, type: 'success', message: '' });
 
   const buildQueryParams = (targetPage: number, limit: number) => {
     const params = new URLSearchParams();
@@ -186,6 +194,7 @@ export default function Graduates() {
       setGraduates(res.data);
       setTotalPages(res.pagination.pages);
       setTotal(res.pagination.total);
+      setSelectedGraduateIds([]);
     } catch (error) {
       setMsgBox({
         isOpen: true,
@@ -270,6 +279,8 @@ export default function Graduates() {
       isOpen: true,
       type: 'confirm',
       message: 'Are you sure you want to delete this graduate?',
+      confirmText: 'Yes, delete!',
+      cancelText: 'No, keep it.',
       onConfirm: async () => {
         try {
           const response = await fetch(`${API_BASE}/graduates/index.php`, {
@@ -295,6 +306,110 @@ export default function Graduates() {
             isOpen: true,
             type: 'error',
             message: error instanceof Error ? error.message : 'Unable to delete graduate',
+          });
+        }
+      },
+    });
+  };
+
+  const isGraduateSelected = (id: number) => selectedGraduateIds.includes(id);
+
+  const toggleGraduateSelection = (id: number) => {
+    setSelectedGraduateIds((prev) => {
+      if (prev.includes(id)) return prev.filter((item) => item !== id);
+      return [...prev, id];
+    });
+  };
+
+  const allVisibleSelected = graduates.length > 0 && graduates.every((g) => selectedGraduateIds.includes(g.id));
+
+  const toggleSelectAllVisible = () => {
+    if (allVisibleSelected) {
+      setSelectedGraduateIds([]);
+      return;
+    }
+    setSelectedGraduateIds(graduates.map((g) => g.id));
+  };
+
+  const performDeleteRequest = async (payload: Record<string, unknown>) => {
+    const response = await fetch(`${API_BASE}/graduates/index.php`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+
+    const res = await response.json();
+    if (!response.ok || !res.success) {
+      throw new Error(res.error || 'Unable to delete graduate records');
+    }
+
+    return res;
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedGraduateIds.length === 0) return;
+
+    setMsgBox({
+      isOpen: true,
+      type: 'confirm',
+      message: `Delete ${selectedGraduateIds.length} selected graduate(s)? This cannot be undone.`,
+      confirmText: 'Yes, delete!',
+      cancelText: 'No, keep it.',
+      onConfirm: async () => {
+        try {
+          await performDeleteRequest({ ids: selectedGraduateIds });
+          await fetchGraduates();
+          setMsgBox({
+            isOpen: true,
+            type: 'success',
+            message: 'Selected graduates deleted successfully.',
+          });
+        } catch (error) {
+          setMsgBox({
+            isOpen: true,
+            type: 'error',
+            message: error instanceof Error ? error.message : 'Unable to delete selected graduates',
+          });
+        }
+      },
+    });
+  };
+
+  const handleDeleteByYear = () => {
+    if (!filterYear) {
+      setMsgBox({
+        isOpen: true,
+        type: 'error',
+        message: 'Select a year first before deleting by year.',
+      });
+      return;
+    }
+
+    setMsgBox({
+      isOpen: true,
+      type: 'confirm',
+      message: `Delete all graduates for year ${filterYear} in ${PROGRAM_OPTIONS.find((p) => p.id === activeTab)?.code || 'the selected program'}? This cannot be undone.`,
+      confirmText: 'Yes, delete!',
+      cancelText: 'No, keep it.',
+      onConfirm: async () => {
+        try {
+          const result = await performDeleteRequest({
+            year_graduated: filterYear,
+            program_id: activeTab,
+          });
+
+          await fetchGraduates();
+          setMsgBox({
+            isOpen: true,
+            type: 'success',
+            message: `${result.deleted ?? 0} graduate(s) deleted for year ${filterYear}.`,
+          });
+        } catch (error) {
+          setMsgBox({
+            isOpen: true,
+            type: 'error',
+            message: error instanceof Error ? error.message : 'Unable to delete graduates by year',
           });
         }
       },
@@ -468,6 +583,34 @@ export default function Graduates() {
             </div>
           </div>
 
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={toggleSelectAllVisible}
+              className="px-3 py-2 border rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+              type="button"
+            >
+              {allVisibleSelected ? 'Clear Selection' : 'Select All (This Page)'}
+            </button>
+
+            <button
+              onClick={handleDeleteSelected}
+              disabled={selectedGraduateIds.length === 0}
+              className="px-3 py-2 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              type="button"
+            >
+              Delete Selected ({selectedGraduateIds.length})
+            </button>
+
+            <button
+              onClick={handleDeleteByYear}
+              disabled={!filterYear}
+              className="px-3 py-2 rounded-lg text-sm font-medium text-red-700 border border-red-200 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              type="button"
+            >
+              Delete By Year
+            </button>
+          </div>
+
           <div className="flex flex-wrap gap-3 pt-2 border-t">
             <select
               value={filterYear}
@@ -494,6 +637,15 @@ export default function Graduates() {
               <div key={g.id} className="p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
+                    <label className="mb-2 inline-flex items-center gap-2 text-xs text-gray-600">
+                      <input
+                        type="checkbox"
+                        checked={isGraduateSelected(g.id)}
+                        onChange={() => toggleGraduateSelection(g.id)}
+                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      Select
+                    </label>
                     <p className="font-semibold text-[#1b2a4a]">
                       {g.last_name}, {g.first_name}{g.middle_name ? ` ${g.middle_name.charAt(0)}.` : ''}
                     </p>
@@ -527,6 +679,15 @@ export default function Graduates() {
           <table className="w-full min-w-[1100px] text-sm">
             <thead className="bg-gray-50 border-b">
               <tr>
+                <th className="text-center px-4 py-3 font-semibold text-gray-600 w-16">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleSelectAllVisible}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                    aria-label="Select all visible graduates"
+                  />
+                </th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Student ID</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Name</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Email</th>
@@ -538,12 +699,21 @@ export default function Graduates() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={7} className="text-center py-12 text-gray-400">Loading...</td></tr>
+                <tr><td colSpan={8} className="text-center py-12 text-gray-400">Loading...</td></tr>
               ) : graduates.length === 0 ? (
-                <tr><td colSpan={7} className="text-center py-12 text-gray-400">No graduates found</td></tr>
+                <tr><td colSpan={8} className="text-center py-12 text-gray-400">No graduates found</td></tr>
               ) : (
                 graduates.map((g) => (
                   <tr key={g.id} className="border-b last:border-0 hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-3 text-center">
+                      <input
+                        type="checkbox"
+                        checked={isGraduateSelected(g.id)}
+                        onChange={() => toggleGraduateSelection(g.id)}
+                        className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        aria-label={`Select graduate ${g.student_id}`}
+                      />
+                    </td>
                     <td className="px-4 py-3 font-mono text-xs">{g.student_id}</td>
                     <td className="px-4 py-3">
                       <p className="font-medium text-[#1b2a4a]">
@@ -663,6 +833,8 @@ export default function Graduates() {
         onConfirm={msgBox.onConfirm}
         type={msgBox.type}
         message={msgBox.message}
+        confirmText={msgBox.confirmText}
+        cancelText={msgBox.cancelText}
       />
     </div>
   );

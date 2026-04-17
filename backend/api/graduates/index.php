@@ -247,11 +247,66 @@ try {
 
         case 'DELETE':
             $data = json_decode(file_get_contents("php://input"), true);
-            if (!isset($data['id'])) {
-                http_response_code(400);
-                echo json_encode(["success" => false, "error" => "ID is required"]);
+
+            if (isset($data['ids']) && is_array($data['ids'])) {
+                $ids = array_values(array_filter(array_map('intval', $data['ids']), function ($id) {
+                    return $id > 0;
+                }));
+
+                if (empty($ids)) {
+                    http_response_code(400);
+                    echo json_encode(["success" => false, "error" => "Valid IDs are required"]);
+                    break;
+                }
+
+                $placeholders = implode(',', array_fill(0, count($ids), '?'));
+                $stmt = $db->prepare("DELETE FROM graduates WHERE id IN ($placeholders)");
+                $stmt->execute($ids);
+
+                echo json_encode([
+                    "success" => true,
+                    "message" => "Selected graduates deleted successfully",
+                    "deleted" => $stmt->rowCount()
+                ]);
                 break;
             }
+
+            if (isset($data['year_graduated']) && $data['year_graduated'] !== '') {
+                $year = (int)$data['year_graduated'];
+                if ($year <= 0) {
+                    http_response_code(400);
+                    echo json_encode(["success" => false, "error" => "Valid year is required"]);
+                    break;
+                }
+
+                $sql = "DELETE FROM graduates WHERE year_graduated = :year";
+                $params = [':year' => $year];
+
+                if (isset($data['program_id']) && $data['program_id'] !== '') {
+                    $programId = (int)$data['program_id'];
+                    if ($programId > 0) {
+                        $sql .= " AND program_id = :program_id";
+                        $params[':program_id'] = $programId;
+                    }
+                }
+
+                $stmt = $db->prepare($sql);
+                $stmt->execute($params);
+
+                echo json_encode([
+                    "success" => true,
+                    "message" => "Graduates deleted successfully",
+                    "deleted" => $stmt->rowCount()
+                ]);
+                break;
+            }
+
+            if (!isset($data['id'])) {
+                http_response_code(400);
+                echo json_encode(["success" => false, "error" => "ID, IDs, or year is required"]);
+                break;
+            }
+
             $stmt = $db->prepare("DELETE FROM graduates WHERE id = :id");
             $stmt->execute([':id' => $data['id']]);
             echo json_encode(["success" => true, "message" => "Graduate deleted successfully"]);
