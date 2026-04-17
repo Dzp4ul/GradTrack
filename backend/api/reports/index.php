@@ -71,6 +71,41 @@ function parseEmploymentAnswer($answer): ?bool
     return null;
 }
 
+function answerIndicatesWorkLocation(string $answerText): bool
+{
+    return $answerText === 'local'
+        || $answerText === 'abroad'
+        || strpos($answerText, 'abroad') !== false
+        || strpos($answerText, 'overseas') !== false;
+}
+
+function answerIndicatesAlignment(string $answerText): bool
+{
+    if ($answerText === '') {
+        return false;
+    }
+
+    return $answerText === 'yes'
+        || $answerText === 'no'
+        || strpos($answerText, 'directly related') !== false
+        || strpos($answerText, 'partially related') !== false
+        || strpos($answerText, 'not related') !== false;
+}
+
+function getNeighborAnswerText(array $data, $questionId, int $offset = -1): string
+{
+    if (!is_numeric($questionId)) {
+        return '';
+    }
+
+    $neighborKey = (string)(((int)$questionId) + $offset);
+    if (!array_key_exists($neighborKey, $data)) {
+        return '';
+    }
+
+    return answerToText($data[$neighborKey]);
+}
+
 function getQuestionMap(PDO $db, ?int $surveyId): array
 {
     if ($surveyId === null) {
@@ -255,15 +290,31 @@ try {
                     }
                     
                     // Check place of work
-                    if (strpos($questionText, 'place of work') !== false) {
-                        if (is_string($answer)) {
-                            $workLocation = strtolower(trim($answer));
+                    if (strpos($questionText, 'place of work') !== false || strpos($questionText, 'major line of business') !== false) {
+                        $candidateLocation = answerToText($answer);
+                        if (!answerIndicatesWorkLocation($candidateLocation) && strpos($questionText, 'place of work') !== false) {
+                            $candidateLocation = getNeighborAnswerText($data, $questionId, -1);
+                        }
+
+                        if (answerIndicatesWorkLocation($candidateLocation)) {
+                            $workLocation = $candidateLocation;
                         }
                     }
                     
                     // Check job alignment from survey
-                    if (strpos($questionText, 'job related to') !== false || strpos($questionText, 'related to your course') !== false) {
-                        $jobRelated = strtolower(trim($answer));
+                    if (
+                        strpos($questionText, 'job related to') !== false
+                        || strpos($questionText, 'related to your course') !== false
+                        || strpos($questionText, 'reason(s) for staying on the job') !== false
+                    ) {
+                        $candidateRelated = answerToText($answer);
+                        if (!answerIndicatesAlignment($candidateRelated) && strpos($questionText, 'job related to') !== false) {
+                            $candidateRelated = getNeighborAnswerText($data, $questionId, -1);
+                        }
+
+                        if (answerIndicatesAlignment($candidateRelated)) {
+                            $jobRelated = $candidateRelated;
+                        }
                     }
                 }
 
@@ -370,8 +421,19 @@ try {
                     }
                     
                     // Check job alignment
-                    if (strpos($questionText, 'job related to') !== false || strpos($questionText, 'related to your course') !== false) {
-                        $jobRelated = strtolower(trim($answer));
+                    if (
+                        strpos($questionText, 'job related to') !== false
+                        || strpos($questionText, 'related to your course') !== false
+                        || strpos($questionText, 'reason(s) for staying on the job') !== false
+                    ) {
+                        $candidateRelated = answerToText($answer);
+                        if (!answerIndicatesAlignment($candidateRelated) && strpos($questionText, 'job related to') !== false) {
+                            $candidateRelated = getNeighborAnswerText($data, $questionId, -1);
+                        }
+
+                        if (answerIndicatesAlignment($candidateRelated)) {
+                            $jobRelated = $candidateRelated;
+                        }
                     }
                 }
                 
@@ -461,8 +523,19 @@ try {
                     }
                     
                     // Check job alignment
-                    if (strpos($questionText, 'job related to') !== false || strpos($questionText, 'related to your course') !== false) {
-                        $jobRelated = strtolower(trim($answer));
+                    if (
+                        strpos($questionText, 'job related to') !== false
+                        || strpos($questionText, 'related to your course') !== false
+                        || strpos($questionText, 'reason(s) for staying on the job') !== false
+                    ) {
+                        $candidateRelated = answerToText($answer);
+                        if (!answerIndicatesAlignment($candidateRelated) && strpos($questionText, 'job related to') !== false) {
+                            $candidateRelated = getNeighborAnswerText($data, $questionId, -1);
+                        }
+
+                        if (answerIndicatesAlignment($candidateRelated)) {
+                            $jobRelated = $candidateRelated;
+                        }
                     }
                 }
                 
@@ -549,9 +622,14 @@ try {
                     }
                     
                     // Check place of work
-                    if (strpos($questionText, 'place of work') !== false) {
-                        if (is_string($answer)) {
-                            $workLocation = strtolower(trim($answer));
+                    if (strpos($questionText, 'place of work') !== false || strpos($questionText, 'major line of business') !== false) {
+                        $candidateLocation = answerToText($answer);
+                        if (!answerIndicatesWorkLocation($candidateLocation) && strpos($questionText, 'place of work') !== false) {
+                            $candidateLocation = getNeighborAnswerText($data, $questionId, -1);
+                        }
+
+                        if (answerIndicatesWorkLocation($candidateLocation)) {
+                            $workLocation = $candidateLocation;
                         }
                     }
                 }
@@ -674,7 +752,7 @@ try {
             http_response_code(400);
             echo json_encode(["success" => false, "error" => "Invalid report type"]);
     }
-} catch (Exception $e) {
+} catch (Throwable $e) {
     http_response_code(500);
     echo json_encode(["success" => false, "error" => $e->getMessage()]);
 }

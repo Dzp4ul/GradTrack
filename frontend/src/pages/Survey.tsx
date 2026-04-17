@@ -1371,32 +1371,40 @@ function Survey() {
   const getFilteredQuestions = () => {
     const questions = sectionQuestions[currentSectionName] || [];
     const filtered: Question[] = [];
-    
-    // Find question 28 (index 27 in 0-based array)
-    const question28 = activeSurvey?.questions[27];
-    const answer28 = question28?.id ? responses[question28.id] : null;
-    const answer28Text = typeof answer28 === 'string' ? answer28.toLowerCase() : '';
+
+    const employedQuestion = activeSurvey?.questions.find((question) =>
+      question.question_text.toLowerCase().includes('are you presently employed')
+    );
+    const employedAnswer = employedQuestion?.id ? responses[employedQuestion.id] : null;
+    const employedAnswerText = typeof employedAnswer === 'string' ? employedAnswer.toLowerCase() : '';
+    const isEmploymentSection = currentSectionName.toLowerCase() === 'employment data';
     
     questions.forEach((q) => {
-      const globalIdx = activeSurvey?.questions.findIndex(quest => quest.id === q.id) ?? -1;
-      const questionNumber = globalIdx + 1;
-      
-      // If question is between 29-44
-      if (questionNumber >= 29 && questionNumber <= 44) {
-        // Only show if answer to question 28 is "Yes"
-        if (answer28Text === 'yes') {
+      if (!isEmploymentSection || !employedQuestion?.id) {
+        filtered.push(q);
+        return;
+      }
+
+      const questionText = q.question_text.toLowerCase();
+
+      // Always show the controlling question.
+      if (q.id === employedQuestion.id) {
+        filtered.push(q);
+        return;
+      }
+
+      const isNotEmployedReasonQuestion = questionText.includes('reason(s) why you are not yet employed');
+
+      // Show only unemployment reason when answer is No.
+      if (isNotEmployedReasonQuestion) {
+        if (employedAnswerText === 'no') {
           filtered.push(q);
         }
+        return;
       }
-      // If question is 45
-      else if (questionNumber === 45) {
-        // Only show if answer to question 28 is "No"
-        if (answer28Text === 'no') {
-          filtered.push(q);
-        }
-      }
-      // All other questions show normally
-      else {
+
+      // All other employment questions are for employed respondents.
+      if (employedAnswerText === 'yes') {
         filtered.push(q);
       }
     });

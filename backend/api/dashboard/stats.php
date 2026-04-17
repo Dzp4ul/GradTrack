@@ -71,6 +71,33 @@ function parseEmploymentAnswer($answer): ?bool
     return null;
 }
 
+function answerIndicatesAlignment(string $answerText): bool
+{
+    if ($answerText === '') {
+        return false;
+    }
+
+    return $answerText === 'yes'
+        || $answerText === 'no'
+        || strpos($answerText, 'directly related') !== false
+        || strpos($answerText, 'partially related') !== false
+        || strpos($answerText, 'not related') !== false;
+}
+
+function getNeighborAnswerText(array $data, $questionId, int $offset = -1): string
+{
+    if (!is_numeric($questionId)) {
+        return '';
+    }
+
+    $neighborKey = (string)(((int)$questionId) + $offset);
+    if (!array_key_exists($neighborKey, $data)) {
+        return '';
+    }
+
+    return answerToText($data[$neighborKey]);
+}
+
 function getSurveyResponseQuestionKeys(PDO $db, ?int $surveyId): array
 {
     if ($surveyId === null) {
@@ -308,8 +335,19 @@ try {
             }
             
             // Check job alignment from survey
-            if (strpos($questionText, 'job related to') !== false || strpos($questionText, 'related to your course') !== false) {
-                $jobRelated = answerToText($answer);
+            if (
+                strpos($questionText, 'job related to') !== false
+                || strpos($questionText, 'related to your course') !== false
+                || strpos($questionText, 'reason(s) for staying on the job') !== false
+            ) {
+                $candidateRelated = answerToText($answer);
+                if (!answerIndicatesAlignment($candidateRelated) && strpos($questionText, 'job related to') !== false) {
+                    $candidateRelated = getNeighborAnswerText($data, $questionId, -1);
+                }
+
+                if (answerIndicatesAlignment($candidateRelated)) {
+                    $jobRelated = $candidateRelated;
+                }
             }
         }
 
