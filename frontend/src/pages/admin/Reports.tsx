@@ -129,6 +129,12 @@ type ReportTab = typeof REPORT_TABS[number];
 const SELECTED_SURVEY_STORAGE_KEY = 'gradtrack_selected_survey_id';
 const NO_SURVEY_SELECTION_VALUE = 'none';
 const SURVEY_REPORT_HEADER_COLOR = 'FF1B2A4A';
+const SURVEY_REPORT_TABLE_BORDER: Partial<ExcelJS.Borders> = {
+  top: { style: 'thin', color: { argb: 'FF000000' } },
+  left: { style: 'thin', color: { argb: 'FF000000' } },
+  bottom: { style: 'thin', color: { argb: 'FF000000' } },
+  right: { style: 'thin', color: { argb: 'FF000000' } },
+};
 
 // Program-specific colors
 const PROGRAM_COLORS: Record<string, string> = {
@@ -2140,13 +2146,24 @@ function addSurveyReportTableWorksheet(
         vertical: 'middle',
         wrapText: true,
       };
-      excelCell.border = {
-        top: { style: 'thin' },
-        bottom: { style: 'thin' },
-      };
+      excelCell.border = SURVEY_REPORT_TABLE_BORDER;
 
       if (colSpan > 1 || rowSpan > 1) {
         sheet.mergeCells(rowNumber, columnIndex, rowNumber + rowSpan - 1, columnIndex + colSpan - 1);
+      }
+
+      // Ensure full grid borders exist across merged header ranges.
+      for (let rowOffset = 0; rowOffset < rowSpan; rowOffset += 1) {
+        for (let colOffset = 0; colOffset < colSpan; colOffset += 1) {
+          const mergedCell = sheet.getCell(rowNumber + rowOffset, columnIndex + colOffset);
+          mergedCell.border = SURVEY_REPORT_TABLE_BORDER;
+          mergedCell.alignment = {
+            horizontal: cell.align ?? 'center',
+            vertical: 'middle',
+            wrapText: true,
+          };
+          mergedCell.font = { bold: true };
+        }
       }
 
       for (let rowOffset = 0; rowOffset < rowSpan; rowOffset += 1) {
@@ -2166,13 +2183,29 @@ function addSurveyReportTableWorksheet(
     if (row.is_group && row.cells.length === 1 && columnCount > 1) {
       sheet.mergeCells(excelRow.number, 1, excelRow.number, columnCount);
     }
+
+    excelRow.eachCell({ includeEmpty: true }, (cell, cellIndex) => {
+      cell.border = SURVEY_REPORT_TABLE_BORDER;
+      cell.alignment = {
+        horizontal: cellIndex === 1 ? 'left' : 'center',
+        vertical: 'middle',
+        wrapText: true,
+      };
+    });
+
     if (row.is_total || row.is_group) {
       excelRow.font = { bold: true };
     }
-    if (row.is_total) {
-      excelRow.eachCell((cell) => {
-        cell.border = { top: { style: 'thin' } };
-      });
+
+    if (row.is_group && row.cells.length === 1 && columnCount > 1) {
+      const mergedGroupCell = sheet.getCell(excelRow.number, 1);
+      mergedGroupCell.alignment = {
+        horizontal: 'left',
+        vertical: 'middle',
+      };
+      for (let col = 1; col <= columnCount; col += 1) {
+        sheet.getCell(excelRow.number, col).border = SURVEY_REPORT_TABLE_BORDER;
+      }
     }
   });
 
@@ -2201,20 +2234,46 @@ function addSurveyQuestionExportWorksheet(workbook: ExcelJS.Workbook, analytics:
 
   const columns = Object.keys(rows[0]);
   sheet.columns = columns.map((column) => ({
-    header: column,
     key: column,
     width: Math.max(14, Math.min(46, column.length + 8)),
   }));
 
-  rows.forEach((row) => sheet.addRow(row));
+  const worksheetRows = rows.map((row) => columns.map((column) => row[column] ?? ''));
+  sheet.addTable({
+    name: 'SurveyQuestionAnalyticsTable',
+    ref: 'A1',
+    headerRow: true,
+    totalsRow: false,
+    style: {
+      theme: 'TableStyleMedium2',
+      showRowStripes: true,
+    },
+    columns: columns.map((column) => ({ name: column })),
+    rows: worksheetRows,
+  });
 
   const headerRow = sheet.getRow(1);
-  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-  headerRow.fill = {
-    type: 'pattern',
-    pattern: 'solid',
-    fgColor: { argb: SURVEY_REPORT_HEADER_COLOR },
-  };
+  headerRow.eachCell((cell) => {
+    cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    cell.fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: SURVEY_REPORT_HEADER_COLOR },
+    };
+    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+  });
+
+  for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber += 1) {
+    sheet.getRow(rowNumber).eachCell({ includeEmpty: true }, (cell, cellIndex) => {
+      cell.border = SURVEY_REPORT_TABLE_BORDER;
+      if (cellIndex <= 5) {
+        cell.alignment = { horizontal: 'left', vertical: 'middle', wrapText: true };
+      } else {
+        cell.alignment = { horizontal: 'right', vertical: 'middle', wrapText: true };
+      }
+    });
+  }
+
   sheet.views = [{ state: 'frozen', ySplit: 1 }];
   sheet.autoFilter = {
     from: 'A1',
