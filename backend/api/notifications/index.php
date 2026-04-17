@@ -75,11 +75,16 @@ function gradtrack_notifications_program_placeholders(array $programCodes, array
 
 function gradtrack_notifications_add_announcements(PDO $db, array &$notifications, string $targetType): void
 {
-    $stmt = $db->query("SELECT id, title, content, category, published_at, created_at, updated_at
-                       FROM announcements
-                       WHERE status = 'published'
-                       ORDER BY COALESCE(published_at, created_at) DESC, id DESC
-                       LIMIT 5");
+    try {
+        $stmt = $db->query("SELECT id, title, content, category, published_at, created_at, updated_at
+                           FROM announcements
+                           WHERE status = 'published'
+                           ORDER BY COALESCE(published_at, created_at) DESC, id DESC
+                           LIMIT 5");
+    } catch (PDOException $e) {
+        // Announcements are optional; skip this source when the table/schema is not present.
+        return;
+    }
 
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $createdAt = $row['published_at'] ?: $row['created_at'];

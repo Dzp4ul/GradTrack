@@ -2,6 +2,10 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/engagement_approval.php';
+require_once __DIR__ . '/../../vendor/autoload.php';
+
+use PHPMailer\PHPMailer\Exception as MailException;
+use PHPMailer\PHPMailer\PHPMailer;
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -12,6 +16,193 @@ function gradtrack_moderation_json_error(int $statusCode, string $message): void
     http_response_code($statusCode);
     echo json_encode(['success' => false, 'error' => $message]);
     exit;
+}
+
+function gradtrack_moderation_clean_text($value): string
+{
+        return trim((string) ($value ?? ''));
+}
+
+function gradtrack_moderation_escape($value): string
+{
+        return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+}
+
+function gradtrack_moderation_frontend_url(): string
+{
+        $configuredUrl = getenv('FRONTEND_URL') ?: getenv('APP_URL') ?: '';
+        if (trim($configuredUrl) !== '') {
+                return rtrim(trim($configuredUrl), '/');
+        }
+
+        $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+        return $origin !== '' ? rtrim($origin, '/') : 'http://localhost:5173';
+}
+
+function gradtrack_moderation_create_mailer(): PHPMailer
+{
+        $host = gradtrack_moderation_clean_text(getenv('MAIL_HOST') ?: 'smtp.gmail.com');
+        $username = gradtrack_moderation_clean_text(getenv('MAIL_USERNAME') ?: '');
+        $password = str_replace(' ', '', gradtrack_moderation_clean_text(getenv('MAIL_PASSWORD') ?: ''));
+        $fromAddress = gradtrack_moderation_clean_text(getenv('MAIL_FROM_ADDRESS') ?: $username);
+        $fromName = gradtrack_moderation_clean_text(getenv('MAIL_FROM_NAME') ?: 'GRADTRACK');
+
+        if ($host === '' || $username === '' || $password === '' || $fromAddress === '') {
+                throw new RuntimeException('Mail credentials are not configured.');
+        }
+
+        $mail = new PHPMailer(true);
+        $mail->isSMTP();
+        $mail->Host = $host;
+        $mail->SMTPAuth = true;
+        $mail->Username = $username;
+        $mail->Password = $password;
+        $mail->Port = (int) (getenv('MAIL_PORT') ?: 587);
+        $mail->CharSet = 'UTF-8';
+
+        $encryption = strtolower(gradtrack_moderation_clean_text(getenv('MAIL_ENCRYPTION') ?: 'tls'));
+        if ($encryption === 'ssl' || $encryption === 'smtps') {
+                $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
+        } elseif ($encryption === 'tls' || $encryption === 'starttls') {
+                $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+        }
+
+        $mail->setFrom($fromAddress, $fromName);
+        $mail->addReplyTo($fromAddress, $fromName);
+
+        return $mail;
+}
+
+function gradtrack_moderation_send_approval_email(PDO $db, string $itemType, int $itemId): array
+{
+        if ($itemType === 'mentor') {
+                $stmt = $db->prepare("SELECT ga.email, g.first_name, g.last_name, p.code AS program_code
+                                                            FROM mentors m
+                                                            JOIN graduate_accounts ga ON ga.id = m.graduate_account_id
+                                                            JOIN graduates g ON g.id = m.graduate_id
+                                                            LEFT JOIN programs p ON p.id = g.program_id
+                                                            WHERE m.id = :id
+                                                            LIMIT 1");
+                $stmt->execute([':id' => $itemId]);
+                $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+                if (!$row) {
+                        return ['sent' => false, 'reason' => 'Mentor profile owner not found'];
+                }
+
+                $email = gradtrack_moderation_clean_text($row['email'] ?? '');
+                if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                        return ['sent' => false, 'reason' => 'Missing or invalid graduate email'];
+                }
+
+                $name = trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? ''));
+                $name = $name !== '' ? $name : 'Graduate';
+                $programCode = gradtrack_moderation_escape((string) ($row['program_code'] ?? ''));
+                $safeName = gradtrack_moderation_escape($name);
+                $link = gradtrack_moderation_frontend_url() . '/mentorship';
+                $safeLink = gradtrack_moderation_escape($link);
+
+                $subject = 'Mentor Profile Approved - GradTrack';
+                $html = <<<HTML
+<!doctype html>
+<html>
+    <body style="margin:0;padding:0;background:#f3f6fb;font-family:Arial,Helvetica,sans-serif;color:#14213d;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f6fb;padding:28px 12px;">
+            <tr>
+                <td align="center">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;background:#ffffff;border:1px solid #dbe4f0;border-radius:8px;overflow:hidden;">
+                        <tr>
+                            <td style="background:#173b80;padding:22px 28px;border-bottom:4px solid #f4c400;">
+                                <div style="font-size:24px;font-weight:800;color:#ffffff;">Grad<span style="color:#f4c400;">Track</span></div>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding:30px 28px 10px;">
+                                <div style="display:inline-block;background:#eaf2ff;color:#173b80;border-radius:6px;padding:7px 10px;font-size:12px;font-weight:700;">{$programCode}</div>
+                                <h1 style="margin:18px 0 10px;font-size:24px;line-height:1.3;color:#10213f;">Mentor profile approved</h1>
+                                <p style="margin:0 0 18px;font-size:15px;line-height:1.7;color:#41516d;">Hello {$safeName}, your mentor profile has been approved.</p>
+                                <p style="margin:0;font-size:12px;line-height:1.6;color:#7b8798;">Open mentorship: <a href="{$safeLink}" style="color:#173b80;word-break:break-all;">{$safeLink}</a></p>
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </body>
+</html>
+HTML;
+                $text = "Hello {$name},\n\nYour mentor profile has been approved.\nOpen mentorship: {$link}\n\nThank you,\nGRADTRACK";
+        } else {
+                $stmt = $db->prepare("SELECT ga.email, g.first_name, g.last_name, p.code AS program_code, jp.title, jp.company
+                                                            FROM job_posts jp
+                                                            JOIN graduate_accounts ga ON ga.id = jp.posted_by_account_id
+                                                            JOIN graduates g ON g.id = ga.graduate_id
+                                                            LEFT JOIN programs p ON p.id = g.program_id
+                                                            WHERE jp.id = :id
+                                                            LIMIT 1");
+                $stmt->execute([':id' => $itemId]);
+                $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+                if (!$row) {
+                        return ['sent' => false, 'reason' => 'Job post owner not found'];
+                }
+
+                $email = gradtrack_moderation_clean_text($row['email'] ?? '');
+                if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                        return ['sent' => false, 'reason' => 'Missing or invalid graduate email'];
+                }
+
+                $name = trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? ''));
+                $name = $name !== '' ? $name : 'Graduate';
+                $programCode = gradtrack_moderation_escape((string) ($row['program_code'] ?? ''));
+                $safeName = gradtrack_moderation_escape($name);
+                $safeTitle = gradtrack_moderation_escape((string) ($row['title'] ?? 'Job Post'));
+                $safeCompany = gradtrack_moderation_escape((string) ($row['company'] ?? ''));
+                $link = gradtrack_moderation_frontend_url() . '/jobs';
+                $safeLink = gradtrack_moderation_escape($link);
+
+                $subject = 'Job Post Approved - GradTrack';
+                $html = <<<HTML
+<!doctype html>
+<html>
+    <body style="margin:0;padding:0;background:#f3f6fb;font-family:Arial,Helvetica,sans-serif;color:#14213d;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f6fb;padding:28px 12px;">
+            <tr>
+                <td align="center">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;background:#ffffff;border:1px solid #dbe4f0;border-radius:8px;overflow:hidden;">
+                        <tr>
+                            <td style="background:#173b80;padding:22px 28px;border-bottom:4px solid #f4c400;">
+                                <div style="font-size:24px;font-weight:800;color:#ffffff;">Grad<span style="color:#f4c400;">Track</span></div>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding:30px 28px 10px;">
+                                <div style="display:inline-block;background:#eaf2ff;color:#173b80;border-radius:6px;padding:7px 10px;font-size:12px;font-weight:700;">{$programCode}</div>
+                                <h1 style="margin:18px 0 10px;font-size:24px;line-height:1.3;color:#10213f;">Job post approved</h1>
+                                <p style="margin:0 0 18px;font-size:15px;line-height:1.7;color:#41516d;">Hello {$safeName}, your job post <strong>{$safeTitle}</strong> at <strong>{$safeCompany}</strong> has been approved and is now visible.</p>
+                                <p style="margin:0;font-size:12px;line-height:1.6;color:#7b8798;">Open jobs page: <a href="{$safeLink}" style="color:#173b80;word-break:break-all;">{$safeLink}</a></p>
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </body>
+</html>
+HTML;
+                $text = "Hello {$name},\n\nYour job post \"" . (string) ($row['title'] ?? 'Job Post') . "\" at " . (string) ($row['company'] ?? '') . " has been approved and is now visible.\nOpen jobs page: {$link}\n\nThank you,\nGRADTRACK";
+        }
+
+        $mailer = gradtrack_moderation_create_mailer();
+        $mailer->addAddress($email, $name);
+        $mailer->Subject = $subject;
+        $mailer->isHTML(true);
+        $mailer->Body = $html;
+        $mailer->AltBody = $text;
+        $mailer->send();
+        $mailer->smtpClose();
+
+        return ['sent' => true, 'email' => $email];
 }
 
 function gradtrack_moderation_reviewer(): array
@@ -321,9 +512,25 @@ try {
             ':id' => $itemId,
         ]);
 
+        $emailNotification = [
+            'sent' => false,
+            'reason' => 'Skipped'
+        ];
+
+        if ($approvalStatus === 'approved') {
+            try {
+                $emailNotification = gradtrack_moderation_send_approval_email($db, $itemType, $itemId);
+            } catch (MailException $mailException) {
+                $emailNotification = ['sent' => false, 'reason' => $mailException->getMessage()];
+            } catch (Exception $mailException) {
+                $emailNotification = ['sent' => false, 'reason' => $mailException->getMessage()];
+            }
+        }
+
         echo json_encode([
             'success' => true,
             'message' => ucfirst($itemType) . ' ' . $approvalStatus . ' successfully',
+            'email_notification' => $emailNotification,
         ]);
         exit;
     }

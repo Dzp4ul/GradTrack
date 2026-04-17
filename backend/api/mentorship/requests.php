@@ -4,6 +4,379 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/alumni_rating.php';
 require_once __DIR__ . '/../config/engagement_approval.php';
+require_once __DIR__ . '/../../vendor/autoload.php';
+
+use PHPMailer\PHPMailer\Exception as MailException;
+use PHPMailer\PHPMailer\PHPMailer;
+
+function gradtrack_mail_clean_text($value): string
+{
+        return trim((string) ($value ?? ''));
+}
+
+function gradtrack_mail_escape($value): string
+{
+        return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+}
+
+function gradtrack_mail_frontend_url(): string
+{
+        $configuredUrl = getenv('FRONTEND_URL') ?: getenv('APP_URL') ?: '';
+        if (trim($configuredUrl) !== '') {
+                return rtrim(trim($configuredUrl), '/');
+        }
+
+        $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+        return $origin !== '' ? rtrim($origin, '/') : 'http://localhost:5173';
+}
+
+function gradtrack_create_mailer(): PHPMailer
+{
+        $host = gradtrack_mail_clean_text(getenv('MAIL_HOST') ?: 'smtp.gmail.com');
+        $username = gradtrack_mail_clean_text(getenv('MAIL_USERNAME') ?: '');
+        $password = str_replace(' ', '', gradtrack_mail_clean_text(getenv('MAIL_PASSWORD') ?: ''));
+        $fromAddress = gradtrack_mail_clean_text(getenv('MAIL_FROM_ADDRESS') ?: $username);
+        $fromName = gradtrack_mail_clean_text(getenv('MAIL_FROM_NAME') ?: 'GRADTRACK');
+
+        if ($host === '' || $username === '' || $password === '' || $fromAddress === '') {
+                throw new RuntimeException('Mail credentials are not configured.');
+        }
+
+        $mail = new PHPMailer(true);
+        $mail->isSMTP();
+        $mail->Host = $host;
+        $mail->SMTPAuth = true;
+        $mail->Username = $username;
+        $mail->Password = $password;
+        $mail->Port = (int) (getenv('MAIL_PORT') ?: 587);
+        $mail->CharSet = 'UTF-8';
+
+        $encryption = strtolower(gradtrack_mail_clean_text(getenv('MAIL_ENCRYPTION') ?: 'tls'));
+        if ($encryption === 'ssl' || $encryption === 'smtps') {
+                $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
+        } elseif ($encryption === 'tls' || $encryption === 'starttls') {
+                $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+        }
+
+        $mail->setFrom($fromAddress, $fromName);
+        $mail->addReplyTo($fromAddress, $fromName);
+
+        return $mail;
+}
+
+function gradtrack_send_mentorship_request_email(PDO $db, int $requestId, array $user, int $mentorId): array
+{
+        $recipientEmail = gradtrack_mail_clean_text($user['email'] ?? '');
+        if ($recipientEmail === '' || !filter_var($recipientEmail, FILTER_VALIDATE_EMAIL)) {
+                return ['sent' => false, 'reason' => 'Missing or invalid graduate email'];
+        }
+
+        $mentorStmt = $db->prepare("SELECT g.first_name, g.last_name
+                                                             FROM mentors m
+                                                             JOIN graduates g ON g.id = m.graduate_id
+                                                             WHERE m.id = :id
+                                                             LIMIT 1");
+        $mentorStmt->execute([':id' => $mentorId]);
+        $mentor = $mentorStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        $graduateName = trim((string) ($user['first_name'] ?? '') . ' ' . (string) ($user['last_name'] ?? ''));
+        $graduateName = $graduateName !== '' ? $graduateName : 'Graduate';
+        $mentorName = trim((string) ($mentor['first_name'] ?? '') . ' ' . (string) ($mentor['last_name'] ?? ''));
+        $mentorName = $mentorName !== '' ? $mentorName : 'Selected Mentor';
+        $requestsLink = gradtrack_mail_frontend_url() . '/mentorship';
+
+        $safeGraduateName = gradtrack_mail_escape($graduateName);
+        $safeMentorName = gradtrack_mail_escape($mentorName);
+        $safeLink = gradtrack_mail_escape($requestsLink);
+        $safeProgram = gradtrack_mail_escape((string) (($user['program_code'] ?? '') ?: ($user['program_name'] ?? '')));
+
+        $subject = 'Mentorship Request Confirmation - GradTrack';
+        $html = <<<HTML
+<!doctype html>
+<html>
+    <body style="margin:0;padding:0;background:#f3f6fb;font-family:Arial,Helvetica,sans-serif;color:#14213d;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f6fb;padding:28px 12px;">
+            <tr>
+                <td align="center">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;background:#ffffff;border:1px solid #dbe4f0;border-radius:8px;overflow:hidden;">
+                        <tr>
+                            <td style="background:#173b80;padding:22px 28px;border-bottom:4px solid #f4c400;">
+                                <div style="font-size:24px;font-weight:800;color:#ffffff;">Grad<span style="color:#f4c400;">Track</span></div>
+                                <div style="margin-top:8px;font-size:13px;color:#dce8ff;">Norzagaray College Graduate Tracer Study</div>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding:30px 28px 10px;">
+                                <div style="display:inline-block;background:#eaf2ff;color:#173b80;border-radius:6px;padding:7px 10px;font-size:12px;font-weight:700;">{$safeProgram}</div>
+                                <h1 style="margin:18px 0 10px;font-size:24px;line-height:1.3;color:#10213f;">Mentorship request submitted</h1>
+                                <p style="margin:0 0 18px;font-size:15px;line-height:1.7;color:#41516d;">Hello {$safeGraduateName},</p>
+                                <p style="margin:0 0 18px;font-size:15px;line-height:1.7;color:#41516d;">Your mentorship request has been submitted successfully to <strong>{$safeMentorName}</strong>.</p>
+                                <p style="margin:0 0 16px;font-size:14px;line-height:1.7;color:#5d6b83;">Request reference ID: <strong>#{$requestId}</strong></p>
+                                <p style="margin:0;font-size:12px;line-height:1.6;color:#7b8798;">Track your request status here:<br><a href="{$safeLink}" style="color:#173b80;word-break:break-all;">{$safeLink}</a></p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding:24px 28px 30px;">
+                                <div style="border-top:1px solid #e4eaf3;padding-top:18px;font-size:13px;line-height:1.7;color:#6b778d;">
+                                    Thank you,<br>
+                                    <strong style="color:#10213f;">GRADTRACK</strong>
+                                </div>
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </body>
+</html>
+HTML;
+
+        $text = "Hello {$graduateName},\n\n"
+                . "Your mentorship request has been submitted successfully to {$mentorName}.\n"
+                . "Request reference ID: #{$requestId}\n"
+                . "Track status: {$requestsLink}\n\n"
+                . "Thank you,\nGRADTRACK";
+
+        $mailer = gradtrack_create_mailer();
+        $mailer->addAddress($recipientEmail, $graduateName);
+        $mailer->Subject = $subject;
+        $mailer->isHTML(true);
+        $mailer->Body = $html;
+        $mailer->AltBody = $text;
+        $mailer->send();
+        $mailer->smtpClose();
+
+        return ['sent' => true, 'email' => $recipientEmail];
+}
+
+function gradtrack_send_mentor_incoming_request_email(PDO $db, int $requestId, array $user, int $mentorId, ?string $requestMessage): array
+{
+        $mentorStmt = $db->prepare("SELECT ga.email, g.first_name, g.last_name
+                                                             FROM mentors m
+                                                             JOIN graduate_accounts ga ON ga.id = m.graduate_account_id
+                                                             JOIN graduates g ON g.id = m.graduate_id
+                                                             WHERE m.id = :id
+                                                             LIMIT 1");
+        $mentorStmt->execute([':id' => $mentorId]);
+        $mentor = $mentorStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$mentor) {
+                return ['sent' => false, 'reason' => 'Mentor account not found'];
+        }
+
+        $mentorEmail = gradtrack_mail_clean_text($mentor['email'] ?? '');
+        if ($mentorEmail === '' || !filter_var($mentorEmail, FILTER_VALIDATE_EMAIL)) {
+                return ['sent' => false, 'reason' => 'Missing or invalid mentor email'];
+        }
+
+        $mentorName = trim((string) ($mentor['first_name'] ?? '') . ' ' . (string) ($mentor['last_name'] ?? ''));
+        $mentorName = $mentorName !== '' ? $mentorName : 'Mentor';
+
+        $menteeName = trim((string) ($user['first_name'] ?? '') . ' ' . (string) ($user['last_name'] ?? ''));
+        $menteeName = $menteeName !== '' ? $menteeName : 'Graduate';
+        $menteeProgram = (string) (($user['program_code'] ?? '') ?: ($user['program_name'] ?? ''));
+        $cleanMessage = gradtrack_mail_clean_text($requestMessage ?? '');
+        $safeMessage = $cleanMessage !== ''
+                ? nl2br(gradtrack_mail_escape($cleanMessage))
+                : '<em style="color:#6b778d;">No message provided.</em>';
+
+        $incomingLink = gradtrack_mail_frontend_url() . '/mentorship?type=incoming';
+        $safeMentorName = gradtrack_mail_escape($mentorName);
+        $safeMenteeName = gradtrack_mail_escape($menteeName);
+        $safeMenteeProgram = gradtrack_mail_escape($menteeProgram);
+        $safeIncomingLink = gradtrack_mail_escape($incomingLink);
+
+        $subject = 'New Incoming Mentorship Request - GradTrack';
+        $html = <<<HTML
+<!doctype html>
+<html>
+    <body style="margin:0;padding:0;background:#f3f6fb;font-family:Arial,Helvetica,sans-serif;color:#14213d;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f6fb;padding:28px 12px;">
+            <tr>
+                <td align="center">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;background:#ffffff;border:1px solid #dbe4f0;border-radius:8px;overflow:hidden;">
+                        <tr>
+                            <td style="background:#173b80;padding:22px 28px;border-bottom:4px solid #f4c400;">
+                                <div style="font-size:24px;font-weight:800;color:#ffffff;">Grad<span style="color:#f4c400;">Track</span></div>
+                                <div style="margin-top:8px;font-size:13px;color:#dce8ff;">Norzagaray College Graduate Tracer Study</div>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding:30px 28px 10px;">
+                                <h1 style="margin:0 0 10px;font-size:24px;line-height:1.3;color:#10213f;">You have a new mentorship request</h1>
+                                <p style="margin:0 0 14px;font-size:15px;line-height:1.7;color:#41516d;">Hello {$safeMentorName},</p>
+                                <p style="margin:0 0 14px;font-size:15px;line-height:1.7;color:#41516d;"><strong>{$safeMenteeName}</strong> sent you a mentorship request.</p>
+                                <p style="margin:0 0 14px;font-size:14px;line-height:1.7;color:#5d6b83;">Program: <strong>{$safeMenteeProgram}</strong></p>
+                                <p style="margin:0 0 8px;font-size:14px;line-height:1.7;color:#5d6b83;">Message:</p>
+                                <div style="background:#f7f9fc;border:1px solid #e4eaf3;border-radius:6px;padding:12px;font-size:14px;line-height:1.6;color:#41516d;">{$safeMessage}</div>
+                                <p style="margin:16px 0 0;font-size:14px;line-height:1.7;color:#5d6b83;">Request reference ID: <strong>#{$requestId}</strong></p>
+                                <p style="margin:12px 0 0;font-size:12px;line-height:1.6;color:#7b8798;">Review it here:<br><a href="{$safeIncomingLink}" style="color:#173b80;word-break:break-all;">{$safeIncomingLink}</a></p>
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </body>
+</html>
+HTML;
+
+        $text = "Hello {$mentorName},\n\n"
+                . "{$menteeName} sent you a mentorship request.\n"
+                . "Program: {$menteeProgram}\n"
+                . ($cleanMessage !== '' ? ("Message: {$cleanMessage}\n") : '')
+                . "Request reference ID: #{$requestId}\n"
+                . "Review it here: {$incomingLink}\n\n"
+                . "Thank you,\nGRADTRACK";
+
+        $mailer = gradtrack_create_mailer();
+        $mailer->addAddress($mentorEmail, $mentorName);
+        $mailer->Subject = $subject;
+        $mailer->isHTML(true);
+        $mailer->Body = $html;
+        $mailer->AltBody = $text;
+        $mailer->send();
+        $mailer->smtpClose();
+
+        return ['sent' => true, 'email' => $mentorEmail];
+}
+
+function gradtrack_send_mentee_session_details_email(PDO $db, int $requestId): array
+{
+        $stmt = $db->prepare("SELECT mr.id, mr.request_message, mr.reason_for_request, mr.topic, mr.preferred_schedule,
+                                                             mr.session_date, mr.session_time, mr.session_type, mr.meeting_link, mr.meeting_location, mr.session_notes,
+                                                             ga_mentee.email AS mentee_email,
+                                                             COALESCE(mr.mentee_name, CONCAT(g_mentee.first_name, ' ', g_mentee.last_name)) AS mentee_name,
+                                                             COALESCE(mr.mentee_program, p_mentee.code, p_mentee.name) AS mentee_program,
+                                                             CONCAT(g_mentor.first_name, ' ', g_mentor.last_name) AS mentor_name,
+                                                             m.current_job_title AS mentor_job_title,
+                                                             m.company AS mentor_company
+                                                      FROM mentorship_requests mr
+                                                      JOIN graduate_accounts ga_mentee ON ga_mentee.id = mr.mentee_account_id
+                                                      JOIN graduates g_mentee ON g_mentee.id = ga_mentee.graduate_id
+                                                      LEFT JOIN programs p_mentee ON p_mentee.id = g_mentee.program_id
+                                                      JOIN mentors m ON m.id = mr.mentor_id
+                                                      JOIN graduates g_mentor ON g_mentor.id = m.graduate_id
+                                                      WHERE mr.id = :id
+                                                      LIMIT 1");
+        $stmt->execute([':id' => $requestId]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$row) {
+                return ['sent' => false, 'reason' => 'Mentorship request not found'];
+        }
+
+        $menteeEmail = gradtrack_mail_clean_text($row['mentee_email'] ?? '');
+        if ($menteeEmail === '' || !filter_var($menteeEmail, FILTER_VALIDATE_EMAIL)) {
+                return ['sent' => false, 'reason' => 'Missing or invalid mentee email'];
+        }
+
+        $menteeName = gradtrack_mail_clean_text($row['mentee_name'] ?? '');
+        $menteeName = $menteeName !== '' ? $menteeName : 'Graduate';
+        $mentorName = gradtrack_mail_clean_text($row['mentor_name'] ?? '');
+        $mentorName = $mentorName !== '' ? $mentorName : 'Your mentor';
+
+        $sessionDate = gradtrack_mail_clean_text($row['session_date'] ?? '');
+        $sessionTime = gradtrack_mail_clean_text($row['session_time'] ?? '');
+        $sessionType = gradtrack_mail_clean_text($row['session_type'] ?? '');
+        $meetingLink = gradtrack_mail_clean_text($row['meeting_link'] ?? '');
+        $meetingLocation = gradtrack_mail_clean_text($row['meeting_location'] ?? '');
+        $sessionNotes = gradtrack_mail_clean_text($row['session_notes'] ?? '');
+        $topic = gradtrack_mail_clean_text($row['topic'] ?? '');
+        $reasonForRequest = gradtrack_mail_clean_text($row['reason_for_request'] ?? '');
+        $preferredSchedule = gradtrack_mail_clean_text($row['preferred_schedule'] ?? '');
+        $requestMessage = gradtrack_mail_clean_text($row['request_message'] ?? '');
+        $mentorJobTitle = gradtrack_mail_clean_text($row['mentor_job_title'] ?? '');
+        $mentorCompany = gradtrack_mail_clean_text($row['mentor_company'] ?? '');
+        $menteeProgram = gradtrack_mail_clean_text($row['mentee_program'] ?? '');
+
+        $dashboardLink = gradtrack_mail_frontend_url() . '/graduate/portal?tab=requests';
+        $safeMenteeName = gradtrack_mail_escape($menteeName);
+        $safeMentorName = gradtrack_mail_escape($mentorName);
+        $safeMentorRole = gradtrack_mail_escape(trim($mentorJobTitle . ($mentorCompany !== '' ? (' at ' . $mentorCompany) : '')));
+        $safeProgram = gradtrack_mail_escape($menteeProgram !== '' ? $menteeProgram : 'N/A');
+        $safeDate = gradtrack_mail_escape($sessionDate !== '' ? $sessionDate : 'N/A');
+        $safeTime = gradtrack_mail_escape($sessionTime !== '' ? $sessionTime : 'N/A');
+        $safeType = gradtrack_mail_escape($sessionType !== '' ? $sessionType : 'N/A');
+        $safeMeetingLink = gradtrack_mail_escape($meetingLink !== '' ? $meetingLink : 'N/A');
+        $safeMeetingLocation = gradtrack_mail_escape($meetingLocation !== '' ? $meetingLocation : 'N/A');
+        $safeNotes = gradtrack_mail_escape($sessionNotes !== '' ? $sessionNotes : 'N/A');
+        $safeTopic = gradtrack_mail_escape($topic !== '' ? $topic : 'N/A');
+        $safeReason = gradtrack_mail_escape($reasonForRequest !== '' ? $reasonForRequest : 'N/A');
+        $safePreferred = gradtrack_mail_escape($preferredSchedule !== '' ? $preferredSchedule : 'N/A');
+        $safeRequestMessage = gradtrack_mail_escape($requestMessage !== '' ? $requestMessage : 'N/A');
+        $safeDashboardLink = gradtrack_mail_escape($dashboardLink);
+
+        $subject = 'Mentorship Session Set by Mentor - GradTrack';
+        $html = <<<HTML
+<!doctype html>
+<html>
+    <body style="margin:0;padding:0;background:#f3f6fb;font-family:Arial,Helvetica,sans-serif;color:#14213d;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f6fb;padding:28px 12px;">
+            <tr>
+                <td align="center">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:680px;background:#ffffff;border:1px solid #dbe4f0;border-radius:8px;overflow:hidden;">
+                        <tr>
+                            <td style="background:#173b80;padding:22px 28px;border-bottom:4px solid #f4c400;">
+                                <div style="font-size:24px;font-weight:800;color:#ffffff;">Grad<span style="color:#f4c400;">Track</span></div>
+                                <div style="margin-top:8px;font-size:13px;color:#dce8ff;">Norzagaray College Graduate Tracer Study</div>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding:30px 28px 20px;">
+                                <h1 style="margin:0 0 10px;font-size:24px;line-height:1.3;color:#10213f;">Your mentorship session is scheduled</h1>
+                                <p style="margin:0 0 12px;font-size:15px;line-height:1.7;color:#41516d;">Hello {$safeMenteeName}, your mentor <strong>{$safeMentorName}</strong> has accepted your request and set a session.</p>
+                                <p style="margin:0 0 16px;font-size:14px;line-height:1.7;color:#5d6b83;">Program: <strong>{$safeProgram}</strong><br>Mentor role: <strong>{$safeMentorRole}</strong><br>Reference ID: <strong>#{$requestId}</strong></p>
+                                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;border:1px solid #e4eaf3;border-radius:6px;overflow:hidden;">
+                                    <tr><td style="padding:10px 12px;background:#f7f9fc;font-weight:700;">Session Date</td><td style="padding:10px 12px;">{$safeDate}</td></tr>
+                                    <tr><td style="padding:10px 12px;background:#f7f9fc;font-weight:700;">Session Time</td><td style="padding:10px 12px;">{$safeTime}</td></tr>
+                                    <tr><td style="padding:10px 12px;background:#f7f9fc;font-weight:700;">Session Type</td><td style="padding:10px 12px;">{$safeType}</td></tr>
+                                    <tr><td style="padding:10px 12px;background:#f7f9fc;font-weight:700;">Meeting Link</td><td style="padding:10px 12px;word-break:break-all;">{$safeMeetingLink}</td></tr>
+                                    <tr><td style="padding:10px 12px;background:#f7f9fc;font-weight:700;">Meeting Location</td><td style="padding:10px 12px;">{$safeMeetingLocation}</td></tr>
+                                    <tr><td style="padding:10px 12px;background:#f7f9fc;font-weight:700;">Session Notes</td><td style="padding:10px 12px;">{$safeNotes}</td></tr>
+                                    <tr><td style="padding:10px 12px;background:#f7f9fc;font-weight:700;">Topic</td><td style="padding:10px 12px;">{$safeTopic}</td></tr>
+                                    <tr><td style="padding:10px 12px;background:#f7f9fc;font-weight:700;">Reason for Request</td><td style="padding:10px 12px;">{$safeReason}</td></tr>
+                                    <tr><td style="padding:10px 12px;background:#f7f9fc;font-weight:700;">Preferred Schedule</td><td style="padding:10px 12px;">{$safePreferred}</td></tr>
+                                    <tr><td style="padding:10px 12px;background:#f7f9fc;font-weight:700;">Your Request Message</td><td style="padding:10px 12px;">{$safeRequestMessage}</td></tr>
+                                </table>
+                                <p style="margin:14px 0 0;font-size:12px;line-height:1.6;color:#7b8798;">View details in portal:<br><a href="{$safeDashboardLink}" style="color:#173b80;word-break:break-all;">{$safeDashboardLink}</a></p>
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </body>
+</html>
+HTML;
+
+        $text = "Hello {$menteeName},\n\n"
+                . "Your mentor {$mentorName} accepted your request and set a session.\n"
+                . "Reference ID: #{$requestId}\n"
+                . "Session Date: " . ($sessionDate !== '' ? $sessionDate : 'N/A') . "\n"
+                . "Session Time: " . ($sessionTime !== '' ? $sessionTime : 'N/A') . "\n"
+                . "Session Type: " . ($sessionType !== '' ? $sessionType : 'N/A') . "\n"
+                . "Meeting Link: " . ($meetingLink !== '' ? $meetingLink : 'N/A') . "\n"
+                . "Meeting Location: " . ($meetingLocation !== '' ? $meetingLocation : 'N/A') . "\n"
+                . "Session Notes: " . ($sessionNotes !== '' ? $sessionNotes : 'N/A') . "\n"
+                . "Topic: " . ($topic !== '' ? $topic : 'N/A') . "\n"
+                . "Reason for Request: " . ($reasonForRequest !== '' ? $reasonForRequest : 'N/A') . "\n"
+                . "Preferred Schedule: " . ($preferredSchedule !== '' ? $preferredSchedule : 'N/A') . "\n"
+                . "Your Request Message: " . ($requestMessage !== '' ? $requestMessage : 'N/A') . "\n"
+                . "Portal link: {$dashboardLink}\n\n"
+                . "Thank you,\nGRADTRACK";
+
+        $mailer = gradtrack_create_mailer();
+        $mailer->addAddress($menteeEmail, $menteeName);
+        $mailer->Subject = $subject;
+        $mailer->isHTML(true);
+        $mailer->Body = $html;
+        $mailer->AltBody = $text;
+        $mailer->send();
+        $mailer->smtpClose();
+
+        return ['sent' => true, 'email' => $menteeEmail];
+}
 
 $database = new Database();
 $db = $database->getConnection();
@@ -235,11 +608,39 @@ try {
         $insertStmt->bindParam(':topic', $topic);
         $insertStmt->bindParam(':preferred_schedule', $preferredSchedule);
         $insertStmt->execute();
+        $requestId = (int) $db->lastInsertId();
+
+        $emailNotification = [
+            'sent' => false,
+            'reason' => 'Skipped'
+        ];
+        $mentorEmailNotification = [
+            'sent' => false,
+            'reason' => 'Skipped'
+        ];
+
+        try {
+            $emailNotification = gradtrack_send_mentorship_request_email($db, $requestId, $user, $mentorId);
+        } catch (MailException $mailException) {
+            $emailNotification = ['sent' => false, 'reason' => $mailException->getMessage()];
+        } catch (Exception $mailException) {
+            $emailNotification = ['sent' => false, 'reason' => $mailException->getMessage()];
+        }
+
+        try {
+            $mentorEmailNotification = gradtrack_send_mentor_incoming_request_email($db, $requestId, $user, $mentorId, $requestMessage);
+        } catch (MailException $mailException) {
+            $mentorEmailNotification = ['sent' => false, 'reason' => $mailException->getMessage()];
+        } catch (Exception $mailException) {
+            $mentorEmailNotification = ['sent' => false, 'reason' => $mailException->getMessage()];
+        }
 
         echo json_encode([
             'success' => true,
             'message' => 'Mentorship request sent',
-            'request_id' => (int) $db->lastInsertId()
+            'request_id' => $requestId,
+            'email_notification' => $emailNotification,
+            'mentor_email_notification' => $mentorEmailNotification
         ]);
         exit;
     }
@@ -248,6 +649,10 @@ try {
         $data = json_decode(file_get_contents('php://input'), true);
         $requestId = isset($data['id']) ? (int) $data['id'] : 0;
         $status = isset($data['status']) ? trim((string) $data['status']) : '';
+        $menteeSessionEmailNotification = [
+            'sent' => false,
+            'reason' => 'Skipped'
+        ];
 
         if ($requestId <= 0 || $status === '') {
             http_response_code(400);
@@ -309,6 +714,14 @@ try {
                 $updateStmt->bindValue(':session_notes', $sessionNotes);
                 $updateStmt->bindParam(':id', $requestId);
                 $updateStmt->execute();
+
+                try {
+                    $menteeSessionEmailNotification = gradtrack_send_mentee_session_details_email($db, $requestId);
+                } catch (MailException $mailException) {
+                    $menteeSessionEmailNotification = ['sent' => false, 'reason' => $mailException->getMessage()];
+                } catch (Exception $mailException) {
+                    $menteeSessionEmailNotification = ['sent' => false, 'reason' => $mailException->getMessage()];
+                }
             } else {
                 $updateStmt = $db->prepare('UPDATE mentorship_requests SET status = :status, responded_at = NOW() WHERE id = :id');
                 $updateStmt->bindParam(':status', $status);
@@ -351,7 +764,11 @@ try {
             exit;
         }
 
-        echo json_encode(['success' => true, 'message' => 'Mentorship request updated']);
+        echo json_encode([
+            'success' => true,
+            'message' => 'Mentorship request updated',
+            'mentee_session_email_notification' => $menteeSessionEmailNotification
+        ]);
         exit;
     }
 

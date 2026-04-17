@@ -1,6 +1,156 @@
 <?php
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../../vendor/autoload.php';
+
+use PHPMailer\PHPMailer\Exception as MailException;
+use PHPMailer\PHPMailer\PHPMailer;
+
+function survey_response_clean_text($value): string
+{
+        return trim((string) ($value ?? ''));
+}
+
+function survey_response_escape($value): string
+{
+        return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
+}
+
+function survey_response_mailer(): PHPMailer
+{
+        $host = survey_response_clean_text(getenv('MAIL_HOST') ?: 'smtp.gmail.com');
+        $username = survey_response_clean_text(getenv('MAIL_USERNAME') ?: '');
+        $password = str_replace(' ', '', survey_response_clean_text(getenv('MAIL_PASSWORD') ?: ''));
+        $fromAddress = survey_response_clean_text(getenv('MAIL_FROM_ADDRESS') ?: $username);
+        $fromName = survey_response_clean_text(getenv('MAIL_FROM_NAME') ?: 'GRADTRACK');
+
+        if ($host === '' || $username === '' || $password === '' || $fromAddress === '') {
+                throw new RuntimeException('Mail credentials are not configured.');
+        }
+
+        $mail = new PHPMailer(true);
+        $mail->isSMTP();
+        $mail->Host = $host;
+        $mail->SMTPAuth = true;
+        $mail->Username = $username;
+        $mail->Password = $password;
+        $mail->Port = (int) (getenv('MAIL_PORT') ?: 587);
+        $mail->CharSet = 'UTF-8';
+
+        $encryption = strtolower(survey_response_clean_text(getenv('MAIL_ENCRYPTION') ?: 'tls'));
+        if ($encryption === 'ssl' || $encryption === 'smtps') {
+                $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
+        } elseif ($encryption === 'tls' || $encryption === 'starttls') {
+                $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+        }
+
+        $mail->setFrom($fromAddress, $fromName);
+        $mail->addReplyTo($fromAddress, $fromName);
+
+        return $mail;
+}
+
+function survey_response_frontend_url(): string
+{
+        $configuredUrl = getenv('FRONTEND_URL') ?: getenv('APP_URL') ?: '';
+        if (trim($configuredUrl) !== '') {
+                return rtrim(trim($configuredUrl), '/');
+        }
+
+        $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+        return $origin !== '' ? rtrim($origin, '/') : 'http://localhost:5173';
+}
+
+function survey_response_send_confirmation_email(PDO $conn, int $graduateId, int $surveyId): array
+{
+        $graduateStmt = $conn->prepare("SELECT g.first_name, g.last_name, g.email, p.code AS program_code
+                                                                     FROM graduates g
+                                                                     LEFT JOIN programs p ON p.id = g.program_id
+                                                                     WHERE g.id = :id
+                                                                     LIMIT 1");
+        $graduateStmt->execute([':id' => $graduateId]);
+        $graduate = $graduateStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$graduate) {
+                return ["sent" => false, "reason" => "Graduate record not found"];
+        }
+
+        $email = survey_response_clean_text($graduate['email'] ?? '');
+        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                return ["sent" => false, "reason" => "Missing or invalid graduate email"];
+        }
+
+        $surveyStmt = $conn->prepare("SELECT title FROM surveys WHERE id = :id LIMIT 1");
+        $surveyStmt->execute([':id' => $surveyId]);
+        $survey = $surveyStmt->fetch(PDO::FETCH_ASSOC);
+        $surveyTitle = (string) ($survey['title'] ?? 'Graduate Tracer Study Survey');
+
+        $name = trim((string) ($graduate['first_name'] ?? '') . ' ' . (string) ($graduate['last_name'] ?? ''));
+        $name = $name !== '' ? $name : 'Graduate';
+        $programCode = survey_response_escape((string) ($graduate['program_code'] ?? ''));
+        $surveyTitleEsc = survey_response_escape($surveyTitle);
+        $safeName = survey_response_escape($name);
+        $surveyLink = survey_response_frontend_url() . '/survey-verify?survey_id=' . urlencode((string) $surveyId);
+        $safeSurveyLink = survey_response_escape($surveyLink);
+
+        $subject = 'Survey Participation Confirmation - GradTrack';
+        $html = <<<HTML
+<!doctype html>
+<html>
+    <body style="margin:0;padding:0;background:#f3f6fb;font-family:Arial,Helvetica,sans-serif;color:#14213d;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f6fb;padding:28px 12px;">
+            <tr>
+                <td align="center">
+                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;background:#ffffff;border:1px solid #dbe4f0;border-radius:8px;overflow:hidden;">
+                        <tr>
+                            <td style="background:#173b80;padding:22px 28px;border-bottom:4px solid #f4c400;">
+                                <div style="font-size:24px;font-weight:800;color:#ffffff;">Grad<span style="color:#f4c400;">Track</span></div>
+                                <div style="margin-top:8px;font-size:13px;color:#dce8ff;">Norzagaray College Graduate Tracer Study</div>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding:30px 28px 10px;">
+                                <div style="display:inline-block;background:#eaf2ff;color:#173b80;border-radius:6px;padding:7px 10px;font-size:12px;font-weight:700;">{$programCode}</div>
+                                <h1 style="margin:18px 0 10px;font-size:24px;line-height:1.3;color:#10213f;">Survey response received</h1>
+                                <p style="margin:0 0 18px;font-size:15px;line-height:1.7;color:#41516d;">Hello {$safeName},</p>
+                                <p style="margin:0 0 18px;font-size:15px;line-height:1.7;color:#41516d;">Thank you for participating in the survey. We have successfully recorded your response.</p>
+                                <p style="margin:0 0 16px;font-size:14px;line-height:1.7;color:#5d6b83;">Survey: <strong>{$surveyTitleEsc}</strong></p>
+                                <p style="margin:0;font-size:12px;line-height:1.6;color:#7b8798;">Reference link:<br><a href="{$safeSurveyLink}" style="color:#173b80;word-break:break-all;">{$safeSurveyLink}</a></p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding:24px 28px 30px;">
+                                <div style="border-top:1px solid #e4eaf3;padding-top:18px;font-size:13px;line-height:1.7;color:#6b778d;">
+                                    Thank you,<br>
+                                    <strong style="color:#10213f;">GRADTRACK</strong>
+                                </div>
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </body>
+</html>
+HTML;
+
+        $text = "Hello {$name},\n\n"
+                . "Thank you for participating in the survey. We have successfully recorded your response.\n\n"
+                . "Survey: {$surveyTitle}\n"
+                . "Reference link: {$surveyLink}\n\n"
+                . "Thank you,\nGRADTRACK";
+
+        $mailer = survey_response_mailer();
+        $mailer->addAddress($email, $name);
+        $mailer->Subject = $subject;
+        $mailer->isHTML(true);
+        $mailer->Body = $html;
+        $mailer->AltBody = $text;
+        $mailer->send();
+        $mailer->smtpClose();
+
+        return ["sent" => true, "email" => $email];
+}
 
 $database = new Database();
 $conn = $database->getConnection();
@@ -104,12 +254,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         $conn->commit();
 
+        $emailNotification = [
+            "sent" => false,
+            "reason" => "Skipped"
+        ];
+        if ($graduateId) {
+            try {
+                $emailNotification = survey_response_send_confirmation_email($conn, (int) $graduateId, (int) $surveyId);
+            } catch (MailException $mailException) {
+                $emailNotification = ["sent" => false, "reason" => $mailException->getMessage()];
+            } catch (Exception $mailException) {
+                $emailNotification = ["sent" => false, "reason" => $mailException->getMessage()];
+            }
+        }
+
         http_response_code(201);
         echo json_encode([
             "success" => true,
             "message" => "Survey response saved successfully",
             "id" => $responseId,
-            "survey_response_id" => $responseId
+            "survey_response_id" => $responseId,
+            "email_notification" => $emailNotification
         ]);
     } catch(PDOException $e) {
         $conn->rollBack();
