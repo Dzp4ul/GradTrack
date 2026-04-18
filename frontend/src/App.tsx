@@ -7,6 +7,7 @@ import SignIn from './pages/SignIn';
 import Survey from './pages/Survey';
 import SurveyVerification from './pages/SurveyVerification';
 import GraduateSignIn from './pages/GraduateSignIn';
+import GraduateForgotPassword from './pages/GraduateForgotPassword';
 import GraduatePortal from './pages/GraduatePortal';
 import AdminLayout from './pages/admin/AdminLayout';
 import AdminProfile from './pages/admin/AdminProfile';
@@ -73,6 +74,7 @@ function App() {
           <Route path="/survey" element={<Survey />} />
 
           <Route path="/graduate/signin" element={<GraduateSignIn />} />
+          <Route path="/graduate/forgot-password" element={<GraduateForgotPassword />} />
           <Route
             path="/graduate/portal"
             element={

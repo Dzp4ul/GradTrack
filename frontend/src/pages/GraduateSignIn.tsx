@@ -123,6 +123,11 @@ export default function GraduateSignIn() {
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>
+            <div className="mt-2 text-right">
+              <Link to="/graduate/forgot-password" className="text-sm font-medium text-blue-600 hover:text-blue-700">
+                Forgot Password?
+              </Link>
+            </div>
           </div>
 
           <button
