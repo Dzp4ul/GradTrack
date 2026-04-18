@@ -15,6 +15,8 @@ import { API_ROOT } from '../../config/api';
 
 const API_BASE = API_ROOT;
 const SELECTED_SURVEY_STORAGE_KEY = 'gradtrack_selected_survey_id';
+const DASHBOARD_CACHE_KEY = 'gradtrack_dashboard_cache';
+const DASHBOARD_CACHE_TTL_MS = 2 * 60 * 1000;
 
 interface DashboardData {
   total_graduates: number;
@@ -42,6 +44,11 @@ interface DashboardData {
   survey_completion_rate?: number;
 }
 
+interface DashboardCacheEntry {
+  data: DashboardData;
+  storedAt: number;
+}
+
 const PIE_COLORS = ['#22c55e', '#f59e0b', '#ef4444'];
 const BAR_COLORS = ['#22c55e', '#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6'];
 
@@ -62,6 +69,27 @@ export default function Dashboard() {
   const navigate = useNavigate();
 
   useEffect(() => {
+    const cachedRaw = sessionStorage.getItem(DASHBOARD_CACHE_KEY);
+    let hasFreshCache = false;
+
+    if (cachedRaw) {
+      try {
+        const cached = JSON.parse(cachedRaw) as DashboardCacheEntry;
+        if (
+          cached
+          && typeof cached.storedAt === 'number'
+          && cached.data
+          && (Date.now() - cached.storedAt) <= DASHBOARD_CACHE_TTL_MS
+        ) {
+          setData(cached.data);
+          setLoading(false);
+          hasFreshCache = true;
+        }
+      } catch {
+        sessionStorage.removeItem(DASHBOARD_CACHE_KEY);
+      }
+    }
+
     const selectedSurveyId = localStorage.getItem(SELECTED_SURVEY_STORAGE_KEY);
     const params = new URLSearchParams();
     if (selectedSurveyId) {
@@ -75,7 +103,13 @@ export default function Dashboard() {
     fetch(dashboardUrl)
       .then((res) => res.json())
       .then((res) => {
-        if (res.success) setData(res.data);
+        if (res.success) {
+          setData(res.data);
+          sessionStorage.setItem(DASHBOARD_CACHE_KEY, JSON.stringify({
+            data: res.data,
+            storedAt: Date.now(),
+          }));
+        }
       })
       .catch(() => {
         // Use fallback data if API is not available
@@ -143,7 +177,11 @@ export default function Dashboard() {
           survey_completion_rate: 30,
         });
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!hasFreshCache) {
+          setLoading(false);
+        }
+      });
   }, []);
 
   const trendData = useMemo(() => {

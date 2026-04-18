@@ -755,6 +755,26 @@ export default function GraduatePortal() {
     return /^https?:\/\//i.test(link) ? link : `https://${link}`;
   };
 
+  const renderMeetingLinkOrLocation = (meetingLink?: string | null, meetingLocation?: string | null) => {
+    const rawLink = (meetingLink || '').trim();
+    if (rawLink) {
+      const href = normalizeApplicationLink(rawLink);
+      return (
+        <a
+          href={href}
+          target="_blank"
+          rel="noreferrer"
+          className="text-blue-700 hover:underline break-all"
+        >
+          {rawLink}
+        </a>
+      );
+    }
+
+    const location = (meetingLocation || '').trim();
+    return location || 'N/A';
+  };
+
   const jobMatchesProgramTab = (job: JobPost, tabKey: string) => {
     const selected = normalizeProgramText(tabKey);
     if (!selected || selected === 'ALL') return true;
@@ -1860,7 +1880,7 @@ export default function GraduatePortal() {
                             <p><span className="font-semibold">Session Date:</span> {req.session_date || 'N/A'}</p>
                             <p><span className="font-semibold">Session Time:</span> {req.session_time || 'N/A'}</p>
                             <p><span className="font-semibold">Type:</span> {req.session_type || 'N/A'}</p>
-                            <p><span className="font-semibold">Link / Location:</span> {req.meeting_link || req.meeting_location || 'N/A'}</p>
+                            <p><span className="font-semibold">Link / Location:</span> {renderMeetingLinkOrLocation(req.meeting_link, req.meeting_location)}</p>
                             <p><span className="font-semibold">Notes:</span> {req.session_notes || 'N/A'}</p>
                           </div>
                         )}
@@ -1936,7 +1956,7 @@ export default function GraduatePortal() {
                             <p><span className="font-semibold">Session Date:</span> {req.session_date || 'N/A'}</p>
                             <p><span className="font-semibold">Session Time:</span> {req.session_time || 'N/A'}</p>
                             <p><span className="font-semibold">Type:</span> {req.session_type || 'N/A'}</p>
-                            <p><span className="font-semibold">Link / Location:</span> {req.meeting_link || req.meeting_location || 'N/A'}</p>
+                            <p><span className="font-semibold">Link / Location:</span> {renderMeetingLinkOrLocation(req.meeting_link, req.meeting_location)}</p>
                             <p><span className="font-semibold">Notes:</span> {req.session_notes || 'N/A'}</p>
                           </div>
                         )}

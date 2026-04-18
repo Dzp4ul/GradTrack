@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import ExcelJS from 'exceljs';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -232,6 +232,42 @@ export default function Reports() {
   const [noSurveySelectionExplicit, setNoSurveySelectionExplicit] = useState(initialNoSurveySelection);
   const [surveyAnalytics, setSurveyAnalytics] = useState<SurveyAnalyticsData | null>(null);
   const [surveyAnalyticsLoading, setSurveyAnalyticsLoading] = useState(false);
+  const reportCacheRef = useRef<Record<string, unknown>>({});
+  const aiCacheRef = useRef<Record<string, string>>({});
+
+  const getReportCacheKey = (type: string, year: string, department: string) => (
+    [type, selectedSurveyId ?? 'none', year, department].join('|')
+  );
+
+  const getAiCacheKey = (reportType: string, year: string, department: string) => (
+    [reportType, selectedSurveyId ?? 'none', year, department].join('|')
+  );
+
+  const applyReportDataByType = (type: string, data: unknown) => {
+    switch (type) {
+      case 'overview':
+        setOverview(data as Overview);
+        break;
+      case 'by_program':
+        setProgramData(data as ProgramReport[]);
+        break;
+      case 'by_year': {
+        const typedYearData = data as YearReport[];
+        setYearData(typedYearData);
+        const years = typedYearData.map((y) => y.year_graduated.toString());
+        setAvailableYears(years);
+        break;
+      }
+      case 'employment_status':
+        setStatusData(data as StatusData[]);
+        break;
+      case 'salary_distribution':
+        setSalaryData(data as SalaryData[]);
+        break;
+      default:
+        break;
+    }
+  };
 
   const buildReportUrl = (type: string, year: string = 'all', department: string = selectedDepartment) => {
     const params = new URLSearchParams({ type });
@@ -257,9 +293,18 @@ export default function Reports() {
   };
 
   const fetchReport = (type: string, year: string = 'all', department: string = selectedDepartment) => {
-    setLoading(true);
     const reportYear = type === 'overview' ? 'all' : year;
     const reportDepartment = type === 'overview' ? 'all' : department;
+    const cacheKey = getReportCacheKey(type, reportYear, reportDepartment);
+    const cachedData = reportCacheRef.current[cacheKey];
+
+    if (cachedData !== undefined) {
+      applyReportDataByType(type, cachedData);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
     const url = buildReportUrl(type, reportYear, reportDepartment);
 
     const buildAiPayload = (reportType: string, data: unknown) => {
@@ -314,21 +359,12 @@ export default function Reports() {
       .then((r) => r.json())
       .then((res) => {
         if (res.success) {
-          switch (type) {
-            case 'overview': setOverview(res.data); break;
-            case 'by_program': setProgramData(res.data); break;
-            case 'by_year': {
-              setYearData(res.data);
-              // Extract available years from the data
-              const years = res.data.map((y: YearReport) => y.year_graduated.toString());
-              setAvailableYears(years);
-              break;
-            }
-            case 'employment_status': setStatusData(res.data); break;
-            case 'salary_distribution': setSalaryData(res.data); break;
-          }
+          reportCacheRef.current[cacheKey] = res.data;
+          applyReportDataByType(type, res.data);
 
-          fetchAIAnalytics(type, buildAiPayload(type, res.data), reportYear, reportDepartment);
+          if (type !== 'overview') {
+            fetchAIAnalytics(type, buildAiPayload(type, res.data), reportYear, reportDepartment);
+          }
         }
       })
       .catch(() => {})
@@ -455,6 +491,9 @@ export default function Reports() {
   };
 
   useEffect(() => {
+    reportCacheRef.current = {};
+    aiCacheRef.current = {};
+
     // Fetch year data first to populate the filter
     fetch(buildReportUrl('by_year', 'all', 'all'))
       .then((r) => r.json())
@@ -531,9 +570,18 @@ export default function Reports() {
       return;
     }
 
-    setAiLoading(true);
     const params = new URLSearchParams({ type: reportType });
     const effectiveDepartment = reportType === 'overview' ? 'all' : department;
+    const aiCacheKey = getAiCacheKey(reportType, year, effectiveDepartment);
+    const cachedAiAnalysis = aiCacheRef.current[aiCacheKey];
+
+    if (cachedAiAnalysis) {
+      setAiAnalysis(cachedAiAnalysis);
+      setAiLoading(false);
+      return;
+    }
+
+    setAiLoading(true);
     if (year !== 'all') {
       params.set('year', year);
     }
@@ -558,6 +606,7 @@ export default function Reports() {
       .then((res) => {
         if (res.success && res.data.ai_analysis) {
           setAiAnalysis(res.data.ai_analysis);
+          aiCacheRef.current[aiCacheKey] = res.data.ai_analysis;
         } else {
           setAiAnalysis('AI analysis temporarily unavailable.');
         }
