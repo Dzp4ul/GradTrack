@@ -396,8 +396,6 @@ export default function DeanSurveyStatus() {
   };
 
   const viewedGraduateName = answerViewer.row ? getGraduateDisplayName(answerViewer.row) : 'Graduate';
-  const viewedSubmittedAt =
-    answerViewer.response?.submitted_at || answerViewer.row?.last_submitted_at || null;
   const viewedAnswers = answerViewer.response?.answers || [];
 
   return (
@@ -656,8 +654,7 @@ export default function DeanSurveyStatus() {
                 <p className="text-xs font-semibold uppercase text-blue-700">Survey Answers</p>
                 <h2 className="mt-1 text-xl font-bold text-[#1b2a4a]">{viewedGraduateName}</h2>
                 <p className="mt-1 text-sm text-gray-500">
-                  {answerViewer.row?.student_id || 'No student ID'} - {answerViewer.row?.program_code || '-'} - Submitted:{' '}
-                  {viewedSubmittedAt ? new Date(viewedSubmittedAt).toLocaleString() : '-'}
+                  {answerViewer.row?.student_id || 'No student ID'} - {answerViewer.row?.program_code || '-'}
                 </p>
               </div>
               <button
