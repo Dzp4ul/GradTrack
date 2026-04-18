@@ -697,16 +697,14 @@ export default function GraduateParticipation() {
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Program</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Year</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Status</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600">Responses</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600">Last Submitted</th>
                 <th className="text-center px-4 py-3 font-semibold text-gray-600">Action</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={9} className="text-center py-12 text-gray-400">Loading...</td></tr>
+                <tr><td colSpan={7} className="text-center py-12 text-gray-400">Loading...</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={9} className="text-center py-12 text-gray-400">No graduates found</td></tr>
+                <tr><td colSpan={7} className="text-center py-12 text-gray-400">No graduates found</td></tr>
               ) : (
                 rows.map((row) => {
                   const canSelect = !row.has_answered && row.has_email;
@@ -745,10 +743,6 @@ export default function GraduateParticipation() {
                         >
                           {row.has_answered ? 'Answered' : 'Not Answered'}
                         </span>
-                      </td>
-                      <td className="px-4 py-3">{row.response_count}</td>
-                      <td className="px-4 py-3">
-                        {row.last_submitted_at ? new Date(row.last_submitted_at).toLocaleString() : '-'}
                       </td>
                       <td className="px-4 py-3 text-center">
                         <button

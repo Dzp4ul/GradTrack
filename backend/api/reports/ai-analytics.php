@@ -289,69 +289,6 @@ function normalizeToParagraphs(string $text): string
     return trim($normalized);
 }
 
-function getAiCacheDirectory(): string
-{
-    return dirname(__DIR__, 2) . '/tmp/ai-analytics-cache';
-}
-
-function buildAiCacheKey(string $reportType, ?int $surveyId, string $year, string $department, $reportData): string
-{
-    $payload = [
-        'report_type' => $reportType,
-        'survey_id' => $surveyId,
-        'year' => $year,
-        'department' => $department,
-        'report_data' => $reportData,
-    ];
-
-    return sha1((string)json_encode($payload));
-}
-
-function readAiCache(string $cacheKey, int $ttlSeconds = 300): ?array
-{
-    $cacheFile = getAiCacheDirectory() . '/' . $cacheKey . '.json';
-    if (!is_file($cacheFile)) {
-        return null;
-    }
-
-    $contents = @file_get_contents($cacheFile);
-    if (!is_string($contents) || $contents === '') {
-        return null;
-    }
-
-    $decoded = json_decode($contents, true);
-    if (!is_array($decoded) || !isset($decoded['created_at'], $decoded['data']) || !is_array($decoded['data'])) {
-        return null;
-    }
-
-    $createdAt = (int)$decoded['created_at'];
-    if ($createdAt <= 0 || (time() - $createdAt) > $ttlSeconds) {
-        return null;
-    }
-
-    return $decoded['data'];
-}
-
-function writeAiCache(string $cacheKey, array $data): void
-{
-    $cacheDir = getAiCacheDirectory();
-    if (!is_dir($cacheDir)) {
-        @mkdir($cacheDir, 0775, true);
-    }
-
-    if (!is_dir($cacheDir) || !is_writable($cacheDir)) {
-        return;
-    }
-
-    $cacheFile = $cacheDir . '/' . $cacheKey . '.json';
-    $cachePayload = [
-        'created_at' => time(),
-        'data' => $data,
-    ];
-
-    @file_put_contents($cacheFile, (string)json_encode($cachePayload, JSON_UNESCAPED_UNICODE));
-}
-
 try {
     $reportType = normalizeReportType((string)($_GET['type'] ?? 'overview'));
     $selectedYear = (string)($_GET['year'] ?? 'all');
@@ -371,17 +308,6 @@ try {
 
     if ($reportData === null) {
         $reportData = [];
-    }
-
-    $cacheKey = buildAiCacheKey($reportType, $selectedSurveyId, $selectedYear, $selectedDepartment, $reportData);
-    $cachedData = readAiCache($cacheKey);
-    if (is_array($cachedData)) {
-        echo json_encode([
-            'success' => true,
-            'data' => $cachedData,
-            'cached' => true,
-        ]);
-        exit;
     }
 
     $dataContext = json_encode([
@@ -473,8 +399,6 @@ try {
         $responseData['overview'] = $reportData;
     }
 
-    writeAiCache($cacheKey, $responseData);
-    
     echo json_encode([
         "success" => true,
         "data" => $responseData,
