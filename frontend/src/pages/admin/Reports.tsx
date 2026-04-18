@@ -233,14 +233,10 @@ export default function Reports() {
   const [surveyAnalytics, setSurveyAnalytics] = useState<SurveyAnalyticsData | null>(null);
   const [surveyAnalyticsLoading, setSurveyAnalyticsLoading] = useState(false);
   const reportCacheRef = useRef<Record<string, unknown>>({});
-  const aiCacheRef = useRef<Record<string, string>>({});
+  const aiRequestSeqRef = useRef(0);
 
   const getReportCacheKey = (type: string, year: string, department: string) => (
     [type, selectedSurveyId ?? 'none', year, department].join('|')
-  );
-
-  const getAiCacheKey = (reportType: string, year: string, department: string) => (
-    [reportType, selectedSurveyId ?? 'none', year, department].join('|')
   );
 
   const applyReportDataByType = (type: string, data: unknown) => {
@@ -295,17 +291,6 @@ export default function Reports() {
   const fetchReport = (type: string, year: string = 'all', department: string = selectedDepartment) => {
     const reportYear = type === 'overview' ? 'all' : year;
     const reportDepartment = type === 'overview' ? 'all' : department;
-    const cacheKey = getReportCacheKey(type, reportYear, reportDepartment);
-    const cachedData = reportCacheRef.current[cacheKey];
-
-    if (cachedData !== undefined) {
-      applyReportDataByType(type, cachedData);
-      setLoading(false);
-      return;
-    }
-
-    setLoading(true);
-    const url = buildReportUrl(type, reportYear, reportDepartment);
 
     const buildAiPayload = (reportType: string, data: unknown) => {
       if (reportType === 'overview' && data && typeof data === 'object') {
@@ -354,6 +339,21 @@ export default function Reports() {
 
       return data;
     };
+
+    const cacheKey = getReportCacheKey(type, reportYear, reportDepartment);
+    const cachedData = reportCacheRef.current[cacheKey];
+
+    if (cachedData !== undefined) {
+      applyReportDataByType(type, cachedData);
+      if (type !== 'overview') {
+        fetchAIAnalytics(type, buildAiPayload(type, cachedData), reportYear, reportDepartment);
+      }
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    const url = buildReportUrl(type, reportYear, reportDepartment);
 
     fetch(url)
       .then((r) => r.json())
@@ -492,7 +492,6 @@ export default function Reports() {
 
   useEffect(() => {
     reportCacheRef.current = {};
-    aiCacheRef.current = {};
 
     // Fetch year data first to populate the filter
     fetch(buildReportUrl('by_year', 'all', 'all'))
@@ -572,14 +571,7 @@ export default function Reports() {
 
     const params = new URLSearchParams({ type: reportType });
     const effectiveDepartment = reportType === 'overview' ? 'all' : department;
-    const aiCacheKey = getAiCacheKey(reportType, year, effectiveDepartment);
-    const cachedAiAnalysis = aiCacheRef.current[aiCacheKey];
-
-    if (cachedAiAnalysis) {
-      setAiAnalysis(cachedAiAnalysis);
-      setAiLoading(false);
-      return;
-    }
+    const requestId = ++aiRequestSeqRef.current;
 
     setAiLoading(true);
     if (year !== 'all') {
@@ -604,17 +596,27 @@ export default function Reports() {
     })
       .then((r) => r.json())
       .then((res) => {
+        if (requestId !== aiRequestSeqRef.current) {
+          return;
+        }
+
         if (res.success && res.data.ai_analysis) {
           setAiAnalysis(res.data.ai_analysis);
-          aiCacheRef.current[aiCacheKey] = res.data.ai_analysis;
         } else {
           setAiAnalysis('AI analysis temporarily unavailable.');
         }
       })
       .catch(() => {
+        if (requestId !== aiRequestSeqRef.current) {
+          return;
+        }
         setAiAnalysis('AI analysis temporarily unavailable.');
       })
-      .finally(() => setAiLoading(false));
+      .finally(() => {
+        if (requestId === aiRequestSeqRef.current) {
+          setAiLoading(false);
+        }
+      });
   };
 
   const getSelectedSurveyDepartmentLabel = () => getSurveyDepartmentOption(selectedSurveyDepartment).label;
