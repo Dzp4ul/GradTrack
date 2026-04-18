@@ -65,6 +65,14 @@ const PROGRAM_OPTIONS = [
   { id: '5', code: 'ACT', name: 'Associate in Computer Technology (ACT)' },
 ];
 
+const PROGRAM_DURATION_YEARS: Record<string, number> = {
+  BSCS: 4,
+  BSHM: 4,
+  BSED: 4,
+  BEED: 4,
+  ACT: 2,
+};
+
 const NAME_EXTENSION_OPTIONS = ['', 'Jr.', 'Sr.', 'II', 'III', 'IV', 'V', 'VI'];
 
 const DEFAULT_YEAR_TAB_OPTIONS = ['2021', '2022', '2023', '2024', '2025'];
@@ -201,6 +209,40 @@ const mergeAndSortYears = (prevYears: string[], nextYears: string[]): string[] =
   const merged = new Set([...prevYears, ...nextYears].filter(Boolean));
   return Array.from(merged).sort((a, b) => Number.parseInt(a, 10) - Number.parseInt(b, 10));
 };
+
+const getProgramDurationById = (programId: string): number | null => {
+  const selectedProgram = PROGRAM_OPTIONS.find((option) => option.id === programId);
+  if (!selectedProgram) return null;
+  return PROGRAM_DURATION_YEARS[selectedProgram.code] ?? null;
+};
+
+const extractStartYearFromStudentId = (studentId: string): number | null => {
+  const normalized = normalizeText(studentId);
+  if (!normalized) return null;
+
+  const match = normalized.match(/(?:^|[^0-9])((?:19|20)\d{2})(?:[^0-9]|$)/);
+  if (!match?.[1]) return null;
+
+  const startYear = Number.parseInt(match[1], 10);
+  return Number.isNaN(startYear) ? null : startYear;
+};
+
+const inferGraduationYear = (studentId: string, programId: string): string => {
+  const startYear = extractStartYearFromStudentId(studentId);
+  const duration = getProgramDurationById(programId);
+
+  if (!startYear || !duration) return '';
+
+  return String(startYear + duration);
+};
+
+const formatStudentId = (value: string): string => {
+  const digits = value.replace(/\D/g, '').slice(0, 8);
+  if (digits.length <= 4) return digits;
+  return `${digits.slice(0, 4)}-${digits.slice(4)}`;
+};
+
+const formatContactNumber = (value: string): string => value.replace(/\D/g, '').slice(0, 11);
 
 const normalizeEmploymentStatus = (value: string): string => {
   const parsed = value.toLowerCase().replace(/\s+/g, '_');
@@ -386,6 +428,24 @@ export default function Graduates() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (!/^\d{4}-\d{4}$/.test(formData.student_id)) {
+      setMsgBox({
+        isOpen: true,
+        type: 'error',
+        message: 'Student No. must follow the format 4digits-4digits (e.g., 2XXX-XXXX).',
+      });
+      return;
+    }
+
+    if (!/^09\d{9}$/.test(formData.phone)) {
+      setMsgBox({
+        isOpen: true,
+        type: 'error',
+        message: 'Contact No. must be 11 digits and start with 09 (e.g., 09123456789).',
+      });
+      return;
+    }
 
     try {
       const method = isEditing ? 'PUT' : 'POST';
@@ -710,7 +770,23 @@ export default function Graduates() {
   };
 
   const updateField = (field: keyof FormData, value: string) => {
-    setFormData((prev) => ({ ...prev, [field]: value }));
+    setFormData((prev) => {
+      const normalizedValue = field === 'student_id'
+        ? formatStudentId(value)
+        : field === 'phone'
+          ? formatContactNumber(value)
+          : value;
+      const next = { ...prev, [field]: normalizedValue };
+
+      if (field === 'student_id' || field === 'program_id') {
+        const computedYear = inferGraduationYear(next.student_id, next.program_id);
+        if (computedYear) {
+          next.year_graduated = computedYear;
+        }
+      }
+
+      return next;
+    });
   };
 
   return (
@@ -1006,7 +1082,21 @@ export default function Graduates() {
 
             <form onSubmit={handleSubmit} className="p-4 space-y-4 sm:p-5">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Input label="Student No." value={formData.student_id} onChange={(v) => updateField('student_id', v)} required />
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Student No.</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="2XXX-XXXX"
+                    maxLength={9}
+                    pattern="[0-9]{4}-[0-9]{4}"
+                    title="Use this format: 2XXX-XXXX"
+                    value={formData.student_id}
+                    onChange={(e) => updateField('student_id', e.target.value)}
+                    required
+                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
                 <Input label="First Name" value={formData.first_name} onChange={(v) => updateField('first_name', v)} required />
                 <Input label="Middle Name" value={formData.middle_name} onChange={(v) => updateField('middle_name', v)} />
                 <Input label="Last Name" value={formData.last_name} onChange={(v) => updateField('last_name', v)} required />
@@ -1023,7 +1113,21 @@ export default function Graduates() {
                   </select>
                 </div>
                 <Input label="Email" type="email" value={formData.email} onChange={(v) => updateField('email', v)} />
-                <Input label="Contact No." type="tel" value={formData.phone} onChange={(v) => updateField('phone', v)} />
+                <div>
+                  <label className="block text-xs font-medium text-gray-600 mb-1">Contact No.</label>
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    placeholder="09XXXXXXXXX"
+                    maxLength={11}
+                    pattern="09[0-9]{9}"
+                    title="Use this format: 09XXXXXXXXX"
+                    value={formData.phone}
+                    onChange={(e) => updateField('phone', e.target.value)}
+                    required
+                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-600 mb-1">Program</label>
                   <select
