@@ -2466,33 +2466,42 @@ export default function GraduatePortal() {
                       <div>
                         <label className="block text-xs font-semibold text-gray-500 mb-1">Availability</label>
                         <div className="grid sm:grid-cols-3 gap-3">
-                          <select
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                            value={mentorAvailability.day}
-                            onChange={(e) => updateMentorAvailability('day', e.target.value)}
-                          >
-                            {availabilityDayOptions.map((day) => (
-                              <option key={day} value={day}>{day}</option>
-                            ))}
-                          </select>
-                          <select
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                            value={mentorAvailability.startTime}
-                            onChange={(e) => updateMentorAvailability('startTime', e.target.value)}
-                          >
-                            {availabilityTimeOptions.map((time) => (
-                              <option key={time} value={time}>{time}</option>
-                            ))}
-                          </select>
-                          <select
-                            className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                            value={mentorAvailability.endTime}
-                            onChange={(e) => updateMentorAvailability('endTime', e.target.value)}
-                          >
-                            {availabilityTimeOptions.map((time) => (
-                              <option key={time} value={time}>{time}</option>
-                            ))}
-                          </select>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-500 mb-1">Day</label>
+                            <select
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                              value={mentorAvailability.day}
+                              onChange={(e) => updateMentorAvailability('day', e.target.value)}
+                            >
+                              {availabilityDayOptions.map((day) => (
+                                <option key={day} value={day}>{day}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-500 mb-1">Start</label>
+                            <select
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                              value={mentorAvailability.startTime}
+                              onChange={(e) => updateMentorAvailability('startTime', e.target.value)}
+                            >
+                              {availabilityTimeOptions.map((time) => (
+                                <option key={time} value={time}>{time}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-medium text-gray-500 mb-1">End</label>
+                            <select
+                              className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                              value={mentorAvailability.endTime}
+                              onChange={(e) => updateMentorAvailability('endTime', e.target.value)}
+                            >
+                              {availabilityTimeOptions.map((time) => (
+                                <option key={time} value={time}>{time}</option>
+                              ))}
+                            </select>
+                          </div>
                         </div>
                         <p className="mt-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-900">
                           {formatAvailability(myMentorProfile.availability_status)}
