@@ -474,6 +474,7 @@ try {
 
         if ($type === 'incoming') {
             $query = "SELECT mr.*, m.id AS mentor_id,
+                             m.availability_status,
                              COALESCE(mr.mentee_email, ga.email) AS mentee_email,
                              COALESCE(mr.mentee_name, CONCAT(g.first_name, ' ', g.last_name)) AS mentee_name,
                              COALESCE(mr.mentee_program, p.code, p.name) AS mentee_program,
@@ -695,10 +696,12 @@ try {
         $data = json_decode(file_get_contents('php://input'), true);
         $requestId = isset($data['id']) ? (int) $data['id'] : 0;
         $status = isset($data['status']) ? trim((string) $data['status']) : '';
+        $applyToAll = isset($data['apply_to_all']) ? (bool) $data['apply_to_all'] : false;
         $menteeSessionEmailNotification = [
             'sent' => false,
             'reason' => 'Skipped'
         ];
+        $updatedRequestsCount = 1;
 
         if ($requestId <= 0 || $status === '') {
             http_response_code(400);
@@ -742,32 +745,74 @@ try {
                 $meetingLocation = $meetingLocation !== '' ? $meetingLocation : null;
                 $sessionNotes = $sessionNotes !== '' ? $sessionNotes : null;
 
-                $updateStmt = $db->prepare("UPDATE mentorship_requests
-                                            SET status = 'accepted',
-                                                responded_at = NOW(),
-                                                session_date = :session_date,
-                                                session_time = :session_time,
-                                                session_type = :session_type,
-                                                meeting_link = :meeting_link,
-                                                meeting_location = :meeting_location,
-                                                session_notes = :session_notes
-                                            WHERE id = :id");
-                $updateStmt->bindValue(':session_date', $sessionDate);
-                $updateStmt->bindValue(':session_time', $sessionTime);
-                $updateStmt->bindValue(':session_type', $sessionType);
-                $updateStmt->bindValue(':meeting_link', $meetingLink);
-                $updateStmt->bindValue(':meeting_location', $meetingLocation);
-                $updateStmt->bindValue(':session_notes', $sessionNotes);
-                $updateStmt->bindParam(':id', $requestId);
-                $updateStmt->execute();
+                $targetRequestIds = [$requestId];
+                if ($applyToAll) {
+                    $pendingIdsStmt = $db->prepare("SELECT id
+                                                   FROM mentorship_requests
+                                                   WHERE mentor_id = :mentor_id
+                                                     AND status = 'pending'
+                                                   ORDER BY requested_at ASC");
+                    $pendingIdsStmt->execute([':mentor_id' => (int) $request['mentor_id']]);
+                    $targetRequestIds = array_map(static function ($row) {
+                        return (int) ($row['id'] ?? 0);
+                    }, $pendingIdsStmt->fetchAll(PDO::FETCH_ASSOC));
 
-                try {
-                    $menteeSessionEmailNotification = gradtrack_send_mentee_session_details_email($db, $requestId);
-                } catch (MailException $mailException) {
-                    $menteeSessionEmailNotification = ['sent' => false, 'reason' => $mailException->getMessage()];
-                } catch (Exception $mailException) {
-                    $menteeSessionEmailNotification = ['sent' => false, 'reason' => $mailException->getMessage()];
+                    if (empty($targetRequestIds)) {
+                        $targetRequestIds = [$requestId];
+                    }
                 }
+
+                $placeholders = implode(',', array_fill(0, count($targetRequestIds), '?'));
+                $updateAllStmt = $db->prepare("UPDATE mentorship_requests
+                                              SET status = 'accepted',
+                                                  responded_at = NOW(),
+                                                  session_date = ?,
+                                                  session_time = ?,
+                                                  session_type = ?,
+                                                  meeting_link = ?,
+                                                  meeting_location = ?,
+                                                  session_notes = ?
+                                              WHERE id IN ($placeholders)");
+
+                $updateParams = [$sessionDate, $sessionTime, $sessionType, $meetingLink, $meetingLocation, $sessionNotes];
+                foreach ($targetRequestIds as $targetId) {
+                    $updateParams[] = (int) $targetId;
+                }
+                $updateAllStmt->execute($updateParams);
+                $updatedRequestsCount = count($targetRequestIds);
+
+                $emailSentCount = 0;
+                $emailFailures = [];
+                foreach ($targetRequestIds as $targetId) {
+                    try {
+                        $emailResult = gradtrack_send_mentee_session_details_email($db, (int) $targetId);
+                        if (!empty($emailResult['sent'])) {
+                            $emailSentCount++;
+                        } else {
+                            $emailFailures[] = [
+                                'request_id' => (int) $targetId,
+                                'reason' => (string) ($emailResult['reason'] ?? 'Unknown reason')
+                            ];
+                        }
+                    } catch (MailException $mailException) {
+                        $emailFailures[] = [
+                            'request_id' => (int) $targetId,
+                            'reason' => $mailException->getMessage()
+                        ];
+                    } catch (Exception $mailException) {
+                        $emailFailures[] = [
+                            'request_id' => (int) $targetId,
+                            'reason' => $mailException->getMessage()
+                        ];
+                    }
+                }
+
+                $menteeSessionEmailNotification = [
+                    'sent' => $emailSentCount > 0,
+                    'sent_count' => $emailSentCount,
+                    'target_count' => count($targetRequestIds),
+                    'failed' => $emailFailures,
+                ];
             } else {
                 $updateStmt = $db->prepare('UPDATE mentorship_requests SET status = :status, responded_at = NOW() WHERE id = :id');
                 $updateStmt->bindParam(':status', $status);
@@ -784,11 +829,21 @@ try {
                 exit;
             }
 
-            $updateStmt = $db->prepare("UPDATE mentorship_requests
-                                        SET status = 'completed', completed_at = NOW()
-                                        WHERE id = :id");
-            $updateStmt->bindParam(':id', $requestId);
-            $updateStmt->execute();
+            if ($applyToAll && (int) $request['mentor_account_id'] === $user['account_id']) {
+                $completeAllStmt = $db->prepare("UPDATE mentorship_requests
+                                                SET status = 'completed', completed_at = NOW()
+                                                WHERE mentor_id = :mentor_id
+                                                  AND status = 'accepted'");
+                $completeAllStmt->execute([':mentor_id' => (int) $request['mentor_id']]);
+
+                $updatedRequestsCount = (int) ($completeAllStmt->rowCount() ?? 0);
+            } else {
+                $updateStmt = $db->prepare("UPDATE mentorship_requests
+                                            SET status = 'completed', completed_at = NOW()
+                                            WHERE id = :id");
+                $updateStmt->bindParam(':id', $requestId);
+                $updateStmt->execute();
+            }
         } elseif ($status === 'cancelled') {
             $isParticipant = (int) $request['mentor_account_id'] === $user['account_id']
                 || (int) $request['mentee_account_id'] === $user['account_id'];
@@ -813,6 +868,7 @@ try {
         echo json_encode([
             'success' => true,
             'message' => 'Mentorship request updated',
+            'updated_requests_count' => $updatedRequestsCount,
             'mentee_session_email_notification' => $menteeSessionEmailNotification
         ]);
         exit;

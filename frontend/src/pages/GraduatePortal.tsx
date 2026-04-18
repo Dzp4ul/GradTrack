@@ -82,9 +82,6 @@ interface MentorshipRequest {
   mentee_feedback_rating?: number | null;
   mentee_feedback_text?: string | null;
   mentee_found_helpful?: boolean | null;
-  mentor_feedback_attended?: boolean | null;
-  mentor_feedback_completed?: boolean | null;
-  mentor_feedback_remarks?: string | null;
 }
 
 interface JobPost {
@@ -155,14 +152,6 @@ interface MenteeFeedbackForm {
   mentor_helpful: boolean;
   rating: string;
   feedback_text: string;
-}
-
-interface MentorFeedbackForm {
-  request_id: number | null;
-  mentee_name: string;
-  mentee_attended: boolean;
-  session_completed: boolean;
-  remarks: string;
 }
 
 interface JobForm {
@@ -280,20 +269,19 @@ const defaultMenteeFeedbackForm: MenteeFeedbackForm = {
   feedback_text: '',
 };
 
-const defaultMentorFeedbackForm: MentorFeedbackForm = {
-  request_id: null,
-  mentee_name: '',
-  mentee_attended: true,
-  session_completed: true,
-  remarks: '',
-};
-
-const sessionTypeOptions = ['Face-to-face', 'Google Meet', 'Zoom', 'Chat-based mentoring'];
+const sessionTypeOptions = ['Face-to-face', 'Google Meet', 'Zoom',];
 const defaultAvailability = 'Available: Saturday 2 PM - 5 PM';
 const availabilityDayOptions = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 const availabilityTimeOptions = ['8 AM', '9 AM', '10 AM', '11 AM', '12 PM', '1 PM', '2 PM', '3 PM', '4 PM', '5 PM', '6 PM', '7 PM', '8 PM'];
 
 const buildAvailabilityStatus = (day: string, startTime: string, endTime: string) => `Available: ${day} ${startTime} - ${endTime}`;
+
+const extractAvailabilityTimeRange = (value?: string | null) => {
+  const normalized = (value || '').replace(/\s+–\s+/g, ' - ').trim();
+  const match = normalized.match(/^Available:\s+[A-Za-z]+\s+(.+?)\s*-\s*(.+)$/i);
+  if (!match) return '';
+  return `${match[1].trim()} - ${match[2].trim()}`;
+};
 
 const parseAvailabilityStatus = (value?: string | null) => {
   const normalized = (value || defaultAvailability).replace(/\s+–\s+/g, ' - ').trim();
@@ -354,7 +342,6 @@ export default function GraduatePortal() {
   const [requestForm, setRequestForm] = useState<MentorshipRequestForm>(defaultMentorshipRequestForm);
   const [scheduleDrafts, setScheduleDrafts] = useState<Record<number, SessionScheduleForm>>({});
   const [menteeFeedbackForm, setMenteeFeedbackForm] = useState<MenteeFeedbackForm>(defaultMenteeFeedbackForm);
-  const [mentorFeedbackForm, setMentorFeedbackForm] = useState<MentorFeedbackForm>(defaultMentorFeedbackForm);
   const [jobSearch, setJobSearch] = useState('');
   const [jobProgramTab, setJobProgramTab] = useState('all');
   const [ratingSummary, setRatingSummary] = useState<AlumniRating | null>(null);
@@ -535,9 +522,10 @@ export default function GraduatePortal() {
             const next = { ...prev };
             incoming.forEach((req: MentorshipRequest) => {
               if (!next[req.id]) {
+                const defaultTimeFromAvailability = extractAvailabilityTimeRange(req.availability_status);
                 next[req.id] = {
                   session_date: req.session_date || '',
-                  session_time: req.session_time || '',
+                  session_time: req.session_time || defaultTimeFromAvailability,
                   session_type: req.session_type || 'Google Meet',
                   meeting_link: req.meeting_link || '',
                   meeting_location: req.meeting_location || '',
@@ -924,9 +912,64 @@ export default function GraduatePortal() {
     });
   }, [jobSearch, jobProgramTab, jobs, jobMatchesProgramTab]);
 
+  const appliedMentorIds = useMemo(() => {
+    const activeStatuses: MentorshipRequest['status'][] = ['pending', 'accepted'];
+    return new Set(
+      outgoingRequests
+        .filter((request) => activeStatuses.includes(request.status))
+        .map((request) => request.mentor_id),
+    );
+  }, [outgoingRequests]);
+
+  const pendingIncomingRequests = useMemo(
+    () => incomingRequests.filter((request) => request.status === 'pending'),
+    [incomingRequests],
+  );
+
+  const nonPendingIncomingRequests = useMemo(
+    () => incomingRequests.filter((request) => request.status !== 'pending'),
+    [incomingRequests],
+  );
+
+  const acceptedIncomingRequests = useMemo(
+    () => incomingRequests.filter((request) => request.status === 'accepted'),
+    [incomingRequests],
+  );
+
+  const finalizedIncomingRequests = useMemo(
+    () => nonPendingIncomingRequests.filter((request) => request.status !== 'accepted'),
+    [nonPendingIncomingRequests],
+  );
+
+  const groupedPendingScheduleDraft = useMemo(() => {
+    const firstPendingId = pendingIncomingRequests[0]?.id;
+    if (!firstPendingId) {
+      return defaultScheduleForm;
+    }
+    return scheduleDrafts[firstPendingId] || defaultScheduleForm;
+  }, [pendingIncomingRequests, scheduleDrafts]);
+
+  const updateGroupedPendingSchedule = (field: keyof SessionScheduleForm, value: string) => {
+    setScheduleDrafts((prev) => {
+      const next = { ...prev };
+      pendingIncomingRequests.forEach((request) => {
+        next[request.id] = {
+          ...(next[request.id] || defaultScheduleForm),
+          [field]: value,
+        };
+      });
+      return next;
+    });
+  };
+
   const openMentorshipRequestForm = (mentor: Mentor) => {
     if (!canRequestMentorship) {
       notify('warning', 'Mentorship request is locked. Only graduates with not employed status can request mentorship.');
+      return;
+    }
+
+    if (appliedMentorIds.has(mentor.id)) {
+      notify('info', 'You already applied for mentorship with this mentor.');
       return;
     }
 
@@ -995,13 +1038,21 @@ export default function GraduatePortal() {
         method: 'PUT',
         body: JSON.stringify({ id, status, ...extraPayload }),
       });
-      notify('success', `Request marked as ${status}.`);
+      const updatedCount = Number(response?.updated_requests_count || 1);
+      if (status === 'accepted') {
+        notify('success', `Session schedule applied to ${updatedCount} mentee request${updatedCount === 1 ? '' : 's'}.`);
+      } else if (status === 'completed') {
+        notify('success', `Marked ${updatedCount} mentorship request${updatedCount === 1 ? '' : 's'} as completed.`);
+      } else {
+        notify('success', `Request marked as ${status}.`);
+      }
       const sessionEmail = response?.mentee_session_email_notification;
-      if (status === 'accepted' && sessionEmail && sessionEmail.sent === false) {
-        const reason = typeof sessionEmail.reason === 'string' && sessionEmail.reason.trim() !== ''
-          ? sessionEmail.reason
-          : 'Unknown reason';
-        notify('warning', `Session details email was not sent to the mentee: ${reason}`);
+      if (status === 'accepted' && sessionEmail) {
+        const sentCount = Number(sessionEmail.sent_count || 0);
+        const targetCount = Number(sessionEmail.target_count || 0);
+        if (targetCount > 0 && sentCount < targetCount) {
+          notify('warning', `Session notification emails sent to ${sentCount} of ${targetCount} mentees.`);
+        }
       }
       await fetchAll();
     } catch (error) {
@@ -1056,45 +1107,6 @@ export default function GraduatePortal() {
       await fetchAll();
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to submit feedback');
-    }
-  };
-
-  const openMentorFeedbackForm = (request: MentorshipRequest) => {
-    setMentorFeedbackForm({
-      request_id: request.id,
-      mentee_name: request.mentee_name || `${request.mentee_first_name || ''} ${request.mentee_last_name || ''}`.trim() || 'Mentee',
-      mentee_attended: request.mentor_feedback_attended ?? true,
-      session_completed: request.mentor_feedback_completed ?? true,
-      remarks: request.mentor_feedback_remarks || '',
-    });
-  };
-
-  const closeMentorFeedbackForm = () => setMentorFeedbackForm(defaultMentorFeedbackForm);
-
-  const submitMentorFeedback = async (e: FormEvent) => {
-    e.preventDefault();
-
-    if (!mentorFeedbackForm.request_id) {
-      notify('warning', 'Please choose a mentorship request first.');
-      return;
-    }
-
-    try {
-      await authenticatedFetch(API_ENDPOINTS.MENTORSHIP.FEEDBACK, {
-        method: 'POST',
-        body: JSON.stringify({
-          mentorship_request_id: mentorFeedbackForm.request_id,
-          feedback_role: 'mentor',
-          mentee_attended: mentorFeedbackForm.mentee_attended,
-          session_completed: mentorFeedbackForm.session_completed,
-          remarks: mentorFeedbackForm.remarks,
-        }),
-      });
-      notify('success', 'Mentor feedback submitted.');
-      closeMentorFeedbackForm();
-      await fetchAll();
-    } catch (error) {
-      notify('error', error instanceof Error ? error.message : 'Unable to submit mentor feedback');
     }
   };
 
@@ -1789,12 +1801,15 @@ export default function GraduatePortal() {
                           onClick={() => openMentorshipRequestForm(mentor)}
                           disabled={
                             !canRequestMentorship
+                            || appliedMentorIds.has(mentor.id)
                             || (mentor.post_status || 'open') !== 'open'
                             || Number(mentor.active_mentees_count || 0) >= Math.max(1, Number(mentor.max_members || 1))
                           }
                           className="mt-4 w-full py-2 rounded-lg font-medium bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-60 disabled:cursor-not-allowed"
                         >
-                          {(mentor.post_status || 'open') !== 'open'
+                          {appliedMentorIds.has(mentor.id)
+                            ? 'Request Sent'
+                            : (mentor.post_status || 'open') !== 'open'
                             ? 'Post Closed'
                             : Number(mentor.active_mentees_count || 0) >= Math.max(1, Number(mentor.max_members || 1))
                               ? 'Group Full'
@@ -1811,9 +1826,130 @@ export default function GraduatePortal() {
               <section className="grid lg:grid-cols-2 gap-6">
                 <div className="bg-white rounded-xl border border-gray-200 p-5">
                   <h2 className="text-xl font-bold text-blue-900 mb-4">Incoming Requests (as Mentor)</h2>
+                  <p className="text-xs text-blue-700 mb-3">Group mentoring mode: accepting one request applies the same schedule to all pending mentees and notifies them.</p>
                   <div className="space-y-3">
                     {incomingRequests.length === 0 && <p className="text-gray-500">No incoming mentorship requests.</p>}
-                    {incomingRequests.map((req) => (
+
+                    {pendingIncomingRequests.length > 0 && (
+                      <div className="border border-blue-200 rounded-lg p-3 bg-blue-50/30">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <p className="font-semibold text-gray-800">Pending Group Requests ({pendingIncomingRequests.length})</p>
+                            <p className="text-xs text-gray-500">Set one schedule and apply to all pending mentees.</p>
+                          </div>
+                          <span className="text-xs px-2 py-1 rounded-full bg-blue-100 text-blue-700">Pending</span>
+                        </div>
+
+                        <div className="mt-3 space-y-2">
+                          {pendingIncomingRequests.map((req) => (
+                            <div key={`pending-${req.id}`} className="rounded border border-gray-200 bg-white p-2">
+                              <p className="font-semibold text-sm text-gray-800">{req.mentee_name || `${req.mentee_first_name || ''} ${req.mentee_last_name || ''}`}</p>
+                              <p className="text-xs text-gray-500">{req.mentee_email || 'No email'} | {req.mentee_program || 'No program'}</p>
+                              <p className="text-xs text-gray-700 mt-1"><span className="font-semibold">Reason:</span> {req.reason_for_request || 'N/A'}</p>
+                              <p className="text-xs text-gray-700"><span className="font-semibold">Message:</span> {req.request_message || 'No message provided.'}</p>
+                              <button onClick={() => updateMentorshipStatus(req.id, 'declined')} className="mt-2 px-2 py-1 bg-red-600 text-white rounded text-xs">Decline only this mentee</button>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50/60 p-3 space-y-3">
+                          <p className="text-sm font-semibold text-blue-900">Shared Session Schedule</p>
+                          <div className="grid sm:grid-cols-2 gap-2">
+                            <input
+                              type="date"
+                              value={groupedPendingScheduleDraft.session_date}
+                              onChange={(e) => updateGroupedPendingSchedule('session_date', e.target.value)}
+                              className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                            />
+                            <input
+                              value={groupedPendingScheduleDraft.session_time}
+                              onChange={(e) => updateGroupedPendingSchedule('session_time', e.target.value)}
+                              placeholder="2 PM - 5 PM"
+                              className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                            />
+                            <select
+                              value={groupedPendingScheduleDraft.session_type}
+                              onChange={(e) => updateGroupedPendingSchedule('session_type', e.target.value)}
+                              className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                            >
+                              {sessionTypeOptions.map((option) => (
+                                <option key={option} value={option}>{option}</option>
+                              ))}
+                            </select>
+                            <input
+                              value={groupedPendingScheduleDraft.meeting_link}
+                              onChange={(e) => updateGroupedPendingSchedule('meeting_link', e.target.value)}
+                              placeholder="Meeting link"
+                              className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                            />
+                          </div>
+                          <input
+                            value={groupedPendingScheduleDraft.meeting_location}
+                            onChange={(e) => updateGroupedPendingSchedule('meeting_location', e.target.value)}
+                            placeholder="Room, campus location, or chat channel"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                          />
+                          <textarea
+                            value={groupedPendingScheduleDraft.session_notes}
+                            onChange={(e) => updateGroupedPendingSchedule('session_notes', e.target.value)}
+                            placeholder="Notes for the mentees"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                            rows={2}
+                          />
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            onClick={() => updateMentorshipStatus(pendingIncomingRequests[0].id, 'accepted', { ...groupedPendingScheduleDraft, apply_to_all: true })}
+                            disabled={!canUseMentorship || pendingIncomingRequests.length === 0}
+                            className="px-3 py-1.5 bg-green-600 text-white rounded text-sm disabled:opacity-60"
+                          >
+                            Accept All Pending
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {acceptedIncomingRequests.length > 0 && (
+                      <div className="border border-green-200 rounded-lg p-3 bg-green-50/30">
+                        <div className="flex flex-wrap items-start justify-between gap-2">
+                          <div>
+                            <p className="font-semibold text-gray-800">Accepted Group Requests ({acceptedIncomingRequests.length})</p>
+                            <p className="text-xs text-gray-500">Use one action to complete all accepted mentees in this group.</p>
+                          </div>
+                          <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700">Accepted</span>
+                        </div>
+
+                        <div className="mt-3 space-y-2">
+                          {acceptedIncomingRequests.map((req) => (
+                            <div key={`accepted-${req.id}`} className="rounded border border-gray-200 bg-white p-2">
+                              <p className="font-semibold text-sm text-gray-800">{req.mentee_name || `${req.mentee_first_name || ''} ${req.mentee_last_name || ''}`}</p>
+                              <p className="text-xs text-gray-500">{req.mentee_email || 'No email'} | {req.mentee_program || 'No program'}</p>
+                              <div className="text-xs text-gray-700 mt-1 space-y-1">
+                                <p><span className="font-semibold">Session Date:</span> {req.session_date || 'N/A'}</p>
+                                <p><span className="font-semibold">Session Time:</span> {req.session_time || 'N/A'}</p>
+                                <p><span className="font-semibold">Type:</span> {req.session_type || 'N/A'}</p>
+                                <p><span className="font-semibold">Link / Location:</span> {renderMeetingLinkOrLocation(req.meeting_link, req.meeting_location)}</p>
+                                <p><span className="font-semibold">Notes:</span> {req.session_notes || 'N/A'}</p>
+                              </div>
+                              <button onClick={() => updateMentorshipStatus(req.id, 'cancelled')} className="mt-2 px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs">Cancel only this mentee</button>
+                            </div>
+                          ))}
+                        </div>
+
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <button
+                            onClick={() => updateMentorshipStatus(acceptedIncomingRequests[0].id, 'completed', { apply_to_all: true })}
+                            disabled={!canUseMentorship || acceptedIncomingRequests.length === 0}
+                            className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm disabled:opacity-60"
+                          >
+                            Complete Group Session
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {finalizedIncomingRequests.map((req) => (
                       <div key={req.id} className="border border-gray-200 rounded-lg p-3">
                         <div className="flex flex-wrap items-start justify-between gap-2">
                           <div>
@@ -1830,84 +1966,6 @@ export default function GraduatePortal() {
                           <p><span className="font-semibold">Message:</span> {req.request_message || 'No message provided.'}</p>
                         </div>
 
-                        {req.status === 'pending' && (
-                          <div className="mt-3 rounded-lg border border-blue-100 bg-blue-50/60 p-3 space-y-3">
-                            <p className="text-sm font-semibold text-blue-900">Session Schedule</p>
-                            <div className="grid sm:grid-cols-2 gap-2">
-                              <input
-                                type="date"
-                                value={(scheduleDrafts[req.id] || defaultScheduleForm).session_date}
-                                onChange={(e) =>
-                                  setScheduleDrafts((prev) => ({
-                                    ...prev,
-                                    [req.id]: { ...(prev[req.id] || defaultScheduleForm), session_date: e.target.value },
-                                  }))
-                                }
-                                className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                              />
-                              <input
-                                value={(scheduleDrafts[req.id] || defaultScheduleForm).session_time}
-                                onChange={(e) =>
-                                  setScheduleDrafts((prev) => ({
-                                    ...prev,
-                                    [req.id]: { ...(prev[req.id] || defaultScheduleForm), session_time: e.target.value },
-                                  }))
-                                }
-                                placeholder="2 PM - 5 PM"
-                                className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                              />
-                              <select
-                                value={(scheduleDrafts[req.id] || defaultScheduleForm).session_type}
-                                onChange={(e) =>
-                                  setScheduleDrafts((prev) => ({
-                                    ...prev,
-                                    [req.id]: { ...(prev[req.id] || defaultScheduleForm), session_type: e.target.value },
-                                  }))
-                                }
-                                className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                              >
-                                {sessionTypeOptions.map((option) => (
-                                  <option key={option} value={option}>{option}</option>
-                                ))}
-                              </select>
-                              <input
-                                value={(scheduleDrafts[req.id] || defaultScheduleForm).meeting_link}
-                                onChange={(e) =>
-                                  setScheduleDrafts((prev) => ({
-                                    ...prev,
-                                    [req.id]: { ...(prev[req.id] || defaultScheduleForm), meeting_link: e.target.value },
-                                  }))
-                                }
-                                placeholder="Meeting link"
-                                className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                              />
-                            </div>
-                            <input
-                              value={(scheduleDrafts[req.id] || defaultScheduleForm).meeting_location}
-                              onChange={(e) =>
-                                setScheduleDrafts((prev) => ({
-                                  ...prev,
-                                  [req.id]: { ...(prev[req.id] || defaultScheduleForm), meeting_location: e.target.value },
-                                }))
-                              }
-                              placeholder="Room, campus location, or chat channel"
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                            />
-                            <textarea
-                              value={(scheduleDrafts[req.id] || defaultScheduleForm).session_notes}
-                              onChange={(e) =>
-                                setScheduleDrafts((prev) => ({
-                                  ...prev,
-                                  [req.id]: { ...(prev[req.id] || defaultScheduleForm), session_notes: e.target.value },
-                                }))
-                              }
-                              placeholder="Notes for the mentee"
-                              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                              rows={2}
-                            />
-                          </div>
-                        )}
-
                         {req.status !== 'pending' && (
                           <div className="mt-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700 space-y-1">
                             <p><span className="font-semibold">Session Date:</span> {req.session_date || 'N/A'}</p>
@@ -1918,25 +1976,6 @@ export default function GraduatePortal() {
                           </div>
                         )}
 
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {req.status === 'pending' && (
-                            <>
-                              <button onClick={() => updateMentorshipStatus(req.id, 'accepted', { ...(scheduleDrafts[req.id] || defaultScheduleForm) })} disabled={!canUseMentorship} className="px-3 py-1.5 bg-green-600 text-white rounded text-sm disabled:opacity-60">Accept</button>
-                              <button onClick={() => updateMentorshipStatus(req.id, 'declined')} className="px-3 py-1.5 bg-red-600 text-white rounded text-sm">Decline</button>
-                            </>
-                          )}
-                          {req.status === 'accepted' && (
-                            <>
-                              <button onClick={() => updateMentorshipStatus(req.id, 'completed')} className="px-3 py-1.5 bg-blue-600 text-white rounded text-sm">Mark Completed</button>
-                              <button onClick={() => updateMentorshipStatus(req.id, 'cancelled')} className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-sm">Cancel</button>
-                            </>
-                          )}
-                          {(['accepted', 'completed'] as MentorshipRequest['status'][]).includes(req.status) && (
-                            <button onClick={() => openMentorFeedbackForm(req)} className="px-3 py-1.5 bg-yellow-500 text-blue-900 rounded text-sm font-semibold">
-                              Mentor Feedback
-                            </button>
-                          )}
-                        </div>
                         {req.mentee_feedback_rating && (
                           <p className="text-xs text-gray-500 mt-2">
                             Mentee feedback: {req.mentee_feedback_rating}/5 - {req.mentee_feedback_text || 'No comment'}
@@ -2002,11 +2041,6 @@ export default function GraduatePortal() {
                           <button onClick={() => updateMentorshipStatus(req.id, 'cancelled')} className="mt-3 px-3 py-1.5 bg-gray-100 text-gray-700 rounded text-sm">
                             Cancel Request
                           </button>
-                        )}
-                        {req.mentor_feedback_remarks && (
-                          <p className="text-xs text-gray-500 mt-2">
-                            Mentor remarks: {req.mentor_feedback_remarks}
-                          </p>
                         )}
                       </div>
                     ))}
@@ -2919,60 +2953,6 @@ export default function GraduatePortal() {
 
             <div className="flex justify-end gap-2">
               <button type="button" onClick={closeMenteeFeedbackForm} className="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700">
-                Cancel
-              </button>
-              <button type="submit" className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold">
-                Submit Feedback
-              </button>
-            </div>
-          </form>
-        </div>
-      )}
-
-      {mentorFeedbackForm.request_id && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <form onSubmit={submitMentorFeedback} className="bg-white rounded-lg shadow-xl w-full max-w-lg p-5 space-y-4">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <h2 className="text-xl font-bold text-blue-900">Mentor Feedback</h2>
-                <p className="text-sm text-gray-600">Mentee: {mentorFeedbackForm.mentee_name}</p>
-              </div>
-              <button type="button" onClick={closeMentorFeedbackForm} className="p-2 rounded-lg hover:bg-gray-100" aria-label="Close mentor feedback form">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <label className="flex items-center gap-2 text-sm text-gray-700">
-              <input
-                type="checkbox"
-                checked={mentorFeedbackForm.mentee_attended}
-                onChange={(e) => setMentorFeedbackForm((prev) => ({ ...prev, mentee_attended: e.target.checked }))}
-              />
-              Mentee attended
-            </label>
-
-            <label className="flex items-center gap-2 text-sm text-gray-700">
-              <input
-                type="checkbox"
-                checked={mentorFeedbackForm.session_completed}
-                onChange={(e) => setMentorFeedbackForm((prev) => ({ ...prev, session_completed: e.target.checked }))}
-              />
-              Session completed
-            </label>
-
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1">Remarks</label>
-              <textarea
-                value={mentorFeedbackForm.remarks}
-                onChange={(e) => setMentorFeedbackForm((prev) => ({ ...prev, remarks: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                rows={4}
-                placeholder="Add notes for reporting"
-              />
-            </div>
-
-            <div className="flex justify-end gap-2">
-              <button type="button" onClick={closeMentorFeedbackForm} className="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700">
                 Cancel
               </button>
               <button type="submit" className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold">
