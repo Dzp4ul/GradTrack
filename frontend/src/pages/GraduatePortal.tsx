@@ -964,7 +964,7 @@ export default function GraduatePortal() {
 
   const openMentorshipRequestForm = (mentor: Mentor) => {
     if (!canRequestMentorship) {
-      notify('warning', 'Mentorship request is locked. Only graduates with not employed status can request mentorship.');
+      notify('warning', 'Mentorship request is locked. Requests are allowed if you are not employed, or if your current work is not aligned with your course.');
       return;
     }
 
@@ -1669,7 +1669,7 @@ export default function GraduatePortal() {
 
                   {!canRequestMentorship && (
                     <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
-                      Mentorship requests are available only when your employment status is set to not employed.
+                      Mentorship requests are available if you are not employed, or if your current work is not aligned with your course.
                     </div>
                   )}
 

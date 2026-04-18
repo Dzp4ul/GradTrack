@@ -274,7 +274,7 @@ if (!function_exists('gradtrack_rating_build_permissions')) {
 
         $canPostJobs = $isEmployed;
         $canUseMentorship = $isEmployed && $isAligned;
-        $canRequestMentorship = !$isEmployed;
+        $canRequestMentorship = !$isEmployed || !$isAligned;
 
         return [
             'can_post_jobs' => $canPostJobs,
