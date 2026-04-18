@@ -42,6 +42,9 @@ interface Mentor {
   contact_email?: string | null;
   profile_image_path?: string | null;
   availability_status: string | null;
+  max_members?: number | null;
+  post_status?: 'open' | 'closed' | null;
+  active_mentees_count?: number;
   approval_status?: ApprovalStatus;
   approval_reviewed_at?: string | null;
   approval_notes?: string | null;
@@ -122,6 +125,8 @@ interface MentorProfileForm {
   bio: string;
   preferred_topics: string;
   availability_status: string;
+  max_members: string;
+  post_status: 'open' | 'closed';
   is_active: boolean;
 }
 
@@ -132,8 +137,6 @@ interface MentorshipRequestForm {
   mentee_email: string;
   mentee_program: string;
   reason_for_request: string;
-  topic: string;
-  preferred_schedule: string;
   request_message: string;
 }
 
@@ -245,6 +248,8 @@ const defaultMentorProfile: MentorProfileForm = {
   bio: '',
   preferred_topics: '',
   availability_status: 'Available: Saturday 2 PM - 5 PM',
+  max_members: '5',
+  post_status: 'open',
   is_active: true,
 };
 
@@ -255,8 +260,6 @@ const defaultMentorshipRequestForm: MentorshipRequestForm = {
   mentee_email: '',
   mentee_program: '',
   reason_for_request: '',
-  topic: 'career advice',
-  preferred_schedule: '',
   request_message: '',
 };
 
@@ -284,15 +287,6 @@ const defaultMentorFeedbackForm: MentorFeedbackForm = {
   session_completed: true,
   remarks: '',
 };
-
-const requestTopicOptions = [
-  'career advice',
-  'resume review',
-  'interview preparation',
-  'industry insights',
-  'internship guidance',
-  'job searching',
-];
 
 const sessionTypeOptions = ['Face-to-face', 'Google Meet', 'Zoom', 'Chat-based mentoring'];
 const defaultAvailability = 'Available: Saturday 2 PM - 5 PM';
@@ -573,6 +567,8 @@ export default function GraduatePortal() {
               bio: myMentorData.bio || '',
               preferred_topics: myMentorData.preferred_topics || '',
               availability_status: formatAvailability(myMentorData.availability_status),
+              max_members: String(Math.max(1, Number(myMentorData.max_members || 1))),
+              post_status: (myMentorData.post_status || 'open') === 'closed' ? 'closed' : 'open',
               is_active: !!myMentorData.is_active,
             });
           } else {
@@ -934,6 +930,19 @@ export default function GraduatePortal() {
       return;
     }
 
+    const mentorPostStatus = (mentor.post_status || 'open').toLowerCase();
+    if (mentorPostStatus !== 'open') {
+      notify('warning', 'This mentor post is currently closed and not accepting requests.');
+      return;
+    }
+
+    const maxMembers = Math.max(1, Number(mentor.max_members || 1));
+    const activeMentees = Number(mentor.active_mentees_count || 0);
+    if (activeMentees >= maxMembers) {
+      notify('warning', 'This mentor group is full at the moment. Please choose another mentor.');
+      return;
+    }
+
     setRequestForm({
       ...defaultMentorshipRequestForm,
       mentor_id: mentor.id,
@@ -941,7 +950,6 @@ export default function GraduatePortal() {
       mentee_name: user?.full_name || '',
       mentee_email: user?.email || '',
       mentee_program: user?.program_code || user?.program_name || '',
-      topic: mentor.preferred_topics?.split(',')[0]?.trim().toLowerCase() || 'career advice',
       request_message: `Hi ${mentor.first_name}, I would like to request mentorship guidance.`,
     });
   };
@@ -965,8 +973,6 @@ export default function GraduatePortal() {
           mentee_email: requestForm.mentee_email,
           mentee_program: requestForm.mentee_program,
           reason_for_request: requestForm.reason_for_request,
-          topic: requestForm.topic,
-          preferred_schedule: requestForm.preferred_schedule,
           request_message: requestForm.request_message,
         }),
       });
@@ -1111,6 +1117,12 @@ export default function GraduatePortal() {
       return;
     }
 
+    const maxMembers = Number(myMentorProfile.max_members || '0');
+    if (!Number.isInteger(maxMembers) || maxMembers < 1 || maxMembers > 100) {
+      notify('warning', 'Maximum members must be a whole number between 1 and 100.');
+      return;
+    }
+
     try {
       const currentEmail = (user?.email || '').trim().toLowerCase();
       if (mentorEmail.toLowerCase() !== currentEmail || profileImageFile) {
@@ -1141,6 +1153,8 @@ export default function GraduatePortal() {
         bio: myMentorProfile.bio,
         preferred_topics: myMentorProfile.preferred_topics,
         availability_status: myMentorProfile.availability_status,
+        max_members: maxMembers,
+        post_status: myMentorProfile.post_status,
         is_active: true,
       };
       await authenticatedFetch(API_ENDPOINTS.MENTORSHIP.MENTORS, {
@@ -1751,6 +1765,19 @@ export default function GraduatePortal() {
                           <p><span className="font-semibold">Industry:</span> {mentor.industry || 'N/A'}</p>
                           <p><span className="font-semibold">Skills:</span> {mentor.skills || 'N/A'}</p>
                           <p><span className="font-semibold">Topics:</span> {mentor.preferred_topics || 'N/A'}</p>
+                          <p><span className="font-semibold">Mentorship Type:</span> Group mentoring</p>
+                          <p>
+                            <span className="font-semibold">Group Slots:</span>{' '}
+                            {Math.max(0, Math.max(1, Number(mentor.max_members || 1)) - Number(mentor.active_mentees_count || 0))} left of {Math.max(1, Number(mentor.max_members || 1))}
+                          </p>
+                          <p>
+                            <span className="font-semibold">Post Status:</span>{' '}
+                            <span
+                              className={(mentor.post_status || 'open') === 'open' ? 'text-green-700 font-semibold' : 'text-red-700 font-semibold'}
+                            >
+                              {(mentor.post_status || 'open') === 'open' ? 'Open' : 'Closed'}
+                            </span>
+                          </p>
                           <p><span className="font-semibold">Rating:</span> {mentor.avg_rating} ({mentor.feedback_count} feedback)</p>
                           <p className="flex items-center gap-2">
                             <Mail className="w-4 h-4 text-blue-600" />
@@ -1760,10 +1787,18 @@ export default function GraduatePortal() {
                         </div>
                         <button
                           onClick={() => openMentorshipRequestForm(mentor)}
-                          disabled={!canRequestMentorship}
+                          disabled={
+                            !canRequestMentorship
+                            || (mentor.post_status || 'open') !== 'open'
+                            || Number(mentor.active_mentees_count || 0) >= Math.max(1, Number(mentor.max_members || 1))
+                          }
                           className="mt-4 w-full py-2 rounded-lg font-medium bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-60 disabled:cursor-not-allowed"
                         >
-                          Request Mentorship
+                          {(mentor.post_status || 'open') !== 'open'
+                            ? 'Post Closed'
+                            : Number(mentor.active_mentees_count || 0) >= Math.max(1, Number(mentor.max_members || 1))
+                              ? 'Group Full'
+                              : 'Request Mentorship'}
                         </button>
                       </div>
                     ))}
@@ -1791,9 +1826,7 @@ export default function GraduatePortal() {
                         </div>
 
                         <div className="mt-3 text-sm text-gray-700 space-y-1">
-                          <p><span className="font-semibold">Topic:</span> {req.topic || 'N/A'}</p>
                           <p><span className="font-semibold">Reason:</span> {req.reason_for_request || 'N/A'}</p>
-                          <p><span className="font-semibold">Preferred Schedule:</span> {req.preferred_schedule || 'N/A'}</p>
                           <p><span className="font-semibold">Message:</span> {req.request_message || 'No message provided.'}</p>
                         </div>
 
@@ -1946,8 +1979,7 @@ export default function GraduatePortal() {
                         </div>
 
                         <div className="text-sm text-gray-700 mt-3 space-y-1">
-                          <p><span className="font-semibold">Topic:</span> {req.topic || 'N/A'}</p>
-                          <p><span className="font-semibold">Preferred Schedule:</span> {req.preferred_schedule || 'N/A'}</p>
+                          <p><span className="font-semibold">Reason:</span> {req.reason_for_request || 'N/A'}</p>
                           <p><span className="font-semibold">Message:</span> {req.request_message || 'No request message.'}</p>
                         </div>
 
@@ -2433,6 +2465,33 @@ export default function GraduatePortal() {
                         </p>
                       </div>
 
+                      <div className="grid md:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 mb-1">Maximum Number of Members</label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={100}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                            placeholder="e.g. 10"
+                            value={myMentorProfile.max_members}
+                            onChange={(e) => setMyMentorProfile((prev) => ({ ...prev, max_members: e.target.value }))}
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-500 mb-1">Mentorship Post Status</label>
+                          <select
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                            value={myMentorProfile.post_status}
+                            onChange={(e) => setMyMentorProfile((prev) => ({ ...prev, post_status: e.target.value as 'open' | 'closed' }))}
+                          >
+                            <option value="open">Open (accepting mentee requests)</option>
+                            <option value="closed">Closed (not accepting requests)</option>
+                          </select>
+                        </div>
+                      </div>
+
                       <div className="grid gap-2 sm:grid-cols-2">
                         <button type="submit" className="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-lg font-semibold">
                           {hasMentorProfile ? 'Submit Updated Profile for Approval' : 'Submit Mentor Profile for Approval'}
@@ -2767,28 +2826,14 @@ export default function GraduatePortal() {
               </div>
             </div>
 
-            <div className="grid md:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1">Course / Program</label>
-                <input
-                  value={requestForm.mentee_program}
-                  onChange={(e) => setRequestForm((prev) => ({ ...prev, mentee_program: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 mb-1">Topic</label>
-                <select
-                  value={requestForm.topic}
-                  onChange={(e) => setRequestForm((prev) => ({ ...prev, topic: e.target.value }))}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                >
-                  {requestTopicOptions.map((topic) => (
-                    <option key={topic} value={topic}>{topic}</option>
-                  ))}
-                </select>
-              </div>
+            <div>
+              <label className="block text-xs font-semibold text-gray-500 mb-1">Course / Program</label>
+              <input
+                value={requestForm.mentee_program}
+                onChange={(e) => setRequestForm((prev) => ({ ...prev, mentee_program: e.target.value }))}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                required
+              />
             </div>
 
             <div>
@@ -2800,16 +2845,6 @@ export default function GraduatePortal() {
                 rows={3}
                 placeholder="Tell the mentor why you need guidance"
                 required
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 mb-1">Preferred Schedule</label>
-              <input
-                value={requestForm.preferred_schedule}
-                onChange={(e) => setRequestForm((prev) => ({ ...prev, preferred_schedule: e.target.value }))}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
-                placeholder="Saturday 2 PM - 5 PM"
               />
             </div>
 

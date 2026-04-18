@@ -415,6 +415,13 @@ function gradtrack_ensure_request_column(PDO $db, string $column, string $defini
     }
 }
 
+function gradtrack_ensure_mentor_column(PDO $db, string $column, string $definition): void
+{
+    if (!gradtrack_request_column_info($db, 'mentors', $column)) {
+        $db->exec("ALTER TABLE mentors ADD COLUMN {$definition}");
+    }
+}
+
 function gradtrack_ensure_mentorship_request_schema(PDO $db): void
 {
     $statusInfo = gradtrack_request_column_info($db, 'mentorship_requests', 'status');
@@ -435,6 +442,9 @@ function gradtrack_ensure_mentorship_request_schema(PDO $db): void
     gradtrack_ensure_request_column($db, 'meeting_link', 'meeting_link VARCHAR(255) NULL AFTER session_type');
     gradtrack_ensure_request_column($db, 'meeting_location', 'meeting_location VARCHAR(255) NULL AFTER meeting_link');
     gradtrack_ensure_request_column($db, 'session_notes', 'session_notes TEXT NULL AFTER meeting_location');
+
+    gradtrack_ensure_mentor_column($db, 'max_members', 'max_members INT UNSIGNED NOT NULL DEFAULT 5 AFTER mentor_type');
+    gradtrack_ensure_mentor_column($db, 'post_status', "post_status ENUM('open','closed') NOT NULL DEFAULT 'open' AFTER max_members");
 
     if (!gradtrack_request_column_info($db, 'mentorship_feedback', 'mentor_helpful')) {
         $db->exec('ALTER TABLE mentorship_feedback ADD COLUMN mentor_helpful TINYINT(1) NULL AFTER rating');
@@ -567,7 +577,7 @@ try {
             exit;
         }
 
-        $mentorOwnerStmt = $db->prepare("SELECT graduate_account_id
+                $mentorOwnerStmt = $db->prepare("SELECT graduate_account_id, post_status, max_members
                                          FROM mentors
                                          WHERE id = :id
                                            AND is_active = 1
@@ -588,17 +598,43 @@ try {
             exit;
         }
 
+        $postStatus = strtolower(trim((string) ($mentor['post_status'] ?? 'open')));
+        if ($postStatus !== 'open') {
+            http_response_code(409);
+            echo json_encode(['success' => false, 'error' => 'This mentor post is currently closed']);
+            exit;
+        }
+
+        $maxMembers = (int) ($mentor['max_members'] ?? 1);
+        if ($maxMembers < 1) {
+            $maxMembers = 1;
+        }
+
+        $capacityStmt = $db->prepare("SELECT COUNT(*) AS total
+                                      FROM mentorship_requests
+                                      WHERE mentor_id = :mentor_id
+                                        AND status IN ('pending', 'accepted')");
+        $capacityStmt->bindParam(':mentor_id', $mentorId);
+        $capacityStmt->execute();
+        $activeMentees = (int) ($capacityStmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0);
+
+        if ($activeMentees >= $maxMembers) {
+            http_response_code(409);
+            echo json_encode(['success' => false, 'error' => 'This mentor group is already full']);
+            exit;
+        }
+
         $dupStmt = $db->prepare("SELECT id FROM mentorship_requests
                                  WHERE mentor_id = :mentor_id
                                    AND mentee_account_id = :mentee_account_id
-                                   AND status = 'pending'");
+                                   AND status IN ('pending', 'accepted')");
         $dupStmt->bindParam(':mentor_id', $mentorId);
         $dupStmt->bindParam(':mentee_account_id', $user['account_id']);
         $dupStmt->execute();
 
         if ($dupStmt->fetch(PDO::FETCH_ASSOC)) {
             http_response_code(409);
-            echo json_encode(['success' => false, 'error' => 'You already have a pending request for this mentor']);
+            echo json_encode(['success' => false, 'error' => 'You already have an active request for this mentor']);
             exit;
         }
 

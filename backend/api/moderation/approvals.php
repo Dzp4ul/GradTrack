@@ -205,8 +205,26 @@ HTML;
         return ['sent' => true, 'email' => $email];
 }
 
-function gradtrack_moderation_reviewer(): array
+function gradtrack_moderation_reviewer(PDO $db): array
 {
+    if (!isset($_SESSION['user_id'])) {
+        $sessionEmail = isset($_SESSION['email']) ? trim((string) $_SESSION['email']) : '';
+        $sessionRole = isset($_SESSION['role']) ? trim((string) $_SESSION['role']) : '';
+
+        if ($sessionEmail !== '') {
+            $fallbackStmt = $db->prepare('SELECT id, role FROM admin_users WHERE email = :email LIMIT 1');
+            $fallbackStmt->execute([':email' => $sessionEmail]);
+            $fallbackUser = $fallbackStmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($fallbackUser) {
+                $_SESSION['user_id'] = (int) $fallbackUser['id'];
+                if ($sessionRole === '') {
+                    $_SESSION['role'] = (string) ($fallbackUser['role'] ?? '');
+                }
+            }
+        }
+    }
+
     if (!isset($_SESSION['user_id'])) {
         gradtrack_moderation_json_error(401, 'Authentication required');
     }
@@ -453,7 +471,7 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 try {
     gradtrack_ensure_engagement_approval_schema($db);
-    $reviewer = gradtrack_moderation_reviewer();
+    $reviewer = gradtrack_moderation_reviewer($db);
 
     if ($method === 'GET') {
         $status = isset($_GET['status']) ? trim((string) $_GET['status']) : 'pending';

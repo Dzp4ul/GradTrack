@@ -56,6 +56,14 @@ function gradtrack_ensure_mentor_schema(PDO $db): void
         $db->exec("ALTER TABLE mentors ADD COLUMN mentor_type VARCHAR(120) NULL AFTER job_alignment");
     }
 
+    if (!gradtrack_column_info($db, 'mentors', 'max_members')) {
+        $db->exec("ALTER TABLE mentors ADD COLUMN max_members INT UNSIGNED NOT NULL DEFAULT 5 AFTER mentor_type");
+    }
+
+    if (!gradtrack_column_info($db, 'mentors', 'post_status')) {
+        $db->exec("ALTER TABLE mentors ADD COLUMN post_status ENUM('open','closed') NOT NULL DEFAULT 'open' AFTER max_members");
+    }
+
     gradtrack_ensure_engagement_approval_schema($db);
 }
 
@@ -116,10 +124,11 @@ try {
             ? (int) $_GET['year_graduated']
             : null;
 
-        $sql = "SELECT m.id, m.current_job_title, m.company, m.industry, m.skills, m.bio,
+                $sql = "SELECT m.id, m.current_job_title, m.company, m.industry, m.skills, m.bio,
                        m.job_alignment, m.mentor_type,
-                       m.availability_status, m.preferred_topics, m.created_at,
+                                             m.availability_status, m.preferred_topics, m.max_members, m.post_status, m.created_at,
                        m.approval_status, m.approval_reviewed_at, m.approval_notes,
+                                             COALESCE(active_requests.active_mentees_count, 0) AS active_mentees_count,
                        g.id AS graduate_id, g.first_name, g.middle_name, g.last_name, g.year_graduated,
                        ga.email AS contact_email,
                        gpi.file_path AS profile_image_path,
@@ -129,6 +138,12 @@ try {
                 JOIN graduates g ON m.graduate_id = g.id
                 LEFT JOIN programs p ON g.program_id = p.id
                 LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
+                                LEFT JOIN (
+                                        SELECT mentor_id, COUNT(*) AS active_mentees_count
+                                        FROM mentorship_requests
+                                        WHERE status IN ('pending', 'accepted')
+                                        GROUP BY mentor_id
+                                ) active_requests ON active_requests.mentor_id = m.id
                 WHERE m.is_active = 1
                   AND m.approval_status = 'approved'";
 
@@ -215,6 +230,8 @@ try {
             $row['id'] = (int) $row['id'];
             $row['graduate_id'] = (int) $row['graduate_id'];
             $row['year_graduated'] = $row['year_graduated'] !== null ? (int) $row['year_graduated'] : null;
+            $row['max_members'] = isset($row['max_members']) ? max(1, (int) $row['max_members']) : 1;
+            $row['active_mentees_count'] = isset($row['active_mentees_count']) ? (int) $row['active_mentees_count'] : 0;
             $row['avg_rating'] = $ratings[$row['id']]['avg_rating'] ?? 0.0;
             $row['feedback_count'] = $ratings[$row['id']]['feedback_count'] ?? 0;
         }
@@ -236,11 +253,25 @@ try {
         $skills = isset($data['skills']) ? trim((string) $data['skills']) : null;
         $bio = isset($data['bio']) ? trim((string) $data['bio']) : null;
         $availability = isset($data['availability_status']) ? trim((string) $data['availability_status']) : 'Available: Saturday 2 PM - 5 PM';
+        $postStatus = isset($data['post_status']) ? strtolower(trim((string) $data['post_status'])) : 'open';
+        $maxMembers = isset($data['max_members']) ? (int) $data['max_members'] : 5;
         $preferredTopics = isset($data['preferred_topics']) ? trim((string) $data['preferred_topics']) : null;
         $isActive = isset($data['is_active']) ? (int) !!$data['is_active'] : 1;
 
         if ($availability === '') {
             $availability = 'Available: Saturday 2 PM - 5 PM';
+        }
+
+        if (!in_array($postStatus, ['open', 'closed'], true)) {
+            $postStatus = 'open';
+        }
+
+        if ($maxMembers < 1) {
+            $maxMembers = 1;
+        }
+
+        if ($maxMembers > 100) {
+            $maxMembers = 100;
         }
 
         $existingStmt = $db->prepare('SELECT id, graduate_account_id
@@ -266,6 +297,8 @@ try {
                                 industry = :industry,
                                 job_alignment = :job_alignment,
                                 mentor_type = :mentor_type,
+                                max_members = :max_members,
+                                post_status = :post_status,
                                 skills = :skills,
                                 bio = :bio,
                                 availability_status = :availability_status,
@@ -284,6 +317,8 @@ try {
             $updateStmt->bindParam(':industry', $industry);
             $updateStmt->bindParam(':job_alignment', $jobAlignment);
             $updateStmt->bindParam(':mentor_type', $mentorType);
+            $updateStmt->bindParam(':max_members', $maxMembers);
+            $updateStmt->bindParam(':post_status', $postStatus);
             $updateStmt->bindParam(':skills', $skills);
             $updateStmt->bindParam(':bio', $bio);
             $updateStmt->bindParam(':availability_status', $availability);
@@ -292,9 +327,9 @@ try {
             $updateStmt->execute();
         } else {
             $insertQuery = "INSERT INTO mentors
-                            (graduate_account_id, graduate_id, current_job_title, company, industry, job_alignment, mentor_type, skills, bio, availability_status, preferred_topics, is_active, approval_status)
+                            (graduate_account_id, graduate_id, current_job_title, company, industry, job_alignment, mentor_type, max_members, post_status, skills, bio, availability_status, preferred_topics, is_active, approval_status)
                             VALUES
-                            (:account_id, :graduate_id, :current_job_title, :company, :industry, :job_alignment, :mentor_type, :skills, :bio, :availability_status, :preferred_topics, :is_active, 'pending')";
+                            (:account_id, :graduate_id, :current_job_title, :company, :industry, :job_alignment, :mentor_type, :max_members, :post_status, :skills, :bio, :availability_status, :preferred_topics, :is_active, 'pending')";
             $insertStmt = $db->prepare($insertQuery);
             $insertStmt->bindParam(':account_id', $user['account_id']);
             $insertStmt->bindParam(':graduate_id', $user['graduate_id']);
@@ -303,6 +338,8 @@ try {
             $insertStmt->bindParam(':industry', $industry);
             $insertStmt->bindParam(':job_alignment', $jobAlignment);
             $insertStmt->bindParam(':mentor_type', $mentorType);
+            $insertStmt->bindParam(':max_members', $maxMembers);
+            $insertStmt->bindParam(':post_status', $postStatus);
             $insertStmt->bindParam(':skills', $skills);
             $insertStmt->bindParam(':bio', $bio);
             $insertStmt->bindParam(':availability_status', $availability);
