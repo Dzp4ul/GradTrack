@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -115,9 +115,9 @@ function SignIn() {
                 </button>
               </div>
               <div className="text-right mt-2">
-                <a href="#" className="text-sm text-blue-600 hover:text-blue-800 font-medium">
+                <Link to="/admin/forgot-password" className="text-sm text-blue-600 hover:text-blue-800 font-medium">
                   Forgot Password?
-                </a>
+                </Link>
               </div>
             </div>
 

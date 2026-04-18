@@ -4,6 +4,7 @@ import AboutPage from './pages/AboutPage';
 import FAQPage from './pages/FAQPage';
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
 import SignIn from './pages/SignIn';
+import AdminForgotPassword from './pages/AdminForgotPassword';
 import Survey from './pages/Survey';
 import SurveyVerification from './pages/SurveyVerification';
 import GraduateSignIn from './pages/GraduateSignIn';
@@ -86,6 +87,7 @@ function App() {
 
           {/* Admin Sign In - Separate route for admin only */}
           <Route path="/admin/signin" element={<SignIn />} />
+          <Route path="/admin/forgot-password" element={<AdminForgotPassword />} />
 
           {/* Admin Routes - Protected */}
           <Route
