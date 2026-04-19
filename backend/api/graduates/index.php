@@ -37,6 +37,39 @@ function graduates_has_name_extension_column($db) {
     return $hasColumn;
 }
 
+function graduates_safe_database_error(PDOException $e) {
+    $message = $e->getMessage();
+    $sqlState = isset($e->errorInfo[0]) ? (string)$e->errorInfo[0] : '';
+    $driverCode = isset($e->errorInfo[1]) ? (string)$e->errorInfo[1] : '';
+    $lowerMessage = strtolower($message);
+
+    if ($sqlState === '23000' || $driverCode === '1062' || strpos($lowerMessage, 'duplicate entry') !== false) {
+        if (strpos($lowerMessage, 'student_id') !== false || strpos($lowerMessage, 'student') !== false) {
+            return [
+                'status' => 409,
+                'message' => 'Student ID already exists. Please use a different Student No.',
+            ];
+        }
+
+        if (strpos($lowerMessage, 'email') !== false) {
+            return [
+                'status' => 409,
+                'message' => 'Email already exists. Please use a different email or leave it blank.',
+            ];
+        }
+
+        return [
+            'status' => 409,
+            'message' => 'A graduate with the same Student No. or email already exists.',
+        ];
+    }
+
+    return [
+        'status' => 500,
+        'message' => 'Unable to process graduate records right now. Please try again.',
+    ];
+}
+
 $database = new Database();
 $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
@@ -159,6 +192,16 @@ try {
             $address = normalize_nullable_text($data['address'] ?? null);
             $hasNameExtensionColumn = graduates_has_name_extension_column($db);
 
+            if ($studentId !== null) {
+                $studentIdCheckStmt = $db->prepare("SELECT id FROM graduates WHERE student_id = :student_id LIMIT 1");
+                $studentIdCheckStmt->execute([':student_id' => $studentId]);
+                if ($studentIdCheckStmt->fetch(PDO::FETCH_ASSOC)) {
+                    http_response_code(409);
+                    echo json_encode(["success" => false, "error" => "Student ID already exists. Please use a different Student No."]);
+                    break;
+                }
+            }
+
             if ($email !== null) {
                 $emailCheckStmt = $db->prepare("SELECT id FROM graduates WHERE email = :email LIMIT 1");
                 $emailCheckStmt->execute([':email' => $email]);
@@ -240,6 +283,16 @@ try {
             $nameExtension = normalize_name_extension($data['name_extension'] ?? null);
             $address = normalize_nullable_text($data['address'] ?? null);
             $hasNameExtensionColumn = graduates_has_name_extension_column($db);
+
+            if ($studentId !== null) {
+                $studentIdCheckStmt = $db->prepare("SELECT id FROM graduates WHERE student_id = :student_id AND id <> :id LIMIT 1");
+                $studentIdCheckStmt->execute([':student_id' => $studentId, ':id' => $data['id']]);
+                if ($studentIdCheckStmt->fetch(PDO::FETCH_ASSOC)) {
+                    http_response_code(409);
+                    echo json_encode(["success" => false, "error" => "Student ID already exists. Please use a different Student No."]);
+                    break;
+                }
+            }
 
             if ($email !== null) {
                 $emailCheckStmt = $db->prepare("SELECT id FROM graduates WHERE email = :email AND id <> :id LIMIT 1");
@@ -388,7 +441,13 @@ try {
             http_response_code(405);
             echo json_encode(["success" => false, "error" => "Method not allowed"]);
     }
+} catch (PDOException $e) {
+    error_log('Graduates API database error: ' . $e->getMessage());
+    $safeError = graduates_safe_database_error($e);
+    http_response_code($safeError['status']);
+    echo json_encode(["success" => false, "error" => $safeError['message']]);
 } catch (Exception $e) {
+    error_log('Graduates API error: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(["success" => false, "error" => $e->getMessage()]);
+    echo json_encode(["success" => false, "error" => "Unable to process graduate records right now. Please try again."]);
 }

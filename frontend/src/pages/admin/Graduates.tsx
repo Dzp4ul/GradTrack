@@ -320,6 +320,65 @@ const mapExcelRowToPayload = (row: Record<string, unknown>, fallbackYear = ''): 
 
 type MessageType = 'confirm' | 'success' | 'error' | 'warning' | 'info';
 
+const hasTechnicalDatabaseDetails = (message: string): boolean => {
+  const lower = message.toLowerCase();
+  return [
+    'sqlstate',
+    'integrity constraint',
+    'duplicate entry',
+    'foreign key',
+    'pdoexception',
+    'mysql',
+    ' for key ',
+    'graduates.',
+  ].some((fragment) => lower.includes(fragment));
+};
+
+const getImportFailureReason = (value: unknown): string => {
+  const message = normalizeText(value);
+  if (!message) return 'Rejected by server';
+
+  const lower = message.toLowerCase();
+  if (lower.includes('student id already exists') || lower.includes('student no. already exists')) {
+    return 'Duplicate student ID';
+  }
+
+  if (lower.includes('email already exists')) {
+    return 'Duplicate email';
+  }
+
+  if (lower.includes('student_id') && lower.includes('duplicate')) {
+    return 'Duplicate student ID';
+  }
+
+  if (lower.includes('email') && lower.includes('duplicate')) {
+    return 'Duplicate email';
+  }
+
+  if (lower.includes('same student no. or email') || lower.includes('same student id or email')) {
+    return 'Duplicate student ID or email';
+  }
+
+  if (lower.includes('same student no') || lower.includes('same student id')) {
+    return 'Duplicate student ID';
+  }
+
+  if (hasTechnicalDatabaseDetails(message)) {
+    return 'Duplicate or invalid record';
+  }
+
+  return message;
+};
+
+const getSafeErrorMessage = (error: unknown, fallback: string): string => {
+  const message = error instanceof Error ? error.message : normalizeText(error);
+  if (!message || hasTechnicalDatabaseDetails(message)) {
+    return fallback;
+  }
+
+  return message;
+};
+
 export default function Graduates() {
   const [graduates, setGraduates] = useState<Graduate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -383,7 +442,7 @@ export default function Graduates() {
       setMsgBox({
         isOpen: true,
         type: 'error',
-        message: error instanceof Error ? error.message : 'Failed to load graduates',
+        message: getSafeErrorMessage(error, 'Failed to load graduates'),
       });
     } finally {
       setLoading(false);
@@ -472,7 +531,10 @@ export default function Graduates() {
       setMsgBox({
         isOpen: true,
         type: 'error',
-        message: error instanceof Error ? error.message : 'Unable to save graduate',
+        message: getSafeErrorMessage(
+          error,
+          'Unable to save graduate. Please check for duplicate Student No. or email and try again.'
+        ),
       });
     }
   };
@@ -508,7 +570,7 @@ export default function Graduates() {
           setMsgBox({
             isOpen: true,
             type: 'error',
-            message: error instanceof Error ? error.message : 'Unable to delete graduate',
+            message: getSafeErrorMessage(error, 'Unable to delete graduate'),
           });
         }
       },
@@ -572,7 +634,7 @@ export default function Graduates() {
           setMsgBox({
             isOpen: true,
             type: 'error',
-            message: error instanceof Error ? error.message : 'Unable to delete selected graduates',
+            message: getSafeErrorMessage(error, 'Unable to delete selected graduates'),
           });
         }
       },
@@ -612,7 +674,7 @@ export default function Graduates() {
           setMsgBox({
             isOpen: true,
             type: 'error',
-            message: error instanceof Error ? error.message : 'Unable to delete graduates by year',
+            message: getSafeErrorMessage(error, 'Unable to delete graduates by year'),
           });
         }
       },
@@ -681,7 +743,8 @@ export default function Graduates() {
       const failureReasons: Record<string, number> = {};
 
       const addFailureReason = (reason: string) => {
-        failureReasons[reason] = (failureReasons[reason] ?? 0) + 1;
+        const safeReason = getImportFailureReason(reason);
+        failureReasons[safeReason] = (failureReasons[safeReason] ?? 0) + 1;
       };
 
       for (const row of rows) {
@@ -717,16 +780,7 @@ export default function Graduates() {
           }
         } else {
           failedCount += 1;
-          const backendError = normalizeText(result?.error);
-          if (backendError) {
-            if (backendError.toLowerCase().includes('email already exists')) {
-              addFailureReason('Duplicate email');
-            } else {
-              addFailureReason(backendError);
-            }
-          } else {
-            addFailureReason('Rejected by server');
-          }
+          addFailureReason(result?.error || 'Rejected by server');
         }
       }
 
@@ -756,13 +810,13 @@ export default function Graduates() {
       setMsgBox({
         isOpen: true,
         type: msgType,
-        message: `${statusLabel}\nAdded: ${successCount}. Failed: ${failedCount}.${sortedReasons ? `\nReasons: ${sortedReasons}.` : ''}`,
+        message: `${statusLabel}\nAdded: ${successCount}. Failed: ${failedCount}.${sortedReasons ? `\nSkipped rows: ${sortedReasons}.` : ''}`,
       });
     } catch (error) {
       setMsgBox({
         isOpen: true,
         type: 'error',
-        message: error instanceof Error ? error.message : 'Excel import failed',
+        message: getSafeErrorMessage(error, 'Excel import failed. Please check the file and try again.'),
       });
     } finally {
       setIsImporting(false);
