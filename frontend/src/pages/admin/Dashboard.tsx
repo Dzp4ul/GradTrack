@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import {
   Briefcase,
   Target,
@@ -66,7 +65,6 @@ function formatPercent(value: number | null | undefined) {
 export default function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
-  const navigate = useNavigate();
 
   useEffect(() => {
     const cachedRaw = sessionStorage.getItem(DASHBOARD_CACHE_KEY);
@@ -319,12 +317,9 @@ export default function Dashboard() {
         </div>
 
         {/* Active Surveys */}
-        <div
-          onClick={() => navigate('/admin/surveys')}
-          className="bg-white rounded-lg shadow-sm border border-amber-200 p-5 cursor-pointer hover:shadow-lg hover:border-amber-300 transition-all group"
-        >
+        <div className="bg-white rounded-lg shadow-sm border border-amber-200 p-5">
           <div className="flex items-center gap-2 mb-3">
-            <div className="p-2 bg-amber-100 rounded-lg group-hover:bg-amber-200 transition">
+            <div className="p-2 bg-amber-100 rounded-lg">
               <ClipboardList className="w-5 h-5 text-amber-700" />
             </div>
             <span className="text-sm font-medium text-gray-600">Active Surveys</span>
@@ -336,17 +331,14 @@ export default function Dashboard() {
             {data.selected_survey_title || 'Survey campaigns currently open'}
           </p>
           <p className="text-xs text-amber-700 mt-2 font-medium">
-            Manage survey forms and response windows
+            Survey forms and response windows
           </p>
         </div>
 
         {/* Survey Coverage */}
-        <div 
-          onClick={() => navigate(data.selected_survey_id ? `/admin/surveys/${data.selected_survey_id}/analytics` : '/admin/surveys')}
-          className="bg-white rounded-lg shadow-sm border border-emerald-200 p-5 cursor-pointer hover:shadow-lg hover:border-emerald-300 transition-all group"
-        >
+        <div className="bg-white rounded-lg shadow-sm border border-emerald-200 p-5">
           <div className="flex items-center gap-2 mb-3">
-            <div className="p-2 bg-emerald-100 rounded-lg group-hover:bg-emerald-200 transition">
+            <div className="p-2 bg-emerald-100 rounded-lg">
               <ClipboardList className="w-5 h-5 text-emerald-700" />
             </div>
             <span className="text-sm font-medium text-gray-600">Survey Coverage</span>
@@ -358,7 +350,7 @@ export default function Dashboard() {
             {formatNumber(data.total_responses)} of {formatNumber(surveySummary.eligible)} responses
           </p>
           <p className="text-xs text-emerald-700 mt-2 font-medium flex items-center gap-1">
-            <BarChart3 className="w-3 h-3" /> Open analytics - {formatNumber(surveySummary.pending)} pending
+            <BarChart3 className="w-3 h-3" /> {formatNumber(surveySummary.pending)} pending responses
           </p>
         </div>
       </div>
