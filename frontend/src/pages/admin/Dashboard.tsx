@@ -49,7 +49,7 @@ interface DashboardCacheEntry {
   storedAt: number;
 }
 
-const PIE_COLORS = ['#22c55e', '#f59e0b', '#ef4444'];
+const PIE_COLORS = ['#0d9488', '#e11d48', '#64748b'];
 const BAR_COLORS = ['#22c55e', '#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6'];
 
 const numberFormatter = new Intl.NumberFormat('en-US');

@@ -57,6 +57,7 @@ try {
         $email = isset($_POST['email']) ? trim((string) $_POST['email']) : (string) ($user['email'] ?? '');
         $phone = isset($_POST['phone']) ? trim((string) $_POST['phone']) : (string) ($user['phone'] ?? '');
         $address = isset($_POST['address']) ? trim((string) $_POST['address']) : (string) ($user['address'] ?? '');
+        $currentPassword = isset($_POST['current_password']) ? (string) $_POST['current_password'] : '';
         $password = isset($_POST['password']) ? (string) $_POST['password'] : '';
 
         if ($firstName === '' || $lastName === '' || $email === '') {
@@ -79,6 +80,31 @@ try {
             http_response_code(409);
             echo json_encode(['success' => false, 'error' => 'Email is already in use by another account']);
             exit;
+        }
+
+        if ($password !== '') {
+            if ($currentPassword === '') {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'error' => 'Current password is required to set a new password']);
+                exit;
+            }
+
+            $passwordStmt = $db->prepare('SELECT password_hash FROM graduate_accounts WHERE id = :account_id LIMIT 1');
+            $passwordStmt->bindParam(':account_id', $accountId);
+            $passwordStmt->execute();
+            $storedPassword = (string) ($passwordStmt->fetch(PDO::FETCH_ASSOC)['password_hash'] ?? '');
+
+            if (!password_verify($currentPassword, $storedPassword)) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'error' => 'Current password is incorrect']);
+                exit;
+            }
+
+            if (!preg_match('/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/', $password)) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'error' => 'Password must be at least 8 characters and include uppercase, lowercase, number, and symbol']);
+                exit;
+            }
         }
 
         $db->beginTransaction();

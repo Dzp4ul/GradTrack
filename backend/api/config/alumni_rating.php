@@ -263,7 +263,7 @@ if (!function_exists('gradtrack_rating_get_verification_flags')) {
             'is_verified_graduate' => $hasVerifiedDocument,
             'is_active_mentor' => $isActiveMentor,
         ];
-    }
+    }      
 }
 
 if (!function_exists('gradtrack_rating_build_permissions')) {

@@ -90,6 +90,37 @@ if (!function_exists('gradtrack_ensure_engagement_approval_schema')) {
                 'approval_notes TEXT NULL AFTER approval_reviewed_at'
             );
         }
+
+        gradtrack_engagement_add_column_if_missing(
+            $db,
+            'mentors',
+            'proof_file_path',
+            'proof_file_path VARCHAR(255) NULL AFTER approval_notes'
+        );
+        gradtrack_engagement_add_column_if_missing(
+            $db,
+            'mentors',
+            'proof_file_name',
+            'proof_file_name VARCHAR(255) NULL AFTER proof_file_path'
+        );
+        gradtrack_engagement_add_column_if_missing(
+            $db,
+            'mentors',
+            'proof_mime_type',
+            'proof_mime_type VARCHAR(120) NULL AFTER proof_file_name'
+        );
+        gradtrack_engagement_add_column_if_missing(
+            $db,
+            'mentors',
+            'proof_file_size_bytes',
+            'proof_file_size_bytes INT UNSIGNED NULL AFTER proof_mime_type'
+        );
+        gradtrack_engagement_add_column_if_missing(
+            $db,
+            'mentors',
+            'proof_uploaded_at',
+            'proof_uploaded_at DATETIME NULL AFTER proof_file_size_bytes'
+        );
     }
 }
 

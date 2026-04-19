@@ -1,5 +1,5 @@
 import { type ChangeEvent, type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { Camera, KeyRound, Mail, RefreshCw, Save, ShieldCheck, UserCircle } from 'lucide-react';
+import { Camera, Eye, EyeOff, KeyRound, Mail, Pencil, Save, ShieldCheck, UserCircle } from 'lucide-react';
 import { API_BASE_URL, API_ENDPOINTS } from '../../config/api';
 import { useAuth } from '../../contexts/AuthContext';
 import MessageBox from '../../components/MessageBox';
@@ -30,6 +30,8 @@ const roleLabels: Record<string, string> = {
 };
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const passwordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
+const passwordRequirementMessage = 'Password must be at least 8 characters and include uppercase, lowercase, number, and symbol.';
 
 function getInitials(name?: string, fallback?: string) {
   const source = (name || fallback || 'User').trim();
@@ -47,6 +49,7 @@ export default function AdminProfile() {
   const [formData, setFormData] = useState<ProfileForm>(emptyForm);
   const [profileImageFile, setProfileImageFile] = useState<File | null>(null);
   const [profileImagePreview, setProfileImagePreview] = useState('');
+  const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [msgBox, setMsgBox] = useState<{
@@ -86,22 +89,12 @@ export default function AdminProfile() {
     setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
-  const resetForm = () => {
-    setFormData({
-      full_name: user?.full_name || '',
-      email: user?.email || '',
-      current_password: '',
-      new_password: '',
-      confirm_password: '',
-    });
-    setProfileImageFile(null);
-    setProfileImagePreview(existingProfileImageUrl);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
   const handleProfileImageChange = (event: ChangeEvent<HTMLInputElement>) => {
+    if (!isEditing) {
+      event.target.value = '';
+      return;
+    }
+
     const file = event.target.files?.[0] || null;
     if (!file) {
       setProfileImageFile(null);
@@ -130,6 +123,10 @@ export default function AdminProfile() {
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
 
+    if (!isEditing) {
+      return;
+    }
+
     const email = formData.email.trim();
     const fullName = formData.full_name.trim();
     const changingPassword = formData.new_password.trim() !== '' || formData.confirm_password.trim() !== '';
@@ -150,8 +147,8 @@ export default function AdminProfile() {
         return;
       }
 
-      if (formData.new_password.length < 8) {
-        setMsgBox({ isOpen: true, type: 'error', message: 'New password must be at least 8 characters.' });
+      if (!passwordPattern.test(formData.new_password)) {
+        setMsgBox({ isOpen: true, type: 'error', message: passwordRequirementMessage });
         return;
       }
 
@@ -205,6 +202,7 @@ export default function AdminProfile() {
         confirm_password: '',
       }));
       setProfileImageFile(null);
+      setIsEditing(false);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -227,6 +225,16 @@ export default function AdminProfile() {
           <h1 className="text-2xl font-bold text-[#1b2a4a]">My Profile</h1>
           <p className="text-sm text-gray-500">Manage your account details and password.</p>
         </div>
+        {!isEditing && (
+          <button
+            type="button"
+            onClick={() => setIsEditing(true)}
+            className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#1b2a4a] px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#263c66]"
+          >
+            <Pencil className="h-4 w-4" />
+            Edit Profile
+          </button>
+        )}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
@@ -244,13 +252,19 @@ export default function AdminProfile() {
                 ref={fileInputRef}
                 type="file"
                 accept="image/png,image/jpeg,image/webp,image/gif"
+                disabled={!isEditing || saving}
                 className="hidden"
                 onChange={handleProfileImageChange}
               />
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="absolute -bottom-1 -right-1 rounded-full bg-[#1b2a4a] p-1.5 text-white shadow hover:bg-[#263c66]"
+                onClick={() => {
+                  if (isEditing) {
+                    fileInputRef.current?.click();
+                  }
+                }}
+                disabled={!isEditing || saving}
+                className="absolute -bottom-1 -right-1 rounded-full bg-[#1b2a4a] p-1.5 text-white shadow transition-colors hover:bg-[#263c66] disabled:cursor-not-allowed disabled:bg-gray-400 disabled:opacity-70"
                 aria-label="Upload profile image"
                 title="Upload profile image"
               >
@@ -284,6 +298,7 @@ export default function AdminProfile() {
                 value={formData.full_name}
                 onChange={(value) => updateField('full_name', value)}
                 icon={UserCircle}
+                readOnly={!isEditing || saving}
               />
               <Input
                 label="Email"
@@ -310,6 +325,7 @@ export default function AdminProfile() {
                 onChange={(value) => updateField('current_password', value)}
                 icon={KeyRound}
                 type="password"
+                readOnly={!isEditing || saving}
               />
               <Input
                 label="New Password"
@@ -317,6 +333,7 @@ export default function AdminProfile() {
                 onChange={(value) => updateField('new_password', value)}
                 icon={KeyRound}
                 type="password"
+                readOnly={!isEditing || saving}
               />
               <Input
                 label="Confirm Password"
@@ -324,22 +341,15 @@ export default function AdminProfile() {
                 onChange={(value) => updateField('confirm_password', value)}
                 icon={KeyRound}
                 type="password"
+                readOnly={!isEditing || saving}
               />
             </div>
           </section>
 
           <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <button
-              type="button"
-              onClick={resetForm}
-              className="inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
-            >
-              <RefreshCw className="h-4 w-4" />
-              Reset
-            </button>
-            <button
               type="submit"
-              disabled={saving}
+              disabled={!isEditing || saving}
               className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#1b2a4a] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#263c66] disabled:opacity-50"
             >
               <Save className="h-4 w-4" />
@@ -376,21 +386,34 @@ function Input({
   required?: boolean;
   readOnly?: boolean;
 }) {
+  const isPassword = type === 'password';
+  const [showPassword, setShowPassword] = useState(false);
+
   return (
     <div>
       <label className="mb-1 block text-xs font-medium text-gray-600">{label}</label>
       <div className="relative">
         <Icon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
         <input
-          type={type}
+          type={isPassword && showPassword ? 'text' : type}
           value={value}
           onChange={(event) => onChange(event.target.value)}
           required={required}
           readOnly={readOnly}
-          className={`w-full rounded-lg border py-2.5 pl-10 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+          className={`w-full rounded-lg border py-2.5 pl-10 ${isPassword ? 'pr-10' : 'pr-3'} text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${
             readOnly ? 'bg-gray-50 text-gray-600 cursor-not-allowed' : ''
           }`}
         />
+        {isPassword && (
+          <button
+            type="button"
+            onClick={() => setShowPassword((current) => !current)}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 transition-colors hover:text-gray-600"
+            aria-label={showPassword ? 'Hide password' : 'Show password'}
+          >
+            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </button>
+        )}
       </div>
     </div>
   );

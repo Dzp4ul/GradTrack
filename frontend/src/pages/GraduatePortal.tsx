@@ -6,9 +6,13 @@ import {
   Briefcase,
   ChevronDown,
   ClipboardList,
+  Eye,
+  EyeOff,
+  FileText,
   Mail,
   LogOut,
   Menu,
+  Pencil,
   Settings,
   User,
   Users,
@@ -24,6 +28,8 @@ type PortalTab = 'dashboard' | 'mentors' | 'requests' | 'jobs' | 'my_profile' | 
 type ApprovalStatus = 'pending' | 'approved' | 'declined';
 
 const portalTabKeys: PortalTab[] = ['dashboard', 'mentors', 'requests', 'jobs', 'my_profile', 'mentor_profile', 'job_posting'];
+const passwordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
+const passwordRequirementMessage = 'Password must be at least 8 characters and include uppercase, lowercase, number, and symbol.';
 
 interface Mentor {
   id: number;
@@ -125,6 +131,11 @@ interface MentorProfileForm {
   max_members: string;
   post_status: 'open' | 'closed';
   is_active: boolean;
+  proof_file_path?: string | null;
+  proof_file_name?: string | null;
+  proof_mime_type?: string | null;
+  proof_file_size_bytes?: number | null;
+  proof_uploaded_at?: string | null;
 }
 
 interface MentorshipRequestForm {
@@ -240,6 +251,11 @@ const defaultMentorProfile: MentorProfileForm = {
   max_members: '5',
   post_status: 'open',
   is_active: true,
+  proof_file_path: null,
+  proof_file_name: null,
+  proof_mime_type: null,
+  proof_file_size_bytes: null,
+  proof_uploaded_at: null,
 };
 
 const defaultMentorshipRequestForm: MentorshipRequestForm = {
@@ -334,6 +350,7 @@ export default function GraduatePortal() {
   const [showMentorProfileForm, setShowMentorProfileForm] = useState(false);
   const [myJobForm, setMyJobForm] = useState<JobForm>(defaultJobForm);
   const [showJobPostForm, setShowJobPostForm] = useState(false);
+  const [mentorProofFile, setMentorProofFile] = useState<File | null>(null);
   const [mentorSearch, setMentorSearch] = useState('');
   const [mentorProgramTab, setMentorProgramTab] = useState('all');
   const [mentorIndustryFilter, setMentorIndustryFilter] = useState('');
@@ -352,11 +369,13 @@ export default function GraduatePortal() {
     email: '',
     phone: '',
     address: '',
+    current_password: '',
     password: '',
     confirm_password: '',
   });
   const [profileImageFile, setProfileImageFile] = useState<File | null>(null);
   const [profileImagePreview, setProfileImagePreview] = useState<string>('');
+  const [profileIsEditing, setProfileIsEditing] = useState(false);
 
   const [msgBox, setMsgBox] = useState<{
     isOpen: boolean;
@@ -372,6 +391,7 @@ export default function GraduatePortal() {
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const profileImageInputRef = useRef<HTMLInputElement | null>(null);
   const mentorImageInputRef = useRef<HTMLInputElement | null>(null);
+  const mentorProofInputRef = useRef<HTMLInputElement | null>(null);
   const fetchAllRef = useRef<(silent?: boolean) => Promise<void>>(async () => {});
   const fetchInFlightRef = useRef<Promise<void> | null>(null);
   const liveRefreshCooldownRef = useRef<number>(0);
@@ -382,7 +402,14 @@ export default function GraduatePortal() {
     return `${API_BASE_URL}/${path.replace(/^\/+/, '')}`;
   };
 
+  const resolveUploadUrl = (path?: string | null) => {
+    if (!path) return '';
+    if (/^https?:\/\//i.test(path)) return path;
+    return `${API_BASE_URL}/${path.replace(/^\/+/, '')}`;
+  };
+
   const profileImageUrl = useMemo(() => resolveProfileImageUrl(user?.profile_image_path), [user?.profile_image_path]);
+  const mentorProofUrl = useMemo(() => resolveUploadUrl(myMentorProfile.proof_file_path), [myMentorProfile.proof_file_path]);
   const mentorAvailability = useMemo(
     () => parseAvailabilityStatus(myMentorProfile.availability_status),
     [myMentorProfile.availability_status],
@@ -558,13 +585,20 @@ export default function GraduatePortal() {
               max_members: String(Math.max(1, Number(myMentorData.max_members || 1))),
               post_status: (myMentorData.post_status || 'open') === 'closed' ? 'closed' : 'open',
               is_active: !!myMentorData.is_active,
+              proof_file_path: myMentorData.proof_file_path || null,
+              proof_file_name: myMentorData.proof_file_name || null,
+              proof_mime_type: myMentorData.proof_mime_type || null,
+              proof_file_size_bytes: myMentorData.proof_file_size_bytes ? Number(myMentorData.proof_file_size_bytes) : null,
+              proof_uploaded_at: myMentorData.proof_uploaded_at || null,
             });
+            setMentorProofFile(null);
           } else {
             setHasMentorProfile(false);
             setMyMentorApprovalStatus(null);
             setMyMentorApprovalNotes('');
             setShowMentorProfileForm(false);
             setMyMentorProfile({ ...defaultMentorProfile, contact_email: user?.email || '' });
+            setMentorProofFile(null);
           }
         }
 
@@ -1135,6 +1169,11 @@ export default function GraduatePortal() {
       return;
     }
 
+    if (!mentorProofFile && !myMentorProfile.proof_file_path) {
+      notify('warning', 'Please upload proof that you are in this field before submitting your mentor profile.');
+      return;
+    }
+
     try {
       const currentEmail = (user?.email || '').trim().toLowerCase();
       if (mentorEmail.toLowerCase() !== currentEmail || profileImageFile) {
@@ -1157,26 +1196,31 @@ export default function GraduatePortal() {
         setProfileImageFile(null);
       }
 
-      const mentorPayload = {
-        current_job_title: myMentorProfile.current_job_title,
-        company: myMentorProfile.company,
-        industry: myMentorProfile.industry,
-        skills: myMentorProfile.skills,
-        bio: myMentorProfile.bio,
-        preferred_topics: myMentorProfile.preferred_topics,
-        availability_status: myMentorProfile.availability_status,
-        max_members: maxMembers,
-        post_status: myMentorProfile.post_status,
-        is_active: true,
-      };
+      const mentorPayload = new FormData();
+      mentorPayload.append('current_job_title', myMentorProfile.current_job_title);
+      mentorPayload.append('company', myMentorProfile.company);
+      mentorPayload.append('industry', myMentorProfile.industry);
+      mentorPayload.append('skills', myMentorProfile.skills);
+      mentorPayload.append('bio', myMentorProfile.bio);
+      mentorPayload.append('preferred_topics', myMentorProfile.preferred_topics);
+      mentorPayload.append('availability_status', myMentorProfile.availability_status);
+      mentorPayload.append('max_members', String(maxMembers));
+      mentorPayload.append('post_status', myMentorProfile.post_status);
+      mentorPayload.append('is_active', '1');
+
+      if (mentorProofFile) {
+        mentorPayload.append('proof_file', mentorProofFile);
+      }
+
       await authenticatedFetch(API_ENDPOINTS.MENTORSHIP.MENTORS, {
         method: 'POST',
-        body: JSON.stringify(mentorPayload),
+        body: mentorPayload,
       });
       setHasMentorProfile(true);
       setMyMentorApprovalStatus('pending');
       setMyMentorApprovalNotes('');
       setShowMentorProfileForm(true);
+      setMentorProofFile(null);
       notify('success', 'Mentor profile submitted for dean approval. It will appear in Find Mentors after approval.', 'Mentorship');
       await fetchAll();
     } catch (error) {
@@ -1204,6 +1248,7 @@ export default function GraduatePortal() {
       setMyMentorApprovalStatus(null);
       setMyMentorApprovalNotes('');
       setMyMentorProfile({ ...defaultMentorProfile, contact_email: user?.email || '' });
+      setMentorProofFile(null);
 
       notify('success', 'Mentor profile deleted successfully.');
       await fetchAll(true);
@@ -1302,6 +1347,34 @@ export default function GraduatePortal() {
     }
   };
 
+  const handleDeleteJobPost = (id: number, title?: string) => {
+    setMsgBox({
+      isOpen: true,
+      type: 'confirm',
+      title: 'Delete Job Post',
+      message: `Delete ${title ? `"${title}"` : 'this job post'}? This will remove it from your posts and Browse Jobs.`,
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      onConfirm: async () => {
+        try {
+          await authenticatedFetch(API_ENDPOINTS.JOBS.POSTS, {
+            method: 'DELETE',
+            body: JSON.stringify({ id }),
+          });
+
+          if (myJobForm.id === id) {
+            closeJobPostForm();
+          }
+
+          notify('success', 'Job post deleted successfully.', 'Job Posting');
+          await fetchAll();
+        } catch (error) {
+          notify('error', error instanceof Error ? error.message : 'Unable to delete job post', 'Job Posting');
+        }
+      },
+    });
+  };
+
   const handleLogout = () => {
     setProfileMenuOpen(false);
     setMsgBox({
@@ -1321,6 +1394,22 @@ export default function GraduatePortal() {
   const handleMyProfileSave = async (e: FormEvent) => {
     e.preventDefault();
 
+    if (!profileIsEditing) {
+      return;
+    }
+
+    const changingPassword = profileForm.password.trim() !== '' || profileForm.confirm_password.trim() !== '';
+
+    if (changingPassword && !profileForm.current_password) {
+      notify('warning', 'Current password is required before changing your password.', 'Profile');
+      return;
+    }
+
+    if (changingPassword && !passwordPattern.test(profileForm.password)) {
+      notify('warning', passwordRequirementMessage, 'Profile');
+      return;
+    }
+
     if (profileForm.password !== profileForm.confirm_password) {
       notify('warning', 'Password and confirm password do not match.', 'Profile');
       return;
@@ -1334,7 +1423,8 @@ export default function GraduatePortal() {
     formData.append('phone', profileForm.phone.trim());
     formData.append('address', profileForm.address.trim());
 
-    if (profileForm.password.trim()) {
+    if (changingPassword) {
+      formData.append('current_password', profileForm.current_password);
       formData.append('password', profileForm.password);
     }
 
@@ -1352,14 +1442,21 @@ export default function GraduatePortal() {
       setProfileImageFile(null);
       setProfileForm((prev) => ({
         ...prev,
+        current_password: '',
         password: '',
         confirm_password: '',
       }));
+      setProfileIsEditing(false);
       notify('success', 'Profile updated successfully.', 'My Profile');
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to update profile', 'My Profile');
     }
   };
+
+  const profileEditableInputClass = `w-full px-3 py-2 border border-gray-300 rounded ${
+    profileIsEditing ? '' : 'bg-gray-50 text-gray-600 cursor-not-allowed'
+  }`;
+  const profileLockedInputClass = 'w-full px-3 py-2 border border-gray-300 rounded bg-gray-50 text-gray-600 cursor-not-allowed';
 
   const navItems: Array<{ key: PortalTab; label: string; icon: LucideIcon }> = [
     { key: 'mentors', label: 'Find Mentors', icon: Users },
@@ -1414,15 +1511,8 @@ export default function GraduatePortal() {
         <header className="bg-blue-900 text-white shadow sticky top-0 z-30 border-b-4 border-yellow-500">
           <div className="px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-3 sm:gap-4">
             <div className="flex items-center gap-3">
-              <button
-                onClick={() => setSidebarOpen((prev) => !prev)}
-                className="hidden lg:inline-flex p-2 rounded-lg bg-white/10 hover:bg-white/20"
-                aria-label="Toggle sidebar"
-              >
-                <Menu className="w-5 h-5" />
-              </button>
               <div>
-                <h1 className="text-lg font-bold sm:text-2xl">Graduate Ecosystem Portal</h1>
+                <h1 className="text-lg font-bold sm:text-2xl">Graduates Portal</h1>
                 <p className="text-blue-100 text-xs sm:text-sm">
                   Welcome, {user?.full_name}. Explore mentorship and career opportunities.
                 </p>
@@ -2159,9 +2249,21 @@ export default function GraduatePortal() {
 
             {activeTab === 'my_profile' && (
               <section className="space-y-5">
-                <div>
-                  <h2 className="text-2xl font-bold text-blue-900">My Profile</h2>
-                  <p className="text-sm text-gray-600">Manage your personal information and account settings.</p>
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <h2 className="text-2xl font-bold text-blue-900">My Profile</h2>
+                    <p className="text-sm text-gray-600">Manage your personal information and account settings.</p>
+                  </div>
+                  {!profileIsEditing && (
+                    <button
+                      type="button"
+                      onClick={() => setProfileIsEditing(true)}
+                      className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800"
+                    >
+                      <Pencil className="h-4 w-4" />
+                      Edit Profile
+                    </button>
+                  )}
                 </div>
 
                 <form onSubmit={handleMyProfileSave} className="space-y-4">
@@ -2180,8 +2282,14 @@ export default function GraduatePortal() {
                         ref={profileImageInputRef}
                         type="file"
                         accept="image/png,image/jpeg,image/webp,image/gif"
+                        disabled={!profileIsEditing}
                         className="hidden"
                         onChange={(e) => {
+                          if (!profileIsEditing) {
+                            e.target.value = '';
+                            return;
+                          }
+
                           const file = e.target.files?.[0] || null;
                           setProfileImageFile(file);
                           if (file) {
@@ -2193,8 +2301,13 @@ export default function GraduatePortal() {
                       />
                       <button
                         type="button"
-                        onClick={() => profileImageInputRef.current?.click()}
-                        className="w-full mt-3 px-3 py-2 rounded-lg border border-blue-200 text-blue-800 text-sm font-semibold hover:bg-blue-50"
+                        onClick={() => {
+                          if (profileIsEditing) {
+                            profileImageInputRef.current?.click();
+                          }
+                        }}
+                        disabled={!profileIsEditing}
+                        className="w-full mt-3 px-3 py-2 rounded-lg border border-blue-200 text-blue-800 text-sm font-semibold hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400 disabled:hover:bg-white"
                       >
                         {profileImageFile ? 'Change Selected Image' : 'Upload Profile Image'}
                       </button>
@@ -2206,24 +2319,27 @@ export default function GraduatePortal() {
                         <div>
                           <label className="block text-xs text-gray-500 mb-1">First Name</label>
                           <input
-                            className="w-full px-3 py-2 border border-gray-300 rounded"
+                            className={profileEditableInputClass}
                             value={profileForm.first_name}
+                            readOnly={!profileIsEditing}
                             onChange={(e) => setProfileForm((prev) => ({ ...prev, first_name: e.target.value }))}
                           />
                         </div>
                         <div>
                           <label className="block text-xs text-gray-500 mb-1">Middle Name</label>
                           <input
-                            className="w-full px-3 py-2 border border-gray-300 rounded"
+                            className={profileEditableInputClass}
                             value={profileForm.middle_name}
+                            readOnly={!profileIsEditing}
                             onChange={(e) => setProfileForm((prev) => ({ ...prev, middle_name: e.target.value }))}
                           />
                         </div>
                         <div>
                           <label className="block text-xs text-gray-500 mb-1">Last Name</label>
                           <input
-                            className="w-full px-3 py-2 border border-gray-300 rounded"
+                            className={profileEditableInputClass}
                             value={profileForm.last_name}
+                            readOnly={!profileIsEditing}
                             onChange={(e) => setProfileForm((prev) => ({ ...prev, last_name: e.target.value }))}
                           />
                         </div>
@@ -2234,57 +2350,57 @@ export default function GraduatePortal() {
                           <label className="block text-xs text-gray-500 mb-1">Email Address</label>
                           <input
                             type="email"
-                            className="w-full px-3 py-2 border border-gray-300 rounded"
+                            className={profileLockedInputClass}
                             value={profileForm.email}
-                            onChange={(e) => setProfileForm((prev) => ({ ...prev, email: e.target.value }))}
+                            readOnly
                           />
                         </div>
                         <div>
                           <label className="block text-xs text-gray-500 mb-1">Phone Number</label>
                           <input
-                            className="w-full px-3 py-2 border border-gray-300 rounded"
+                            className={profileEditableInputClass}
                             value={profileForm.phone}
+                            readOnly={!profileIsEditing}
                             onChange={(e) => setProfileForm((prev) => ({ ...prev, phone: e.target.value }))}
                           />
                         </div>
                       </div>
 
-                      <div className="mt-3">
-                        <label className="block text-xs text-gray-500 mb-1">Address</label>
-                        <input
-                          className="w-full px-3 py-2 border border-gray-300 rounded"
-                          value={profileForm.address}
-                          onChange={(e) => setProfileForm((prev) => ({ ...prev, address: e.target.value }))}
-                        />
-                      </div>
                     </div>
                   </div>
 
                   <div className="bg-white rounded-xl border border-gray-200 p-5">
                     <h3 className="text-base font-semibold text-blue-900 mb-3">Account Settings</h3>
-                    <div className="grid md:grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs text-gray-500 mb-1">New Password</label>
-                        <input
-                          type="password"
-                          className="w-full px-3 py-2 border border-gray-300 rounded"
-                          value={profileForm.password}
-                          onChange={(e) => setProfileForm((prev) => ({ ...prev, password: e.target.value }))}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-gray-500 mb-1">Confirm Password</label>
-                        <input
-                          type="password"
-                          className="w-full px-3 py-2 border border-gray-300 rounded"
-                          value={profileForm.confirm_password}
-                          onChange={(e) => setProfileForm((prev) => ({ ...prev, confirm_password: e.target.value }))}
-                        />
-                      </div>
+                    <div className="grid md:grid-cols-3 gap-3">
+                      <ProfilePasswordInput
+                        label="Current Password"
+                        value={profileForm.current_password}
+                        readOnly={!profileIsEditing}
+                        inputClassName={profileEditableInputClass}
+                        onChange={(value) => setProfileForm((prev) => ({ ...prev, current_password: value }))}
+                      />
+                      <ProfilePasswordInput
+                        label="New Password"
+                        value={profileForm.password}
+                        readOnly={!profileIsEditing}
+                        inputClassName={profileEditableInputClass}
+                        onChange={(value) => setProfileForm((prev) => ({ ...prev, password: value }))}
+                      />
+                      <ProfilePasswordInput
+                        label="Confirm Password"
+                        value={profileForm.confirm_password}
+                        readOnly={!profileIsEditing}
+                        inputClassName={profileEditableInputClass}
+                        onChange={(value) => setProfileForm((prev) => ({ ...prev, confirm_password: value }))}
+                      />
                     </div>
 
                     <div className="flex justify-end mt-4">
-                      <button type="submit" className="px-4 py-2 rounded-lg bg-blue-700 hover:bg-blue-800 text-white font-semibold">
+                      <button
+                        type="submit"
+                        disabled={!profileIsEditing}
+                        className="px-4 py-2 rounded-lg bg-blue-700 hover:bg-blue-800 text-white font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                      >
                         Save Changes
                       </button>
                     </div>
@@ -2461,6 +2577,70 @@ export default function GraduatePortal() {
                           value={myMentorProfile.preferred_topics}
                           onChange={(e) => setMyMentorProfile((prev) => ({ ...prev, preferred_topics: e.target.value }))}
                         />
+                      </div>
+
+                      <div className="rounded-xl border border-blue-100 bg-blue-50 p-4">
+                        <label className="block text-xs font-semibold text-blue-900 mb-1">Proof of Field Experience</label>
+                        <p className="text-sm text-blue-900">
+                          Upload a work ID, certificate, company proof, or field-related document for dean review.
+                        </p>
+                        <input
+                          ref={mentorProofInputRef}
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp,application/pdf"
+                          className="hidden"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0] || null;
+                            if (!file) {
+                              setMentorProofFile(null);
+                              return;
+                            }
+
+                            const allowedTypes = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'];
+                            if (!allowedTypes.includes(file.type)) {
+                              event.target.value = '';
+                              setMentorProofFile(null);
+                              notify('warning', 'Proof must be a JPG, PNG, WEBP, or PDF file.');
+                              return;
+                            }
+
+                            if (file.size > 5 * 1024 * 1024) {
+                              event.target.value = '';
+                              setMentorProofFile(null);
+                              notify('warning', 'Proof file must be 5 MB or smaller.');
+                              return;
+                            }
+
+                            setMentorProofFile(file);
+                          }}
+                        />
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => mentorProofInputRef.current?.click()}
+                            className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-100"
+                          >
+                            <FileText className="h-4 w-4" />
+                            {mentorProofFile ? 'Change Proof File' : 'Upload Proof File'}
+                          </button>
+                          {mentorProofFile && (
+                            <span className="text-sm font-medium text-blue-900">{mentorProofFile.name}</span>
+                          )}
+                          {!mentorProofFile && mentorProofUrl && (
+                            <a
+                              href={mentorProofUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-white px-4 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-100"
+                            >
+                              <FileText className="h-4 w-4" />
+                              View Current Proof
+                            </a>
+                          )}
+                        </div>
+                        <p className="mt-2 text-xs text-blue-700">
+                          Accepted: JPG, PNG, WEBP, or PDF up to 5 MB.
+                        </p>
                       </div>
 
                       <div>
@@ -2757,6 +2937,16 @@ export default function GraduatePortal() {
                     {myJobForm.id && (
                       <button
                         type="button"
+                        onClick={() => handleDeleteJobPost(myJobForm.id as number, myJobForm.title)}
+                        className="w-full border border-red-300 text-red-700 hover:bg-red-50 py-2 rounded-lg font-semibold"
+                      >
+                        Delete Job Post
+                      </button>
+                    )}
+
+                    {myJobForm.id && (
+                      <button
+                        type="button"
                         onClick={() => {
                           closeJobPostForm();
                         }}
@@ -2802,6 +2992,12 @@ export default function GraduatePortal() {
                               className="text-sm px-3 py-1.5 bg-gray-100 rounded hover:bg-gray-200 disabled:opacity-60 disabled:cursor-not-allowed"
                             >
                               Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteJobPost(job.id, job.title)}
+                              className="text-sm px-3 py-1.5 rounded border border-red-200 text-red-700 hover:bg-red-50"
+                            >
+                              Delete
                             </button>
                           </div>
                         </div>
@@ -2982,6 +3178,45 @@ export default function GraduatePortal() {
         confirmText={msgBox.confirmText}
         cancelText={msgBox.cancelText}
       />
+    </div>
+  );
+}
+
+function ProfilePasswordInput({
+  label,
+  value,
+  readOnly,
+  inputClassName,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  readOnly: boolean;
+  inputClassName: string;
+  onChange: (value: string) => void;
+}) {
+  const [showPassword, setShowPassword] = useState(false);
+
+  return (
+    <div>
+      <label className="block text-xs text-gray-500 mb-1">{label}</label>
+      <div className="relative">
+        <input
+          type={showPassword ? 'text' : 'password'}
+          className={`${inputClassName} pr-10`}
+          value={value}
+          readOnly={readOnly}
+          onChange={(event) => onChange(event.target.value)}
+        />
+        <button
+          type="button"
+          onClick={() => setShowPassword((current) => !current)}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 transition-colors hover:text-gray-600"
+          aria-label={showPassword ? 'Hide password' : 'Show password'}
+        >
+          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+        </button>
+      </div>
     </div>
   );
 }

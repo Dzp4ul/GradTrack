@@ -36,6 +36,148 @@ function gradtrack_table_exists(PDO $db, string $table): bool
         return (bool) $stmt->fetchColumn();
 }
 
+function gradtrack_mentor_request_data(): array
+{
+    $contentType = isset($_SERVER['CONTENT_TYPE']) ? strtolower((string) $_SERVER['CONTENT_TYPE']) : '';
+    if (strpos($contentType, 'multipart/form-data') !== false) {
+        return $_POST;
+    }
+
+    $raw = file_get_contents('php://input');
+    if ($raw === false || trim($raw) === '') {
+        return [];
+    }
+
+    $decoded = json_decode($raw, true);
+    return is_array($decoded) ? $decoded : [];
+}
+
+function gradtrack_mentor_upload_root(): string
+{
+    $base = realpath(__DIR__ . '/../../');
+    if ($base === false) {
+        throw new RuntimeException('Unable to resolve backend upload directory');
+    }
+
+    return $base . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'mentor-proofs';
+}
+
+function gradtrack_mentor_upload_relative_path(int $accountId, string $fileName): string
+{
+    return 'uploads/mentor-proofs/' . $accountId . '/' . $fileName;
+}
+
+function gradtrack_mentor_ensure_dir(string $dir): void
+{
+    if (!is_dir($dir)) {
+        mkdir($dir, 0755, true);
+    }
+}
+
+function gradtrack_mentor_sanitize_filename(string $name): string
+{
+    $safe = preg_replace('/[^a-zA-Z0-9._-]/', '_', $name);
+    return $safe ?: ('mentor_proof_' . time());
+}
+
+function gradtrack_mentor_remove_proof_file(?string $relativePath): void
+{
+    $relativePath = trim((string) $relativePath);
+    if ($relativePath === '' || strpos($relativePath, 'uploads/mentor-proofs/') !== 0) {
+        return;
+    }
+
+    $base = realpath(__DIR__ . '/../../');
+    if ($base === false) {
+        return;
+    }
+
+    $absolutePath = $base . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativePath);
+    if (is_file($absolutePath)) {
+        @unlink($absolutePath);
+    }
+
+    $dir = dirname($absolutePath);
+    if (is_dir($dir)) {
+        $remaining = array_diff(scandir($dir) ?: [], ['.', '..']);
+        if (empty($remaining)) {
+            @rmdir($dir);
+        }
+    }
+}
+
+function gradtrack_mentor_prepare_proof_file(array $file): array
+{
+    $errorCode = (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE);
+    if ($errorCode === UPLOAD_ERR_NO_FILE) {
+        throw new RuntimeException('Proof of field experience is required');
+    }
+    if ($errorCode !== UPLOAD_ERR_OK) {
+        throw new RuntimeException('Proof file upload failed');
+    }
+
+    $tmpPath = (string) ($file['tmp_name'] ?? '');
+    if ($tmpPath === '' || !is_uploaded_file($tmpPath)) {
+        throw new RuntimeException('Invalid uploaded proof file');
+    }
+
+    $fileSize = (int) ($file['size'] ?? 0);
+    $maxSizeBytes = 5 * 1024 * 1024;
+    if ($fileSize <= 0 || $fileSize > $maxSizeBytes) {
+        throw new RuntimeException('Proof file must be between 1 byte and 5 MB');
+    }
+
+    $finfo = new finfo(FILEINFO_MIME_TYPE);
+    $mimeType = $finfo->file($tmpPath) ?: 'application/octet-stream';
+    $allowedMimes = [
+        'image/jpeg',
+        'image/png',
+        'image/webp',
+        'application/pdf',
+    ];
+
+    if (!in_array($mimeType, $allowedMimes, true)) {
+        throw new RuntimeException('Unsupported proof file type. Allowed: JPG, PNG, WEBP, PDF');
+    }
+
+    $originalName = (string) ($file['name'] ?? 'mentor-proof');
+    $safeName = gradtrack_mentor_sanitize_filename($originalName);
+    $extension = strtolower((string) pathinfo($safeName, PATHINFO_EXTENSION));
+
+    return [
+        'tmp_path' => $tmpPath,
+        'original_name' => $originalName,
+        'extension' => $extension,
+        'mime_type' => $mimeType,
+        'file_size_bytes' => $fileSize,
+    ];
+}
+
+function gradtrack_mentor_store_prepared_proof_file(int $accountId, array $preparedFile, ?string $existingRelativePath): array
+{
+    $accountDir = gradtrack_mentor_upload_root() . DIRECTORY_SEPARATOR . $accountId;
+    gradtrack_mentor_ensure_dir($accountDir);
+
+    $storedName = uniqid('mentor_proof_', true);
+    if ($preparedFile['extension'] !== '') {
+        $storedName .= '.' . $preparedFile['extension'];
+    }
+
+    $destinationPath = $accountDir . DIRECTORY_SEPARATOR . $storedName;
+    if (!move_uploaded_file((string) $preparedFile['tmp_path'], $destinationPath)) {
+        throw new RuntimeException('Failed to save uploaded proof file');
+    }
+
+    gradtrack_mentor_remove_proof_file($existingRelativePath);
+
+    return [
+        'proof_file_path' => gradtrack_mentor_upload_relative_path($accountId, $storedName),
+        'proof_file_name' => (string) $preparedFile['original_name'],
+        'proof_mime_type' => (string) $preparedFile['mime_type'],
+        'proof_file_size_bytes' => (int) $preparedFile['file_size_bytes'],
+    ];
+}
+
 function gradtrack_ensure_mentor_schema(PDO $db): void
 {
     gradtrack_ensure_graduate_profile_image_table($db);
@@ -243,7 +385,13 @@ try {
     if ($method === 'POST') {
         $user = gradtrack_require_graduate_auth($db);
         gradtrack_require_feature_access($db, $user, 'mentor_registration');
-        $data = json_decode(file_get_contents('php://input'), true);
+        $data = gradtrack_mentor_request_data();
+        $proofFile = $_FILES['proof_file'] ?? ($_FILES['field_proof'] ?? null);
+        $preparedProofFile = null;
+
+        if (is_array($proofFile) && (int) ($proofFile['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+            $preparedProofFile = gradtrack_mentor_prepare_proof_file($proofFile);
+        }
 
         $currentJobTitle = isset($data['current_job_title']) ? trim((string) $data['current_job_title']) : null;
         $company = isset($data['company']) ? trim((string) $data['company']) : null;
@@ -256,7 +404,9 @@ try {
         $postStatus = isset($data['post_status']) ? strtolower(trim((string) $data['post_status'])) : 'open';
         $maxMembers = isset($data['max_members']) ? (int) $data['max_members'] : 5;
         $preferredTopics = isset($data['preferred_topics']) ? trim((string) $data['preferred_topics']) : null;
-        $isActive = isset($data['is_active']) ? (int) !!$data['is_active'] : 1;
+        $isActive = isset($data['is_active'])
+            ? (int) ((string) $data['is_active'] === '1' || strtolower((string) $data['is_active']) === 'true')
+            : 1;
 
         if ($availability === '') {
             $availability = 'Available: Saturday 2 PM - 5 PM';
@@ -274,7 +424,7 @@ try {
             $maxMembers = 100;
         }
 
-        $existingStmt = $db->prepare('SELECT id, graduate_account_id
+        $existingStmt = $db->prepare('SELECT id, graduate_account_id, proof_file_path
                                       FROM mentors
                                       WHERE graduate_account_id = :account_id
                                          OR graduate_id = :graduate_id
@@ -287,6 +437,13 @@ try {
             ':account_id_priority' => $user['account_id'],
         ]);
         $existing = $existingStmt->fetch(PDO::FETCH_ASSOC);
+        $existingProofPath = $existing['proof_file_path'] ?? null;
+
+        if ($preparedProofFile === null && empty($existingProofPath)) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Please upload proof that you are in this field']);
+            exit;
+        }
 
         if ($existing) {
             $mentorId = (int) $existing['id'];
@@ -349,6 +506,24 @@ try {
             $mentorId = (int) $db->lastInsertId();
         }
 
+        if ($preparedProofFile !== null) {
+            $proofMeta = gradtrack_mentor_store_prepared_proof_file((int) $user['account_id'], $preparedProofFile, $existingProofPath);
+            $proofStmt = $db->prepare("UPDATE mentors
+                                       SET proof_file_path = :proof_file_path,
+                                           proof_file_name = :proof_file_name,
+                                           proof_mime_type = :proof_mime_type,
+                                           proof_file_size_bytes = :proof_file_size_bytes,
+                                           proof_uploaded_at = NOW()
+                                       WHERE id = :id");
+            $proofStmt->execute([
+                ':proof_file_path' => $proofMeta['proof_file_path'],
+                ':proof_file_name' => $proofMeta['proof_file_name'],
+                ':proof_mime_type' => $proofMeta['proof_mime_type'],
+                ':proof_file_size_bytes' => $proofMeta['proof_file_size_bytes'],
+                ':id' => $mentorId,
+            ]);
+        }
+
         echo json_encode([
             'success' => true,
             'message' => 'Mentor profile submitted for approval',
@@ -361,7 +536,7 @@ try {
     if ($method === 'DELETE') {
         $user = gradtrack_require_graduate_auth($db);
 
-        $mentorStmt = $db->prepare('SELECT id FROM mentors WHERE graduate_account_id = :account_id LIMIT 1');
+        $mentorStmt = $db->prepare('SELECT id, proof_file_path FROM mentors WHERE graduate_account_id = :account_id LIMIT 1');
         $mentorStmt->execute([':account_id' => $user['account_id']]);
         $mentor = $mentorStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -375,6 +550,7 @@ try {
         }
 
         $mentorId = (int) $mentor['id'];
+        $proofPath = $mentor['proof_file_path'] ?? null;
 
         $db->beginTransaction();
         try {
@@ -412,6 +588,8 @@ try {
             }
             throw $e;
         }
+
+        gradtrack_mentor_remove_proof_file($proofPath);
 
         echo json_encode([
             'success' => true,

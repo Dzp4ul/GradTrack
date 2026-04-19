@@ -340,6 +340,8 @@ function gradtrack_moderation_fetch_mentors(PDO $db, array $reviewer, string $st
     $sql = "SELECT m.id, m.current_job_title, m.company, m.industry, m.skills, m.bio,
                    m.availability_status, m.preferred_topics, m.is_active, m.created_at,
                    m.approval_status, m.approval_reviewed_at, m.approval_notes,
+                   m.proof_file_path, m.proof_file_name, m.proof_mime_type,
+                   m.proof_file_size_bytes, m.proof_uploaded_at,
                    reviewer.full_name AS approval_reviewed_by_name,
                    g.first_name, g.middle_name, g.last_name, g.year_graduated,
                    ga.email AS contact_email,
@@ -365,6 +367,7 @@ function gradtrack_moderation_fetch_mentors(PDO $db, array $reviewer, string $st
         $row['id'] = (int) $row['id'];
         $row['is_active'] = (int) $row['is_active'];
         $row['year_graduated'] = $row['year_graduated'] !== null ? (int) $row['year_graduated'] : null;
+        $row['proof_file_size_bytes'] = $row['proof_file_size_bytes'] !== null ? (int) $row['proof_file_size_bytes'] : null;
     }
 
     return $rows;

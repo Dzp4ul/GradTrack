@@ -4,13 +4,14 @@ import {
   CheckCircle2,
   Clock3,
   Eye,
+  FileText,
   Loader2,
   Search,
   Users,
   XCircle,
 } from 'lucide-react';
 import MessageBox from '../../components/MessageBox';
-import { API_ENDPOINTS } from '../../config/api';
+import { API_BASE_URL, API_ENDPOINTS } from '../../config/api';
 
 type ApprovalStatus = 'pending' | 'approved' | 'declined';
 type MessageType = 'confirm' | 'success' | 'error' | 'info' | 'warning';
@@ -38,6 +39,11 @@ interface MentorApproval {
   bio?: string | null;
   preferred_topics?: string | null;
   availability_status?: string | null;
+  proof_file_path?: string | null;
+  proof_file_name?: string | null;
+  proof_mime_type?: string | null;
+  proof_file_size_bytes?: number | null;
+  proof_uploaded_at?: string | null;
   is_active: number;
   created_at?: string | null;
   approval_status: ApprovalStatus;
@@ -112,6 +118,12 @@ const statusIcons = {
   approved: CheckCircle2,
   declined: XCircle,
 };
+
+function resolveUploadUrl(path?: string | null) {
+  if (!path) return '';
+  if (/^https?:\/\//i.test(path)) return path;
+  return `${API_BASE_URL}/${path.replace(/^\/+/, '')}`;
+}
 
 interface EngagementApprovalsProps {
   mode: ItemType;
@@ -471,6 +483,7 @@ function MentorCard({
         <InfoRow label="Skills" value={mentor.skills} />
         <InfoRow label="Topics" value={mentor.preferred_topics} />
         <InfoRow label="Availability" value={mentor.availability_status} />
+        <ProofLink mentor={mentor} />
         {mentor.bio && <p className="whitespace-pre-line rounded-lg bg-gray-50 p-3 text-gray-600">{mentor.bio}</p>}
         <ReviewMeta item={mentor} />
       </div>
@@ -686,6 +699,7 @@ function ApprovalDetailModal({
               <InfoRow label="Skills" value={viewedApproval.item.skills} />
               <InfoRow label="Topics" value={viewedApproval.item.preferred_topics} />
               <InfoRow label="Availability" value={viewedApproval.item.availability_status} />
+              <ProofLink mentor={viewedApproval.item} />
               {viewedApproval.item.bio && (
                 <p className="whitespace-pre-line rounded-lg bg-gray-50 p-3 text-gray-600">{viewedApproval.item.bio}</p>
               )}
@@ -742,6 +756,41 @@ function ReviewMeta({ item }: { item: MentorApproval | JobApproval }) {
   );
 }
 
+function ProofLink({ mentor }: { mentor: MentorApproval }) {
+  const proofUrl = resolveUploadUrl(mentor.proof_file_path);
+
+  if (!proofUrl) {
+    return (
+      <p>
+        <span className="font-semibold text-gray-800">Field Proof:</span> -
+      </p>
+    );
+  }
+
+  return (
+    <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
+      <p className="font-semibold text-blue-900">Field Proof</p>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <a
+          href={proofUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-100"
+        >
+          <FileText className="h-4 w-4" />
+          {mentor.proof_file_name || 'View proof'}
+        </a>
+        {mentor.proof_file_size_bytes ? (
+          <span className="text-xs text-blue-700">{formatFileSize(mentor.proof_file_size_bytes)}</span>
+        ) : null}
+      </div>
+      {mentor.proof_uploaded_at && (
+        <p className="mt-1 text-xs text-blue-700">Uploaded: {formatDateTime(mentor.proof_uploaded_at)}</p>
+      )}
+    </div>
+  );
+}
+
 function InfoRow({ label, value }: { label: string; value?: string | number | null }) {
   const displayValue = value === null || value === undefined || String(value).trim() === '' ? '-' : String(value);
 
@@ -772,4 +821,11 @@ function formatDateTime(value?: string | null) {
   if (!value) return '';
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function formatFileSize(bytes?: number | null) {
+  if (!bytes || bytes <= 0) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }

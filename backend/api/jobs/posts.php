@@ -595,6 +595,59 @@ try {
         exit;
     }
 
+    if ($method === 'DELETE') {
+        $user = gradtrack_require_graduate_auth($db);
+        $data = gradtrack_jobs_request_data();
+
+        $jobId = isset($_GET['id']) ? (int) $_GET['id'] : (isset($data['id']) ? (int) $data['id'] : 0);
+        if ($jobId <= 0) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'id is required']);
+            exit;
+        }
+
+        $ownerStmt = $db->prepare('SELECT posted_by_account_id FROM job_posts WHERE id = :id');
+        $ownerStmt->bindParam(':id', $jobId);
+        $ownerStmt->execute();
+        $owner = $ownerStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$owner) {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'error' => 'Job post not found']);
+            exit;
+        }
+
+        if ((int) $owner['posted_by_account_id'] !== $user['account_id']) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'Only the poster can delete this job']);
+            exit;
+        }
+
+        try {
+            $db->beginTransaction();
+
+            $applicationsStmt = $db->prepare('DELETE FROM job_applications WHERE job_post_id = :id');
+            $applicationsStmt->bindParam(':id', $jobId);
+            $applicationsStmt->execute();
+
+            $deleteStmt = $db->prepare('DELETE FROM job_posts WHERE id = :id');
+            $deleteStmt->bindParam(':id', $jobId);
+            $deleteStmt->execute();
+
+            $db->commit();
+        } catch (Exception $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            throw $e;
+        }
+
+        gradtrack_jobs_cleanup_job_dir($jobId);
+
+        echo json_encode(['success' => true, 'message' => 'Job post deleted successfully']);
+        exit;
+    }
+
     http_response_code(405);
     echo json_encode(['success' => false, 'error' => 'Method not allowed']);
 } catch (Exception $e) {
