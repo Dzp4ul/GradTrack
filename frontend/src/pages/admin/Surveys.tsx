@@ -366,13 +366,6 @@ export default function Surveys() {
     });
   };
 
-  const removeQuestion = (index: number) => {
-    setFormData((prev) => ({
-      ...prev,
-      questions: prev.questions.filter((_, i) => i !== index),
-    }));
-  };
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -641,9 +634,6 @@ export default function Surveys() {
                                 )}
                               </div>
                               <div className="flex items-center gap-2">
-                                <button type="button" onClick={(e) => { e.stopPropagation(); removeQuestion(i); }} className="p-1.5 text-red-600 hover:bg-red-100 rounded transition">
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
                                 {expandedQ === i ? <ChevronUp className="w-5 h-5 text-gray-500" /> : <ChevronDown className="w-5 h-5 text-gray-500" />}
                               </div>
                             </div>
