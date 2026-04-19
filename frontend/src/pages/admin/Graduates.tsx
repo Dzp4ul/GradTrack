@@ -825,7 +825,7 @@ export default function Graduates() {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border">
-        <div className="flex items-center gap-1 px-4 pt-4 border-b overflow-x-auto">
+        <div className="flex items-center gap-1 px-4 pt-4 border-b overflow-x-auto overflow-y-hidden">
           {PROGRAM_OPTIONS.map((program) => (
             <button
               key={program.id}
@@ -841,7 +841,7 @@ export default function Graduates() {
           ))}
         </div>
 
-        <div className="flex items-center gap-1 px-4 pt-2 border-b overflow-x-auto">
+        <div className="flex items-center gap-1 px-4 pt-2 border-b overflow-x-auto overflow-y-hidden">
           <button
             onClick={() => { setFilterYear(''); setPage(1); }}
             className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px whitespace-nowrap ${
