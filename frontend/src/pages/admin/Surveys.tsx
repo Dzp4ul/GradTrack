@@ -41,10 +41,6 @@ const emptyForm: FormData = {
   title: '', description: '', status: 'draft', questions: [],
 };
 
-const emptyQuestion: Question = {
-  question_text: '', question_type: 'text', options: null, is_required: 1, sort_order: 0, section: '',
-};
-
 const statusStyle: Record<string, string> = {
   active: 'bg-green-100 text-green-700',
   inactive: 'bg-gray-100 text-gray-600',
@@ -362,13 +358,6 @@ export default function Surveys() {
     });
   };
 
-  const addQuestion = () => {
-    setFormData((prev) => ({
-      ...prev,
-      questions: [...prev.questions, { ...emptyQuestion, sort_order: prev.questions.length + 1 }],
-    }));
-  };
-
   const updateQuestion = (index: number, field: keyof Question, value: string | string[] | number | null) => {
     setFormData((prev) => {
       const questions = [...prev.questions];
@@ -612,11 +601,6 @@ export default function Surveys() {
                 <div className="border-t pt-6">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-lg font-bold text-blue-900">Questions ({getAnswerableQuestionCount(formData.questions)})</h3>
-                    <div className="flex gap-2">
-                      <button type="button" onClick={addQuestion} className="flex items-center gap-2 text-sm bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-2 rounded-lg font-semibold transition">
-                        <Plus className="w-4 h-4" /> Add Question
-                      </button>
-                    </div>
                   </div>
 
                   {/* Section Input Helper */}
