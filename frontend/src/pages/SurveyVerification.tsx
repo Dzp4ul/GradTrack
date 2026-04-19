@@ -18,6 +18,12 @@ interface SurveySummary {
 
 type VerificationMethod = 'student_number' | 'email';
 
+const formatStudentNumber = (value: string): string => {
+  const digits = value.replace(/\D/g, '').slice(0, 8);
+  if (digits.length <= 4) return digits;
+  return `${digits.slice(0, 4)}-${digits.slice(4)}`;
+};
+
 function SurveyVerification() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -96,6 +102,16 @@ function SurveyVerification() {
         type: 'warning',
         message: `Please enter your ${selectedIdentifierLabel}, last name, and program`,
         title: 'Required Fields'
+      });
+      return;
+    }
+
+    if (verificationMethod === 'student_number' && !/^\d{4}-\d{4}$/.test(selectedIdentifier)) {
+      setMsgBox({
+        isOpen: true,
+        type: 'warning',
+        message: 'Student No. must follow the format 4digits-4digits (e.g., 2XXX-XXXX).',
+        title: 'Invalid Student Number'
       });
       return;
     }
@@ -272,9 +288,13 @@ function SurveyVerification() {
               </label>
               <input
                 type="text"
+                inputMode="numeric"
                 value={studentNumber}
-                onChange={(e) => setStudentNumber(e.target.value)}
-                placeholder="e.g., 2020-12345"
+                onChange={(e) => setStudentNumber(formatStudentNumber(e.target.value))}
+                placeholder="2XXX-XXXX"
+                maxLength={9}
+                pattern="[0-9]{4}-[0-9]{4}"
+                title="Use this format: 2XXX-XXXX"
                 className={inputClass}
                 required
                 disabled={loading}

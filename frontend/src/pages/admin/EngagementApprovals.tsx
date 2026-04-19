@@ -99,6 +99,11 @@ type ViewedApproval =
   | { type: 'mentor'; item: MentorApproval }
   | { type: 'job'; item: JobApproval }
   | null;
+type ViewedProof = {
+  url: string;
+  name: string;
+  mimeType?: string | null;
+} | null;
 
 const statusOptions: Array<{ value: ApprovalStatus | 'all'; label: string }> = [
   { value: 'pending', label: 'Pending' },
@@ -135,6 +140,7 @@ export default function EngagementApprovals({ mode }: EngagementApprovalsProps) 
   const [loading, setLoading] = useState(true);
   const [approvingKey, setApprovingKey] = useState('');
   const [viewedApproval, setViewedApproval] = useState<ViewedApproval>(null);
+  const [viewedProof, setViewedProof] = useState<ViewedProof>(null);
   const [notesByItem, setNotesByItem] = useState<Record<string, string>>({});
   const [approvalData, setApprovalData] = useState<ApprovalResponse>({
     program_scope: [],
@@ -277,6 +283,17 @@ export default function EngagementApprovals({ mode }: EngagementApprovalsProps) 
     });
   };
 
+  const openProofPreview = (mentor: MentorApproval) => {
+    const url = resolveUploadUrl(mentor.proof_file_path);
+    if (!url) return;
+
+    setViewedProof({
+      url,
+      name: mentor.proof_file_name || 'Field proof',
+      mimeType: mentor.proof_mime_type || '',
+    });
+  };
+
   const scopeLabel = approvalData.can_review_all
     ? 'All programs'
     : approvalData.program_scope.length > 0
@@ -353,6 +370,7 @@ export default function EngagementApprovals({ mode }: EngagementApprovalsProps) 
                   approvingKey={approvingKey}
                   onNotesChange={(value) => setNotesByItem((prev) => ({ ...prev, [`mentor-${mentor.id}`]: value }))}
                   onView={() => setViewedApproval({ type: 'mentor', item: mentor })}
+                  onViewProof={() => openProofPreview(mentor)}
                   onReview={(approvalStatus) =>
                     confirmReview(
                       'mentor',
@@ -404,7 +422,15 @@ export default function EngagementApprovals({ mode }: EngagementApprovalsProps) 
       />
 
       {viewedApproval && (
-        <ApprovalDetailModal viewedApproval={viewedApproval} onClose={() => setViewedApproval(null)} />
+        <ApprovalDetailModal
+          viewedApproval={viewedApproval}
+          onClose={() => setViewedApproval(null)}
+          onViewProof={openProofPreview}
+        />
+      )}
+
+      {viewedProof && (
+        <ProofPreviewModal proof={viewedProof} onClose={() => setViewedProof(null)} />
       )}
     </div>
   );
@@ -456,6 +482,7 @@ function MentorCard({
   approvingKey,
   onNotesChange,
   onView,
+  onViewProof,
   onReview,
 }: {
   mentor: MentorApproval;
@@ -463,6 +490,7 @@ function MentorCard({
   approvingKey: string;
   onNotesChange: (value: string) => void;
   onView: () => void;
+  onViewProof: () => void;
   onReview: (status: ApprovalStatus) => void;
 }) {
   const name = `${mentor.first_name || ''} ${mentor.last_name || ''}`.trim() || 'Graduate';
@@ -483,7 +511,7 @@ function MentorCard({
         <InfoRow label="Skills" value={mentor.skills} />
         <InfoRow label="Topics" value={mentor.preferred_topics} />
         <InfoRow label="Availability" value={mentor.availability_status} />
-        <ProofLink mentor={mentor} />
+        <ProofLink mentor={mentor} onView={onViewProof} />
         {mentor.bio && <p className="whitespace-pre-line rounded-lg bg-gray-50 p-3 text-gray-600">{mentor.bio}</p>}
         <ReviewMeta item={mentor} />
       </div>
@@ -654,9 +682,11 @@ function ReviewControls({
 function ApprovalDetailModal({
   viewedApproval,
   onClose,
+  onViewProof,
 }: {
   viewedApproval: Exclude<ViewedApproval, null>;
   onClose: () => void;
+  onViewProof: (mentor: MentorApproval) => void;
 }) {
   const isMentor = viewedApproval.type === 'mentor';
   const item = viewedApproval.item;
@@ -699,7 +729,7 @@ function ApprovalDetailModal({
               <InfoRow label="Skills" value={viewedApproval.item.skills} />
               <InfoRow label="Topics" value={viewedApproval.item.preferred_topics} />
               <InfoRow label="Availability" value={viewedApproval.item.availability_status} />
-              <ProofLink mentor={viewedApproval.item} />
+              <ProofLink mentor={viewedApproval.item} onView={() => onViewProof(viewedApproval.item)} />
               {viewedApproval.item.bio && (
                 <p className="whitespace-pre-line rounded-lg bg-gray-50 p-3 text-gray-600">{viewedApproval.item.bio}</p>
               )}
@@ -756,7 +786,7 @@ function ReviewMeta({ item }: { item: MentorApproval | JobApproval }) {
   );
 }
 
-function ProofLink({ mentor }: { mentor: MentorApproval }) {
+function ProofLink({ mentor, onView }: { mentor: MentorApproval; onView: () => void }) {
   const proofUrl = resolveUploadUrl(mentor.proof_file_path);
 
   if (!proofUrl) {
@@ -771,15 +801,21 @@ function ProofLink({ mentor }: { mentor: MentorApproval }) {
     <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
       <p className="font-semibold text-blue-900">Field Proof</p>
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        <a
-          href={proofUrl}
-          target="_blank"
-          rel="noreferrer"
-          className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-100"
+        <span
+          className="inline-flex max-w-full items-center gap-2 rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-800"
+          title={mentor.proof_file_name || 'Field proof'}
         >
           <FileText className="h-4 w-4" />
-          {mentor.proof_file_name || 'View proof'}
-        </a>
+          <span className="truncate">{mentor.proof_file_name || 'Field proof'}</span>
+        </span>
+        <button
+          type="button"
+          onClick={onView}
+          className="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-800"
+        >
+          <Eye className="h-4 w-4" />
+          View
+        </button>
         {mentor.proof_file_size_bytes ? (
           <span className="text-xs text-blue-700">{formatFileSize(mentor.proof_file_size_bytes)}</span>
         ) : null}
@@ -787,6 +823,86 @@ function ProofLink({ mentor }: { mentor: MentorApproval }) {
       {mentor.proof_uploaded_at && (
         <p className="mt-1 text-xs text-blue-700">Uploaded: {formatDateTime(mentor.proof_uploaded_at)}</p>
       )}
+    </div>
+  );
+}
+
+function ProofPreviewModal({
+  proof,
+  onClose,
+}: {
+  proof: Exclude<ViewedProof, null>;
+  onClose: () => void;
+}) {
+  const mimeType = (proof.mimeType || '').toLowerCase();
+  const lowerName = proof.name.toLowerCase();
+  const isImage = mimeType.startsWith('image/') || /\.(jpg|jpeg|png|webp)$/.test(lowerName);
+  const isPdf = mimeType === 'application/pdf' || lowerName.endsWith('.pdf');
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 px-4 py-6"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <div
+        className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="proof-preview-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4 border-b px-5 py-4">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold uppercase text-blue-700">Field Proof Preview</p>
+            <h2 id="proof-preview-title" className="mt-1 truncate text-lg font-bold text-[#1b2a4a]">
+              {proof.name}
+            </h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700"
+            aria-label="Close proof preview"
+          >
+            <XCircle className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="overflow-auto bg-gray-50 p-4">
+          {isImage ? (
+            <img
+              src={proof.url}
+              alt={proof.name}
+              className="mx-auto max-h-[72vh] w-full object-contain"
+            />
+          ) : isPdf ? (
+            <iframe
+              src={proof.url}
+              title={proof.name}
+              className="h-[72vh] w-full rounded border border-gray-200 bg-white"
+            />
+          ) : (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              This file type cannot be previewed in the approval screen.
+            </div>
+          )}
+        </div>
+
+        <div className="border-t bg-white px-5 py-4 text-right">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800"
+          >
+            Close
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
