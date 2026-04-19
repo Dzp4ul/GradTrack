@@ -293,9 +293,7 @@ function gradtrack_send_mentee_session_details_email(PDO $db, int $requestId): a
         $meetingLink = gradtrack_mail_clean_text($row['meeting_link'] ?? '');
         $meetingLocation = gradtrack_mail_clean_text($row['meeting_location'] ?? '');
         $sessionNotes = gradtrack_mail_clean_text($row['session_notes'] ?? '');
-        $topic = gradtrack_mail_clean_text($row['topic'] ?? '');
         $reasonForRequest = gradtrack_mail_clean_text($row['reason_for_request'] ?? '');
-        $preferredSchedule = gradtrack_mail_clean_text($row['preferred_schedule'] ?? '');
         $requestMessage = gradtrack_mail_clean_text($row['request_message'] ?? '');
         $mentorJobTitle = gradtrack_mail_clean_text($row['mentor_job_title'] ?? '');
         $mentorCompany = gradtrack_mail_clean_text($row['mentor_company'] ?? '');
@@ -312,9 +310,7 @@ function gradtrack_send_mentee_session_details_email(PDO $db, int $requestId): a
         $safeMeetingLink = gradtrack_mail_escape($meetingLink !== '' ? $meetingLink : 'N/A');
         $safeMeetingLocation = gradtrack_mail_escape($meetingLocation !== '' ? $meetingLocation : 'N/A');
         $safeNotes = gradtrack_mail_escape($sessionNotes !== '' ? $sessionNotes : 'N/A');
-        $safeTopic = gradtrack_mail_escape($topic !== '' ? $topic : 'N/A');
         $safeReason = gradtrack_mail_escape($reasonForRequest !== '' ? $reasonForRequest : 'N/A');
-        $safePreferred = gradtrack_mail_escape($preferredSchedule !== '' ? $preferredSchedule : 'N/A');
         $safeRequestMessage = gradtrack_mail_escape($requestMessage !== '' ? $requestMessage : 'N/A');
         $safeDashboardLink = gradtrack_mail_escape($dashboardLink);
 
@@ -345,9 +341,7 @@ function gradtrack_send_mentee_session_details_email(PDO $db, int $requestId): a
                                     <tr><td style="padding:10px 12px;background:#f7f9fc;font-weight:700;">Meeting Link</td><td style="padding:10px 12px;word-break:break-all;">{$safeMeetingLink}</td></tr>
                                     <tr><td style="padding:10px 12px;background:#f7f9fc;font-weight:700;">Meeting Location</td><td style="padding:10px 12px;">{$safeMeetingLocation}</td></tr>
                                     <tr><td style="padding:10px 12px;background:#f7f9fc;font-weight:700;">Session Notes</td><td style="padding:10px 12px;">{$safeNotes}</td></tr>
-                                    <tr><td style="padding:10px 12px;background:#f7f9fc;font-weight:700;">Topic</td><td style="padding:10px 12px;">{$safeTopic}</td></tr>
                                     <tr><td style="padding:10px 12px;background:#f7f9fc;font-weight:700;">Reason for Request</td><td style="padding:10px 12px;">{$safeReason}</td></tr>
-                                    <tr><td style="padding:10px 12px;background:#f7f9fc;font-weight:700;">Preferred Schedule</td><td style="padding:10px 12px;">{$safePreferred}</td></tr>
                                     <tr><td style="padding:10px 12px;background:#f7f9fc;font-weight:700;">Your Request Message</td><td style="padding:10px 12px;">{$safeRequestMessage}</td></tr>
                                 </table>
                                 <p style="margin:14px 0 0;font-size:12px;line-height:1.6;color:#7b8798;">View details in portal:<br><a href="{$safeDashboardLink}" style="color:#173b80;word-break:break-all;">{$safeDashboardLink}</a></p>
@@ -369,9 +363,7 @@ HTML;
                 . "Meeting Link: " . ($meetingLink !== '' ? $meetingLink : 'N/A') . "\n"
                 . "Meeting Location: " . ($meetingLocation !== '' ? $meetingLocation : 'N/A') . "\n"
                 . "Session Notes: " . ($sessionNotes !== '' ? $sessionNotes : 'N/A') . "\n"
-                . "Topic: " . ($topic !== '' ? $topic : 'N/A') . "\n"
                 . "Reason for Request: " . ($reasonForRequest !== '' ? $reasonForRequest : 'N/A') . "\n"
-                . "Preferred Schedule: " . ($preferredSchedule !== '' ? $preferredSchedule : 'N/A') . "\n"
                 . "Your Request Message: " . ($requestMessage !== '' ? $requestMessage : 'N/A') . "\n"
                 . "Portal link: {$dashboardLink}\n\n"
                 . "Thank you,\nGRADTRACK";
