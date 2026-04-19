@@ -1565,9 +1565,12 @@ function buildReasonRelationTable($number, $title, $program, $records, $question
     $employedRecords = array_values(array_filter($programRecords, function ($record) use ($questionIds) {
         return getRecordEmploymentStatus($record, $questionIds) === true;
     }));
-    $stayingCounts = countCategoriesForProgram($records, $program, $questionIds['staying_reason'], $categories);
+    $employedFilter = function ($record) use ($questionIds) {
+        return getRecordEmploymentStatus($record, $questionIds) === true;
+    };
+    $stayingCounts = countCategoriesForProgram($records, $program, $questionIds['staying_reason'], $categories, $employedFilter);
     $acceptingCounts = countCategoriesForProgram($records, $program, null, $categories);
-    $changingCounts = countCategoriesForProgram($records, $program, $questionIds['changing_reason'], $categories);
+    $changingCounts = countCategoriesForProgram($records, $program, $questionIds['changing_reason'], $categories, $employedFilter);
 
     $rows = [];
     foreach ($categories as $category) {
