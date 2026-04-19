@@ -247,27 +247,221 @@ function normalizeReportType(string $type): string
     return in_array($type, $allowed, true) ? $type : 'overview';
 }
 
-function buildTypeSpecificPrompt(string $type, string $year, string $department, string $dataContext): string
+function formatAnalyticsValue($value): string
 {
-    $filterContext = "Filters applied - Year: {$year}, Department: {$department}.";
+    if ($value === null || $value === '') {
+        return 'not available';
+    }
+
+    if (is_bool($value)) {
+        return $value ? 'true' : 'false';
+    }
+
+    if (is_numeric($value)) {
+        $number = (float)$value;
+        if (floor($number) === $number) {
+            return (string)((int)$number);
+        }
+
+        return rtrim(rtrim(number_format($number, 2, '.', ''), '0'), '.');
+    }
+
+    return trim((string)$value);
+}
+
+function analyticsIntValue(array $data, string $key): int
+{
+    $value = $data[$key] ?? 0;
+    return is_numeric($value) ? (int)$value : 0;
+}
+
+function analyticsLabelValue(array $data, array $keys, string $fallback): string
+{
+    foreach ($keys as $key) {
+        if (isset($data[$key]) && trim((string)$data[$key]) !== '') {
+            return trim((string)$data[$key]);
+        }
+    }
+
+    return $fallback;
+}
+
+function buildProgramCountParts(array $programRows): array
+{
+    $parts = [];
+    foreach ($programRows as $index => $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        $label = analyticsLabelValue($row, ['code', 'name'], 'Program ' . ((int)$index + 1));
+        $total = analyticsIntValue($row, 'total_graduates');
+        $employed = analyticsIntValue($row, 'employed');
+        $notEmployed = max($total - $employed, 0);
+        $aligned = analyticsIntValue($row, 'aligned');
+        $partiallyAligned = analyticsIntValue($row, 'partially_aligned');
+        $notAligned = analyticsIntValue($row, 'not_aligned');
+
+        $parts[] = "{$label} - total {$total}, employed {$employed}, not employed {$notEmployed}, aligned {$aligned}, partially aligned {$partiallyAligned}, not aligned {$notAligned}";
+    }
+
+    return $parts;
+}
+
+function buildObservedDataSummary(string $type, $reportData): string
+{
+    if (!is_array($reportData) || $reportData === []) {
+        return 'Observed data counts: no report data is available for the selected filters.';
+    }
+
+    if ($type === 'overview') {
+        $overview = isset($reportData['overview']) && is_array($reportData['overview'])
+            ? $reportData['overview']
+            : $reportData;
+        $programRows = isset($reportData['by_program']) && is_array($reportData['by_program'])
+            ? $reportData['by_program']
+            : [];
+
+        $total = analyticsIntValue($overview, 'total_graduates');
+        $surveyResponses = analyticsIntValue($overview, 'total_survey_responses');
+        $employed = analyticsIntValue($overview, 'total_employed');
+        $unemployed = analyticsIntValue($overview, 'total_unemployed');
+        $employmentKnown = analyticsIntValue($overview, 'total_employment_known');
+        $local = analyticsIntValue($overview, 'total_employed_local');
+        $abroad = analyticsIntValue($overview, 'total_employed_abroad');
+        $aligned = analyticsIntValue($overview, 'total_aligned');
+        $unknown = max($total - ($employmentKnown > 0 ? $employmentKnown : ($employed + $unemployed)), 0);
+
+        $summary = 'Observed data counts: '
+            . "total graduate responses {$total}; "
+            . "survey responses {$surveyResponses}; "
+            . "employment known {$employmentKnown}; "
+            . "employed {$employed}; "
+            . "unemployed {$unemployed}; "
+            . "employment unknown {$unknown}; "
+            . "employed local {$local}; "
+            . "employed abroad {$abroad}; "
+            . "aligned {$aligned}; "
+            . 'employment rate ' . formatAnalyticsValue($overview['employment_rate'] ?? 0) . ' percent; '
+            . 'alignment rate ' . formatAnalyticsValue($overview['alignment_rate'] ?? 0) . ' percent.';
+
+        $programParts = buildProgramCountParts($programRows);
+        if ($programParts !== []) {
+            $summary .= "\n\nProgram counts in the same dataset: " . implode('; ', $programParts) . '.';
+        }
+
+        return $summary;
+    }
 
     if ($type === 'by_program') {
-        return "Analyze this graduate outcomes dataset grouped by program. {$filterContext} Focus on high and low performing programs, employment-alignment gaps, and practical actions per program. Keep it descriptive and concise in 3-4 paragraphs. Data: {$dataContext}";
+        $programParts = buildProgramCountParts($reportData);
+        return $programParts === []
+            ? 'Observed program counts: no program rows are available for the selected filters.'
+            : 'Observed program counts: ' . implode('; ', $programParts) . '.';
     }
 
     if ($type === 'by_year') {
-        return "Analyze this year-based graduate outcomes dataset. {$filterContext} Highlight trends over time, possible shifts in employment/alignment, and operational recommendations for college leadership. Keep it descriptive and concise in 3-4 paragraphs. Data: {$dataContext}";
+        $parts = [];
+        foreach ($reportData as $index => $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $label = analyticsLabelValue($row, ['year_graduated'], 'Year ' . ((int)$index + 1));
+            $total = analyticsIntValue($row, 'total_graduates');
+            $employed = analyticsIntValue($row, 'employed');
+            $notEmployed = max($total - $employed, 0);
+            $aligned = analyticsIntValue($row, 'aligned');
+            $parts[] = "{$label} - total {$total}, employed {$employed}, not employed {$notEmployed}, aligned {$aligned}";
+        }
+
+        return $parts === []
+            ? 'Observed year counts: no year rows are available for the selected filters.'
+            : 'Observed year counts: ' . implode('; ', $parts) . '.';
     }
 
     if ($type === 'employment_status') {
-        return "Analyze this employment status distribution dataset. {$filterContext} Explain local vs abroad vs unemployed distribution, implications for career services, and targeted intervention ideas. Keep it descriptive and concise in 3-4 paragraphs. Data: {$dataContext}";
+        $statusRows = isset($reportData['statuses']) && is_array($reportData['statuses'])
+            ? $reportData['statuses']
+            : $reportData;
+        $parts = [];
+        $total = 0;
+        foreach ($statusRows as $index => $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $label = analyticsLabelValue($row, ['employment_status'], 'Status ' . ((int)$index + 1));
+            $count = analyticsIntValue($row, 'count');
+            $total += $count;
+            $parts[] = "{$label} {$count}";
+        }
+
+        $summary = $parts === []
+            ? 'Observed employment status counts: no status rows are available for the selected filters.'
+            : 'Observed employment status counts: ' . implode('; ', $parts) . "; total classified {$total}.";
+
+        if (isset($reportData['summary']) && is_array($reportData['summary'])) {
+            $summary .= ' Summary counts: total employed ' . analyticsIntValue($reportData['summary'], 'total_employed')
+                . ', local ' . analyticsIntValue($reportData['summary'], 'local_count')
+                . ', abroad ' . analyticsIntValue($reportData['summary'], 'abroad_count')
+                . ', unemployed ' . analyticsIntValue($reportData['summary'], 'unemployed_count') . '.';
+        }
+
+        return $summary;
     }
 
     if ($type === 'salary_distribution') {
-        return "Analyze this graduate salary distribution dataset. {$filterContext} Explain dominant salary brackets, likely early-career positioning, and actionable suggestions for improving earning outcomes. Keep it descriptive and concise in 3-4 paragraphs. Data: {$dataContext}";
+        $salaryRows = isset($reportData['salary_buckets']) && is_array($reportData['salary_buckets'])
+            ? $reportData['salary_buckets']
+            : $reportData;
+        $parts = [];
+        $total = 0;
+        foreach ($salaryRows as $index => $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+
+            $label = analyticsLabelValue($row, ['salary_range'], 'Salary range ' . ((int)$index + 1));
+            $count = analyticsIntValue($row, 'count');
+            $total += $count;
+            $parts[] = "{$label} {$count}";
+        }
+
+        $classifiedTotal = isset($reportData['summary']) && is_array($reportData['summary'])
+            ? analyticsIntValue($reportData['summary'], 'total_classified')
+            : $total;
+
+        return $parts === []
+            ? 'Observed salary counts: no salary rows are available for the selected filters.'
+            : 'Observed salary counts: ' . implode('; ', $parts) . "; total classified {$classifiedTotal}.";
     }
 
-    return "Analyze this graduate employment overview dataset and provide a comprehensive narrative summary in 3-4 paragraphs. {$filterContext} Focus on key patterns, interpretation, and actionable insights for educational administrators. Data: {$dataContext}";
+    return 'Observed data counts: ' . json_encode($reportData, JSON_UNESCAPED_UNICODE);
+}
+
+function buildTypeSpecificPrompt(string $type, string $year, string $department, string $dataContext): string
+{
+    $filterContext = "Filters applied - Year: {$year}, Department: {$department}.";
+    $descriptionRules = "Only describe the data that is present. Include exact counts and percentages for every metric, category, and row in the provided data. Do not give recommendations, suggestions, action items, interventions, advice, strategies, next steps, or improvement ideas. Do not predict future outcomes. Keep the wording observational and descriptive.";
+
+    if ($type === 'by_program') {
+        return "Describe this graduate outcomes dataset grouped by program. {$filterContext} {$descriptionRules} Compare the listed programs using their exact totals, employed counts, not-employed counts, and alignment counts. Keep it clear in 2-4 concise paragraphs. Data: {$dataContext}";
+    }
+
+    if ($type === 'by_year') {
+        return "Describe this year-based graduate outcomes dataset. {$filterContext} {$descriptionRules} State each year shown and compare the exact total, employed, not-employed, and aligned counts. Keep it clear in 2-4 concise paragraphs. Data: {$dataContext}";
+    }
+
+    if ($type === 'employment_status') {
+        return "Describe this employment status distribution dataset. {$filterContext} {$descriptionRules} State the exact counts for local employed, abroad employed, unemployed, total employed, and total classified where available. Keep it clear in 2-4 concise paragraphs. Data: {$dataContext}";
+    }
+
+    if ($type === 'salary_distribution') {
+        return "Describe this graduate salary distribution dataset. {$filterContext} {$descriptionRules} State every salary bracket and its exact count, including zero-count brackets. Keep it clear in 2-4 concise paragraphs. Data: {$dataContext}";
+    }
+
+    return "Describe this graduate employment overview dataset. {$filterContext} {$descriptionRules} State all overview metrics exactly, including total responses, employed, unemployed, local, abroad, aligned, employment rate, and alignment rate. Keep it clear in 2-4 concise paragraphs. Data: {$dataContext}";
 }
 
 function normalizeToParagraphs(string $text): string
@@ -287,6 +481,31 @@ function normalizeToParagraphs(string $text): string
     $normalized = preg_replace('/\n{3,}/', "\n\n", $normalized) ?? $normalized;
 
     return trim($normalized);
+}
+
+function removeAdvisorySentences(string $text): string
+{
+    $advisoryPattern = '/\b(recommend|recommendation|suggest|suggestion|should|must|need to|needs to|actionable|action item|next step|intervention|strategy|strategies|improve|improvement|enhance|consider|advice|advise)\b/i';
+    $paragraphs = preg_split('/\n{2,}/', trim($text)) ?: [];
+    $cleanParagraphs = [];
+
+    foreach ($paragraphs as $paragraph) {
+        $sentences = preg_split('/(?<=[.!?])\s+/', trim($paragraph)) ?: [];
+        $keptSentences = [];
+        foreach ($sentences as $sentence) {
+            $sentence = trim($sentence);
+            if ($sentence === '' || preg_match($advisoryPattern, $sentence)) {
+                continue;
+            }
+            $keptSentences[] = $sentence;
+        }
+
+        if ($keptSentences !== []) {
+            $cleanParagraphs[] = implode(' ', $keptSentences);
+        }
+    }
+
+    return trim(implode("\n\n", $cleanParagraphs));
 }
 
 try {
@@ -310,11 +529,14 @@ try {
         $reportData = [];
     }
 
+    $observedDataSummary = buildObservedDataSummary($reportType, $reportData);
+
     $dataContext = json_encode([
         'report_type' => $reportType,
         'survey_id' => $selectedSurveyId,
         'selected_year' => $selectedYear,
         'selected_department' => $selectedDepartment,
+        'observed_data_counts' => $observedDataSummary,
         'report_data' => $reportData,
     ], JSON_UNESCAPED_UNICODE);
     
@@ -348,11 +570,11 @@ try {
         curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
             'model' => $model,
             'messages' => [
-                ['role' => 'system', 'content' => 'You are an expert data analyst specializing in graduate employment outcomes and educational analytics. Return plain text only: no markdown, no headings, no bullets, no numbered lists, and no special formatting. Write 3 to 4 concise paragraphs.'],
+                ['role' => 'system', 'content' => 'You are a descriptive data analyst for graduate employment outcomes. Describe only what is visible in the supplied data, using exact counts and percentages. Do not provide recommendations, suggestions, action items, interventions, advice, strategies, next steps, or improvement ideas. Do not predict future results. Return plain text only: no markdown, no headings, no bullets, no numbered lists, and no special formatting. Write 2 to 4 concise paragraphs.'],
                 ['role' => 'user', 'content' => $prompt]
             ],
-            'temperature' => 0.7,
-            'max_tokens' => 700
+            'temperature' => 0.2,
+            'max_tokens' => 1100
         ]));
 
         $attemptResponse = curl_exec($ch);
@@ -384,7 +606,11 @@ try {
         throw new Exception('Groq AI request failed (HTTP ' . (int)$httpCode . '). ' . $errorPreview);
     }
 
-    $aiAnalysis = normalizeToParagraphs($aiAnalysis);
+    $aiAnalysis = removeAdvisorySentences(normalizeToParagraphs($aiAnalysis));
+    if ($aiAnalysis === '') {
+        $aiAnalysis = 'The selected analytics data is described by the observed counts above.';
+    }
+    $aiAnalysis = $observedDataSummary . "\n\n" . $aiAnalysis;
 
     $responseData = [
         'report_type' => $reportType,

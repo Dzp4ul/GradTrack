@@ -1182,7 +1182,7 @@ export default function Reports() {
     if (aiSummaryLines.length > 0) {
       pdf.addPage();
       pdf.setFontSize(16);
-      pdf.text('Executive Insights', marginLeft, 48);
+      pdf.text('Descriptive Analytics', marginLeft, 48);
       pdf.setFontSize(10);
       const executiveDescription = pdf.splitTextToSize(sectionDescriptions.executive, pageWidth - 80);
       pdf.text(executiveDescription, marginLeft, 70);
@@ -1321,7 +1321,7 @@ export default function Reports() {
           {aiLoading ? (
             <div className="flex items-center gap-3 py-8">
               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-600" />
-              <span className="text-sm text-gray-600">Generating AI insights...</span>
+              <span className="text-sm text-gray-600">Generating descriptive analytics...</span>
             </div>
           ) : (
             <div className="space-y-3 text-sm text-gray-700 leading-relaxed">
@@ -1368,7 +1368,7 @@ export default function Reports() {
         <div>
           <h1 className="text-2xl font-bold text-[#1b2a4a]">Reports & Analytics</h1>
           <p className="text-sm text-gray-500">
-            {selectedSurvey ? `Viewing analytics for ${selectedSurvey.title}` : 'Graduate employment data insights'}
+            {selectedSurvey ? `Viewing analytics for ${selectedSurvey.title}` : 'Graduate employment data counts'}
           </p>
         </div>
         <div className="flex w-full flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center lg:w-auto lg:justify-end">
@@ -2881,20 +2881,20 @@ function buildPdfSectionDescriptions(
   }, null);
 
   return {
-    cover: `This formal tracer report summarizes graduate outcomes for ${departmentLabel}, covering ${yearLabel}. It consolidates participation, employability, alignment, and salary indicators so administrators can interpret workforce readiness and curriculum relevance using one coherent evidence set.`,
-    executive: `The executive interpretation on this page synthesizes observed outcomes into strategic meaning. It highlights performance strengths, identifies potential intervention areas, and frames decisions that can improve graduate employability, alignment, and long-term department competitiveness.`,
+    cover: `This formal tracer report summarizes graduate outcomes for ${departmentLabel}, covering ${yearLabel}. It consolidates participation, employability, alignment, and salary indicators in one evidence set.`,
+    executive: `This page describes the observed counts and percentages from the selected analytics data. It focuses only on the visible totals, distributions, and category differences.`,
     overview: overview
       ? `The overview indicates ${overview.total_graduates} traced graduates with ${overview.total_employed} employed and ${overview.total_aligned} aligned to their field. This corresponds to an employment rate of ${overview.employment_rate}% and an alignment rate of ${overview.alignment_rate}%, providing a baseline view of current department-level outcomes.`
-      : `The overview section provides a consolidated snapshot of traced graduates, employed graduates, and alignment outcomes. This page should be interpreted as the baseline performance profile for the selected department and year scope.`,
+      : `The overview section provides a consolidated snapshot of traced graduates, employed graduates, and alignment outcomes for the selected department and year scope.`,
     program: topProgram
-      ? `Program-level comparisons show where employability outcomes are strongest within the selected scope. In this export, ${topProgram.code} records the highest employed count (${topProgram.employed}) among listed programs, helping pinpoint high-performing pathways and identify programs that may require targeted support.`
-      : `Program-level comparisons in this section are used to identify which programs perform best in employment and alignment, and which programs may need curriculum enhancement or stronger employer linkage interventions.`,
+      ? `Program-level comparisons show the graduate totals, employed counts, and alignment counts within the selected scope. In this export, ${topProgram.code} records the highest employed count (${topProgram.employed}) among listed programs.`
+      : `Program-level comparisons in this section list each program by graduate total, employed count, and alignment count.`,
     year: highestYear
-      ? `Yearly trend analysis reflects changes in graduate outcomes across time. The highest employed count in this scope appears in ${highestYear.year_graduated} (${highestYear.employed} employed), allowing reviewers to assess whether employment momentum is improving, stable, or declining across cohorts.`
-      : `Yearly trend analysis is presented to evaluate the direction of employability and alignment over time and to support year-specific policy and curriculum planning decisions.`,
-    employment: `Employment-status analysis shows ${localCount} locally employed graduates, ${abroadCount} employed abroad, and ${unemployedCount} unemployed. This distribution clarifies labor-market absorption patterns and can guide placement strategies, industry collaboration, and graduate support programming.`,
+      ? `Yearly analysis lists graduate outcomes across time. The highest employed count in this scope appears in ${highestYear.year_graduated} with ${highestYear.employed} employed graduates.`
+      : `Yearly analysis lists employability and alignment counts across available graduation years.`,
+    employment: `Employment-status analysis shows ${localCount} locally employed graduates, ${abroadCount} employed abroad, and ${unemployedCount} unemployed. This distribution describes the local, abroad, and unemployed categories in the selected data.`,
     salary: topSalaryRange
-      ? `Salary-distribution results indicate ${totalSalarySamples} recorded salary responses, with the largest concentration in '${topSalaryRange.salary_range}' (${topSalaryRange.count} graduates). This pattern helps assess economic mobility and the market value of graduate skills.`
-      : `Salary-distribution analysis summarizes compensation outcomes across reported income brackets and supports evaluation of graduate earning trajectories and market alignment.`,
+      ? `Salary-distribution results indicate ${totalSalarySamples} recorded salary responses, with the largest concentration in '${topSalaryRange.salary_range}' (${topSalaryRange.count} graduates).`
+      : `Salary-distribution analysis summarizes compensation outcomes across reported income brackets.`,
   };
 }
