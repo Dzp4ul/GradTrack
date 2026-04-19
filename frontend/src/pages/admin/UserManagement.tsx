@@ -37,7 +37,7 @@ const roleOptions = [
   { value: 'super_admin', label: 'Super Admin' },
   { value: 'admin', label: 'Admin' },
   { value: 'registrar', label: 'Registrar' },
-  { value: 'dean_cs', label: 'Dean - CS' },
+  { value: 'dean_cs', label: 'Dean-CCS' },
   { value: 'dean_coed', label: 'Dean - COED' },
   { value: 'dean_hm', label: 'Dean - HM' },
 ];
@@ -46,7 +46,7 @@ const roleLabels: Record<string, string> = {
   super_admin: 'Super Admin',
   admin: 'Admin',
   registrar: 'Registrar',
-  dean_cs: 'Dean - CS',
+  dean_cs: 'Dean-CCS',
   dean_coed: 'Dean - COED',
   dean_hm: 'Dean - HM',
 };
