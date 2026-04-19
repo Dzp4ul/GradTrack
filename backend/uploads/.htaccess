@@ -1,0 +1,9 @@
+# Uploaded proof files are previewed from the React admin app during review.
+# The backend root sets X-Frame-Options: SAMEORIGIN, which blocks PDFs when
+# the frontend runs on a different local dev port such as localhost:5173.
+<IfModule mod_headers.c>
+    Header unset X-Frame-Options
+    Header always unset X-Frame-Options
+</IfModule>
+
+Options -Indexes

@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   Clock3,
   Eye,
+  ExternalLink,
   FileText,
   Loader2,
   Search,
@@ -893,7 +894,16 @@ function ProofPreviewModal({
           )}
         </div>
 
-        <div className="border-t bg-white px-5 py-4 text-right">
+        <div className="flex flex-wrap justify-end gap-2 border-t bg-white px-5 py-4">
+          <a
+            href={proof.url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100"
+          >
+            <ExternalLink className="h-4 w-4" />
+            Open in new tab
+          </a>
           <button
             type="button"
             onClick={onClose}
