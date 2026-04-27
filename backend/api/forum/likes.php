@@ -74,6 +74,13 @@ try {
         $liked = true;
     }
 
+    gradtrack_forum_log_activity(
+        $db,
+        (int) $user['graduate_id'],
+        $liked ? 'post_liked' : 'post_unliked',
+        $postId
+    );
+
     $countStmt = $db->prepare('SELECT COUNT(*) AS total FROM forum_post_likes WHERE post_id = :post_id');
     $countStmt->execute([':post_id' => $postId]);
     $likeCount = (int) ($countStmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0);

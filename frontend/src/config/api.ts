@@ -43,6 +43,8 @@ export const API_ENDPOINTS = {
     POSTS: `${API_ROOT}/forum/posts.php`,
     COMMENTS: `${API_ROOT}/forum/comments.php`,
     LIKES: `${API_ROOT}/forum/likes.php`,
+    REPORTS: `${API_ROOT}/forum/reports.php`,
+    ACTIVITY: `${API_ROOT}/forum/activity.php`,
     CHATS: `${API_ROOT}/forum/chats.php`,
     CHAT_MESSAGES: `${API_ROOT}/forum/chat-messages.php`,
     MODERATION: `${API_ROOT}/forum/moderation.php`,

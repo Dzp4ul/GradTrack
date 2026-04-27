@@ -112,16 +112,20 @@ try {
             ':comment' => $comment,
         ]);
 
+        $commentId = (int) $db->lastInsertId();
+        gradtrack_forum_log_activity($db, (int) $user['graduate_id'], 'comment_created', $postId, $commentId);
+
         echo json_encode([
             'success' => true,
             'message' => 'Comment added successfully',
-            'id' => (int) $db->lastInsertId(),
+            'id' => $commentId,
         ]);
         exit;
     }
 
     if ($method === 'DELETE') {
-        gradtrack_forum_require_moderator($db);
+        $graduateUser = gradtrack_current_graduate_user($db);
+        $moderator = gradtrack_forum_current_moderator($db);
         $data = gradtrack_forum_comments_request_data();
         $commentId = isset($_GET['id']) ? (int) $_GET['id'] : (isset($data['id']) ? (int) $data['id'] : 0);
 
@@ -129,14 +133,31 @@ try {
             gradtrack_forum_comments_json_error(400, 'id is required');
         }
 
-        $existsStmt = $db->prepare('SELECT id FROM forum_comments WHERE id = :id LIMIT 1');
+        $existsStmt = $db->prepare('SELECT id, post_id, graduate_id FROM forum_comments WHERE id = :id LIMIT 1');
         $existsStmt->execute([':id' => $commentId]);
-        if (!$existsStmt->fetch(PDO::FETCH_ASSOC)) {
+        $comment = $existsStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$comment) {
             gradtrack_forum_comments_json_error(404, 'Comment not found');
+        }
+
+        $isOwner = $graduateUser !== null && (int) $comment['graduate_id'] === (int) $graduateUser['graduate_id'];
+        if (!$isOwner && $moderator === null) {
+            gradtrack_forum_comments_json_error(403, 'You can only delete your own comments');
         }
 
         $deleteStmt = $db->prepare('DELETE FROM forum_comments WHERE id = :id');
         $deleteStmt->execute([':id' => $commentId]);
+
+        if ($graduateUser !== null) {
+            gradtrack_forum_log_activity(
+                $db,
+                (int) $graduateUser['graduate_id'],
+                'comment_deleted',
+                (int) $comment['post_id'],
+                null,
+                ['deleted_comment_id' => $commentId]
+            );
+        }
 
         echo json_encode([
             'success' => true,

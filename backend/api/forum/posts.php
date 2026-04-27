@@ -6,6 +6,11 @@ require_once __DIR__ . '/../config/forum.php';
 
 function gradtrack_forum_posts_request_data(): array
 {
+    $contentType = isset($_SERVER['CONTENT_TYPE']) ? strtolower((string) $_SERVER['CONTENT_TYPE']) : '';
+    if (strpos($contentType, 'multipart/form-data') !== false) {
+        return $_POST;
+    }
+
     $raw = file_get_contents('php://input');
     if ($raw === false || trim($raw) === '') {
         return [];
@@ -24,7 +29,9 @@ function gradtrack_forum_posts_json_error(int $statusCode, string $message): voi
 
 function gradtrack_forum_posts_detail_query(): string
 {
-    return "SELECT fp.id, fp.graduate_id, fp.title, fp.content, fp.category, fp.status, fp.created_at, fp.updated_at,
+    return "SELECT fp.id, fp.graduate_id, fp.title, fp.content, fp.category, fp.status,
+                   fp.image_path, fp.image_original_name, fp.image_mime_type, fp.image_file_size_bytes,
+                   fp.created_at, fp.updated_at,
                    g.first_name, g.middle_name, g.last_name,
                    p.name AS author_program_name, p.code AS author_program_code,
                    gpi.file_path AS author_profile_image_path,
@@ -38,6 +45,13 @@ function gradtrack_forum_posts_detail_query(): string
                        FROM forum_post_likes fpl
                        WHERE fpl.post_id = fp.id
                    ) AS like_count,
+                   (
+                       SELECT COUNT(*)
+                       FROM forum_reports fr
+                       WHERE fr.post_id = fp.id
+                         AND fr.target_type = 'post'
+                         AND fr.status = 'pending'
+                   ) AS report_count,
                    EXISTS(
                        SELECT 1
                        FROM forum_post_likes fpl_self
@@ -57,6 +71,8 @@ function gradtrack_forum_posts_normalize_row(array $row): array
     $row['graduate_id'] = (int) $row['graduate_id'];
     $row['comment_count'] = isset($row['comment_count']) ? (int) $row['comment_count'] : 0;
     $row['like_count'] = isset($row['like_count']) ? (int) $row['like_count'] : 0;
+    $row['report_count'] = isset($row['report_count']) ? (int) $row['report_count'] : 0;
+    $row['image_file_size_bytes'] = isset($row['image_file_size_bytes']) ? (int) $row['image_file_size_bytes'] : null;
     $row['is_liked'] = !empty($row['is_liked']);
     $row['author_name'] = trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? ''));
 
@@ -66,6 +82,10 @@ function gradtrack_forum_posts_normalize_row(array $row): array
 $database = new Database();
 $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
+
+if ($method === 'POST' && isset($_POST['_method']) && strtoupper((string) $_POST['_method']) === 'PUT') {
+    $method = 'PUT';
+}
 
 try {
     gradtrack_forum_ensure_schema($db);
@@ -187,10 +207,28 @@ try {
             ':category' => $category,
         ]);
 
+        $postId = (int) $db->lastInsertId();
+        if (isset($_FILES['image']) && (int) ($_FILES['image']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+            $image = gradtrack_forum_save_post_image($postId, $_FILES['image']);
+            $imageStmt = $db->prepare("UPDATE forum_posts
+                                       SET image_path = :image_path,
+                                           image_original_name = :image_original_name,
+                                           image_mime_type = :image_mime_type,
+                                           image_file_size_bytes = :image_file_size_bytes
+                                       WHERE id = :id");
+            $imageStmt->execute([
+                ':image_path' => $image['image_path'],
+                ':image_original_name' => $image['image_original_name'],
+                ':image_mime_type' => $image['image_mime_type'],
+                ':image_file_size_bytes' => $image['image_file_size_bytes'],
+                ':id' => $postId,
+            ]);
+        }
+
         echo json_encode([
             'success' => true,
             'message' => 'Forum post submitted for review',
-            'id' => (int) $db->lastInsertId(),
+            'id' => $postId,
             'status' => 'pending',
         ]);
         exit;
@@ -205,7 +243,7 @@ try {
             gradtrack_forum_posts_json_error(400, 'id is required');
         }
 
-        $ownerStmt = $db->prepare('SELECT graduate_id FROM forum_posts WHERE id = :id LIMIT 1');
+        $ownerStmt = $db->prepare('SELECT graduate_id, image_path FROM forum_posts WHERE id = :id LIMIT 1');
         $ownerStmt->execute([':id' => $postId]);
         $owner = $ownerStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -229,19 +267,54 @@ try {
             gradtrack_forum_posts_json_error(400, 'Invalid forum category');
         }
 
-        $updateStmt = $db->prepare("UPDATE forum_posts
-                                    SET title = :title,
-                                        content = :content,
-                                        category = :category,
-                                        status = 'pending',
-                                        updated_at = NOW()
-                                    WHERE id = :id");
-        $updateStmt->execute([
+        $imagePath = $owner['image_path'] ?? null;
+        $imageOriginalName = null;
+        $imageMimeType = null;
+        $imageFileSizeBytes = null;
+        $clearImage = isset($data['remove_image'])
+            && ((string) $data['remove_image'] === '1' || (string) $data['remove_image'] === 'true');
+
+        if ($clearImage) {
+            gradtrack_forum_remove_post_image($imagePath);
+            $imagePath = null;
+        }
+
+        if (isset($_FILES['image']) && (int) ($_FILES['image']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+            $image = gradtrack_forum_save_post_image($postId, $_FILES['image'], $imagePath);
+            $imagePath = $image['image_path'];
+            $imageOriginalName = $image['image_original_name'];
+            $imageMimeType = $image['image_mime_type'];
+            $imageFileSizeBytes = $image['image_file_size_bytes'];
+        }
+
+        $updateSql = "UPDATE forum_posts
+                      SET title = :title,
+                          content = :content,
+                          category = :category,
+                          status = 'pending',
+                          image_path = :image_path,
+                          updated_at = NOW()";
+        $params = [
             ':title' => $title,
             ':content' => $content,
             ':category' => $category,
+            ':image_path' => $imagePath,
             ':id' => $postId,
-        ]);
+        ];
+
+        if ($imageOriginalName !== null || $clearImage) {
+            $updateSql .= ",
+                          image_original_name = :image_original_name,
+                          image_mime_type = :image_mime_type,
+                          image_file_size_bytes = :image_file_size_bytes";
+            $params[':image_original_name'] = $imageOriginalName;
+            $params[':image_mime_type'] = $imageMimeType;
+            $params[':image_file_size_bytes'] = $imageFileSizeBytes;
+        }
+
+        $updateSql .= ' WHERE id = :id';
+        $updateStmt = $db->prepare($updateSql);
+        $updateStmt->execute($params);
 
         echo json_encode([
             'success' => true,
@@ -260,7 +333,7 @@ try {
             gradtrack_forum_posts_json_error(400, 'id is required');
         }
 
-        $ownerStmt = $db->prepare('SELECT graduate_id FROM forum_posts WHERE id = :id LIMIT 1');
+        $ownerStmt = $db->prepare('SELECT graduate_id, image_path FROM forum_posts WHERE id = :id LIMIT 1');
         $ownerStmt->execute([':id' => $postId]);
         $owner = $ownerStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -274,6 +347,7 @@ try {
 
         $deleteStmt = $db->prepare('DELETE FROM forum_posts WHERE id = :id');
         $deleteStmt->execute([':id' => $postId]);
+        gradtrack_forum_remove_post_image($owner['image_path'] ?? null);
 
         echo json_encode([
             'success' => true,

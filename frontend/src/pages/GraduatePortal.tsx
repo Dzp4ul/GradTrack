@@ -5,8 +5,10 @@ import {
   Building2,
   Calendar,
   ChevronDown,
+  Flag,
   Heart,
   Home,
+  ImagePlus,
   Loader2,
   LogOut,
   MapPin,
@@ -59,6 +61,10 @@ interface ForumPost {
   content: string;
   category: string;
   status: ForumStatus;
+  image_path?: string | null;
+  image_original_name?: string | null;
+  image_mime_type?: string | null;
+  image_file_size_bytes?: number | null;
   created_at: string;
   updated_at: string;
   author_name: string;
@@ -67,6 +73,7 @@ interface ForumPost {
   author_profile_image_path?: string | null;
   comment_count: number;
   like_count: number;
+  report_count?: number;
   is_liked: boolean;
 }
 
@@ -87,6 +94,24 @@ interface ForumFormState {
   title: string;
   content: string;
   category: string;
+  image_path?: string | null;
+  image_original_name?: string | null;
+  remove_image: boolean;
+}
+
+interface ForumActivityLog {
+  id: number;
+  action: string;
+  post_id?: number | null;
+  comment_id?: number | null;
+  post_title?: string | null;
+  created_at: string;
+}
+
+interface ReportTarget {
+  target_type: 'post' | 'comment';
+  target_id: number;
+  label: string;
 }
 
 interface ChatParticipant {
@@ -382,6 +407,17 @@ function getPortalHeading(tab: PortalTab) {
   };
 }
 
+function formatActivityLabel(activity: ForumActivityLog) {
+  const title = activity.post_title ? `"${activity.post_title}"` : 'a forum post';
+
+  if (activity.action === 'post_liked') return `Reacted to ${title}`;
+  if (activity.action === 'post_unliked') return `Removed reaction from ${title}`;
+  if (activity.action === 'comment_created') return `Commented on ${title}`;
+  if (activity.action === 'comment_deleted') return `Deleted a comment from ${title}`;
+
+  return `Updated ${title}`;
+}
+
 export default function GraduatePortal() {
   const { user, logout, checkAuth } = useGraduateAuth();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -420,13 +456,21 @@ export default function GraduatePortal() {
     title: '',
     content: '',
     category: forumCategoryFallback[0],
+    image_path: null,
+    image_original_name: null,
+    remove_image: false,
   });
+  const [forumImageFile, setForumImageFile] = useState<File | null>(null);
   const [selectedPostOpen, setSelectedPostOpen] = useState(false);
   const [selectedPostLoading, setSelectedPostLoading] = useState(false);
   const [selectedPost, setSelectedPost] = useState<ForumPost | null>(null);
   const [postComments, setPostComments] = useState<ForumComment[]>([]);
   const [commentDraft, setCommentDraft] = useState('');
   const [commentSubmitting, setCommentSubmitting] = useState(false);
+  const [activityLogs, setActivityLogs] = useState<ForumActivityLog[]>([]);
+  const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
+  const [reportReason, setReportReason] = useState('');
+  const [reportSubmitting, setReportSubmitting] = useState(false);
 
   const [jobs, setJobs] = useState<JobPost[]>([]);
   const [myPostedJobs, setMyPostedJobs] = useState<JobPost[]>([]);
@@ -459,6 +503,7 @@ export default function GraduatePortal() {
 
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const profileImageInputRef = useRef<HTMLInputElement | null>(null);
+  const forumImageInputRef = useRef<HTMLInputElement | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
   const currentGraduateId = user?.graduate_id ?? 0;
@@ -566,7 +611,11 @@ export default function GraduatePortal() {
       title: '',
       content: '',
       category: forumCategories[0] || forumCategoryFallback[0],
+      image_path: null,
+      image_original_name: null,
+      remove_image: false,
     });
+    setForumImageFile(null);
   }, [forumCategories]);
 
   const resetJobForm = useCallback(() => {
@@ -624,6 +673,11 @@ export default function GraduatePortal() {
     });
   }, [authenticatedFetch]);
 
+  const loadActivityLogs = useCallback(async () => {
+    const response = await authenticatedFetch(`${API_ENDPOINTS.FORUM.ACTIVITY}?limit=12`);
+    setActivityLogs(Array.isArray(response.data) ? (response.data as ForumActivityLog[]) : []);
+  }, [authenticatedFetch]);
+
   const loadRoomMessages = useCallback(
     async (roomId: number, silent = false) => {
       if (!silent) {
@@ -656,6 +710,7 @@ export default function GraduatePortal() {
         loadJobs(),
         loadMyJobs(),
         loadChats(),
+        loadActivityLogs(),
       ]);
 
       if (!silent) {
@@ -669,13 +724,14 @@ export default function GraduatePortal() {
         results[3].status === 'rejected' ? 'jobs' : null,
         results[4].status === 'rejected' ? 'my job posts' : null,
         results[5].status === 'rejected' ? 'chats' : null,
+        results[6].status === 'rejected' ? 'activity logs' : null,
       ].filter(Boolean);
 
       if (failed.length > 0 && !silent) {
         notify('warning', `Some data could not be loaded: ${failed.join(', ')}.`);
       }
     },
-    [loadChats, loadForumFeed, loadJobs, loadMyForumPosts, loadMyJobs, loadRatingSummary, notify],
+    [loadActivityLogs, loadChats, loadForumFeed, loadJobs, loadMyForumPosts, loadMyJobs, loadRatingSummary, notify],
   );
 
   const loadPostDetail = useCallback(
@@ -812,7 +868,11 @@ export default function GraduatePortal() {
         title: post.title,
         content: post.content,
         category: post.category,
+        image_path: post.image_path || null,
+        image_original_name: post.image_original_name || null,
+        remove_image: false,
       });
+      setForumImageFile(null);
     } else {
       resetForumForm();
     }
@@ -840,25 +900,29 @@ export default function GraduatePortal() {
     setForumSubmitting(true);
 
     try {
+      const formData = new FormData();
+      formData.append('title', title);
+      formData.append('content', content);
+      formData.append('category', category);
+      if (forumImageFile) {
+        formData.append('image', forumImageFile);
+      }
+      if (forumForm.remove_image) {
+        formData.append('remove_image', '1');
+      }
+
       if (forumForm.id) {
+        formData.append('id', String(forumForm.id));
+        formData.append('_method', 'PUT');
         await authenticatedFetch(API_ENDPOINTS.FORUM.POSTS, {
-          method: 'PUT',
-          body: JSON.stringify({
-            id: forumForm.id,
-            title,
-            content,
-            category,
-          }),
+          method: 'POST',
+          body: formData,
         });
         notify('success', 'Forum post updated and submitted for moderation.', 'Community Forum');
       } else {
         await authenticatedFetch(API_ENDPOINTS.FORUM.POSTS, {
           method: 'POST',
-          body: JSON.stringify({
-            title,
-            content,
-            category,
-          }),
+          body: formData,
         });
         notify('success', 'Forum post submitted for moderation.', 'Community Forum');
       }
@@ -927,6 +991,7 @@ export default function GraduatePortal() {
       setSelectedPost((current) =>
         current && current.id === postId ? { ...current, is_liked: liked, like_count: likeCount } : current,
       );
+      await loadActivityLogs();
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to update reaction', 'Community Forum');
     } finally {
@@ -958,11 +1023,73 @@ export default function GraduatePortal() {
 
       setCommentDraft('');
       await loadPostDetail(selectedPost.id);
-      await Promise.all([loadForumFeed(), loadMyForumPosts()]);
+      await Promise.all([loadForumFeed(), loadMyForumPosts(), loadActivityLogs()]);
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to post comment', 'Community Forum');
     } finally {
       setCommentSubmitting(false);
+    }
+  };
+
+  const handleDeleteComment = (comment: ForumComment) => {
+    if (!selectedPost) return;
+
+    setMsgBox({
+      isOpen: true,
+      type: 'confirm',
+      title: 'Delete Comment',
+      message: 'Delete this comment from the discussion?',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      onConfirm: async () => {
+        try {
+          await authenticatedFetch(API_ENDPOINTS.FORUM.COMMENTS, {
+            method: 'DELETE',
+            body: JSON.stringify({ id: comment.id }),
+          });
+
+          await loadPostDetail(selectedPost.id);
+          await Promise.all([loadForumFeed(), loadMyForumPosts(), loadActivityLogs()]);
+          notify('success', 'Comment deleted successfully.', 'Community Forum');
+        } catch (error) {
+          notify('error', error instanceof Error ? error.message : 'Unable to delete comment', 'Community Forum');
+        }
+      },
+    });
+  };
+
+  const openReportModal = (target: ReportTarget) => {
+    setReportTarget(target);
+    setReportReason('');
+  };
+
+  const closeReportModal = () => {
+    setReportTarget(null);
+    setReportReason('');
+  };
+
+  const handleSubmitReport = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!reportTarget) return;
+
+    setReportSubmitting(true);
+
+    try {
+      await authenticatedFetch(API_ENDPOINTS.FORUM.REPORTS, {
+        method: 'POST',
+        body: JSON.stringify({
+          target_type: reportTarget.target_type,
+          target_id: reportTarget.target_id,
+          reason: reportReason.trim(),
+        }),
+      });
+
+      notify('success', 'Report submitted for moderator review.', 'Community Forum');
+      closeReportModal();
+    } catch (error) {
+      notify('error', error instanceof Error ? error.message : 'Unable to submit report', 'Community Forum');
+    } finally {
+      setReportSubmitting(false);
     }
   };
 
@@ -1570,7 +1697,7 @@ export default function GraduatePortal() {
                                     {post.author_name}
                                   </button>
                                   <p className="truncate text-xs text-slate-500">
-                                    {post.author_program_code || post.author_program_name || 'Graduate'} • {formatRelativeTime(post.created_at)}
+                                    {post.author_program_code || post.author_program_name || 'Graduate'} - {formatRelativeTime(post.created_at)}
                                   </p>
                                 </div>
                               </div>
@@ -1590,6 +1717,11 @@ export default function GraduatePortal() {
                                 <h3 className="text-xl font-bold text-slate-900">{post.title}</h3>
                                 <p className="mt-3 whitespace-pre-line text-sm leading-7 text-slate-700">{previewText(post.content)}</p>
                               </button>
+                              {post.image_path && (
+                                <button type="button" onClick={() => void loadPostDetail(post.id)} className="mt-4 block w-full overflow-hidden rounded-lg border border-slate-200">
+                                  <img src={resolveAssetUrl(post.image_path)} alt={post.image_original_name || post.title} className="max-h-[520px] w-full object-cover" />
+                                </button>
+                              )}
                             </div>
 
                             <div className="flex flex-wrap items-center gap-5 border-t border-slate-100 px-5 py-4 sm:px-6">
@@ -1602,6 +1734,13 @@ export default function GraduatePortal() {
                                 <MessageCircle className="h-5 w-5 text-slate-500" />
                                 {post.comment_count} comment{post.comment_count === 1 ? '' : 's'}
                               </button>
+
+                              {post.graduate_id !== currentGraduateId && (
+                                <button type="button" onClick={() => openReportModal({ target_type: 'post', target_id: post.id, label: post.title })} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700 transition hover:text-amber-700">
+                                  <Flag className="h-5 w-5 text-slate-500" />
+                                  Report
+                                </button>
+                              )}
 
                               <span className="text-xs text-slate-400">Posted {formatDateTime(post.created_at)}</span>
                             </div>
@@ -1720,6 +1859,30 @@ export default function GraduatePortal() {
                               </div>
                             )}
                           </div>
+                        </div>
+
+                        <div className="mt-5 rounded-lg border border-slate-200 bg-white p-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <h3 className="text-sm font-bold text-slate-900">Activity Logs</h3>
+                              <p className="text-xs text-slate-500">Your recent reactions and comments.</p>
+                            </div>
+                          </div>
+
+                          {activityLogs.length === 0 ? (
+                            <p className="mt-4 rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-500">
+                              No forum activity yet.
+                            </p>
+                          ) : (
+                            <div className="mt-4 space-y-3">
+                              {activityLogs.map((activity) => (
+                                <div key={activity.id} className="rounded-lg bg-slate-50 px-3 py-2">
+                                  <p className="text-sm font-medium text-slate-700">{formatActivityLabel(activity)}</p>
+                                  <p className="mt-1 text-xs text-slate-400">{formatRelativeTime(activity.created_at)}</p>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1943,7 +2106,7 @@ export default function GraduatePortal() {
 
                             <div className="mt-4 space-y-2 text-sm text-slate-600">
                               <p>
-                                {job.location || 'No location set'} • {formatEmploymentType(job.job_type)}
+                                {job.location || 'No location set'} - {formatEmploymentType(job.job_type)}
                               </p>
                               <p>Salary: {job.salary_range || 'Not specified'}</p>
                               <p>
@@ -2114,6 +2277,64 @@ export default function GraduatePortal() {
               <textarea value={forumForm.content} onChange={(event) => setForumForm((current) => ({ ...current, content: event.target.value }))} rows={8} className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-500" />
             </Field>
 
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <input
+                ref={forumImageInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0] || null;
+                  if (!file) {
+                    setForumImageFile(null);
+                    return;
+                  }
+
+                  if (file.size > 5 * 1024 * 1024) {
+                    event.target.value = '';
+                    setForumImageFile(null);
+                    notify('warning', 'Forum image must be 5 MB or smaller.', 'Community Forum');
+                    return;
+                  }
+
+                  setForumImageFile(file);
+                  setForumForm((current) => ({ ...current, remove_image: false }));
+                }}
+              />
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-slate-900">Post Picture</p>
+                  <p className="text-xs text-slate-500">JPG, PNG, WEBP, or GIF up to 5 MB.</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => forumImageInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100">
+                    <ImagePlus className="h-4 w-4" />
+                    {forumImageFile || forumForm.image_path ? 'Change Picture' : 'Add Picture'}
+                  </button>
+                  {(forumImageFile || (forumForm.image_path && !forumForm.remove_image)) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setForumImageFile(null);
+                        setForumForm((current) => ({ ...current, remove_image: !!current.image_path }));
+                        if (forumImageInputRef.current) {
+                          forumImageInputRef.current.value = '';
+                        }
+                      }}
+                      className="rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </div>
+              {forumImageFile && <p className="mt-3 text-sm text-slate-600">{forumImageFile.name}</p>}
+              {!forumImageFile && forumForm.image_path && !forumForm.remove_image && (
+                <img src={resolveAssetUrl(forumForm.image_path)} alt={forumForm.image_original_name || 'Current forum attachment'} className="mt-3 max-h-64 w-full rounded-lg object-cover" />
+              )}
+              {forumForm.remove_image && <p className="mt-3 text-sm text-rose-600">The current picture will be removed after saving.</p>}
+            </div>
+
             <div className="flex flex-wrap gap-3">
               <button type="submit" disabled={forumSubmitting} className="inline-flex items-center gap-2 rounded-full bg-blue-700 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60">
                 {forumSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -2161,7 +2382,7 @@ export default function GraduatePortal() {
                           <span className={`rounded-full border px-3 py-1 text-[11px] font-semibold ${forumStatusClass(post.status)}`}>{post.status.toUpperCase()}</span>
                         </div>
                         <p className="mt-1 text-xs text-slate-500">
-                          {post.category} • Updated {formatRelativeTime(post.updated_at)}
+                          {post.category} - Updated {formatRelativeTime(post.updated_at)}
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2">
@@ -2180,6 +2401,9 @@ export default function GraduatePortal() {
                     </div>
 
                     <p className="mt-4 whitespace-pre-line text-sm leading-7 text-slate-700">{previewText(post.content, 260)}</p>
+                    {post.image_path && (
+                      <img src={resolveAssetUrl(post.image_path)} alt={post.image_original_name || post.title} className="mt-4 max-h-56 w-full rounded-lg object-cover" />
+                    )}
                   </article>
                 ))
               )}
@@ -2196,7 +2420,7 @@ export default function GraduatePortal() {
                 <h2 className="truncate text-2xl font-bold text-slate-900">{selectedPost?.title || 'Forum Post'}</h2>
                 {selectedPost && (
                   <p className="mt-1 text-sm text-slate-500">
-                    {selectedPost.author_name} • {selectedPost.author_program_code || selectedPost.author_program_name || 'Graduate'} • {formatDateTime(selectedPost.created_at)}
+                    {selectedPost.author_name} - {selectedPost.author_program_code || selectedPost.author_program_name || 'Graduate'} - {formatDateTime(selectedPost.created_at)}
                   </p>
                 )}
               </div>
@@ -2224,9 +2448,15 @@ export default function GraduatePortal() {
 
                     <div className="flex flex-wrap gap-2">
                       {selectedPost.graduate_id !== currentGraduateId && (
-                        <button type="button" onClick={() => void createDirectChat(selectedPost.graduate_id)} className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                          Message Author
-                        </button>
+                        <>
+                          <button type="button" onClick={() => void createDirectChat(selectedPost.graduate_id)} className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                            Message Author
+                          </button>
+                          <button type="button" onClick={() => openReportModal({ target_type: 'post', target_id: selectedPost.id, label: selectedPost.title })} className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-100">
+                            <Flag className="h-3.5 w-3.5" />
+                            Report
+                          </button>
+                        </>
                       )}
                       {selectedPost.graduate_id === currentGraduateId && (
                         <>
@@ -2244,6 +2474,9 @@ export default function GraduatePortal() {
                   </div>
 
                   <p className="mt-6 whitespace-pre-line text-sm leading-8 text-slate-700">{selectedPost.content}</p>
+                  {selectedPost.image_path && (
+                    <img src={resolveAssetUrl(selectedPost.image_path)} alt={selectedPost.image_original_name || selectedPost.title} className="mt-6 max-h-[620px] w-full rounded-lg border border-slate-200 object-cover" />
+                  )}
 
                   <div className="mt-6 flex flex-wrap items-center gap-5 border-t border-slate-100 pt-5">
                     <button type="button" onClick={() => void toggleLike(selectedPost.id)} disabled={forumActionKey === `like-${selectedPost.id}`} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700 hover:text-rose-500 disabled:opacity-60">
@@ -2280,11 +2513,25 @@ export default function GraduatePortal() {
                               </div>
                               <p className="text-xs text-slate-500">{comment.commenter_program_code || comment.commenter_program_name || 'Graduate'}</p>
                               <p className="mt-2 whitespace-pre-line text-sm leading-7 text-slate-700">{comment.comment}</p>
-                              {comment.graduate_id !== currentGraduateId && (
-                                <button type="button" onClick={() => void createDirectChat(comment.graduate_id)} className="mt-3 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                                  Message
-                                </button>
-                              )}
+                              <div className="mt-3 flex flex-wrap gap-2">
+                                {comment.graduate_id !== currentGraduateId && (
+                                  <>
+                                    <button type="button" onClick={() => void createDirectChat(comment.graduate_id)} className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                                      Message
+                                    </button>
+                                    <button type="button" onClick={() => openReportModal({ target_type: 'comment', target_id: comment.id, label: 'this comment' })} className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100">
+                                      <Flag className="h-3.5 w-3.5" />
+                                      Report
+                                    </button>
+                                  </>
+                                )}
+                                {comment.graduate_id === currentGraduateId && (
+                                  <button type="button" onClick={() => handleDeleteComment(comment)} className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100">
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                    Delete
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </article>
@@ -2394,6 +2641,43 @@ export default function GraduatePortal() {
               <button type="submit" disabled={chatCreating} className="inline-flex items-center gap-2 rounded-full bg-blue-700 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60">
                 {chatCreating && <Loader2 className="h-4 w-4 animate-spin" />}
                 {chatModalMode === 'group' ? 'Create Group Chat' : 'Open Direct Chat'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {reportTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-6">
+          <form onSubmit={handleSubmitReport} className="w-full max-w-lg rounded-[32px] border border-slate-200 bg-white p-6 shadow-2xl">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-bold text-slate-900">Report Content</h2>
+                <p className="text-sm text-slate-500">Send {reportTarget.label} to moderators for review.</p>
+              </div>
+              <button type="button" onClick={closeReportModal} className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100" aria-label="Close report form">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <Field label="Reason">
+              <textarea
+                value={reportReason}
+                onChange={(event) => setReportReason(event.target.value)}
+                rows={5}
+                maxLength={1000}
+                placeholder="Optional details for the moderator"
+                className="mt-4 w-full resize-none rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-500"
+              />
+            </Field>
+
+            <div className="mt-5 flex flex-wrap justify-end gap-3">
+              <button type="button" onClick={closeReportModal} className="rounded-full border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+                Cancel
+              </button>
+              <button type="submit" disabled={reportSubmitting} className="inline-flex items-center gap-2 rounded-full bg-amber-600 px-5 py-3 text-sm font-semibold text-white hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60">
+                {reportSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                Submit Report
               </button>
             </div>
           </form>

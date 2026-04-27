@@ -82,6 +82,46 @@ function gradtrack_forum_moderation_comments_by_post(PDO $db, array $postIds): a
     return $grouped;
 }
 
+function gradtrack_forum_moderation_reports_by_post(PDO $db, array $postIds): array
+{
+    if (count($postIds) === 0) {
+        return [];
+    }
+
+    $placeholders = [];
+    $params = [];
+    foreach ($postIds as $index => $postId) {
+        $placeholder = ':report_post_id_' . $index;
+        $placeholders[] = $placeholder;
+        $params[$placeholder] = (int) $postId;
+    }
+
+    $stmt = $db->prepare("SELECT fr.id, fr.target_type, fr.post_id, fr.comment_id, fr.reason, fr.status, fr.created_at,
+                                 g.first_name, g.last_name
+                          FROM forum_reports fr
+                          JOIN graduates g ON g.id = fr.reporter_graduate_id
+                          WHERE fr.post_id IN (" . implode(', ', $placeholders) . ")
+                            AND fr.status = 'pending'
+                          ORDER BY fr.created_at DESC, fr.id DESC");
+    $stmt->execute($params);
+
+    $grouped = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $postId = (int) $row['post_id'];
+        if (!isset($grouped[$postId])) {
+            $grouped[$postId] = [];
+        }
+
+        $row['id'] = (int) $row['id'];
+        $row['post_id'] = $postId;
+        $row['comment_id'] = isset($row['comment_id']) ? (int) $row['comment_id'] : null;
+        $row['reporter_name'] = trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? ''));
+        $grouped[$postId][] = $row;
+    }
+
+    return $grouped;
+}
+
 $database = new Database();
 $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
@@ -100,14 +140,22 @@ try {
         }
 
         $params = [];
-        $sql = "SELECT fp.id, fp.graduate_id, fp.title, fp.content, fp.category, fp.status, fp.created_at, fp.updated_at,
+        $sql = "SELECT fp.id, fp.graduate_id, fp.title, fp.content, fp.category, fp.status,
+                       fp.image_path, fp.image_original_name, fp.image_mime_type, fp.image_file_size_bytes,
+                       fp.created_at, fp.updated_at,
                        g.first_name, g.middle_name, g.last_name,
                        p.name AS author_program_name, p.code AS author_program_code,
                        (
                            SELECT COUNT(*)
                            FROM forum_comments fc
                            WHERE fc.post_id = fp.id
-                       ) AS comment_count
+                       ) AS comment_count,
+                       (
+                           SELECT COUNT(*)
+                           FROM forum_reports fr
+                           WHERE fr.post_id = fp.id
+                             AND fr.status = 'pending'
+                       ) AS report_count
                 FROM forum_posts fp
                 JOIN graduates g ON g.id = fp.graduate_id
                 LEFT JOIN programs p ON p.id = g.program_id
@@ -156,14 +204,18 @@ try {
             $post['id'] = (int) $post['id'];
             $post['graduate_id'] = (int) $post['graduate_id'];
             $post['comment_count'] = (int) ($post['comment_count'] ?? 0);
+            $post['report_count'] = (int) ($post['report_count'] ?? 0);
+            $post['image_file_size_bytes'] = isset($post['image_file_size_bytes']) ? (int) $post['image_file_size_bytes'] : null;
             $post['author_name'] = trim((string) ($post['first_name'] ?? '') . ' ' . (string) ($post['last_name'] ?? ''));
             $postIds[] = $post['id'];
         }
         unset($post);
 
         $commentsByPost = gradtrack_forum_moderation_comments_by_post($db, $postIds);
+        $reportsByPost = gradtrack_forum_moderation_reports_by_post($db, $postIds);
         foreach ($posts as &$post) {
             $post['comments'] = $commentsByPost[$post['id']] ?? [];
+            $post['reports'] = $reportsByPost[$post['id']] ?? [];
         }
         unset($post);
 
@@ -211,14 +263,16 @@ try {
         $commentId = isset($_GET['comment_id']) ? (int) $_GET['comment_id'] : (isset($data['comment_id']) ? (int) $data['comment_id'] : 0);
 
         if ($postId > 0) {
-            $existsStmt = $db->prepare('SELECT id FROM forum_posts WHERE id = :id LIMIT 1');
+            $existsStmt = $db->prepare('SELECT id, image_path FROM forum_posts WHERE id = :id LIMIT 1');
             $existsStmt->execute([':id' => $postId]);
-            if (!$existsStmt->fetch(PDO::FETCH_ASSOC)) {
+            $post = $existsStmt->fetch(PDO::FETCH_ASSOC);
+            if (!$post) {
                 gradtrack_forum_moderation_json_error(404, 'Forum post not found');
             }
 
             $deleteStmt = $db->prepare('DELETE FROM forum_posts WHERE id = :id');
             $deleteStmt->execute([':id' => $postId]);
+            gradtrack_forum_remove_post_image($post['image_path'] ?? null);
 
             echo json_encode([
                 'success' => true,

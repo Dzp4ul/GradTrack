@@ -14,6 +14,17 @@ interface ModerationComment {
   commenter_name: string;
 }
 
+interface ModerationReport {
+  id: number;
+  target_type: 'post' | 'comment';
+  post_id: number;
+  comment_id?: number | null;
+  reason?: string | null;
+  status: string;
+  created_at: string;
+  reporter_name: string;
+}
+
 interface ModerationPost {
   id: number;
   graduate_id: number;
@@ -26,7 +37,9 @@ interface ModerationPost {
   author_name: string;
   author_program_code?: string | null;
   comment_count: number;
+  report_count: number;
   comments: ModerationComment[];
+  reports: ModerationReport[];
 }
 
 interface ModerationResponse {
@@ -304,10 +317,15 @@ export default function ForumModeration() {
                       {post.category}
                     </span>
                     <ForumStatusBadge status={post.status} />
+                    {post.report_count > 0 && (
+                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
+                        {post.report_count} report{post.report_count === 1 ? '' : 's'}
+                      </span>
+                    )}
                   </div>
                   <h2 className="mt-3 text-lg font-bold text-[#1b2a4a]">{post.title}</h2>
                   <p className="mt-1 text-sm text-gray-500">
-                    {post.author_name || 'Graduate'}{post.author_program_code ? ` - ${post.author_program_code}` : ''} • {formatDateTime(post.created_at)}
+                    {post.author_name || 'Graduate'}{post.author_program_code ? ` - ${post.author_program_code}` : ''} - {formatDateTime(post.created_at)}
                   </p>
                 </div>
                 <button
@@ -324,6 +342,24 @@ export default function ForumModeration() {
               <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
                 <p className="whitespace-pre-line text-sm leading-6 text-slate-700">{post.content}</p>
               </div>
+
+              {post.reports?.length > 0 && (
+                <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
+                  <h3 className="text-sm font-bold text-amber-900">Pending Reports</h3>
+                  <div className="mt-3 space-y-2">
+                    {post.reports.map((report) => (
+                      <div key={report.id} className="rounded-lg border border-amber-100 bg-white p-3 text-sm text-amber-900">
+                        <p className="font-semibold">
+                          {report.reporter_name || 'Graduate'} reported this {report.target_type}
+                          {report.comment_id ? ` comment #${report.comment_id}` : ''}.
+                        </p>
+                        {report.reason && <p className="mt-1 whitespace-pre-line">{report.reason}</p>}
+                        <p className="mt-2 text-xs text-amber-700">{formatDateTime(report.created_at)}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="mt-4 flex flex-wrap gap-2">
                 <button
