@@ -918,7 +918,7 @@ function Survey() {
         isOpen: true,
         type: 'success',
         title: 'Account Created',
-        message: 'Your GradTrack account was created successfully. Redirecting to the Graduate Portal for mentorship and job opportunities...',
+        message: 'Your GradTrack account was created successfully. Redirecting to the Graduate Portal for community discussions and job opportunities...',
       });
 
       setTimeout(() => {
@@ -1821,7 +1821,7 @@ function Survey() {
             <div className="bg-blue-50 border-b border-blue-100 px-4 py-5 sm:px-6">
               <h3 className="text-lg font-bold text-blue-900 sm:text-xl">Your survey has been submitted successfully.</h3>
               <p className="text-sm text-gray-600 mt-1">
-                Create a GradTrack account now to unlock mentorship guidance and job opportunities using the information you already provided.
+                Create a GradTrack account now to unlock the Community Forum and job opportunities using the information you already provided.
               </p>
             </div>
 
@@ -1831,9 +1831,9 @@ function Survey() {
                   <div className="flex gap-3 rounded-lg border border-blue-100 bg-blue-50 p-4">
                     <Users className="mt-0.5 h-5 w-5 flex-shrink-0 text-blue-700" />
                     <div>
-                      <p className="font-semibold text-blue-950">Mentorship support</p>
+                      <p className="font-semibold text-blue-950">Community Forum</p>
                       <p className="mt-1 text-sm text-gray-600">
-                        Connect with alumni mentors, request career guidance, and grow your professional network.
+                        Join graduate discussions, share experiences, ask questions, and grow your professional network.
                       </p>
                     </div>
                   </div>
@@ -1869,7 +1869,7 @@ function Survey() {
                         isOpen: true,
                         type: 'success',
                         title: 'Survey Submitted',
-                        message: 'Your response was saved. You can create an account later from the Graduate Portal to access mentorship and job opportunities.',
+                        message: 'Your response was saved. You can create an account later from the Graduate Portal to access the Community Forum and job opportunities.',
                       });
                       finishSurveyFlow(true);
                     }}
@@ -1896,7 +1896,7 @@ function Survey() {
             ) : (
               <div className="p-4 space-y-4 sm:p-6">
                 <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-gray-700">
-                  Set your password to activate your Graduate Portal account and start accessing mentors and job opportunities.
+                  Set your password to activate your Graduate Portal account and start accessing the Community Forum and job opportunities.
                 </div>
 
                 <div className="grid sm:grid-cols-2 gap-4 text-sm">

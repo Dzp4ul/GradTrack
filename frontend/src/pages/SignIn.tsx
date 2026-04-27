@@ -22,6 +22,8 @@ function SignIn() {
       const user = await login(email, password);
       if (user.role === 'registrar') {
         navigate('/admin/graduates');
+      } else if (['mis_staff', 'research_coordinator'].includes(user.role)) {
+        navigate('/admin/forum-moderation');
       } else if (['dean_cs', 'dean_coed', 'dean_hm'].includes(user.role)) {
         navigate('/admin/survey-status');
       } else {

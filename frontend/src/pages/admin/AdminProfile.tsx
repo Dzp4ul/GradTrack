@@ -23,6 +23,8 @@ const emptyForm: ProfileForm = {
 const roleLabels: Record<string, string> = {
   super_admin: 'Super Admin',
   admin: 'Admin',
+  mis_staff: 'MIS Staff',
+  research_coordinator: 'Research Coordinator',
   registrar: 'Registrar',
   dean_cs: 'Dean-CCS',
   dean_coed: 'Dean - COED',

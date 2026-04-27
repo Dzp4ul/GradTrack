@@ -36,6 +36,8 @@ const emptyForm: UserForm = {
 const roleOptions = [
   { value: 'super_admin', label: 'Super Admin' },
   { value: 'admin', label: 'Admin' },
+  { value: 'mis_staff', label: 'MIS Staff' },
+  { value: 'research_coordinator', label: 'Research Coordinator' },
   { value: 'registrar', label: 'Registrar' },
   { value: 'dean_cs', label: 'Dean-CCS' },
   { value: 'dean_coed', label: 'Dean - COED' },
@@ -45,6 +47,8 @@ const roleOptions = [
 const roleLabels: Record<string, string> = {
   super_admin: 'Super Admin',
   admin: 'Admin',
+  mis_staff: 'MIS Staff',
+  research_coordinator: 'Research Coordinator',
   registrar: 'Registrar',
   dean_cs: 'Dean-CCS',
   dean_coed: 'Dean - COED',
@@ -239,7 +243,7 @@ export default function UserManagement() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[#1b2a4a]">User Management</h1>
-          <p className="text-sm text-gray-500">Manage Admin, Super Admin, Dean, and Registrar accounts</p>
+          <p className="text-sm text-gray-500">Manage admin, moderator, dean, and registrar accounts</p>
         </div>
         <button
           onClick={openAddModal}

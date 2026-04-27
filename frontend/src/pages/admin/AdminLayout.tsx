@@ -8,6 +8,7 @@ import {
   ClipboardList,
   BarChart3,
   Users,
+  MessageSquareMore,
   Menu,
   X,
   LogOut,
@@ -30,12 +31,14 @@ type NavItem = {
 
 const adminNavItems: NavItem[] = [
   { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true },
+  { to: '/admin/forum-moderation', icon: MessageSquareMore, label: 'Forum Moderation' },
   { to: '/admin/graduates', icon: GraduationCap, label: 'Graduates' },
   { to: '/admin/surveys', icon: ClipboardList, label: 'Survey Management' },
   { to: '/admin/reports', icon: BarChart3, label: 'Reports & Analytics' },
 ];
 
 const superAdminNavItems: NavItem[] = [
+  { to: '/admin/forum-moderation', icon: MessageSquareMore, label: 'Forum Moderation' },
   { to: '/admin/user-management', icon: Users, label: 'User Management' },
   { to: '/admin/backup-database', icon: DatabaseBackup, label: 'Backup Database' },
 ];
@@ -44,15 +47,20 @@ const registrarNavItems: NavItem[] = [
   { to: '/admin/graduates', icon: GraduationCap, label: 'Manage Graduates' },
 ];
 
+const forumModeratorNavItems: NavItem[] = [
+  { to: '/admin/forum-moderation', icon: MessageSquareMore, label: 'Forum Moderation', end: true },
+];
+
 const deanNavItems: NavItem[] = [
   { to: '/admin/survey-status', icon: ClipboardCheck, label: 'Survey Participation' },
-  { to: '/admin/mentor-approvals', icon: Users, label: 'Mentor Approval' },
   { to: '/admin/job-approvals', icon: Briefcase, label: 'Job Approval' },
 ];
 
 const roleLabels: Record<string, string> = {
   super_admin: 'Super Admin',
   admin: 'Admin',
+  mis_staff: 'MIS Staff',
+  research_coordinator: 'Research Coordinator',
   registrar: 'Registrar',
   dean_cs: 'Dean-CCS',
   dean_coed: 'Dean - COED',
@@ -91,6 +99,8 @@ export default function AdminLayout() {
       ? superAdminNavItems
       : user?.role === 'registrar'
       ? registrarNavItems
+      : ['mis_staff', 'research_coordinator'].includes(user?.role || '')
+        ? forumModeratorNavItems
       : ['dean_cs', 'dean_coed', 'dean_hm'].includes(user?.role || '')
         ? deanNavItems
         : adminNavItems;

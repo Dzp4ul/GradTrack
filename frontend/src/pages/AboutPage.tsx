@@ -18,7 +18,7 @@ export default function AboutPage() {
           <div>
             <h2 className="text-3xl sm:text-4xl font-extrabold text-yellow-400 mb-4 sm:mb-6">Our Mission</h2>
             <p className="text-lg sm:text-2xl text-white leading-relaxed">
-              To make graduate tracer activities at Norzagaray College more organized, and reliable by providing a platform that supports graduate data management, surveys, analytics, reporting, mentorship, and job opportunities in one accessible system.
+              To make graduate tracer activities at Norzagaray College more organized, and reliable by providing a platform that supports graduate data management, surveys, analytics, reporting, community discussion, and job opportunities in one accessible system.
             </p>
           </div>
         </div>

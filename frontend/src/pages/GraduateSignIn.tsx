@@ -87,7 +87,7 @@ export default function GraduateSignIn() {
         </div>
 
         <h1 className="text-2xl font-bold text-blue-900 text-center">Graduate Portal</h1>
-        <p className="text-gray-600 text-center mt-1 mb-6">Sign in to access mentorship and job opportunities.</p>
+        <p className="text-gray-600 text-center mt-1 mb-6">Sign in to access the Community Forum and job opportunities.</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>

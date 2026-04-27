@@ -145,7 +145,7 @@ function HomePage() {
             <div className="text-center mb-10 sm:mb-16">
               <h2 className="text-3xl sm:text-4xl font-bold text-blue-900 mb-4">How It Works</h2>
               <p className="text-base sm:text-xl text-gray-600 max-w-3xl mx-auto">
-                GradTrack starts with verified tracer survey responses, then connects graduates to mentorship, job opportunities, and outcome reports in one system.
+                GradTrack starts with verified tracer survey responses, then connects graduates to community discussions, job opportunities, and outcome reports in one system.
               </p>
             </div>
 
@@ -188,7 +188,7 @@ function HomePage() {
                   <div>
                     <h3 className="text-xl font-bold text-blue-900 mb-2">Account Opens the Portal</h3>
                     <p className="text-gray-600">
-                      After submitting the survey, graduates can create a GradTrack account to browse mentors, request guidance, and view job opportunities.
+                      After submitting the survey, graduates can create a GradTrack account to join the Community Forum and view job opportunities.
                     </p>
                   </div>
                 </div>
@@ -202,7 +202,7 @@ function HomePage() {
                   <div>
                     <h3 className="text-xl font-bold text-blue-900 mb-2">College Reviews the Results</h3>
                     <p className="text-gray-600">
-                      GradTrack turns responses into analytics, reports, and approval queues for mentor profiles and job posts before they appear in the portal.
+                      GradTrack turns responses into analytics, reports, and review queues for forum posts and job posts before they appear in the portal.
                     </p>
                   </div>
                 </div>

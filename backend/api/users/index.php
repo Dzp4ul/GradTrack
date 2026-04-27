@@ -18,7 +18,7 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'super_admin') {
     exit;
 }
 
-$allowedRoles = ['super_admin', 'admin', 'registrar', 'dean_cs', 'dean_coed', 'dean_hm'];
+$allowedRoles = ['super_admin', 'admin', 'mis_staff', 'research_coordinator', 'registrar', 'dean_cs', 'dean_coed', 'dean_hm'];
 $database = new Database();
 $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
@@ -33,7 +33,7 @@ function ensureIsActiveColumn(PDO $conn): void
 
 $db->exec("
     ALTER TABLE admin_users
-    MODIFY role ENUM('super_admin', 'admin', 'registrar', 'dean_cs', 'dean_coed', 'dean_hm') DEFAULT 'admin'
+    MODIFY role ENUM('super_admin', 'admin', 'mis_staff', 'research_coordinator', 'registrar', 'dean_cs', 'dean_coed', 'dean_hm') DEFAULT 'admin'
 ");
 ensureIsActiveColumn($db);
 

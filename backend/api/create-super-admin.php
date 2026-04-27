@@ -28,8 +28,8 @@ try {
     $conn = $database->getConnection();
 
     $conn->exec("
-        ALTER TABLE admin_users
-        MODIFY role ENUM('super_admin', 'admin', 'registrar', 'dean_cs', 'dean_coed', 'dean_hm') DEFAULT 'admin'
+    ALTER TABLE admin_users
+        MODIFY role ENUM('super_admin', 'admin', 'mis_staff', 'research_coordinator', 'registrar', 'dean_cs', 'dean_coed', 'dean_hm') DEFAULT 'admin'
     ");
     ensureIsActiveColumn($conn);
 

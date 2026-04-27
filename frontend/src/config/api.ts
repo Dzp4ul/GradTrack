@@ -39,11 +39,13 @@ export const API_ENDPOINTS = {
   GRADUATE_NOTIFY: `${API_ROOT}/graduates/notify.php`,
   DEAN_SURVEY_STATUS: `${API_ROOT}/dean/survey-status.php`,
   ENGAGEMENT_APPROVALS: `${API_ROOT}/moderation/approvals.php`,
-  MENTORSHIP: {
-    MENTORS: `${API_ROOT}/mentorship/mentors.php`,
-    REQUESTS: `${API_ROOT}/mentorship/requests.php`,
-    MESSAGES: `${API_ROOT}/mentorship/messages.php`,
-    FEEDBACK: `${API_ROOT}/mentorship/feedback.php`,
+  FORUM: {
+    POSTS: `${API_ROOT}/forum/posts.php`,
+    COMMENTS: `${API_ROOT}/forum/comments.php`,
+    LIKES: `${API_ROOT}/forum/likes.php`,
+    CHATS: `${API_ROOT}/forum/chats.php`,
+    CHAT_MESSAGES: `${API_ROOT}/forum/chat-messages.php`,
+    MODERATION: `${API_ROOT}/forum/moderation.php`,
   },
   JOBS: {
     POSTS: `${API_ROOT}/jobs/posts.php`,

@@ -270,27 +270,18 @@ if (!function_exists('gradtrack_rating_build_permissions')) {
     function gradtrack_rating_build_permissions(array $status): array
     {
         $isEmployed = (bool) ($status['is_employed'] ?? false);
-        $isAligned = (bool) ($status['is_aligned'] ?? false);
 
         $canPostJobs = $isEmployed;
-        $canUseMentorship = $isEmployed && $isAligned;
-        $canRequestMentorship = !$isEmployed || !$isAligned;
 
         return [
             'can_post_jobs' => $canPostJobs,
-            'can_use_mentorship' => $canUseMentorship,
-            'can_request_mentorship' => $canRequestMentorship,
-            'can_register_mentor' => $canUseMentorship,
+            'can_use_community_forum' => true,
             'requirements' => [
                 'job_posting' => [
                     'is_employed' => true,
                 ],
-                'mentorship_request' => [
-                    'is_unemployed' => true,
-                ],
-                'mentorship' => [
-                    'is_employed' => true,
-                    'is_aligned' => true,
+                'community_forum' => [
+                    'graduate_auth' => true,
                 ],
             ],
         ];
@@ -452,17 +443,6 @@ if (!function_exists('gradtrack_get_alumni_rating')) {
                 'current_points' => 0.0,
                 'max_points' => 0.0,
                 'action' => 'Update your employment information and indicate that you are employed.',
-            ];
-        }
-
-        if (!$isAligned) {
-            $recommendations[] = [
-                'area_key' => 'course_alignment',
-                'area' => 'Course Alignment',
-                'missing_points' => 0.0,
-                'current_points' => 0.0,
-                'max_points' => 0.0,
-                'action' => 'Set your employment alignment to aligned for mentorship eligibility.',
             ];
         }
 

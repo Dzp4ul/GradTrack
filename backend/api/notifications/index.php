@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/engagement_approval.php';
+require_once __DIR__ . '/../config/forum.php';
 
 function gradtrack_notifications_json_error(int $statusCode, string $message): void
 {
@@ -262,32 +263,6 @@ function gradtrack_notifications_add_dean(PDO $db, array &$notifications, string
         }
     }
 
-    $mentorParams = [];
-    $mentorPlaceholders = gradtrack_notifications_program_placeholders($programCodes, $mentorParams, 'mentor_program');
-    $mentorStmt = $db->prepare("SELECT m.id, m.created_at, g.first_name, g.last_name, p.code AS program_code
-                               FROM mentors m
-                               JOIN graduates g ON g.id = m.graduate_id
-                               JOIN programs p ON p.id = g.program_id
-                               WHERE m.approval_status = 'pending'
-                                 AND p.code IN ($mentorPlaceholders)
-                               ORDER BY m.created_at DESC, m.id DESC
-                               LIMIT 5");
-    $mentorStmt->execute($mentorParams);
-
-    foreach ($mentorStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $name = trim((string) $row['first_name'] . ' ' . (string) $row['last_name']);
-        gradtrack_notifications_add(
-            $notifications,
-            'mentor-approval:' . $row['id'],
-            'approval',
-            'Mentor approval needed',
-            $name . ' from ' . $row['program_code'] . ' submitted a mentor profile.',
-            $row['created_at'],
-            '/admin/mentor-approvals',
-            'high'
-        );
-    }
-
     $jobParams = [];
     $jobPlaceholders = gradtrack_notifications_program_placeholders($programCodes, $jobParams, 'job_program');
     $jobStmt = $db->prepare("SELECT jp.id, jp.title, jp.company, jp.created_at, p.code AS program_code
@@ -310,6 +285,35 @@ function gradtrack_notifications_add_dean(PDO $db, array &$notifications, string
             '"' . $row['title'] . '" at ' . $row['company'] . ' is pending for ' . $row['program_code'] . '.',
             $row['created_at'],
             '/admin/job-approvals',
+            'high'
+        );
+    }
+}
+
+function gradtrack_notifications_add_forum_moderator(PDO $db, array &$notifications): void
+{
+    if (!gradtrack_forum_table_exists($db, 'forum_posts')) {
+        return;
+    }
+
+    $stmt = $db->query("SELECT fp.id, fp.title, fp.category, fp.created_at,
+                               g.first_name, g.last_name
+                        FROM forum_posts fp
+                        JOIN graduates g ON g.id = fp.graduate_id
+                        WHERE fp.status = 'pending'
+                        ORDER BY fp.created_at DESC, fp.id DESC
+                        LIMIT 5");
+
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $name = trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? ''));
+        gradtrack_notifications_add(
+            $notifications,
+            'forum-review:' . $row['id'],
+            'forum',
+            'Forum post needs review',
+            '"' . ($row['title'] ?? 'Forum post') . '" in ' . ($row['category'] ?? 'General Discussion') . ' was submitted by ' . ($name !== '' ? $name : 'a graduate') . '.',
+            $row['created_at'],
+            '/admin/forum-moderation',
             'high'
         );
     }
@@ -347,73 +351,56 @@ function gradtrack_notifications_add_graduate(PDO $db, array &$notifications, ar
         );
     }
 
-    $incomingStmt = $db->prepare("SELECT mr.id, mr.mentee_name, mr.topic, mr.requested_at
-                                 FROM mentorship_requests mr
-                                 JOIN mentors m ON m.id = mr.mentor_id
-                                 WHERE m.graduate_account_id = :account_id
-                                   AND mr.status = 'pending'
-                                 ORDER BY mr.requested_at DESC, mr.id DESC
-                                 LIMIT 5");
-    $incomingStmt->execute([':account_id' => $accountId]);
+    if (gradtrack_forum_table_exists($db, 'forum_posts')) {
+        $forumMineStmt = $db->prepare("SELECT id, title, status, updated_at, created_at
+                                       FROM forum_posts
+                                       WHERE graduate_id = :graduate_id
+                                       ORDER BY COALESCE(updated_at, created_at) DESC, id DESC
+                                       LIMIT 5");
+        $forumMineStmt->execute([':graduate_id' => $graduateId]);
 
-    foreach ($incomingStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        gradtrack_notifications_add(
-            $notifications,
-            'mentorship-incoming:' . $row['id'],
-            'mentorship',
-            'New mentorship request',
-            ($row['mentee_name'] ?: 'A graduate') . ' requested help' . (($row['topic'] ?? '') !== '' ? ' with ' . $row['topic'] : '') . '.',
-            $row['requested_at'],
-            '/graduate/portal?tab=requests',
-            'high'
-        );
-    }
+        foreach ($forumMineStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $eventDate = $row['updated_at'] ?: $row['created_at'];
+            $status = (string) ($row['status'] ?? 'pending');
+            $message = $status === 'approved'
+                ? '"' . ($row['title'] ?? 'Your forum post') . '" is now visible in the Community Forum.'
+                : ($status === 'hidden'
+                    ? '"' . ($row['title'] ?? 'Your forum post') . '" was hidden by moderators.'
+                    : '"' . ($row['title'] ?? 'Your forum post') . '" is waiting for moderator review.');
 
-    $outgoingStmt = $db->prepare("SELECT mr.id, mr.status, mr.responded_at, mr.completed_at, mr.requested_at,
-                                        g.first_name AS mentor_first_name, g.last_name AS mentor_last_name
-                                 FROM mentorship_requests mr
-                                 JOIN mentors m ON m.id = mr.mentor_id
-                                 JOIN graduates g ON g.id = m.graduate_id
-                                 WHERE mr.mentee_account_id = :account_id
-                                   AND mr.status IN ('accepted','declined','completed','cancelled')
-                                 ORDER BY COALESCE(mr.completed_at, mr.responded_at, mr.requested_at) DESC, mr.id DESC
-                                 LIMIT 5");
-    $outgoingStmt->execute([':account_id' => $accountId]);
+            gradtrack_notifications_add(
+                $notifications,
+                'forum-post-status:' . $row['id'] . ':' . $status . ':' . gradtrack_notifications_date_token($eventDate),
+                'forum',
+                'Forum post ' . $status,
+                $message,
+                $eventDate,
+                '/graduate/portal?tab=community_forum'
+            );
+        }
 
-    foreach ($outgoingStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $eventDate = $row['completed_at'] ?: ($row['responded_at'] ?: $row['requested_at']);
-        $mentorName = trim((string) $row['mentor_first_name'] . ' ' . (string) $row['mentor_last_name']);
-        gradtrack_notifications_add(
-            $notifications,
-            'mentorship-status:' . $row['id'] . ':' . $row['status'] . ':' . gradtrack_notifications_date_token($eventDate),
-            'mentorship',
-            'Mentorship request ' . $row['status'],
-            ($mentorName !== '' ? $mentorName : 'Your mentor') . ' marked your request as ' . $row['status'] . '.',
-            $eventDate,
-            '/graduate/portal?tab=requests'
-        );
-    }
+        $forumFeedStmt = $db->query("SELECT fp.id, fp.title, fp.category, fp.updated_at, fp.created_at,
+                                            g.first_name, g.last_name
+                                     FROM forum_posts fp
+                                     JOIN graduates g ON g.id = fp.graduate_id
+                                     WHERE fp.status = 'approved'
+                                     ORDER BY COALESCE(fp.updated_at, fp.created_at) DESC, fp.id DESC
+                                     LIMIT 5");
 
-    $mentorStmt = $db->prepare("SELECT id, approval_status, approval_reviewed_at, approval_notes, updated_at, created_at
-                               FROM mentors
-                               WHERE graduate_account_id = :account_id
-                               LIMIT 1");
-    $mentorStmt->execute([':account_id' => $accountId]);
-    $mentor = $mentorStmt->fetch(PDO::FETCH_ASSOC);
-
-    if ($mentor) {
-        $eventDate = $mentor['approval_reviewed_at'] ?: ($mentor['updated_at'] ?: $mentor['created_at']);
-        gradtrack_notifications_add(
-            $notifications,
-            'mentor-profile-status:' . $mentor['id'] . ':' . $mentor['approval_status'] . ':' . gradtrack_notifications_date_token($eventDate),
-            'approval',
-            'Mentor profile ' . $mentor['approval_status'],
-            ($mentor['approval_status'] === 'pending')
-                ? 'Your mentor profile is waiting for dean approval.'
-                : 'Your mentor profile was ' . $mentor['approval_status'] . '.',
-            $eventDate,
-            '/graduate/portal?tab=mentor_profile'
-        );
+        foreach ($forumFeedStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $eventDate = $row['updated_at'] ?: $row['created_at'];
+            $authorName = trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? ''));
+            gradtrack_notifications_add(
+                $notifications,
+                'forum-approved-feed:' . $row['id'] . ':' . gradtrack_notifications_date_token($eventDate),
+                'forum',
+                'New forum discussion',
+                '"' . ($row['title'] ?? 'Community discussion') . '" in ' . ($row['category'] ?? 'General Discussion')
+                    . ' was posted by ' . ($authorName !== '' ? $authorName : 'a graduate') . '.',
+                $eventDate,
+                '/graduate/portal?tab=community_forum'
+            );
+        }
     }
 
     $jobStmt = $db->prepare("SELECT id, title, company, approval_status, approval_reviewed_at, updated_at, created_at
@@ -433,33 +420,6 @@ function gradtrack_notifications_add_graduate(PDO $db, array &$notifications, ar
             '"' . $row['title'] . '" at ' . $row['company'] . ' is ' . $row['approval_status'] . '.',
             $eventDate,
             '/graduate/portal?tab=job_posting'
-        );
-    }
-
-    $approvedMentorStmt = $db->prepare("SELECT m.id, m.approval_reviewed_at, m.updated_at, m.created_at,
-                                              g.first_name, g.last_name, p.code AS program_code
-                                       FROM mentors m
-                                       JOIN graduates g ON g.id = m.graduate_id
-                                       LEFT JOIN programs p ON p.id = g.program_id
-                                       WHERE m.approval_status = 'approved'
-                                         AND COALESCE(m.is_active, 1) = 1
-                                       ORDER BY COALESCE(m.approval_reviewed_at, m.updated_at, m.created_at) DESC, m.id DESC
-                                       LIMIT 5");
-    $approvedMentorStmt->execute();
-
-    foreach ($approvedMentorStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $eventDate = $row['approval_reviewed_at'] ?: ($row['updated_at'] ?: $row['created_at']);
-        $mentorName = trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? ''));
-        gradtrack_notifications_add(
-            $notifications,
-            'mentor-approved-feed:' . $row['id'] . ':' . gradtrack_notifications_date_token($eventDate),
-            'mentorship',
-            'New mentor available',
-            ($mentorName !== '' ? $mentorName : 'A graduate mentor')
-                . ((string) ($row['program_code'] ?? '') !== '' ? ' from ' . $row['program_code'] : '')
-                . ' is now available for mentorship.',
-            $eventDate,
-            '/graduate/portal?tab=mentors'
         );
     }
 
@@ -561,10 +521,14 @@ function gradtrack_notifications_generate(PDO $db, array $auth): array
 
         if ($role === 'admin') {
             gradtrack_notifications_add_admin_surveys($db, $notifications);
+            gradtrack_notifications_add_forum_moderator($db, $notifications);
+        } elseif ($role === 'mis_staff' || $role === 'research_coordinator') {
+            gradtrack_notifications_add_forum_moderator($db, $notifications);
         } elseif ($role === 'registrar') {
             gradtrack_notifications_add_registrar($db, $notifications);
         } elseif ($role === 'super_admin') {
             gradtrack_notifications_add_super_admin($db, $notifications, (int) $auth['target_id']);
+            gradtrack_notifications_add_forum_moderator($db, $notifications);
         } else {
             gradtrack_notifications_add_dean($db, $notifications, $role);
         }
@@ -740,6 +704,7 @@ $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
 
 try {
+    gradtrack_forum_ensure_schema($db);
     gradtrack_notifications_ensure_schema($db);
     gradtrack_ensure_engagement_approval_schema($db);
     $audience = isset($_GET['audience']) && in_array($_GET['audience'], ['admin', 'graduate'], true)

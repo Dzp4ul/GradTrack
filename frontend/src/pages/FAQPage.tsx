@@ -10,11 +10,11 @@ const faqs: { category: string; items: { q: string; a: string }[] }[] = [
     items: [
       {
         q: 'What is GradTrack?',
-        a: 'GradTrack is Norzagaray College\'s graduate tracer and alumni engagement system. It helps the college collect verified tracer survey responses, organize graduate records, generate outcome reports, and support graduates through mentorship and job opportunities.\n\nThe system keeps survey data, graduate profiles, analytics, reports, mentor profiles, and job posts in one connected platform.',
+        a: 'GradTrack is Norzagaray College\'s graduate tracer and alumni engagement system. It helps the college collect verified tracer survey responses, organize graduate records, generate outcome reports, and support graduates through a Community Forum and job opportunities.\n\nThe system keeps survey data, graduate profiles, analytics, reports, forum posts, and job posts in one connected platform.',
       },
       {
         q: 'Who can use GradTrack?',
-        a: 'Norzagaray College graduates can use GradTrack to answer tracer surveys, create a Graduate Portal account, update their profile, find mentors, request mentorship, and browse job opportunities.\n\nAuthorized college personnel use GradTrack to manage surveys, monitor graduate participation, review mentor and job submissions, and generate reports for planning and accreditation needs.',
+        a: 'Norzagaray College graduates can use GradTrack to answer tracer surveys, create a Graduate Portal account, update their profile, join Community Forum discussions, and browse job opportunities.\n\nAuthorized college personnel use GradTrack to manage surveys, monitor graduate participation, review forum and job submissions, and generate reports for planning and accreditation needs.',
       },
       {
         q: 'Do graduates need an account before taking the survey?',
@@ -22,7 +22,7 @@ const faqs: { category: string; items: { q: string; a: string }[] }[] = [
       },
       {
         q: 'Is GradTrack the same as a regular survey tool?',
-        a: 'No. GradTrack is built specifically for graduate tracer activities. It verifies graduates before they answer, connects responses to graduate records, tracks completion, analyzes employment and course-career alignment, and extends the survey into a Graduate Portal for mentorship and job opportunities.',
+        a: 'No. GradTrack is built specifically for graduate tracer activities. It verifies graduates before they answer, connects responses to graduate records, tracks completion, analyzes employment and course-career alignment, and extends the survey into a Graduate Portal for community discussion and job opportunities.',
       },
     ],
   },
@@ -52,19 +52,19 @@ const faqs: { category: string; items: { q: string; a: string }[] }[] = [
     items: [
       {
         q: 'What can graduates do in the Graduate Portal?',
-        a: 'Graduates can update their profile, browse approved mentors, send mentorship requests when eligible, browse approved job opportunities, and manage their own mentor profile or job posts if they meet the requirements.',
+        a: 'Graduates can update their profile, browse approved forum discussions, create their own Community Forum posts, comment on approved posts, browse approved job opportunities, and manage their own job posts if they meet the requirements.',
       },
       {
         q: 'Why are some portal features locked?',
-        a: 'GradTrack unlocks some features based on survey information. Job posting is available to graduates marked as employed. Mentor profile creation requires employed status and course-career alignment. Mentorship requests are available for graduates marked as not employed.',
+        a: 'GradTrack unlocks some features based on survey information. Job posting is available to graduates marked as employed. The Community Forum is available to authenticated graduates, while posts still go through moderator review before they appear publicly.',
       },
       {
-        q: 'How do mentor profiles and job posts appear in the portal?',
-        a: 'Graduates can submit mentor profiles or job posts from the portal. New or updated submissions are reviewed first, and only approved active items appear in Find Mentors or Browse Jobs.',
+        q: 'How do forum posts and job posts appear in the portal?',
+        a: 'Graduates can submit Community Forum posts or job posts from the portal. New or updated submissions are reviewed first, and only approved active items appear in the forum feed or Browse Jobs.',
       },
       {
-        q: 'Can graduates leave feedback after mentorship?',
-        a: 'Yes. Mentorship requests can be accepted, scheduled, completed, or cancelled. Graduates can leave mentor feedback, and mentors can also submit session remarks after a mentorship activity.',
+        q: 'Can graduates comment on forum posts?',
+        a: 'Yes. Graduates can open an approved forum post, read the full discussion, and leave comments that are connected to that post.',
       },
     ],
   },
@@ -81,7 +81,7 @@ const faqs: { category: string; items: { q: string; a: string }[] }[] = [
       },
       {
         q: 'Is graduate data kept private?',
-        a: 'Yes. Graduate records and survey responses are used for official Norzagaray College tracer, reporting, and alumni engagement purposes. Personal information is not publicly visible, and portal items such as mentor profiles or job posts appear only after review and approval.',
+        a: 'Yes. Graduate records and survey responses are used for official Norzagaray College tracer, reporting, and alumni engagement purposes. Personal information is not publicly visible, and portal items such as forum posts or job posts appear only after review and approval.',
       },
     ],
   },
