@@ -56,17 +56,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit();
         }
         
-        // Check if token expired
-        if (strtotime($tokenData['expires_at']) < time()) {
-            http_response_code(403);
-            echo json_encode([
-                "success" => false,
-                "error" => "Token expired",
-                "message" => "This survey link has expired. Please verify your identity again."
-            ]);
-            exit();
-        }
-        
         // Check if already submitted
         if ($tokenData['submitted_at'] !== null) {
             http_response_code(409);

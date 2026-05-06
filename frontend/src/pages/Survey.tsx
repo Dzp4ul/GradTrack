@@ -70,6 +70,18 @@ const getSurveyDraftKey = (surveyId: number, graduateId: number | null) =>
     ? `survey_draft_${surveyId}_g${graduateId}`
     : `survey_draft_${surveyId}`;
 
+const SURVEY_ACCESS_KEYS = ['survey_token', 'graduate_id', 'graduate_name', 'graduate_profile'] as const;
+
+const getSurveyAccessItem = (key: typeof SURVEY_ACCESS_KEYS[number]) =>
+  localStorage.getItem(key) || sessionStorage.getItem(key);
+
+const removeSurveyAccess = () => {
+  SURVEY_ACCESS_KEYS.forEach((key) => {
+    localStorage.removeItem(key);
+    sessionStorage.removeItem(key);
+  });
+};
+
 const sanitizeDraftResponses = (draftResponses: unknown, questions: Question[]): SurveyResponses => {
   if (!draftResponses || typeof draftResponses !== 'object' || Array.isArray(draftResponses)) {
     return {};
@@ -459,17 +471,18 @@ function Survey() {
   }, []);
 
   const validateTokenAndFetchSurvey = async () => {
-    // Get token from sessionStorage
-    const storedToken = sessionStorage.getItem('survey_token');
-    const storedGraduateId = sessionStorage.getItem('graduate_id');
-    const storedGraduateName = sessionStorage.getItem('graduate_name');
-    const storedGraduateProfile = sessionStorage.getItem('graduate_profile');
+    // Get persistent survey access so unfinished answers can be restored later.
+    const storedToken = getSurveyAccessItem('survey_token');
+    const storedGraduateId = getSurveyAccessItem('graduate_id');
+    const storedGraduateName = getSurveyAccessItem('graduate_name');
+    const storedGraduateProfile = getSurveyAccessItem('graduate_profile');
     let parsedStoredProfile: TokenProfileData | null = null;
 
     if (storedGraduateProfile) {
       try {
         parsedStoredProfile = JSON.parse(storedGraduateProfile);
       } catch {
+        localStorage.removeItem('graduate_profile');
         sessionStorage.removeItem('graduate_profile');
       }
     }
@@ -480,7 +493,6 @@ function Survey() {
     if (!storedToken) {
       // No token, redirect to verification with survey_id
       console.log('No token found, redirecting to verification');
-      sessionStorage.removeItem('graduate_profile');
       const redirectUrl = surveyIdFromUrl 
         ? `/survey-verify?survey_id=${surveyIdFromUrl}`
         : '/survey-verify';
@@ -514,13 +526,10 @@ function Survey() {
         setMsgBox({
           isOpen: true,
           type: 'error',
-          message: tokenResult.message || 'Invalid or expired token',
+          message: tokenResult.message || 'Invalid token',
           title: 'Access Denied'
         });
-        sessionStorage.removeItem('survey_token');
-        sessionStorage.removeItem('graduate_id');
-        sessionStorage.removeItem('graduate_name');
-        sessionStorage.removeItem('graduate_profile');
+        removeSurveyAccess();
         
         const redirectUrl = surveyIdFromUrl 
           ? `/survey-verify?survey_id=${surveyIdFromUrl}`
@@ -536,10 +545,7 @@ function Survey() {
       console.log('Token is valid!');
       const tokenSurveyId = tokenResult?.data?.survey_id ? String(tokenResult.data.survey_id) : '';
       if (surveyIdFromUrl && tokenSurveyId && tokenSurveyId !== surveyIdFromUrl) {
-        sessionStorage.removeItem('survey_token');
-        sessionStorage.removeItem('graduate_id');
-        sessionStorage.removeItem('graduate_name');
-        sessionStorage.removeItem('graduate_profile');
+        removeSurveyAccess();
 
         setMsgBox({
           isOpen: true,
@@ -556,13 +562,25 @@ function Survey() {
 
       setToken(storedToken);
       const verifiedGraduateId = Number(tokenResult?.data?.graduate_id || storedGraduateId || 0);
-      setGraduateId(verifiedGraduateId || null);
-      setGraduateName(storedGraduateName || tokenResult?.data?.graduate_name || '');
-      setTokenProfileData({
+      const resolvedGraduateName = storedGraduateName || tokenResult?.data?.graduate_name || '';
+      const resolvedProfile = {
         ...(parsedStoredProfile || {}),
         ...(tokenResult?.data?.profile || {}),
         student_id: tokenResult?.data?.profile?.student_id || tokenResult?.data?.student_id || parsedStoredProfile?.student_id || null,
-      });
+      };
+
+      localStorage.setItem('survey_token', storedToken);
+      if (verifiedGraduateId) {
+        localStorage.setItem('graduate_id', String(verifiedGraduateId));
+      }
+      if (resolvedGraduateName) {
+        localStorage.setItem('graduate_name', resolvedGraduateName);
+      }
+      localStorage.setItem('graduate_profile', JSON.stringify(resolvedProfile));
+
+      setGraduateId(verifiedGraduateId || null);
+      setGraduateName(resolvedGraduateName);
+      setTokenProfileData(resolvedProfile);
 
       // Fetch survey
       await fetchActiveSurvey(tokenSurveyId || surveyIdFromUrl);
@@ -995,10 +1013,7 @@ function Survey() {
 
         localStorage.removeItem(getSurveyDraftKey(activeSurvey.id, graduateId));
         localStorage.removeItem(`survey_draft_${activeSurvey.id}`);
-        sessionStorage.removeItem('survey_token');
-        sessionStorage.removeItem('graduate_id');
-        sessionStorage.removeItem('graduate_name');
-        sessionStorage.removeItem('graduate_profile');
+        removeSurveyAccess();
 
         setSubmittedResponseId(result.survey_response_id || result.id || null);
         setPrefillData(extractedProfile);

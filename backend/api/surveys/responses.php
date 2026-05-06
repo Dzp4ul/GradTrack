@@ -278,18 +278,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 http_response_code(403);
                 echo json_encode([
                     "success" => false,
-                    "error" => "Invalid or expired token"
-                ]);
-                exit();
-            }
-            
-            // Check if token expired
-            if (strtotime($tokenData['expires_at']) < time()) {
-                $conn->rollBack();
-                http_response_code(403);
-                echo json_encode([
-                    "success" => false,
-                    "error" => "Token has expired"
+                    "error" => "Invalid token"
                 ]);
                 exit();
             }

@@ -18,6 +18,8 @@ interface SurveySummary {
 
 type VerificationMethod = 'student_number' | 'email';
 
+const SURVEY_ACCESS_KEYS = ['survey_token', 'graduate_id', 'graduate_name', 'graduate_profile'] as const;
+
 const formatStudentNumber = (value: string): string => {
   const digits = value.replace(/\D/g, '').slice(0, 8);
   if (digits.length <= 4) return digits;
@@ -158,15 +160,16 @@ function SurveyVerification() {
       console.log('Verification response:', result);
 
       if (result.success) {
-        // Store token in sessionStorage
+        // Store survey access outside the browser session so graduates can resume later.
         if (result.data.token) {
-          sessionStorage.setItem('survey_token', result.data.token);
-          sessionStorage.setItem('graduate_id', result.data.graduate_id);
-          sessionStorage.setItem('graduate_name', result.data.graduate_name);
+          SURVEY_ACCESS_KEYS.forEach((key) => sessionStorage.removeItem(key));
+          localStorage.setItem('survey_token', result.data.token);
+          localStorage.setItem('graduate_id', result.data.graduate_id);
+          localStorage.setItem('graduate_name', result.data.graduate_name);
           if (result.data.profile) {
-            sessionStorage.setItem('graduate_profile', JSON.stringify(result.data.profile));
+            localStorage.setItem('graduate_profile', JSON.stringify(result.data.profile));
           } else {
-            sessionStorage.removeItem('graduate_profile');
+            localStorage.removeItem('graduate_profile');
           }
           
           console.log('Token stored:', result.data.token);

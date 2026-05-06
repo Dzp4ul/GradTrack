@@ -178,36 +178,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $tokenStmt->execute();
             $existingToken = $tokenStmt->fetch(PDO::FETCH_ASSOC);
             
-            if ($existingToken && strtotime($existingToken['expires_at']) > time()) {
-                // Use existing valid token
+            if ($existingToken) {
+                // Reuse the unfinished survey token so graduates can resume later.
                 $token = $existingToken['token'];
             } else {
                 // Generate new token
                 $token = bin2hex(random_bytes(32));
-                $expiresAt = date('Y-m-d H:i:s', strtotime('+30 minutes'));
+                $expiresAt = '9999-12-31 23:59:59';
                 
-                if ($existingToken) {
-                    // Update existing token
-                    $updateQuery = "UPDATE survey_tokens 
-                                   SET token = :token, expires_at = :expires_at 
-                                   WHERE survey_id = :survey_id AND graduate_id = :graduate_id";
-                    $updateStmt = $conn->prepare($updateQuery);
-                    $updateStmt->bindParam(':token', $token);
-                    $updateStmt->bindParam(':expires_at', $expiresAt);
-                    $updateStmt->bindParam(':survey_id', $surveyId);
-                    $updateStmt->bindParam(':graduate_id', $graduate['id']);
-                    $updateStmt->execute();
-                } else {
-                    // Insert new token
-                    $insertQuery = "INSERT INTO survey_tokens (survey_id, graduate_id, token, expires_at) 
-                                   VALUES (:survey_id, :graduate_id, :token, :expires_at)";
-                    $insertStmt = $conn->prepare($insertQuery);
-                    $insertStmt->bindParam(':survey_id', $surveyId);
-                    $insertStmt->bindParam(':graduate_id', $graduate['id']);
-                    $insertStmt->bindParam(':token', $token);
-                    $insertStmt->bindParam(':expires_at', $expiresAt);
-                    $insertStmt->execute();
-                }
+                // Insert new token
+                $insertQuery = "INSERT INTO survey_tokens (survey_id, graduate_id, token, expires_at)
+                               VALUES (:survey_id, :graduate_id, :token, :expires_at)";
+                $insertStmt = $conn->prepare($insertQuery);
+                $insertStmt->bindParam(':survey_id', $surveyId);
+                $insertStmt->bindParam(':graduate_id', $graduate['id']);
+                $insertStmt->bindParam(':token', $token);
+                $insertStmt->bindParam(':expires_at', $expiresAt);
+                $insertStmt->execute();
             }
             
             // Return success with token
