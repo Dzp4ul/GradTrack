@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 use PHPMailer\PHPMailer\Exception as MailException;
@@ -347,6 +348,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         
         $conn->commit();
+
+        $auditGraduate = null;
+        if ($graduateId) {
+            $auditGraduateStmt = $conn->prepare("SELECT g.first_name, g.last_name, g.email, p.code AS program_code
+                                                FROM graduates g
+                                                LEFT JOIN programs p ON p.id = g.program_id
+                                                WHERE g.id = :id
+                                                LIMIT 1");
+            $auditGraduateStmt->execute([':id' => $graduateId]);
+            $auditGraduate = $auditGraduateStmt->fetch(PDO::FETCH_ASSOC);
+        }
+
+        $auditGraduateName = $auditGraduate
+            ? gradtrack_audit_graduate_name($auditGraduate)
+            : 'Survey Respondent';
+
+        // Audit Trail: call logAuditTrail() after a survey response is successfully submitted and committed.
+        logAuditTrail(
+            $graduateId,
+            $auditGraduateName,
+            'graduate',
+            $auditGraduate['program_code'] ?? null,
+            'Submit',
+            'Survey Responses',
+            "Submitted survey response (Response ID: {$responseId}, Survey ID: {$surveyId})."
+        );
 
         $emailNotification = [
             "sent" => false,

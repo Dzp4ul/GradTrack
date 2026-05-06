@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/forum.php';
+require_once __DIR__ . '/../config/audit_trail.php';
 
 function gradtrack_forum_moderation_json_error(int $statusCode, string $message): void
 {
@@ -238,9 +239,15 @@ try {
             gradtrack_forum_moderation_json_error(400, 'Valid id and status are required');
         }
 
-        $existsStmt = $db->prepare('SELECT id FROM forum_posts WHERE id = :id LIMIT 1');
+        $existsStmt = $db->prepare('SELECT fp.id, fp.title, p.code AS program_code
+                                    FROM forum_posts fp
+                                    JOIN graduates g ON g.id = fp.graduate_id
+                                    LEFT JOIN programs p ON p.id = g.program_id
+                                    WHERE fp.id = :id
+                                    LIMIT 1');
         $existsStmt->execute([':id' => $postId]);
-        if (!$existsStmt->fetch(PDO::FETCH_ASSOC)) {
+        $post = $existsStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$post) {
             gradtrack_forum_moderation_json_error(404, 'Forum post not found');
         }
 
@@ -249,6 +256,17 @@ try {
             ':status' => $status,
             ':id' => $postId,
         ]);
+
+        // Audit Trail: call logAuditTrail() after a moderator updates a community forum post status.
+        logAuditTrail(
+            $moderator['id'],
+            $moderator['full_name'] ?: $moderator['email'],
+            $moderator['role'],
+            $post['program_code'] ?? null,
+            'Update',
+            'Community Forum',
+            'Updated forum post "' . ($post['title'] ?? 'Untitled Post') . "\" (ID: {$postId}) status to {$status}."
+        );
 
         echo json_encode([
             'success' => true,
@@ -263,7 +281,12 @@ try {
         $commentId = isset($_GET['comment_id']) ? (int) $_GET['comment_id'] : (isset($data['comment_id']) ? (int) $data['comment_id'] : 0);
 
         if ($postId > 0) {
-            $existsStmt = $db->prepare('SELECT id, image_path FROM forum_posts WHERE id = :id LIMIT 1');
+            $existsStmt = $db->prepare('SELECT fp.id, fp.title, fp.image_path, p.code AS program_code
+                                        FROM forum_posts fp
+                                        JOIN graduates g ON g.id = fp.graduate_id
+                                        LEFT JOIN programs p ON p.id = g.program_id
+                                        WHERE fp.id = :id
+                                        LIMIT 1');
             $existsStmt->execute([':id' => $postId]);
             $post = $existsStmt->fetch(PDO::FETCH_ASSOC);
             if (!$post) {
@@ -273,6 +296,17 @@ try {
             $deleteStmt = $db->prepare('DELETE FROM forum_posts WHERE id = :id');
             $deleteStmt->execute([':id' => $postId]);
             gradtrack_forum_remove_post_image($post['image_path'] ?? null);
+
+            // Audit Trail: call logAuditTrail() after a moderator deletes a community forum post.
+            logAuditTrail(
+                $moderator['id'],
+                $moderator['full_name'] ?: $moderator['email'],
+                $moderator['role'],
+                $post['program_code'] ?? null,
+                'Delete',
+                'Community Forum',
+                'Deleted forum post "' . ($post['title'] ?? 'Untitled Post') . "\" (ID: {$postId})."
+            );
 
             echo json_encode([
                 'success' => true,

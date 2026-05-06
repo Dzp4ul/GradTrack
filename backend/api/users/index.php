@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/audit_trail.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -22,6 +23,7 @@ $allowedRoles = ['super_admin', 'admin', 'mis_staff', 'research_coordinator', 'r
 $database = new Database();
 $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
+$auditUser = gradtrack_audit_current_admin_context();
 
 function ensureIsActiveColumn(PDO $conn): void
 {
@@ -112,6 +114,18 @@ try {
                 ':role' => $role,
                 ':is_active' => $isActive,
             ]);
+            $createdUserId = (int) $db->lastInsertId();
+
+            // Audit Trail: call logAuditTrail() after a user account is successfully created.
+            logAuditTrail(
+                $auditUser['user_id'],
+                $auditUser['user_name'],
+                $auditUser['user_role'],
+                $auditUser['department'],
+                'Create',
+                'User Management',
+                "Created user account {$email} with role {$role} (ID: {$createdUserId})."
+            );
 
             echo json_encode(["success" => true, "message" => "User created"]);
             break;
@@ -200,7 +214,65 @@ try {
                 ]);
             }
 
+            // Audit Trail: call logAuditTrail() after a user account is successfully updated.
+            logAuditTrail(
+                $auditUser['user_id'],
+                $auditUser['user_name'],
+                $auditUser['user_role'],
+                $auditUser['department'],
+                'Update',
+                'User Management',
+                "Updated user account {$nextEmail} (ID: {$id}); role={$nextRole}, status=" . ($nextIsActive === 1 ? 'active' : 'inactive') . "."
+            );
+
             echo json_encode(["success" => true, "message" => "User updated"]);
+            break;
+
+        case 'DELETE':
+            $data = json_decode(file_get_contents("php://input"), true);
+            $id = isset($data['id']) ? (int) $data['id'] : (isset($_GET['id']) ? (int) $_GET['id'] : 0);
+
+            if ($id <= 0) {
+                http_response_code(400);
+                echo json_encode(["success" => false, "error" => "Valid id is required"]);
+                break;
+            }
+
+            if ((int) $_SESSION['user_id'] === $id) {
+                http_response_code(400);
+                echo json_encode(["success" => false, "error" => "Logged-in user account cannot be deleted"]);
+                break;
+            }
+
+            $existingStmt = $db->prepare("
+                SELECT id, username, email, full_name, role
+                FROM admin_users
+                WHERE id = :id
+            ");
+            $existingStmt->execute([':id' => $id]);
+            $existing = $existingStmt->fetch(PDO::FETCH_ASSOC);
+
+            if (!$existing) {
+                http_response_code(404);
+                echo json_encode(["success" => false, "error" => "User not found"]);
+                break;
+            }
+
+            $deleteStmt = $db->prepare("DELETE FROM admin_users WHERE id = :id");
+            $deleteStmt->execute([':id' => $id]);
+
+            // Audit Trail: call logAuditTrail() after a user account is successfully deleted.
+            logAuditTrail(
+                $auditUser['user_id'],
+                $auditUser['user_name'],
+                $auditUser['user_role'],
+                $auditUser['department'],
+                'Delete',
+                'User Management',
+                "Deleted user account {$existing['email']} with role {$existing['role']} (ID: {$id})."
+            );
+
+            echo json_encode(["success" => true, "message" => "User deleted"]);
             break;
 
         default:

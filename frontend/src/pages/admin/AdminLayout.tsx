@@ -15,6 +15,7 @@ import {
   ChevronDown,
   DatabaseBackup,
   User,
+  History,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
@@ -40,20 +41,24 @@ const adminNavItems: NavItem[] = [
 const superAdminNavItems: NavItem[] = [
   { to: '/admin/forum-moderation', icon: MessageSquareMore, label: 'Forum Moderation' },
   { to: '/admin/user-management', icon: Users, label: 'User Management' },
+  { to: '/admin/audit-trail', icon: History, label: 'Audit Trail' },
   { to: '/admin/backup-database', icon: DatabaseBackup, label: 'Backup Database' },
 ];
 
 const registrarNavItems: NavItem[] = [
   { to: '/admin/graduates', icon: GraduationCap, label: 'Manage Graduates' },
+  { to: '/admin/audit-trail', icon: History, label: 'Audit Trail' },
 ];
 
 const forumModeratorNavItems: NavItem[] = [
   { to: '/admin/forum-moderation', icon: MessageSquareMore, label: 'Forum Moderation', end: true },
+  { to: '/admin/audit-trail', icon: History, label: 'Audit Trail' },
 ];
 
 const deanNavItems: NavItem[] = [
   { to: '/admin/survey-status', icon: ClipboardCheck, label: 'Survey Participation' },
   { to: '/admin/job-approvals', icon: Briefcase, label: 'Job Approval' },
+  { to: '/admin/audit-trail', icon: History, label: 'Audit Trail' },
 ];
 
 const roleLabels: Record<string, string> = {

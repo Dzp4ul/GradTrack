@@ -1,9 +1,11 @@
 <?php
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/audit_trail.php';
 
 $database = new Database();
 $db = $database->getConnection();
+$auditUser = gradtrack_audit_current_admin_context();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     try {
@@ -24,6 +26,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $db->exec("ALTER TABLE survey_responses AUTO_INCREMENT = 1");
         
         $db->commit();
+
+        // Audit Trail: call logAuditTrail() after bulk survey deletion is successfully committed.
+        logAuditTrail(
+            $auditUser['user_id'],
+            $auditUser['user_name'],
+            $auditUser['user_role'],
+            $auditUser['department'],
+            'Delete',
+            'Survey Management',
+            'Deleted all surveys, survey questions, and survey responses.'
+        );
         
         echo json_encode([
             "success" => true,

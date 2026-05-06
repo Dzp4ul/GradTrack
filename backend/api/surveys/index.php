@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/audit_trail.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -9,6 +10,7 @@ if (session_status() === PHP_SESSION_NONE) {
 $database = new Database();
 $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
+$auditUser = gradtrack_audit_current_admin_context();
 
 function gradtrack_column_exists(PDO $db, string $table, string $column): bool
 {
@@ -183,6 +185,16 @@ try {
             }
 
             $db->commit();
+            // Audit Trail: call logAuditTrail() after a survey is successfully created and committed.
+            logAuditTrail(
+                $auditUser['user_id'],
+                $auditUser['user_name'],
+                $auditUser['user_role'],
+                $auditUser['department'],
+                'Create',
+                'Survey Management',
+                "Created survey \"{$data['title']}\" (ID: {$surveyId}) with status {$status}."
+            );
             echo json_encode(["success" => true, "message" => "Survey created", "id" => $surveyId]);
             break;
 
@@ -289,6 +301,16 @@ try {
             }
 
             $db->commit();
+            // Audit Trail: call logAuditTrail() after a survey is successfully updated and committed.
+            logAuditTrail(
+                $auditUser['user_id'],
+                $auditUser['user_name'],
+                $auditUser['user_role'],
+                $auditUser['department'],
+                'Update',
+                'Survey Management',
+                "Updated survey \"{$data['title']}\" (ID: {$data['id']}) with status {$status}."
+            );
             echo json_encode(["success" => true, "message" => "Survey updated"]);
             break;
 
@@ -299,8 +321,23 @@ try {
                 echo json_encode(["success" => false, "error" => "ID is required"]);
                 break;
             }
+
+            $surveyStmt = $db->prepare("SELECT title FROM surveys WHERE id = :id LIMIT 1");
+            $surveyStmt->execute([':id' => $data['id']]);
+            $surveyToDelete = $surveyStmt->fetch(PDO::FETCH_ASSOC);
+
             $stmt = $db->prepare("DELETE FROM surveys WHERE id = :id");
             $stmt->execute([':id' => $data['id']]);
+            // Audit Trail: call logAuditTrail() after a survey is successfully deleted.
+            logAuditTrail(
+                $auditUser['user_id'],
+                $auditUser['user_name'],
+                $auditUser['user_role'],
+                $auditUser['department'],
+                'Delete',
+                'Survey Management',
+                'Deleted survey "' . ($surveyToDelete['title'] ?? 'Unknown Survey') . '" (ID: ' . $data['id'] . ').'
+            );
             echo json_encode(["success" => true, "message" => "Survey deleted"]);
             break;
 

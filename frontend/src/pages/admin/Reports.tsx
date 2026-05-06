@@ -225,6 +225,8 @@ export default function Reports() {
   const [availableYears, setAvailableYears] = useState<string[]>([]);
   const [availableDepartments, setAvailableDepartments] = useState<Array<{ code: string; name: string }>>([]);
   const [aiAnalysis, setAiAnalysis] = useState<string>('');
+  const [aiSummary, setAiSummary] = useState<string>('');
+  const [aiConclusion, setAiConclusion] = useState<string>('');
   const [aiLoading, setAiLoading] = useState(false);
   const [surveyItems, setSurveyItems] = useState<SurveySummary[]>([]);
   const [surveyLoading, setSurveyLoading] = useState(false);
@@ -265,7 +267,12 @@ export default function Reports() {
     }
   };
 
-  const buildReportUrl = (type: string, year: string = 'all', department: string = selectedDepartment) => {
+  const buildReportUrl = (
+    type: string,
+    year: string = 'all',
+    department: string = selectedDepartment,
+    auditAction?: string,
+  ) => {
     const params = new URLSearchParams({ type });
     const effectiveDepartment = type === 'overview' ? 'all' : department;
     params.set('survey_id', selectedSurveyId ? selectedSurveyId.toString() : NO_SURVEY_SELECTION_VALUE);
@@ -274,6 +281,9 @@ export default function Reports() {
     }
     if (effectiveDepartment !== 'all') {
       params.set('department', effectiveDepartment);
+    }
+    if (auditAction) {
+      params.set('audit_action', auditAction);
     }
 
     return `${API_BASE}/reports/index.php?${params.toString()}`;
@@ -355,7 +365,7 @@ export default function Reports() {
     setLoading(true);
     const url = buildReportUrl(type, reportYear, reportDepartment);
 
-    fetch(url)
+    fetch(url, { credentials: 'include' })
       .then((r) => r.json())
       .then((res) => {
         if (res.success) {
@@ -474,7 +484,7 @@ export default function Reports() {
   }, []);
 
   const loadOverviewProgramData = () => {
-    fetch(buildReportUrl('by_program', 'all', 'all'))
+    fetch(buildReportUrl('by_program', 'all', 'all'), { credentials: 'include' })
       .then((r) => r.json())
       .then((res) => {
         if (res.success && res.data) {
@@ -494,7 +504,7 @@ export default function Reports() {
     reportCacheRef.current = {};
 
     // Fetch year data first to populate the filter
-    fetch(buildReportUrl('by_year', 'all', 'all'))
+    fetch(buildReportUrl('by_year', 'all', 'all'), { credentials: 'include' })
       .then((r) => r.json())
       .then((res) => {
         if (res.success && res.data) {
@@ -566,6 +576,8 @@ export default function Reports() {
     if (!selectedSurveyId) {
       setAiLoading(false);
       setAiAnalysis('Select a survey to generate AI-powered analytics.');
+      setAiSummary('');
+      setAiConclusion('');
       return;
     }
 
@@ -600,10 +612,14 @@ export default function Reports() {
           return;
         }
 
-        if (res.success && res.data.ai_analysis) {
-          setAiAnalysis(res.data.ai_analysis);
+        if (res.success && res.data && (res.data.ai_analysis || res.data.ai_summary || res.data.ai_conclusion)) {
+          setAiAnalysis(String(res.data.ai_analysis || ''));
+          setAiSummary(String(res.data.ai_summary || ''));
+          setAiConclusion(String(res.data.ai_conclusion || ''));
         } else {
           setAiAnalysis('AI analysis temporarily unavailable.');
+          setAiSummary('');
+          setAiConclusion('');
         }
       })
       .catch(() => {
@@ -611,6 +627,8 @@ export default function Reports() {
           return;
         }
         setAiAnalysis('AI analysis temporarily unavailable.');
+        setAiSummary('');
+        setAiConclusion('');
       })
       .finally(() => {
         if (requestId === aiRequestSeqRef.current) {
@@ -798,11 +816,11 @@ export default function Reports() {
       applyYearFilter: boolean = false,
     ): Promise<T | null> => {
       const url = applyYearFilter
-        ? buildReportUrl(type, selectedYear, reportDepartment)
-        : buildReportUrl(type, 'all', reportDepartment);
+        ? buildReportUrl(type, selectedYear, reportDepartment, 'export_excel')
+        : buildReportUrl(type, 'all', reportDepartment, 'export_excel');
 
       try {
-        const response = await fetch(url);
+        const response = await fetch(url, { credentials: 'include' });
         const result = await response.json();
         return result.success ? (result.data as T) : null;
       } catch {
@@ -1097,7 +1115,9 @@ export default function Reports() {
       year: string,
     ): Promise<T | null> => {
       try {
-        const response = await fetch(buildReportUrl(type, year, reportDepartment));
+        const response = await fetch(buildReportUrl(type, year, reportDepartment, 'export_pdf'), {
+          credentials: 'include',
+        });
         const result = await response.json();
         return result.success ? (result.data as T) : null;
       } catch {
@@ -1164,30 +1184,63 @@ export default function Reports() {
       });
     }
 
+    const splitAiText = (value: string) => value.trim().split(/\n+/).map((line) => line.trim()).filter(Boolean);
+    const aiAnalysisLines: string[] = [];
     const aiSummaryLines: string[] = [];
+    const aiConclusionLines: string[] = [];
     try {
-      if (aiAnalysis && aiAnalysis.trim()) {
-        aiSummaryLines.push(...aiAnalysis.trim().split('\n').filter((line) => line.trim() !== ''));
+      if (aiAnalysis.trim() || aiSummary.trim() || aiConclusion.trim()) {
+        aiAnalysisLines.push(...splitAiText(aiAnalysis));
+        aiSummaryLines.push(...splitAiText(aiSummary));
+        aiConclusionLines.push(...splitAiText(aiConclusion));
       } else {
         const aiResponse = await fetch(`${API_BASE}/reports/ai-analytics.php`);
         const aiResult = await aiResponse.json();
-        if (aiResult.success && aiResult.data?.ai_analysis) {
-          aiSummaryLines.push(...String(aiResult.data.ai_analysis).split('\n').filter((line: string) => line.trim() !== ''));
+        if (aiResult.success && aiResult.data) {
+          aiAnalysisLines.push(...splitAiText(String(aiResult.data.ai_analysis || '')));
+          aiSummaryLines.push(...splitAiText(String(aiResult.data.ai_summary || '')));
+          aiConclusionLines.push(...splitAiText(String(aiResult.data.ai_conclusion || '')));
         }
       }
     } catch {
       // AI summary is optional in PDF.
     }
 
-    if (aiSummaryLines.length > 0) {
+    if (aiAnalysisLines.length > 0 || aiSummaryLines.length > 0 || aiConclusionLines.length > 0) {
       pdf.addPage();
       pdf.setFontSize(16);
       pdf.text('Descriptive Analytics', marginLeft, 48);
       pdf.setFontSize(10);
       const executiveDescription = pdf.splitTextToSize(sectionDescriptions.executive, pageWidth - 80);
       pdf.text(executiveDescription, marginLeft, 70);
-      const wrapped = pdf.splitTextToSize(aiSummaryLines.join(' '), pageWidth - 80);
-      pdf.text(wrapped, marginLeft, 108);
+
+      let contentY = 108;
+      const addAnalyticsBlock = (title: string, lines: string[]) => {
+        if (!lines.length) {
+          return;
+        }
+
+        if (contentY > pageHeight - 90) {
+          pdf.addPage();
+          contentY = 48;
+        }
+
+        pdf.setFontSize(12);
+        pdf.setTextColor(27, 42, 74);
+        pdf.text(title, marginLeft, contentY);
+        contentY += 16;
+
+        pdf.setFontSize(10);
+        pdf.setTextColor(30, 30, 30);
+        const wrapped = pdf.splitTextToSize(lines.join(' '), pageWidth - 80);
+        pdf.text(wrapped, marginLeft, contentY);
+        contentY += wrapped.length * 11 + 20;
+      };
+
+      addAnalyticsBlock('Descriptive Analysis', aiAnalysisLines);
+      addAnalyticsBlock('Summary', aiSummaryLines);
+      addAnalyticsBlock('Conclusion', aiConclusionLines);
+      pdf.setTextColor(30, 30, 30);
     }
 
     const addSection = async (
@@ -1324,11 +1377,29 @@ export default function Reports() {
               <span className="text-sm text-gray-600">Generating descriptive analytics...</span>
             </div>
           ) : (
-            <div className="space-y-3 text-sm text-gray-700 leading-relaxed">
-              {(aiAnalysis || 'AI analysis temporarily unavailable.')
-                .split('\n\n')
-                .map((paragraph, idx) => (
-                  <p key={idx} className="text-justify">{paragraph}</p>
+            <div className="space-y-5 text-sm text-gray-700 leading-relaxed">
+              {[
+                {
+                  title: 'Descriptive Analysis',
+                  content: aiAnalysis || (aiSummary || aiConclusion ? '' : 'AI analysis temporarily unavailable.'),
+                },
+                { title: 'Summary', content: aiSummary },
+                { title: 'Conclusion', content: aiConclusion },
+              ]
+                .filter((section) => section.content.trim() !== '')
+                .map((section, sectionIndex) => (
+                  <section key={section.title} className={sectionIndex > 0 ? 'border-t border-purple-100 pt-4' : ''}>
+                    <h4 className="mb-2 text-sm font-bold text-[#1b2a4a]">{section.title}</h4>
+                    <div className="space-y-3">
+                      {section.content
+                        .split(/\n{2,}/)
+                        .map((paragraph) => paragraph.trim())
+                        .filter(Boolean)
+                        .map((paragraph, idx) => (
+                          <p key={idx} className="text-justify">{paragraph}</p>
+                        ))}
+                    </div>
+                  </section>
                 ))}
             </div>
           )}

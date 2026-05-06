@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
+require_once __DIR__ . '/../config/audit_trail.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -49,6 +50,19 @@ try {
     $touchLoginStmt->execute();
 
     $user = gradtrack_current_graduate_user($db);
+
+    if ($user) {
+        // Audit Trail: call logAuditTrail() after a graduate login session is successfully created.
+        logAuditTrail(
+            $user['graduate_id'],
+            gradtrack_audit_graduate_name($user),
+            'graduate',
+            $user['program_code'] ?? null,
+            'Login',
+            'Authentication',
+            gradtrack_audit_graduate_name($user) . ' logged in to the graduate portal.'
+        );
+    }
 
     echo json_encode([
         'success' => true,

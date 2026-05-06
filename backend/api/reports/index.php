@@ -1,9 +1,11 @@
 <?php
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/audit_trail.php';
 
 $database = new Database();
 $db = $database->getConnection();
+$auditUser = gradtrack_audit_current_admin_context();
 
 function getSelectedSurveyId(PDO $db): ?int
 {
@@ -290,6 +292,26 @@ try {
         echo json_encode(["success" => false, "error" => "Unauthorized department filter"]);
         exit;
     }
+
+    $auditAction = strtolower(trim((string)($_GET['audit_action'] ?? 'generate')));
+    $reportAuditAction = strpos($auditAction, 'export') !== false ? 'Export' : 'Generate';
+    $reportAuditVerbPast = $reportAuditAction === 'Export' ? 'Exported' : 'Generated';
+    $auditDepartment = $filterDepartment ?? $auditUser['department'];
+
+    // Audit Trail: call logAuditTrail() when report data is generated or requested for export.
+    logAuditTrail(
+        $auditUser['user_id'],
+        $auditUser['user_name'],
+        $auditUser['user_role'],
+        $auditDepartment,
+        $reportAuditAction,
+        'Reports',
+        "{$reportAuditVerbPast} {$reportType} report data" .
+            ($selectedSurveyId !== null ? " for survey ID {$selectedSurveyId}" : '') .
+            ($filterYear !== null ? " filtered by year {$filterYear}" : '') .
+            ($filterDepartment !== null ? " filtered by department {$filterDepartment}" : '') .
+            '.'
+    );
 
     switch ($reportType) {
         case 'overview':

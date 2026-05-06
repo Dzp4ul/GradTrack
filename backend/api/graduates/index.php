@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/audit_trail.php';
 
 function normalize_nullable_text($value) {
     if (!isset($value)) {
@@ -70,6 +71,38 @@ function graduates_safe_database_error(PDOException $e) {
     ];
 }
 
+function graduates_program_code_from_program_id(PDO $db, $programId): ?string
+{
+    if ($programId === null || $programId === '') {
+        return null;
+    }
+
+    $stmt = $db->prepare("SELECT code FROM programs WHERE id = :id LIMIT 1");
+    $stmt->execute([':id' => (int)$programId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    return $row['code'] ?? null;
+}
+
+function graduates_audit_snapshot(PDO $db, int $graduateId): ?array
+{
+    $stmt = $db->prepare("SELECT g.id, g.student_id, g.first_name, g.last_name, p.code AS program_code
+                          FROM graduates g
+                          LEFT JOIN programs p ON p.id = g.program_id
+                          WHERE g.id = :id
+                          LIMIT 1");
+    $stmt->execute([':id' => $graduateId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    return $row ?: null;
+}
+
+function graduates_audit_display_name(array $graduate): string
+{
+    $name = trim((string)($graduate['first_name'] ?? '') . ' ' . (string)($graduate['last_name'] ?? ''));
+    return $name !== '' ? $name : 'Graduate';
+}
+
 $database = new Database();
 $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
@@ -89,6 +122,8 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'registrar') {
     echo json_encode(["success" => false, "error" => "Only registrar accounts can manage graduates"]);
     exit;
 }
+
+$auditUser = gradtrack_audit_current_admin_context();
 
 try {
     switch ($method) {
@@ -265,6 +300,20 @@ try {
                 ':time' => $data['time_to_employment'] ?? 0,
             ]);
 
+            $graduateName = trim((string)$data['first_name'] . ' ' . (string)$data['last_name']);
+            $programCode = graduates_program_code_from_program_id($db, $data['program_id'] ?? null);
+
+            // Audit Trail: call logAuditTrail() after a graduate record is successfully added.
+            logAuditTrail(
+                $auditUser['user_id'],
+                $auditUser['user_name'],
+                $auditUser['user_role'],
+                $programCode,
+                'Create',
+                'Graduate Records',
+                "Added graduate record {$graduateName} (ID: {$graduateId}, Student No: " . ($studentId ?? 'N/A') . ")."
+            );
+
             echo json_encode(["success" => true, "message" => "Graduate added successfully", "id" => $graduateId]);
             break;
 
@@ -367,6 +416,20 @@ try {
                 ':time' => $data['time_to_employment'] ?? 0,
             ]);
 
+            $graduateName = trim((string)$data['first_name'] . ' ' . (string)$data['last_name']);
+            $programCode = graduates_program_code_from_program_id($db, $data['program_id'] ?? null);
+
+            // Audit Trail: call logAuditTrail() after a graduate record is successfully updated.
+            logAuditTrail(
+                $auditUser['user_id'],
+                $auditUser['user_name'],
+                $auditUser['user_role'],
+                $programCode,
+                'Update',
+                'Graduate Records',
+                "Updated graduate record {$graduateName} (ID: {$data['id']}, Student No: " . ($studentId ?? 'N/A') . ")."
+            );
+
             echo json_encode(["success" => true, "message" => "Graduate updated successfully"]);
             break;
 
@@ -385,13 +448,37 @@ try {
                 }
 
                 $placeholders = implode(',', array_fill(0, count($ids), '?'));
+                $auditRowsStmt = $db->prepare("
+                    SELECT DISTINCT p.code AS program_code
+                    FROM graduates g
+                    LEFT JOIN programs p ON p.id = g.program_id
+                    WHERE g.id IN ($placeholders)
+                ");
+                $auditRowsStmt->execute($ids);
+                $programCodes = array_values(array_filter(array_map(static function ($row) {
+                    return $row['program_code'] ?? null;
+                }, $auditRowsStmt->fetchAll(PDO::FETCH_ASSOC))));
+
                 $stmt = $db->prepare("DELETE FROM graduates WHERE id IN ($placeholders)");
                 $stmt->execute($ids);
+                $deletedCount = $stmt->rowCount();
+                $auditDepartment = count($programCodes) === 1 ? $programCodes[0] : null;
+
+                // Audit Trail: call logAuditTrail() after selected graduate records are successfully deleted.
+                logAuditTrail(
+                    $auditUser['user_id'],
+                    $auditUser['user_name'],
+                    $auditUser['user_role'],
+                    $auditDepartment,
+                    'Delete',
+                    'Graduate Records',
+                    "Deleted {$deletedCount} selected graduate record(s)."
+                );
 
                 echo json_encode([
                     "success" => true,
                     "message" => "Selected graduates deleted successfully",
-                    "deleted" => $stmt->rowCount()
+                    "deleted" => $deletedCount
                 ]);
                 break;
             }
@@ -417,11 +504,24 @@ try {
 
                 $stmt = $db->prepare($sql);
                 $stmt->execute($params);
+                $deletedCount = $stmt->rowCount();
+                $programCode = graduates_program_code_from_program_id($db, $params[':program_id'] ?? null);
+
+                // Audit Trail: call logAuditTrail() after graduate records are successfully deleted by filter.
+                logAuditTrail(
+                    $auditUser['user_id'],
+                    $auditUser['user_name'],
+                    $auditUser['user_role'],
+                    $programCode,
+                    'Delete',
+                    'Graduate Records',
+                    "Deleted {$deletedCount} graduate record(s) for year {$year}."
+                );
 
                 echo json_encode([
                     "success" => true,
                     "message" => "Graduates deleted successfully",
-                    "deleted" => $stmt->rowCount()
+                    "deleted" => $deletedCount
                 ]);
                 break;
             }
@@ -432,8 +532,19 @@ try {
                 break;
             }
 
+            $graduateToDelete = graduates_audit_snapshot($db, (int)$data['id']);
             $stmt = $db->prepare("DELETE FROM graduates WHERE id = :id");
             $stmt->execute([':id' => $data['id']]);
+            // Audit Trail: call logAuditTrail() after a graduate record is successfully deleted.
+            logAuditTrail(
+                $auditUser['user_id'],
+                $auditUser['user_name'],
+                $auditUser['user_role'],
+                $graduateToDelete['program_code'] ?? null,
+                'Delete',
+                'Graduate Records',
+                'Deleted graduate record ' . ($graduateToDelete ? graduates_audit_display_name($graduateToDelete) : 'Unknown Graduate') . ' (ID: ' . $data['id'] . ').'
+            );
             echo json_encode(["success" => true, "message" => "Graduate deleted successfully"]);
             break;
 

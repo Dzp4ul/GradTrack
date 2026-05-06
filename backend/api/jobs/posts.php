@@ -4,6 +4,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/alumni_rating.php';
 require_once __DIR__ . '/../config/engagement_approval.php';
+require_once __DIR__ . '/../config/audit_trail.php';
 
 function gradtrack_jobs_request_data(): array
 {
@@ -469,6 +470,17 @@ try {
             }
         }
 
+        // Audit Trail: call logAuditTrail() after a job posting is successfully added.
+        logAuditTrail(
+            $user['graduate_id'],
+            gradtrack_audit_graduate_name($user),
+            'graduate',
+            $user['program_code'] ?? null,
+            'Create',
+            'Job Posting',
+            "Created job posting \"{$title}\" at {$company} (ID: {$newJobId}); status pending approval."
+        );
+
         echo json_encode([
             'success' => true,
             'message' => 'Job post submitted for approval',
@@ -591,6 +603,17 @@ try {
             }
         }
 
+        // Audit Trail: call logAuditTrail() after a job posting is successfully updated.
+        logAuditTrail(
+            $user['graduate_id'],
+            gradtrack_audit_graduate_name($user),
+            'graduate',
+            $user['program_code'] ?? null,
+            'Update',
+            'Job Posting',
+            "Updated job posting \"{$title}\" at {$company} (ID: {$jobId}); status reset to pending approval."
+        );
+
         echo json_encode(['success' => true, 'message' => 'Job post submitted for approval', 'approval_status' => 'pending']);
         exit;
     }
@@ -606,7 +629,7 @@ try {
             exit;
         }
 
-        $ownerStmt = $db->prepare('SELECT posted_by_account_id FROM job_posts WHERE id = :id');
+        $ownerStmt = $db->prepare('SELECT posted_by_account_id, title, company FROM job_posts WHERE id = :id');
         $ownerStmt->bindParam(':id', $jobId);
         $ownerStmt->execute();
         $owner = $ownerStmt->fetch(PDO::FETCH_ASSOC);
@@ -643,6 +666,17 @@ try {
         }
 
         gradtrack_jobs_cleanup_job_dir($jobId);
+
+        // Audit Trail: call logAuditTrail() after a job posting is successfully deleted.
+        logAuditTrail(
+            $user['graduate_id'],
+            gradtrack_audit_graduate_name($user),
+            'graduate',
+            $user['program_code'] ?? null,
+            'Delete',
+            'Job Posting',
+            'Deleted job posting "' . ($owner['title'] ?? 'Untitled Job') . '" at ' . ($owner['company'] ?? 'Unknown Company') . " (ID: {$jobId})."
+        );
 
         echo json_encode(['success' => true, 'message' => 'Job post deleted successfully']);
         exit;

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../config/cors.php';
+require_once __DIR__ . '/../config/audit_trail.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -10,6 +11,19 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
+
+$auditUser = gradtrack_audit_current_admin_context();
+
+// Audit Trail: call logAuditTrail() before clearing the session so user details are still available.
+logAuditTrail(
+    $auditUser['user_id'],
+    $auditUser['user_name'],
+    $auditUser['user_role'],
+    $auditUser['department'],
+    'Logout',
+    'Authentication',
+    $auditUser['user_name'] . ' logged out.'
+);
 
 $_SESSION = [];
 

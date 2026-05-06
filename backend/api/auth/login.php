@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/admin_profile_image.php';
+require_once __DIR__ . '/../config/audit_trail.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -34,6 +35,17 @@ if ($email === $hardcodedEmail && $password === $hardcodedPassword) {
     $_SESSION['full_name'] = "System Administrator";
     $_SESSION['role'] = "super_admin";
     $_SESSION['profile_image_path'] = null;
+
+    // Audit Trail: call logAuditTrail() after a login session is successfully created.
+    logAuditTrail(
+        1,
+        'System Administrator',
+        'super_admin',
+        null,
+        'Login',
+        'Authentication',
+        'System Administrator logged in.'
+    );
 
     http_response_code(200);
     echo json_encode([
@@ -105,6 +117,18 @@ try {
     $_SESSION['full_name'] = $user['full_name'];
     $_SESSION['role'] = $user['role'];
     $_SESSION['profile_image_path'] = $profileImagePath;
+
+    $loginName = trim((string)($user['full_name'] ?? '')) ?: ($user['username'] ?? $user['email']);
+    // Audit Trail: call logAuditTrail() after a login session is successfully created.
+    logAuditTrail(
+        $user['id'],
+        $loginName,
+        $user['role'],
+        gradtrack_audit_role_department((string)$user['role']),
+        'Login',
+        'Authentication',
+        $loginName . ' logged in.'
+    );
 
     http_response_code(200);
     echo json_encode([

@@ -26,6 +26,7 @@ import DeanSurveyStatus from './pages/admin/DeanSurveyStatus';
 import UserManagement from './pages/admin/UserManagement';
 import EngagementApprovals from './pages/admin/EngagementApprovals';
 import ForumModeration from './pages/admin/ForumModeration';
+import AuditTrail from './pages/admin/AuditTrail.jsx';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ProtectedRoute } from './lib/ProtectedRoute';
 import { GraduateAuthProvider } from './contexts/GraduateAuthContext';
@@ -206,6 +207,7 @@ function App() {
                 </ProtectedRoute>
               }
             />
+            <Route path="audit-trail" element={<AuditTrail />} />
           </Route>
         </Routes>
       </GraduateAuthProvider>

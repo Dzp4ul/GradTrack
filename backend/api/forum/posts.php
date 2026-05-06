@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/forum.php';
+require_once __DIR__ . '/../config/audit_trail.php';
 
 function gradtrack_forum_posts_request_data(): array
 {
@@ -225,6 +226,17 @@ try {
             ]);
         }
 
+        // Audit Trail: call logAuditTrail() after a community forum post is successfully created.
+        logAuditTrail(
+            $user['graduate_id'],
+            gradtrack_audit_graduate_name($user),
+            'graduate',
+            $user['program_code'] ?? null,
+            'Create',
+            'Community Forum',
+            "Created forum post \"{$title}\" in {$category} (ID: {$postId}); status pending review."
+        );
+
         echo json_encode([
             'success' => true,
             'message' => 'Forum post submitted for review',
@@ -316,6 +328,17 @@ try {
         $updateStmt = $db->prepare($updateSql);
         $updateStmt->execute($params);
 
+        // Audit Trail: call logAuditTrail() after a community forum post is successfully updated.
+        logAuditTrail(
+            $user['graduate_id'],
+            gradtrack_audit_graduate_name($user),
+            'graduate',
+            $user['program_code'] ?? null,
+            'Update',
+            'Community Forum',
+            "Updated forum post \"{$title}\" in {$category} (ID: {$postId}); status reset to pending review."
+        );
+
         echo json_encode([
             'success' => true,
             'message' => 'Forum post updated and submitted for review',
@@ -333,7 +356,7 @@ try {
             gradtrack_forum_posts_json_error(400, 'id is required');
         }
 
-        $ownerStmt = $db->prepare('SELECT graduate_id, image_path FROM forum_posts WHERE id = :id LIMIT 1');
+        $ownerStmt = $db->prepare('SELECT graduate_id, title, image_path FROM forum_posts WHERE id = :id LIMIT 1');
         $ownerStmt->execute([':id' => $postId]);
         $owner = $ownerStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -348,6 +371,17 @@ try {
         $deleteStmt = $db->prepare('DELETE FROM forum_posts WHERE id = :id');
         $deleteStmt->execute([':id' => $postId]);
         gradtrack_forum_remove_post_image($owner['image_path'] ?? null);
+
+        // Audit Trail: call logAuditTrail() after a community forum post is successfully deleted.
+        logAuditTrail(
+            $user['graduate_id'],
+            gradtrack_audit_graduate_name($user),
+            'graduate',
+            $user['program_code'] ?? null,
+            'Delete',
+            'Community Forum',
+            'Deleted forum post "' . ($owner['title'] ?? 'Untitled Post') . "\" (ID: {$postId})."
+        );
 
         echo json_encode([
             'success' => true,

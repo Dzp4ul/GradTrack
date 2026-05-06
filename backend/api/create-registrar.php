@@ -7,7 +7,7 @@ if (!in_array($_SERVER['REQUEST_METHOD'], ['GET', 'POST'], true)) {
     echo json_encode(["success" => false, "error" => "Method not allowed"]);
     exit;
 }
-
+     
 $registrarEmail = 'registrar@norzagaray.edu.ph';
 $registrarPassword = 'Registrar2026';
 $registrarUsername = 'registrar';
