@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/survey_reminders.php';
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 use PHPMailer\PHPMailer\Exception as MailException;
@@ -190,6 +191,8 @@ $database = new Database();
 $db = $database->getConnection();
 
 try {
+    gradtrack_survey_reminder_ensure_log_table($db);
+
     $surveyId = isset($data['survey_id']) ? (int) $data['survey_id'] : 0;
     if ($surveyId > 0) {
         $surveyStmt = $db->prepare("SELECT id, title, status FROM surveys WHERE id = :id LIMIT 1");
@@ -336,6 +339,16 @@ try {
                 "id" => (int) $recipient['id'],
                 "reason" => "Missing or invalid email address"
             ];
+            gradtrack_survey_reminder_log(
+                $db,
+                $surveyId,
+                (int) $recipient['id'],
+                $email,
+                $subject,
+                'manual',
+                'skipped',
+                'Missing or invalid email address'
+            );
             continue;
         }
 
@@ -352,18 +365,21 @@ try {
                 "id" => (int) $recipient['id'],
                 "email" => $email
             ];
+            gradtrack_survey_reminder_log($db, $surveyId, (int) $recipient['id'], $email, $subject, 'manual', 'sent', null, date('Y-m-d H:i:s'));
         } catch (MailException $mailException) {
             $failed[] = [
                 "id" => (int) $recipient['id'],
                 "email" => $email,
                 "error" => $mailException->getMessage()
             ];
+            gradtrack_survey_reminder_log($db, $surveyId, (int) $recipient['id'], $email, $subject, 'manual', 'failed', $mailException->getMessage());
         } catch (Exception $exception) {
             $failed[] = [
                 "id" => (int) $recipient['id'],
                 "email" => $email,
                 "error" => $exception->getMessage()
             ];
+            gradtrack_survey_reminder_log($db, $surveyId, (int) $recipient['id'], $email, $subject, 'manual', 'failed', $exception->getMessage());
         }
     }
 

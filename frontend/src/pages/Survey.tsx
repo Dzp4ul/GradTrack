@@ -126,6 +126,124 @@ const hasAnswer = (value: unknown) => {
   return String(value).trim() !== '';
 };
 
+const answerValues = (value: SurveyAnswer) => {
+  if (value === null || value === undefined) return [];
+  return Array.isArray(value) ? value.map((item) => String(item)) : [String(value)];
+};
+
+const answerHasNormalizedText = (value: SurveyAnswer, text: string) => {
+  const normalizedText = normalizeComparable(text);
+  return answerValues(value).some((item) => normalizeComparable(item).includes(normalizedText));
+};
+
+const isYesAnswer = (value: SurveyAnswer) =>
+  answerValues(value).some((item) => normalizeComparable(item).startsWith('yes'));
+
+const isNoAnswer = (value: SurveyAnswer) =>
+  answerValues(value).some((item) => normalizeComparable(item).startsWith('no'));
+
+const questionIncludes = (question: Question, text: string) =>
+  normalizeComparable(question.question_text).includes(normalizeComparable(text));
+
+const questionSectionIncludes = (question: Question, section: string) =>
+  normalizeComparable(question.section || '').includes(normalizeComparable(section));
+
+const findQuestion = (
+  questions: Question[],
+  section: string,
+  text: string,
+) =>
+  questions.find((question) =>
+    questionSectionIncludes(question, section) && questionIncludes(question, text)
+  );
+
+const shouldDisableQuestion = (
+  question: Question,
+  questions: Question[],
+  currentResponses: SurveyResponses,
+) => {
+  if (!question.id || isHeaderQuestion(question)) {
+    return false;
+  }
+
+  const answerFor = (controlQuestion?: Question) =>
+    controlQuestion?.id ? currentResponses[controlQuestion.id] : undefined;
+
+  if (
+    questionSectionIncludes(question, 'Educational Background')
+    && (questionIncludes(question, 'Date Taken') || questionIncludes(question, 'Rating'))
+  ) {
+    const examQuestion = findQuestion(questions, 'Educational Background', 'Name of Examination');
+    return !hasAnswer(answerFor(examQuestion));
+  }
+
+  if (
+    questionSectionIncludes(question, 'Trainings Attended After College')
+    && (questionIncludes(question, 'Duration') || questionIncludes(question, 'Name of Training Institution'))
+  ) {
+    const trainingQuestion = findQuestion(questions, 'Trainings Attended After College', 'Title of Training');
+    return !hasAnswer(answerFor(trainingQuestion));
+  }
+
+  if (
+    questionSectionIncludes(question, 'Graduate Studies')
+    && (
+      questionIncludes(question, 'Earned Units')
+      || questionIncludes(question, 'Name of College/University')
+      || questionIncludes(question, 'What made you pursue advance studies')
+    )
+  ) {
+    const graduateProgramQuestion = findQuestion(questions, 'Graduate Studies', 'Name of Graduate Program');
+    return !hasAnswer(answerFor(graduateProgramQuestion));
+  }
+
+  if (
+    questionSectionIncludes(question, 'Employment Data')
+    && questionIncludes(question, 'If self-employed')
+  ) {
+    const employmentStatusQuestion = findQuestion(questions, 'Employment Data', 'Present Employment Status');
+    return !answerHasNormalizedText(answerFor(employmentStatusQuestion), 'Self-employed');
+  }
+
+  if (
+    questionSectionIncludes(question, 'Employment Data')
+    && questionIncludes(question, 'reason(s) for staying on the job')
+  ) {
+    const firstJobQuestion = findQuestion(questions, 'Employment Data', 'Is this your first job after college');
+    return !isYesAnswer(answerFor(firstJobQuestion));
+  }
+
+  if (
+    questionSectionIncludes(question, 'Employment Data')
+    && questionIncludes(question, 'reason(s) for changing job')
+  ) {
+    const firstJobQuestion = findQuestion(questions, 'Employment Data', 'Is this your first job after college');
+    return !isNoAnswer(answerFor(firstJobQuestion));
+  }
+
+  if (
+    questionSectionIncludes(question, 'Employment Data')
+    && questionIncludes(question, 'what competencies were useful')
+  ) {
+    const curriculumQuestion = findQuestion(questions, 'Employment Data', 'college curriculum relevant');
+    return !isYesAnswer(answerFor(curriculumQuestion));
+  }
+
+  return false;
+};
+
+const removeDisabledResponses = (responses: SurveyResponses, questions: Question[]) => {
+  const cleanedResponses = { ...responses };
+
+  questions.forEach((question) => {
+    if (question.id && shouldDisableQuestion(question, questions, cleanedResponses)) {
+      delete cleanedResponses[question.id];
+    }
+  });
+
+  return cleanedResponses;
+};
+
 const isProfessionalExamHeader = (question: Question) =>
   normalizeComparable(question.question_text).startsWith('professional examination s passed');
 
@@ -640,6 +758,19 @@ function Survey() {
     }
   }, [responses, currentSection, activeSurvey, graduateId]);
 
+  useEffect(() => {
+    if (!activeSurvey) {
+      return;
+    }
+
+    setResponses((prev) => {
+      const cleanedResponses = removeDisabledResponses(prev, activeSurvey.questions);
+      return Object.keys(cleanedResponses).length === Object.keys(prev).length
+        ? prev
+        : cleanedResponses;
+    });
+  }, [activeSurvey, responses]);
+
   const fetchActiveSurvey = async (targetSurveyId?: string | number | null) => {
     try {
       if (targetSurveyId) {
@@ -954,10 +1085,13 @@ function Survey() {
     }
   };
 
+  const isQuestionDisabled = (question: Question, responseSnapshot: SurveyResponses = responses) =>
+    activeSurvey ? shouldDisableQuestion(question, activeSurvey.questions, responseSnapshot) : false;
+
   // Validate current section before moving to next
   const validateCurrentSection = () => {
     const requiredQuestions = currentSectionQuestions.filter(
-      q => !isHeaderQuestion(q) && Number(q.is_required) === 1
+      q => !isHeaderQuestion(q) && Number(q.is_required) === 1 && !isQuestionDisabled(q)
     );
     
     for (const question of requiredQuestions) {
@@ -973,7 +1107,7 @@ function Survey() {
     }
 
     const blankOtherQuestion = currentSectionQuestions.find(
-      q => !isHeaderQuestion(q) && hasBlankOtherSelection(q, responses[q.id!])
+      q => !isHeaderQuestion(q) && !isQuestionDisabled(q) && hasBlankOtherSelection(q, responses[q.id!])
     );
 
     if (blankOtherQuestion) {
@@ -992,7 +1126,10 @@ function Survey() {
   const handleSubmit = async () => {
     if (!activeSurvey || !token || !graduateId) return;
 
-    const submissionResponses = sanitizeDraftResponses(responses, activeSurvey.questions);
+    const submissionResponses = sanitizeDraftResponses(
+      removeDisabledResponses(responses, activeSurvey.questions),
+      activeSurvey.questions,
+    );
 
     try {
       const response = await fetch(`${API_ROOT}/surveys/responses.php`, {
@@ -1031,14 +1168,24 @@ function Survey() {
     }
   };
 
-  const getQuestionFieldClass = (question: Question) => {
+  const getQuestionFieldClass = (question: Question, disabled = isQuestionDisabled(question)) => {
     const wasAutoFilled = question.id ? autoFilledQuestionIds.has(question.id) : false;
-    const colorClass = wasAutoFilled
+    const colorClass = disabled
+      ? 'border-gray-200 bg-gray-100 text-gray-500 cursor-not-allowed focus:ring-0 focus:border-gray-200'
+      : wasAutoFilled
       ? 'border-green-300 bg-green-50 focus:ring-green-500 focus:border-green-400'
       : 'border-gray-300 bg-white focus:ring-blue-500 focus:border-transparent';
 
     return `w-full px-4 py-2.5 border rounded-lg focus:outline-none focus:ring-2 transition text-sm ${colorClass}`;
   };
+
+  const getQuestionCardClass = (question: Question) =>
+    isQuestionDisabled(question)
+      ? 'bg-gray-50 rounded-xl p-4 border border-gray-200 sm:p-5 opacity-75'
+      : 'bg-blue-50 rounded-xl p-4 border border-blue-100 sm:p-5';
+
+  const getQuestionLabelClass = (question: Question) =>
+    `block text-base font-semibold mb-3 ${isQuestionDisabled(question) ? 'text-gray-500' : 'text-gray-800'}`;
 
   const autoFilledCount = autoFilledQuestionIds.size;
 
@@ -1165,6 +1312,7 @@ function Survey() {
   // Render question based on type
   const renderQuestion = (question: Question) => {
     const value = responses[question.id!] || '';
+    const disabled = isQuestionDisabled(question);
 
     switch (question.question_type) {
       case 'header':
@@ -1177,8 +1325,9 @@ function Survey() {
             <select
               value={normalizedValue}
               onChange={(e) => handleResponseChange(question.id!, e.target.value)}
-              className={getQuestionFieldClass(question)}
+              className={getQuestionFieldClass(question, disabled)}
               required={Number(question.is_required) === 1}
+              disabled={disabled}
             >
               <option value="">Select name extension</option>
               {NAME_EXTENSION_OPTIONS.map((option) => (
@@ -1193,8 +1342,9 @@ function Survey() {
             type="text"
             value={value}
             onChange={(e) => handleResponseChange(question.id!, e.target.value)}
-            className={getQuestionFieldClass(question)}
+            className={getQuestionFieldClass(question, disabled)}
             required={question.is_required === 1}
+            disabled={disabled}
           />
         );
 
@@ -1204,8 +1354,9 @@ function Survey() {
             type="date"
             value={value}
             onChange={(e) => handleResponseChange(question.id!, e.target.value)}
-            className={getQuestionFieldClass(question)}
+            className={getQuestionFieldClass(question, disabled)}
             required={question.is_required === 1}
+            disabled={disabled}
           />
         );
 
@@ -1222,8 +1373,9 @@ function Survey() {
             <select
               value={selectValue}
               onChange={(e) => handleResponseChange(question.id!, e.target.value)}
-              className={getQuestionFieldClass(question)}
+              className={getQuestionFieldClass(question, disabled)}
               required={Number(question.is_required) === 1}
+              disabled={disabled}
             >
               <option value="">Select an option</option>
               {question.options?.map((option, idx) => (
@@ -1235,9 +1387,10 @@ function Survey() {
                 type="text"
                 value={getOtherTextFromAnswer(value, otherOption)}
                 onChange={(e) => handleSingleOtherTextChange(question.id!, otherOption, e.target.value)}
-                className={getQuestionFieldClass(question)}
+                className={getQuestionFieldClass(question, disabled)}
                 placeholder="Please specify"
                 aria-label={`Specify other answer for ${question.question_text}`}
+                disabled={disabled}
               />
             )}
           </div>
@@ -1258,7 +1411,11 @@ function Survey() {
 
               return (
                 <div key={idx}>
-                  <label className="flex items-center space-x-3 text-sm text-gray-700 cursor-pointer hover:bg-blue-100 p-2 rounded-lg transition">
+                  <label className={`flex items-center space-x-3 text-sm p-2 rounded-lg transition ${
+                    disabled
+                      ? 'text-gray-500 cursor-not-allowed'
+                      : 'text-gray-700 cursor-pointer hover:bg-blue-100'
+                  }`}>
                     <input
                       type="radio"
                       name={`question-${question.id}`}
@@ -1267,6 +1424,7 @@ function Survey() {
                       onChange={(e) => handleResponseChange(question.id!, e.target.value)}
                       className="w-4 h-4 text-blue-600 focus:ring-blue-500"
                       required={Number(question.is_required) === 1}
+                      disabled={disabled}
                     />
                     <span>{option}</span>
                   </label>
@@ -1276,9 +1434,10 @@ function Survey() {
                         type="text"
                         value={getOtherTextFromAnswer(value, otherOption)}
                         onChange={(e) => handleSingleOtherTextChange(question.id!, otherOption, e.target.value)}
-                        className={getQuestionFieldClass(question)}
+                        className={getQuestionFieldClass(question, disabled)}
                         placeholder="Please specify"
                         aria-label={`Specify other answer for ${question.question_text}`}
+                        disabled={disabled}
                       />
                     </div>
                   )}
@@ -1303,12 +1462,15 @@ function Survey() {
 
               return (
                 <div key={idx}>
-                  <label className="flex items-center space-x-2 text-sm text-gray-700 cursor-pointer">
+                  <label className={`flex items-center space-x-2 text-sm ${
+                    disabled ? 'text-gray-500 cursor-not-allowed' : 'text-gray-700 cursor-pointer'
+                  }`}>
                     <input
                       type="checkbox"
                       checked={checked}
                       onChange={() => handleCheckboxChange(question.id!, option)}
                       className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      disabled={disabled}
                     />
                     <span>{option}</span>
                   </label>
@@ -1318,9 +1480,10 @@ function Survey() {
                         type="text"
                         value={getOtherTextFromAnswer(value, otherOption)}
                         onChange={(e) => handleCheckboxOtherTextChange(question.id!, otherOption, e.target.value)}
-                        className={getQuestionFieldClass(question)}
+                        className={getQuestionFieldClass(question, disabled)}
                         placeholder="Please specify"
                         aria-label={`Specify other answer for ${question.question_text}`}
+                        disabled={disabled}
                       />
                     </div>
                   )}
@@ -1339,7 +1502,11 @@ function Survey() {
                 key={rating}
                 type="button"
                 onClick={() => handleResponseChange(question.id!, rating)}
+                disabled={disabled}
                 className={`px-4 py-2 rounded-lg border-2 transition ${
+                  disabled
+                    ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed'
+                    :
                   value === rating
                     ? 'bg-blue-600 text-white border-blue-600'
                     : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400'
@@ -1357,8 +1524,9 @@ function Survey() {
             value={value}
             onChange={(e) => handleResponseChange(question.id!, e.target.value)}
             rows={4}
-            className={getQuestionFieldClass(question)}
+            className={getQuestionFieldClass(question, disabled)}
             required={question.is_required === 1}
+            disabled={disabled}
           />
         );
     }
@@ -1760,8 +1928,8 @@ function Survey() {
                   else {
                     // Render normal question
                     renderedQuestions.push(
-                      <div key={question.id} className="bg-blue-50 rounded-xl p-4 border border-blue-100 sm:p-5">
-                        <label className="block text-base font-semibold text-gray-800 mb-3">
+                      <div key={question.id} className={getQuestionCardClass(question)} aria-disabled={isQuestionDisabled(question)}>
+                        <label className={getQuestionLabelClass(question)}>
                           {globalIdx + 1}. {question.question_text}
                           {Number(question.is_required) === 1 && (
                             <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>

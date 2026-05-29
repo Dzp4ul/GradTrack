@@ -33,7 +33,7 @@ $defaultSettings = [
     ['setting_key' => 'active_semester', 'setting_value' => '1st Semester', 'setting_group' => 'academic'],
     ['setting_key' => 'current_tracer_batch', 'setting_value' => 'Batch 2025', 'setting_group' => 'academic'],
     ['setting_key' => 'default_graduation_year', 'setting_value' => '2025', 'setting_group' => 'academic'],
-    ['setting_key' => 'survey_reminder_days', 'setting_value' => '30', 'setting_group' => 'surveys'],
+    ['setting_key' => 'survey_reminder_days', 'setting_value' => '3', 'setting_group' => 'surveys'],
     ['setting_key' => 'survey_token_expiry_days', 'setting_value' => '60', 'setting_group' => 'surveys'],
     ['setting_key' => 'allow_late_survey_responses', 'setting_value' => 'true', 'setting_group' => 'surveys'],
     ['setting_key' => 'auto_close_inactive_surveys', 'setting_value' => 'false', 'setting_group' => 'surveys'],

@@ -123,7 +123,23 @@ interface SurveyReportTable {
   note?: string;
 }
 
+type SurveyReportChartRow = { label: string } & Record<string, string | number>;
+
+interface SurveyReportChartSeries {
+  key: string;
+  name: string;
+  color: string;
+}
+
+interface SurveyReportChart {
+  tableNumber: string;
+  title: string;
+  data: SurveyReportChartRow[];
+  series: SurveyReportChartSeries[];
+}
+
 const COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
+const SURVEY_CHART_COLORS = ['#1d4ed8', '#16a34a', '#f59e0b', '#dc2626', '#7c3aed', '#0891b2', '#ea580c', '#475569'];
 const REPORT_TABS = ['overview', 'program', 'year', 'employment', 'salary', 'surveys'] as const;
 type ReportTab = typeof REPORT_TABS[number];
 const SELECTED_SURVEY_STORAGE_KEY = 'gradtrack_selected_survey_id';
@@ -234,6 +250,7 @@ export default function Reports() {
   const [noSurveySelectionExplicit, setNoSurveySelectionExplicit] = useState(initialNoSurveySelection);
   const [surveyAnalytics, setSurveyAnalytics] = useState<SurveyAnalyticsData | null>(null);
   const [surveyAnalyticsLoading, setSurveyAnalyticsLoading] = useState(false);
+  const [showSurveyGraphs, setShowSurveyGraphs] = useState(false);
   const reportCacheRef = useRef<Record<string, unknown>>({});
   const aiRequestSeqRef = useRef(0);
 
@@ -543,6 +560,10 @@ export default function Reports() {
       fetchSurveyAnalytics(selectedSurveyId, selectedSurveyDepartment);
     }
   }, [tab, selectedSurveyDepartment, selectedSurveyId]);
+
+  useEffect(() => {
+    setShowSurveyGraphs(false);
+  }, [selectedSurveyId, selectedSurveyDepartment]);
 
   useEffect(() => {
     if (tab !== 'overview' || !overview) {
@@ -1409,6 +1430,9 @@ export default function Reports() {
   );
 
   const selectedSurvey = surveyItems.find((survey) => Number(survey.id) === selectedSurveyId);
+  const surveyReportGraphCount = surveyAnalytics?.report_tables
+    ? buildSurveyReportCharts(surveyAnalytics.report_tables).length
+    : 0;
   const overviewUnemployed = overview?.total_unemployed ?? Math.max((overview?.total_graduates ?? 0) - (overview?.total_employed ?? 0), 0);
   const overviewPrograms = overviewProgramData;
   const programChartData = programData.map((program) => ({
@@ -2123,9 +2147,21 @@ export default function Reports() {
                         </div>
                       ) : (
                         <div className="space-y-6">
-                          <div>
-                            <h2 className="text-xl font-bold text-[#1b2a4a]">{surveyAnalytics.survey_title}</h2>
-                            <p className="text-sm text-gray-500">Survey Analytics & Insights</p>
+                          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                              <h2 className="text-xl font-bold text-[#1b2a4a]">{surveyAnalytics.survey_title}</h2>
+                              <p className="text-sm text-gray-500">Survey Analytics & Insights</p>
+                            </div>
+                            {surveyAnalytics.report_tables && surveyAnalytics.report_tables.length > 0 && surveyReportGraphCount > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setShowSurveyGraphs((current) => !current)}
+                                className="flex w-full items-center justify-center gap-2 rounded-lg border border-[#1b2a4a] px-4 py-2.5 text-sm font-semibold text-[#1b2a4a] transition-colors hover:bg-[#1b2a4a] hover:text-white sm:w-auto"
+                              >
+                                <BarChart3 className="w-4 h-4" />
+                                {showSurveyGraphs ? 'Show Tables' : 'Show Graph'}
+                              </button>
+                            )}
                           </div>
 
                           {!(surveyAnalytics.report_tables && surveyAnalytics.report_tables.length > 0) && (
@@ -2138,7 +2174,11 @@ export default function Reports() {
                           )}
 
                           {surveyAnalytics.report_tables && surveyAnalytics.report_tables.length > 0 ? (
-                            <SurveyNumberedReportTables tables={surveyAnalytics.report_tables} />
+                            showSurveyGraphs ? (
+                              <SurveyReportGraphs tables={surveyAnalytics.report_tables} />
+                            ) : (
+                              <SurveyNumberedReportTables tables={surveyAnalytics.report_tables} />
+                            )
                           ) : (
                             <SurveyQuestionReportTable analytics={surveyAnalytics} />
                           )}
@@ -2195,6 +2235,71 @@ function SurveyNumberedReportTables({ tables }: { tables: SurveyReportTable[] })
       <div className="space-y-10 text-black" style={{ fontFamily: '"Times New Roman", Times, serif' }}>
         {tables.map((table, index) => (
           <ThesisReportTable key={`${table.number}-${index}`} table={table} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SurveyReportGraphs({ tables }: { tables: SurveyReportTable[] }) {
+  const charts = buildSurveyReportCharts(tables);
+
+  if (charts.length === 0) {
+    return (
+      <div className="rounded-xl border bg-white p-8 text-center">
+        <p className="font-semibold text-[#1b2a4a]">No graph-ready data found.</p>
+        <p className="mt-1 text-sm text-gray-500">The current survey tables do not have count columns that can be charted.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border p-5 sm:p-6">
+      <div className="mb-6 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h3 className="text-lg font-bold text-[#1b2a4a]">Survey Graphs</h3>
+          <p className="text-sm text-gray-500">Charts are generated from the frequency and count columns in each report table.</p>
+        </div>
+        <span className="text-sm font-semibold text-[#1b2a4a]">{charts.length} graphs</span>
+      </div>
+
+      <div className="space-y-8">
+        {charts.map((chart) => (
+          <section key={`${chart.tableNumber}-${chart.title}`} className="rounded-xl border p-4 sm:p-5">
+            <div className="mb-4">
+              <h4 className="text-base font-bold text-[#1b2a4a]">{chart.title}</h4>
+              <p className="mt-1 text-xs text-gray-500">Graph based on available frequency/count values.</p>
+            </div>
+            <div className="overflow-x-auto">
+              <div className="h-[360px] min-w-[720px]">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={chart.data} margin={{ top: 12, right: 24, bottom: 16, left: 8 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fontSize: 11 }}
+                      angle={-18}
+                      textAnchor="end"
+                      interval={0}
+                      height={100}
+                    />
+                    <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
+                    <Tooltip contentStyle={{ borderRadius: 8 }} />
+                    <Legend wrapperStyle={{ fontSize: 12 }} />
+                    {chart.series.map((series) => (
+                      <Bar
+                        key={series.key}
+                        dataKey={series.key}
+                        name={series.name}
+                        fill={series.color}
+                        radius={[4, 4, 0, 0]}
+                      />
+                    ))}
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </section>
         ))}
       </div>
     </div>
@@ -2259,6 +2364,184 @@ function ThesisReportTable({ table }: { table: SurveyReportTable }) {
       )}
     </section>
   );
+}
+
+function buildSurveyReportCharts(tables: SurveyReportTable[]): SurveyReportChart[] {
+  return tables
+    .map(buildSurveyReportChart)
+    .filter((chart): chart is SurveyReportChart => chart !== null);
+}
+
+function buildSurveyReportChart(table: SurveyReportTable): SurveyReportChart | null {
+  const headerLabels = flattenSurveyReportHeaders(table);
+  const chartColumnIndexes = getSurveyChartColumnIndexes(table, headerLabels).slice(0, 8);
+
+  if (chartColumnIndexes.length === 0) {
+    return null;
+  }
+
+  const firstMetricColumn = Math.min(...chartColumnIndexes);
+  const data: SurveyReportChartRow[] = [];
+  let currentGroup = '';
+
+  table.rows.forEach((row) => {
+    const firstCell = String(row.cells[0] ?? '').trim();
+
+    if (row.is_group) {
+      currentGroup = firstCell;
+      return;
+    }
+
+    if (row.is_total) {
+      return;
+    }
+
+    const descriptor = row.cells
+      .slice(0, firstMetricColumn)
+      .map((cell) => String(cell ?? '').trim())
+      .filter(Boolean)
+      .join(' - ');
+    const rawLabel = descriptor || firstCell || `Row ${data.length + 1}`;
+    const groupedLabel = currentGroup && !rawLabel.toLowerCase().startsWith(currentGroup.toLowerCase())
+      ? `${currentGroup}: ${rawLabel}`
+      : rawLabel;
+    const chartRow: SurveyReportChartRow = {
+      label: truncateSurveyChartText(groupedLabel.replace(/\s+/g, ' '), 44),
+    };
+    let hasValue = false;
+
+    chartColumnIndexes.forEach((columnIndex, seriesIndex) => {
+      const value = parseSurveyReportNumber(row.cells[columnIndex]);
+      chartRow[`value_${seriesIndex}`] = value ?? 0;
+      hasValue = hasValue || Number(value ?? 0) > 0;
+    });
+
+    if (hasValue) {
+      data.push(chartRow);
+    }
+  });
+
+  if (data.length === 0) {
+    return null;
+  }
+
+  const series = chartColumnIndexes.map((columnIndex, seriesIndex) => ({
+    key: `value_${seriesIndex}`,
+    name: truncateSurveyChartText(headerLabels[columnIndex] || `Column ${columnIndex + 1}`, 36),
+    color: SURVEY_CHART_COLORS[seriesIndex % SURVEY_CHART_COLORS.length],
+  }));
+
+  return {
+    tableNumber: table.number,
+    title: `Table ${table.number}. ${table.title}`,
+    data,
+    series,
+  };
+}
+
+function getSurveyChartColumnIndexes(table: SurveyReportTable, headerLabels: string[]): number[] {
+  const columnCount = getSurveyReportTableColumnCount(table);
+  const chartColumns: number[] = [];
+
+  for (let columnIndex = 1; columnIndex < columnCount; columnIndex += 1) {
+    const headerLabel = headerLabels[columnIndex] || '';
+    if (isSurveyNonChartMetric(headerLabel)) {
+      continue;
+    }
+
+    const values = table.rows
+      .filter((row) => !row.is_total && !row.is_group)
+      .map((row) => parseSurveyReportNumber(row.cells[columnIndex]))
+      .filter((value): value is number => value !== null);
+
+    if (values.length > 0 && values.some((value) => value > 0)) {
+      chartColumns.push(columnIndex);
+    }
+  }
+
+  return chartColumns;
+}
+
+function flattenSurveyReportHeaders(table: SurveyReportTable): string[] {
+  const columnCount = getSurveyReportTableColumnCount(table);
+  const grid: string[][] = [];
+
+  table.headers.forEach((headerRow, rowIndex) => {
+    grid[rowIndex] = grid[rowIndex] ?? [];
+    let columnIndex = 0;
+
+    headerRow.forEach((cell) => {
+      while (grid[rowIndex][columnIndex]) {
+        columnIndex += 1;
+      }
+
+      const colSpan = cell.colspan ?? 1;
+      const rowSpan = cell.rowspan ?? 1;
+
+      for (let rowOffset = 0; rowOffset < rowSpan; rowOffset += 1) {
+        const targetRow = rowIndex + rowOffset;
+        grid[targetRow] = grid[targetRow] ?? [];
+
+        for (let colOffset = 0; colOffset < colSpan; colOffset += 1) {
+          grid[targetRow][columnIndex + colOffset] = cell.label;
+        }
+      }
+
+      columnIndex += colSpan;
+    });
+  });
+
+  return Array.from({ length: columnCount }, (_, columnIndex) => {
+    const parts: string[] = [];
+
+    grid.forEach((headerRow) => {
+      const label = String(headerRow[columnIndex] ?? '').trim();
+      if (label && parts[parts.length - 1] !== label) {
+        parts.push(label);
+      }
+    });
+
+    return parts.join(' ').replace(/\s+/g, ' ').trim() || `Column ${columnIndex + 1}`;
+  });
+}
+
+function isSurveyNonChartMetric(label: string): boolean {
+  const normalized = label.toLowerCase();
+
+  return normalized.includes('%')
+    || normalized.includes('percentage')
+    || normalized.includes('rate')
+    || /\brank\b/.test(normalized)
+    || /\br\b/.test(normalized);
+}
+
+function parseSurveyReportNumber(value: unknown): number | null {
+  const text = String(value ?? '').trim();
+
+  if (!text || text === '-') {
+    return null;
+  }
+
+  const normalized = text.replace(/,/g, '');
+  const lessThanMatch = normalized.match(/^<\s*(\d+(?:\.\d+)?)/);
+  const numericMatch = lessThanMatch ?? normalized.match(/-?\d+(?:\.\d+)?/);
+
+  if (!numericMatch) {
+    return null;
+  }
+
+  const parsed = Number(numericMatch[1] ?? numericMatch[0]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function truncateSurveyChartText(value: string, maxLength: number): string {
+  const normalized = value.trim();
+
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, Math.max(maxLength - 3, 1))}...`;
 }
 
 function getReportCellAlignClass(align?: 'left' | 'center' | 'right') {
