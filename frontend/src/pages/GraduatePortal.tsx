@@ -1,4 +1,4 @@
-import { FormEvent, ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Briefcase,
@@ -22,6 +22,7 @@ import {
   Settings,
   Trash2,
   User,
+  Users,
   X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -31,7 +32,7 @@ import NotificationBell from '../components/NotificationBell';
 import { useGraduateAuth } from '../contexts/GraduateAuthContext';
 import type { GraduateUser } from '../contexts/GraduateAuthContext';
 
-type PortalTab = 'dashboard' | 'community_forum' | 'jobs' | 'job_posting' | 'my_profile';
+type PortalTab = 'dashboard' | 'community_forum' | 'messages' | 'group_chats' | 'jobs' | 'job_posting' | 'my_profile';
 type ForumStatus = 'approved' | 'pending' | 'hidden';
 type ApprovalStatus = 'pending' | 'approved' | 'declined';
 
@@ -210,7 +211,7 @@ interface MessageBoxState {
   onConfirm?: () => void;
 }
 
-const portalTabs: PortalTab[] = ['dashboard', 'community_forum', 'jobs', 'job_posting', 'my_profile'];
+const portalTabs: PortalTab[] = ['dashboard', 'community_forum', 'messages', 'group_chats', 'jobs', 'job_posting', 'my_profile'];
 const forumCategoryFallback = [
   'Career Advice',
   'Work Experience',
@@ -387,6 +388,20 @@ function getPortalHeading(tab: PortalTab) {
     };
   }
 
+  if (tab === 'messages') {
+    return {
+      title: 'Messages',
+      subtitle: 'Open direct chats with fellow graduates.',
+    };
+  }
+
+  if (tab === 'group_chats') {
+    return {
+      title: 'Group Chats',
+      subtitle: 'Coordinate group conversations with multiple graduates.',
+    };
+  }
+
   if (tab === 'jobs') {
     return {
       title: 'Browse Jobs',
@@ -542,7 +557,7 @@ export default function GraduatePortal() {
       .includes(query);
   });
 
-  const filteredRooms = rooms.filter((room) => {
+  const matchesChatSearch = (room: ChatRoom) => {
     const query = chatSearch.trim().toLowerCase();
     if (!query) return true;
 
@@ -550,7 +565,13 @@ export default function GraduatePortal() {
       .join(' ')
       .toLowerCase()
       .includes(query);
-  });
+  };
+
+  const directRooms = useMemo(() => rooms.filter((room) => !room.is_group), [rooms]);
+  const groupRooms = useMemo(() => rooms.filter((room) => room.is_group), [rooms]);
+  const filteredRooms = rooms.filter(matchesChatSearch);
+  const filteredDirectRooms = directRooms.filter(matchesChatSearch);
+  const filteredGroupRooms = groupRooms.filter(matchesChatSearch);
 
   const filteredDirectory = directory.filter((participant) => {
     const query = chatModalSearch.trim().toLowerCase();
@@ -562,7 +583,8 @@ export default function GraduatePortal() {
   const pendingForumPostsCount = myForumPosts.filter((post) => post.status === 'pending').length;
   const approvedForumPostsCount = myForumPosts.filter((post) => post.status === 'approved').length;
   const hiddenForumPostsCount = myForumPosts.filter((post) => post.status === 'hidden').length;
-  const groupChatCount = rooms.filter((room) => room.is_group).length;
+  const directChatCount = directRooms.length;
+  const groupChatCount = groupRooms.length;
 
   const notify = useCallback((type: MessageBoxState['type'], message: string, title?: string) => {
     setMsgBox({
@@ -767,6 +789,32 @@ export default function GraduatePortal() {
   }, [searchParams]);
 
   useEffect(() => {
+    const scopedRooms =
+      activeTab === 'messages'
+        ? directRooms
+        : activeTab === 'group_chats'
+          ? groupRooms
+          : null;
+
+    if (!scopedRooms) return;
+
+    if (scopedRooms.length === 0) {
+      setSelectedRoomId(null);
+      setActiveRoom(null);
+      setRoomMessages([]);
+      return;
+    }
+
+    setSelectedRoomId((current) => {
+      if (current && scopedRooms.some((room) => room.id === current)) {
+        return current;
+      }
+
+      return scopedRooms[0].id;
+    });
+  }, [activeTab, directRooms, groupRooms]);
+
+  useEffect(() => {
     setProfileForm({
       first_name: user?.first_name || '',
       middle_name: user?.middle_name || '',
@@ -824,7 +872,7 @@ export default function GraduatePortal() {
   }, [loadRoomMessages, selectedRoomId]);
 
   useEffect(() => {
-    if (activeTab !== 'community_forum') return undefined;
+    if (!['community_forum', 'messages', 'group_chats'].includes(activeTab)) return undefined;
 
     const roomInterval = window.setInterval(() => {
       void loadChats();
@@ -1117,6 +1165,8 @@ export default function GraduatePortal() {
         setSelectedRoomId(roomId);
         await loadRoomMessages(roomId);
       }
+      setSelectedPostOpen(false);
+      selectTab('messages');
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to start direct chat', 'Chats');
     }
@@ -1160,6 +1210,7 @@ export default function GraduatePortal() {
         setSelectedRoomId(roomId);
         await loadRoomMessages(roomId);
       }
+      selectTab(chatModalMode === 'group' ? 'group_chats' : 'messages');
 
       notify(
         'success',
@@ -1441,6 +1492,8 @@ export default function GraduatePortal() {
   const navItems: Array<{ key: PortalTab; label: string; icon: LucideIcon }> = [
     { key: 'dashboard', label: 'Dashboard', icon: Home },
     { key: 'community_forum', label: 'Community Forum', icon: MessageSquare },
+    { key: 'messages', label: 'Messages', icon: MessageCircle },
+    { key: 'group_chats', label: 'Group Chats', icon: Users },
     { key: 'jobs', label: 'Browse Jobs', icon: Briefcase },
     { key: 'job_posting', label: 'Job Posting', icon: Settings },
     { key: 'my_profile', label: 'My Profile', icon: User },
@@ -1451,6 +1504,146 @@ export default function GraduatePortal() {
       ? 'border-slate-300 bg-white focus:border-blue-500'
       : 'border-slate-200 bg-slate-50 text-slate-500'
   }`;
+
+  const renderChatWorkspace = (mode: 'direct' | 'group') => {
+    const isGroupMode = mode === 'group';
+    const scopedRooms = isGroupMode ? filteredGroupRooms : filteredDirectRooms;
+    const allScopedRooms = isGroupMode ? groupRooms : directRooms;
+    const visibleActiveRoom = activeRoom && activeRoom.is_group === isGroupMode ? activeRoom : null;
+    const title = isGroupMode ? 'Group Chats' : 'Messages';
+    const description = isGroupMode
+      ? 'Create and follow group conversations with fellow graduates.'
+      : 'Start and continue private graduate conversations.';
+    const createLabel = isGroupMode ? 'New Group Chat' : 'New Message';
+    const searchPlaceholder = isGroupMode ? 'Search group chats' : 'Search messages';
+    const emptyMessage =
+      allScopedRooms.length === 0
+        ? isGroupMode
+          ? 'No group chats yet. Create a group chat to get everyone in one place.'
+          : 'No direct messages yet. Start a new message with a fellow graduate.'
+        : 'No chats match your search.';
+
+    return (
+      <section className="space-y-5">
+        <div className="rounded-[32px] border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-2xl font-bold text-slate-900">{title}</h2>
+              <p className="text-sm text-slate-500">{description}</p>
+            </div>
+            <button type="button" onClick={() => openChatModal(mode)} className="inline-flex items-center gap-2 rounded-full bg-blue-700 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-800">
+              <Plus className="h-4 w-4" />
+              {createLabel}
+            </button>
+          </div>
+
+          <label className="relative mt-4 block">
+            <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input value={chatSearch} onChange={(event) => setChatSearch(event.target.value)} placeholder={searchPlaceholder} className="w-full rounded-2xl border border-slate-200 bg-[#fafbff] px-11 py-3 text-sm outline-none transition focus:border-blue-500" />
+          </label>
+        </div>
+
+        <div className="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
+          <div className="rounded-[32px] border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between gap-3 px-1">
+              <p className="text-sm font-bold text-slate-900">{isGroupMode ? 'Groups' : 'Conversations'}</p>
+              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                {allScopedRooms.length}
+              </span>
+            </div>
+
+            <div className="max-h-[640px] space-y-2 overflow-y-auto pr-1">
+              {scopedRooms.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-[#fafbff] px-4 py-8 text-center text-sm text-slate-500">
+                  {emptyMessage}
+                </div>
+              ) : (
+                scopedRooms.map((room) => {
+                  const active = selectedRoomId === room.id;
+
+                  return (
+                    <button key={room.id} type="button" onClick={() => setSelectedRoomId(room.id)} className={`flex w-full items-start gap-3 rounded-2xl border px-3 py-3 text-left transition ${active ? 'border-blue-200 bg-blue-50' : 'border-transparent bg-[#fafbff] hover:border-slate-200 hover:bg-slate-50'}`}>
+                      <Avatar src={resolveAssetUrl(getRoomOtherParticipants(room, currentGraduateId)[0]?.profile_image_path || room.participants[0]?.profile_image_path)} label={getRoomLabel(room, currentGraduateId)} size="sm" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-3">
+                          <p className="truncate text-sm font-semibold text-slate-900">{getRoomLabel(room, currentGraduateId)}</p>
+                          <span className="shrink-0 text-[11px] text-slate-400">{formatRelativeTime(room.last_message_at || room.updated_at)}</span>
+                        </div>
+                        <p className="truncate text-xs text-slate-500">{getRoomSubtitle(room, currentGraduateId)}</p>
+                        <p className="mt-1 truncate text-xs text-slate-500">{room.last_message || 'No messages yet'}</p>
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          <div className="flex min-h-[640px] flex-col overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-sm">
+            <div className="border-b border-slate-100 px-5 py-4">
+              {visibleActiveRoom ? (
+                <div className="flex items-center gap-3">
+                  <Avatar src={resolveAssetUrl(getRoomOtherParticipants(visibleActiveRoom, currentGraduateId)[0]?.profile_image_path || visibleActiveRoom.participants[0]?.profile_image_path)} label={getRoomLabel(visibleActiveRoom, currentGraduateId)} size="md" />
+                  <div className="min-w-0">
+                    <p className="truncate font-semibold text-slate-900">{getRoomLabel(visibleActiveRoom, currentGraduateId)}</p>
+                    <p className="truncate text-xs text-slate-500">{getRoomSubtitle(visibleActiveRoom, currentGraduateId)}</p>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <p className="font-semibold text-slate-900">Select a chat</p>
+                  <p className="text-xs text-slate-500">Your messages will appear here.</p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex min-h-0 flex-1 flex-col bg-[#fcfcfe]">
+              {roomLoading ? (
+                <div className="flex flex-1 items-center justify-center text-sm text-slate-500">
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Loading conversation...
+                </div>
+              ) : visibleActiveRoom ? (
+                <>
+                  <div className="flex-1 space-y-3 overflow-y-auto px-5 py-5">
+                    {roomMessages.length === 0 ? (
+                      <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
+                        No messages yet. Say hello and start the conversation.
+                      </div>
+                    ) : (
+                      roomMessages.map((message) => (
+                        <div key={message.id} className={`flex ${message.is_mine ? 'justify-end' : 'justify-start'}`}>
+                          <div className={`max-w-[78%] rounded-3xl px-4 py-3 text-sm shadow-sm ${message.is_mine ? 'bg-blue-700 text-white' : 'border border-slate-200 bg-white text-slate-800'}`}>
+                            {!message.is_mine && <p className="mb-1 text-xs font-semibold text-slate-500">{message.sender_name}</p>}
+                            <p className="whitespace-pre-line leading-6">{message.message}</p>
+                            <p className={`mt-2 text-[11px] ${message.is_mine ? 'text-blue-100' : 'text-slate-400'}`}>{formatRelativeTime(message.created_at)}</p>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                    <div ref={chatEndRef} />
+                  </div>
+
+                  <form onSubmit={handleSendMessage} className="border-t border-slate-100 bg-white p-4">
+                    <div className="flex items-end gap-2">
+                      <textarea value={chatMessageDraft} onChange={(event) => setChatMessageDraft(event.target.value)} rows={2} placeholder="Type a message..." className="min-h-[52px] flex-1 resize-none rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-500" />
+                      <button type="submit" disabled={chatSending || !chatMessageDraft.trim()} className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-blue-700 text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60" aria-label="Send message">
+                        {chatSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                      </button>
+                    </div>
+                  </form>
+                </>
+              ) : (
+                <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-slate-500">
+                  Pick a room from the list to read and send messages.
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+    );
+  };
 
   return (
     <div className="min-h-screen bg-[#f4f6fb] text-slate-900 lg:flex">
@@ -1589,7 +1782,7 @@ export default function GraduatePortal() {
                   <div className="grid gap-4 lg:grid-cols-4">
                     <DashboardCard label="Approved Forum Posts" value={forumPosts.length} caption="Visible in the social feed" tone="blue" />
                     <DashboardCard label="Pending My Posts" value={pendingForumPostsCount} caption="Waiting for moderator review" tone="amber" />
-                    <DashboardCard label="Chat Rooms" value={rooms.length} caption={`${groupChatCount} group chat${groupChatCount === 1 ? '' : 's'}`} tone="pink" />
+                    <DashboardCard label="Messages" value={directChatCount} caption={`${groupChatCount} group chat${groupChatCount === 1 ? '' : 's'}`} tone="pink" />
                     <DashboardCard label="Approved Jobs" value={jobs.length} caption={`${myPostedJobs.length} post${myPostedJobs.length === 1 ? '' : 's'} created by you`} tone="emerald" />
                   </div>
 
@@ -1607,6 +1800,8 @@ export default function GraduatePortal() {
 
                       <div className="mt-6 grid gap-4 md:grid-cols-2">
                         <InfoTile title="Community Forum" description="Post, react, comment, and message fellow graduates." actionLabel="Open Forum" onAction={() => selectTab('community_forum')} />
+                        <InfoTile title="Messages" description="Continue one-on-one conversations with fellow graduates." actionLabel="Open Messages" onAction={() => selectTab('messages')} />
+                        <InfoTile title="Group Chats" description="Create or revisit group conversations for alumni coordination." actionLabel="Open Group Chats" onAction={() => selectTab('group_chats')} />
                         <InfoTile title="Job Posting" description={canPostJobs ? 'Your account can submit new job opportunities.' : 'Locked until employment status is marked as employed.'} actionLabel="Open Job Posting" onAction={() => selectTab('job_posting')} />
                         <InfoTile title="Browse Jobs" description="Review approved job openings shared in GradTrack." actionLabel="Browse Jobs" onAction={() => selectTab('jobs')} />
                         <InfoTile title="My Profile" description="Keep your account details and photo up to date." actionLabel="Edit Profile" onAction={() => selectTab('my_profile')} />
@@ -1889,6 +2084,10 @@ export default function GraduatePortal() {
                   </div>
                 </section>
               )}
+
+              {activeTab === 'messages' && renderChatWorkspace('direct')}
+
+              {activeTab === 'group_chats' && renderChatWorkspace('group')}
 
               {activeTab === 'jobs' && (
                 <section className="space-y-5">
