@@ -58,4 +58,7 @@ export const API_ENDPOINTS = {
     SUMMARY: `${API_ROOT}/alumni-rating/index.php`,
     DOCUMENTS: `${API_ROOT}/alumni-rating/documents.php`,
   },
+  SUPER_ADMIN: {
+    AUTO_REMINDERS: `${API_ROOT}/super-admin/auto-reminders.php`,
+  },
 };

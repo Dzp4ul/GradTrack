@@ -16,6 +16,7 @@ import {
   DatabaseBackup,
   User,
   History,
+  Mail,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
@@ -41,6 +42,7 @@ const adminNavItems: NavItem[] = [
 const superAdminNavItems: NavItem[] = [
   { to: '/admin/forum-moderation', icon: MessageSquareMore, label: 'Forum Moderation' },
   { to: '/admin/user-management', icon: Users, label: 'User Management' },
+  { to: '/admin/auto-reminders', icon: Mail, label: 'Auto Email Reminders' },
   { to: '/admin/audit-trail', icon: History, label: 'Audit Trail' },
   { to: '/admin/backup-database', icon: DatabaseBackup, label: 'Backup Database' },
 ];

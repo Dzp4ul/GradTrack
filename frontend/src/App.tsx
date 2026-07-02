@@ -22,6 +22,7 @@ import SurveyAnalytics from './pages/admin/SurveyAnalytics';
 import Reports from './pages/admin/Reports';
 import Settings from './pages/admin/Settings';
 import BackupDatabase from './pages/admin/BackupDatabase';
+import AutoReminders from './pages/admin/AutoReminders';
 import DeanSurveyStatus from './pages/admin/DeanSurveyStatus';
 import UserManagement from './pages/admin/UserManagement';
 import EngagementApprovals from './pages/admin/EngagementApprovals';
@@ -204,6 +205,14 @@ function App() {
               element={
                 <ProtectedRoute allowedRoles={SUPER_ADMIN_ROLES}>
                   <UserManagement />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="auto-reminders"
+              element={
+                <ProtectedRoute allowedRoles={SUPER_ADMIN_ROLES}>
+                  <AutoReminders />
                 </ProtectedRoute>
               }
             />
