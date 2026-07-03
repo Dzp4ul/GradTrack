@@ -476,6 +476,9 @@ export default function GraduatePortal() {
     remove_image: false,
   });
   const [forumImageFile, setForumImageFile] = useState<File | null>(null);
+  const [aiModerating, setAiModerating] = useState(false);
+  const [programFilter, setProgramFilter] = useState('all');
+  const [yearFilter, setYearFilter] = useState('');
   const [selectedPostOpen, setSelectedPostOpen] = useState(false);
   const [selectedPostLoading, setSelectedPostLoading] = useState(false);
   const [selectedPost, setSelectedPost] = useState<ForumPost | null>(null);
@@ -945,6 +948,35 @@ export default function GraduatePortal() {
       return;
     }
 
+    // AI Moderation Check
+    if (!forumForm.id) {
+      setAiModerating(true);
+      try {
+        const moderationResponse = await authenticatedFetch(API_ENDPOINTS.FORUM_AI_MODERATE, {
+          method: 'POST',
+          body: JSON.stringify({ title, content, category }),
+        });
+
+        if (moderationResponse.is_appropriate === false) {
+          const reason = moderationResponse.moderation?.reason || 'Content violates community guidelines.';
+          const categories = moderationResponse.moderation?.categories || [];
+          setAiModerating(false);
+          setMsgBox({
+            isOpen: true,
+            type: 'warning',
+            title: 'Post Blocked by AI Moderation',
+            message: `Your post was flagged as inappropriate.\n\nReason: ${reason}\n\nCategories: ${categories.join(', ')}\n\nPlease revise your content and try again.`,
+            confirmText: 'OK',
+          });
+          return;
+        }
+      } catch {
+        // If AI moderation fails, allow post to proceed (fail open)
+      } finally {
+        setAiModerating(false);
+      }
+    }
+
     setForumSubmitting(true);
 
     try {
@@ -972,7 +1004,7 @@ export default function GraduatePortal() {
           method: 'POST',
           body: formData,
         });
-        notify('success', 'Forum post submitted for moderation.', 'Community Forum');
+        notify('success', 'Forum post published and visible in the feed.', 'Community Forum');
       }
 
       closeForumComposer();
@@ -1860,7 +1892,7 @@ export default function GraduatePortal() {
                   <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
                     <div className="space-y-5">
                       <div className="rounded-[32px] border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-                        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px]">
+                        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_160px_160px]">
                           <label className="relative block">
                             <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                             <input value={forumSearch} onChange={(event) => setForumSearch(event.target.value)} placeholder="Search by title, topic, or author" className="w-full rounded-2xl border border-slate-200 bg-[#fafbff] px-11 py-3 text-sm outline-none transition focus:border-blue-500" />
@@ -1873,6 +1905,24 @@ export default function GraduatePortal() {
                                 {category}
                               </option>
                             ))}
+                          </select>
+
+                          <select value={programFilter} onChange={(event) => { setProgramFilter(event.target.value); }} className="rounded-2xl border border-slate-200 bg-[#fafbff] px-4 py-3 text-sm outline-none transition focus:border-blue-500">
+                            <option value="all">All Programs</option>
+                            <option value="BSCS">BSCS</option>
+                            <option value="ACT">ACT</option>
+                            <option value="BSHM">BSHM</option>
+                            <option value="BSED">BSED</option>
+                            <option value="BEED">BEED</option>
+                          </select>
+
+                          <select value={yearFilter} onChange={(event) => { setYearFilter(event.target.value); }} className="rounded-2xl border border-slate-200 bg-[#fafbff] px-4 py-3 text-sm outline-none transition focus:border-blue-500">
+                            <option value="">All Years</option>
+                            <option value="2021">2021</option>
+                            <option value="2022">2022</option>
+                            <option value="2023">2023</option>
+                            <option value="2024">2024</option>
+                            <option value="2025">2025</option>
                           </select>
                         </div>
                       </div>

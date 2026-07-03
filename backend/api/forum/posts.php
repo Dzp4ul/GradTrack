@@ -4,6 +4,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/forum.php';
 require_once __DIR__ . '/../config/audit_trail.php';
+require_once __DIR__ . '/../../vendor/autoload.php';
 
 function gradtrack_forum_posts_request_data(): array
 {
@@ -199,8 +200,26 @@ try {
             gradtrack_forum_posts_json_error(400, 'Invalid forum category');
         }
 
+        // Server-side moderation check for bad words (English & Tagalog)
+        $badWords = [
+            'fuck', 'fucking', 'fuck you', 'fck', 'fuk', 'shit', 'bitch', 'asshole',
+            'motherfucker', 'dick', 'piss', 'cunt', 'bastard', 'damn',
+            'putangina', 'puta', 'tangina', 'tngina', 'bobo', 'tanga', 'gago', 'gaga',
+            'ulol', 'baliw', 'lintik', 'leche', 'buwisit', 'bwisit', 'peste',
+            'siraulo', 'hindot', 'tarantado', 'pokpok', 'bading',
+            'engot', 'pakyu', 'kupal', 'kantot', 'kantutan', 'suso',
+            'tite', 'pekpek', 'animal', 'hayop', 'inutil', 'walang kwenta',
+            'pota', 'ulul', 'tang ina', 'putang ina', 'bobo ka', 'tanga ka', 'gago ka', 'gunggong',
+        ];
+        $combinedText = mb_strtolower($title . ' ' . $content . ' ' . $category);
+        foreach ($badWords as $badWord) {
+            if (preg_match('/' . preg_quote($badWord, '/') . '/i', $combinedText)) {
+                gradtrack_forum_posts_json_error(400, 'Your post was blocked by moderation. Please remove inappropriate language and try again.');
+            }
+        }
+
         $stmt = $db->prepare("INSERT INTO forum_posts (graduate_id, title, content, category, status)
-                              VALUES (:graduate_id, :title, :content, :category, 'pending')");
+                              VALUES (:graduate_id, :title, :content, :category, 'approved')");
         $stmt->execute([
             ':graduate_id' => (int) $user['graduate_id'],
             ':title' => $title,
@@ -239,9 +258,9 @@ try {
 
         echo json_encode([
             'success' => true,
-            'message' => 'Forum post submitted for review',
+            'message' => 'Forum post published successfully',
             'id' => $postId,
-            'status' => 'pending',
+            'status' => 'approved',
         ]);
         exit;
     }
