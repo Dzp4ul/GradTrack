@@ -5,6 +5,8 @@ import {
   Building2,
   Calendar,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Flag,
   Heart,
   Home,
@@ -12,6 +14,7 @@ import {
   Loader2,
   LogOut,
   MapPin,
+  Maximize2,
   Menu,
   MessageCircle,
   MessageSquare,
@@ -19,11 +22,13 @@ import {
   Plus,
   Search,
   Send,
-  Settings,
   Trash2,
   User,
   Users,
+  Video,
   X,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { API_BASE_URL, API_ENDPOINTS } from '../config/api';
@@ -55,6 +60,18 @@ interface AlumniRating {
   };
 }
 
+interface ForumMedia {
+  id: number;
+  post_id: number;
+  media_type: 'image' | 'video';
+  file_path: string;
+  original_name?: string | null;
+  mime_type?: string | null;
+  file_size_bytes?: number | null;
+  sort_order?: number;
+  created_at?: string | null;
+}
+
 interface ForumPost {
   id: number;
   graduate_id: number;
@@ -66,6 +83,8 @@ interface ForumPost {
   image_original_name?: string | null;
   image_mime_type?: string | null;
   image_file_size_bytes?: number | null;
+  media?: ForumMedia[];
+  media_count?: number;
   created_at: string;
   updated_at: string;
   author_name: string;
@@ -95,9 +114,8 @@ interface ForumFormState {
   title: string;
   content: string;
   category: string;
-  image_path?: string | null;
-  image_original_name?: string | null;
-  remove_image: boolean;
+  media: ForumMedia[];
+  remove_media: boolean;
 }
 
 interface ForumActivityLog {
@@ -296,6 +314,46 @@ function previewText(value: string, maxLength = 220) {
   return `${clean.slice(0, maxLength).trimEnd()}...`;
 }
 
+const forumMediaAccept = 'image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm,video/ogg,video/quicktime';
+const maxForumMediaFiles = 10;
+const maxForumImageBytes = 5 * 1024 * 1024;
+const maxForumVideoBytes = 50 * 1024 * 1024;
+
+function isVideoMedia(media: Pick<ForumMedia, 'media_type' | 'mime_type'>) {
+  return media.media_type === 'video' || !!media.mime_type?.startsWith('video/');
+}
+
+function isVideoFile(file: File) {
+  return file.type.startsWith('video/');
+}
+
+function getPostMedia(post?: ForumPost | null): ForumMedia[] {
+  if (!post) return [];
+  if (Array.isArray(post.media) && post.media.length > 0) return post.media;
+  if (!post.image_path) return [];
+
+  return [
+    {
+      id: 0,
+      post_id: post.id,
+      media_type: post.image_mime_type?.startsWith('video/') ? 'video' : 'image',
+      file_path: post.image_path,
+      original_name: post.image_original_name || post.title,
+      mime_type: post.image_mime_type || null,
+      file_size_bytes: post.image_file_size_bytes ?? null,
+      sort_order: 0,
+      created_at: post.created_at,
+    },
+  ];
+}
+
+function formatBytes(value?: number | null) {
+  if (!value || value <= 0) return '';
+  if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
+  if (value >= 1024) return `${Math.round(value / 1024)} KB`;
+  return `${value} B`;
+}
+
 function forumStatusClass(status: ForumStatus) {
   if (status === 'approved') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
   if (status === 'hidden') return 'border-rose-200 bg-rose-50 text-rose-700';
@@ -439,7 +497,7 @@ export default function GraduatePortal() {
 
   const [activeTab, setActiveTab] = useState<PortalTab>(() => getPortalTab(searchParams.get('tab')));
   const [loading, setLoading] = useState(true);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [profileIsEditing, setProfileIsEditing] = useState(false);
   const [profileImageFile, setProfileImageFile] = useState<File | null>(null);
@@ -471,17 +529,22 @@ export default function GraduatePortal() {
     title: '',
     content: '',
     category: forumCategoryFallback[0],
-    image_path: null,
-    image_original_name: null,
-    remove_image: false,
+    media: [],
+    remove_media: false,
   });
-  const [forumImageFile, setForumImageFile] = useState<File | null>(null);
+  const [forumMediaFiles, setForumMediaFiles] = useState<File[]>([]);
   const [aiModerating, setAiModerating] = useState(false);
   const [programFilter, setProgramFilter] = useState('all');
   const [yearFilter, setYearFilter] = useState('');
   const [selectedPostOpen, setSelectedPostOpen] = useState(false);
   const [selectedPostLoading, setSelectedPostLoading] = useState(false);
   const [selectedPost, setSelectedPost] = useState<ForumPost | null>(null);
+  const [mediaViewer, setMediaViewer] = useState<{ post: ForumPost; mediaIndex: number } | null>(null);
+  const [mediaViewerZoom, setMediaViewerZoom] = useState(1);
+  const [mediaViewerComments, setMediaViewerComments] = useState<ForumComment[]>([]);
+  const [mediaViewerCommentsLoading, setMediaViewerCommentsLoading] = useState(false);
+  const [mediaViewerCommentDraft, setMediaViewerCommentDraft] = useState('');
+  const [mediaViewerCommentSubmitting, setMediaViewerCommentSubmitting] = useState(false);
   const [postComments, setPostComments] = useState<ForumComment[]>([]);
   const [commentDraft, setCommentDraft] = useState('');
   const [commentSubmitting, setCommentSubmitting] = useState(false);
@@ -521,7 +584,7 @@ export default function GraduatePortal() {
 
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const profileImageInputRef = useRef<HTMLInputElement | null>(null);
-  const forumImageInputRef = useRef<HTMLInputElement | null>(null);
+  const forumMediaInputRef = useRef<HTMLInputElement | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
   const currentGraduateId = user?.graduate_id ?? 0;
@@ -636,11 +699,10 @@ export default function GraduatePortal() {
       title: '',
       content: '',
       category: forumCategories[0] || forumCategoryFallback[0],
-      image_path: null,
-      image_original_name: null,
-      remove_image: false,
+      media: [],
+      remove_media: false,
     });
-    setForumImageFile(null);
+    setForumMediaFiles([]);
   }, [forumCategories]);
 
   const resetJobForm = useCallback(() => {
@@ -702,6 +764,31 @@ export default function GraduatePortal() {
     const response = await authenticatedFetch(`${API_ENDPOINTS.FORUM.ACTIVITY}?limit=12`);
     setActivityLogs(Array.isArray(response.data) ? (response.data as ForumActivityLog[]) : []);
   }, [authenticatedFetch]);
+
+  const loadForumComments = useCallback(
+    async (postId: number) => {
+      const response = await authenticatedFetch(`${API_ENDPOINTS.FORUM.COMMENTS}?post_id=${postId}`);
+      return Array.isArray(response.data) ? (response.data as ForumComment[]) : [];
+    },
+    [authenticatedFetch],
+  );
+
+  const loadMediaViewerComments = useCallback(
+    async (postId: number) => {
+      setMediaViewerCommentsLoading(true);
+
+      try {
+        const comments = await loadForumComments(postId);
+        setMediaViewerComments(comments);
+      } catch (error) {
+        setMediaViewerComments([]);
+        notify('error', error instanceof Error ? error.message : 'Unable to load comments', 'Community Forum');
+      } finally {
+        setMediaViewerCommentsLoading(false);
+      }
+    },
+    [loadForumComments, notify],
+  );
 
   const loadRoomMessages = useCallback(
     async (roomId: number, silent = false) => {
@@ -766,13 +853,13 @@ export default function GraduatePortal() {
       setCommentDraft('');
 
       try {
-        const [postResponse, commentsResponse] = await Promise.all([
+        const [postResponse, comments] = await Promise.all([
           authenticatedFetch(`${API_ENDPOINTS.FORUM.POSTS}?id=${postId}`),
-          authenticatedFetch(`${API_ENDPOINTS.FORUM.COMMENTS}?post_id=${postId}`),
+          loadForumComments(postId),
         ]);
 
         setSelectedPost((postResponse.data as ForumPost | undefined) || null);
-        setPostComments(Array.isArray(commentsResponse.data) ? (commentsResponse.data as ForumComment[]) : []);
+        setPostComments(comments);
       } catch (error) {
         setSelectedPostOpen(false);
         notify('error', error instanceof Error ? error.message : 'Unable to load this forum post');
@@ -780,7 +867,7 @@ export default function GraduatePortal() {
         setSelectedPostLoading(false);
       }
     },
-    [authenticatedFetch, notify],
+    [authenticatedFetch, loadForumComments, notify],
   );
 
   useEffect(() => {
@@ -909,6 +996,25 @@ export default function GraduatePortal() {
     return () => window.removeEventListener('gradtrack:notifications-updated', handleNotificationUpdate);
   }, [loadBootData, loadRoomMessages, selectedRoomId]);
 
+  useEffect(() => {
+    if (!mediaViewer) return undefined;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeMediaViewer();
+      }
+      if (event.key === 'ArrowRight') {
+        moveMediaViewer(1);
+      }
+      if (event.key === 'ArrowLeft') {
+        moveMediaViewer(-1);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [mediaViewer]);
+
   const openForumComposer = (post?: ForumPost) => {
     setManagePostsOpen(false);
     setSelectedPostOpen(false);
@@ -919,11 +1025,10 @@ export default function GraduatePortal() {
         title: post.title,
         content: post.content,
         category: post.category,
-        image_path: post.image_path || null,
-        image_original_name: post.image_original_name || null,
-        remove_image: false,
+        media: getPostMedia(post),
+        remove_media: false,
       });
-      setForumImageFile(null);
+      setForumMediaFiles([]);
     } else {
       resetForumForm();
     }
@@ -934,6 +1039,75 @@ export default function GraduatePortal() {
   const closeForumComposer = () => {
     setForumComposerOpen(false);
     resetForumForm();
+  };
+
+  const handleForumMediaSelection = (files: FileList | null) => {
+    const selectedFiles = Array.from(files || []);
+
+    if (selectedFiles.length === 0) {
+      setForumMediaFiles([]);
+      return;
+    }
+
+    if (selectedFiles.length > maxForumMediaFiles) {
+      notify('warning', `You can attach up to ${maxForumMediaFiles} photos or videos.`, 'Community Forum');
+      if (forumMediaInputRef.current) {
+        forumMediaInputRef.current.value = '';
+      }
+      return;
+    }
+
+    for (const file of selectedFiles) {
+      const isImage = file.type.startsWith('image/');
+      const isVideo = isVideoFile(file);
+
+      if (!isImage && !isVideo) {
+        notify('warning', 'Only JPG, PNG, WEBP, GIF, MP4, WEBM, OGG, or MOV files are supported.', 'Community Forum');
+        if (forumMediaInputRef.current) {
+          forumMediaInputRef.current.value = '';
+        }
+        return;
+      }
+
+      const maxBytes = isVideo ? maxForumVideoBytes : maxForumImageBytes;
+      if (file.size > maxBytes) {
+        notify('warning', `${file.name} is too large. Images can be 5 MB and videos can be 50 MB.`, 'Community Forum');
+        if (forumMediaInputRef.current) {
+          forumMediaInputRef.current.value = '';
+        }
+        return;
+      }
+    }
+
+    setForumMediaFiles(selectedFiles);
+    setForumForm((current) => ({ ...current, remove_media: false }));
+  };
+
+  const openMediaViewer = (post: ForumPost, mediaIndex = 0) => {
+    setMediaViewer({ post, mediaIndex });
+    setMediaViewerZoom(1);
+    setMediaViewerComments(selectedPost?.id === post.id ? postComments : []);
+    setMediaViewerCommentDraft('');
+    void loadMediaViewerComments(post.id);
+  };
+
+  const closeMediaViewer = () => {
+    setMediaViewer(null);
+    setMediaViewerZoom(1);
+    setMediaViewerComments([]);
+    setMediaViewerCommentDraft('');
+  };
+
+  const moveMediaViewer = (direction: 1 | -1) => {
+    setMediaViewer((current) => {
+      if (!current) return current;
+      const media = getPostMedia(current.post);
+      if (media.length <= 1) return current;
+
+      const nextIndex = (current.mediaIndex + direction + media.length) % media.length;
+      return { ...current, mediaIndex: nextIndex };
+    });
+    setMediaViewerZoom(1);
   };
 
   const handleForumSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -984,11 +1158,11 @@ export default function GraduatePortal() {
       formData.append('title', title);
       formData.append('content', content);
       formData.append('category', category);
-      if (forumImageFile) {
-        formData.append('image', forumImageFile);
-      }
-      if (forumForm.remove_image) {
-        formData.append('remove_image', '1');
+      forumMediaFiles.forEach((file) => {
+        formData.append('media[]', file);
+      });
+      if (forumForm.remove_media) {
+        formData.append('remove_media', '1');
       }
 
       if (forumForm.id) {
@@ -1108,6 +1282,50 @@ export default function GraduatePortal() {
       notify('error', error instanceof Error ? error.message : 'Unable to post comment', 'Community Forum');
     } finally {
       setCommentSubmitting(false);
+    }
+  };
+
+  const handleMediaViewerCommentSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!mediaViewer) return;
+
+    const comment = mediaViewerCommentDraft.trim();
+    if (!comment) {
+      notify('warning', 'Write a comment before posting.', 'Community Forum');
+      return;
+    }
+
+    setMediaViewerCommentSubmitting(true);
+
+    try {
+      await authenticatedFetch(API_ENDPOINTS.FORUM.COMMENTS, {
+        method: 'POST',
+        body: JSON.stringify({
+          post_id: mediaViewer.post.id,
+          comment,
+        }),
+      });
+
+      setMediaViewerCommentDraft('');
+      const comments = await loadForumComments(mediaViewer.post.id);
+      setMediaViewerComments(comments);
+      setMediaViewer((current) =>
+        current && current.post.id === mediaViewer.post.id
+          ? { ...current, post: { ...current.post, comment_count: comments.length } }
+          : current,
+      );
+
+      if (selectedPost?.id === mediaViewer.post.id) {
+        setPostComments(comments);
+        setSelectedPost((current) => (current ? { ...current, comment_count: comments.length } : current));
+      }
+
+      await Promise.all([loadForumFeed(), loadMyForumPosts(), loadActivityLogs()]);
+    } catch (error) {
+      notify('error', error instanceof Error ? error.message : 'Unable to post comment', 'Community Forum');
+    } finally {
+      setMediaViewerCommentSubmitting(false);
     }
   };
 
@@ -1521,15 +1739,17 @@ export default function GraduatePortal() {
     });
   };
 
-  const navItems: Array<{ key: PortalTab; label: string; icon: LucideIcon }> = [
-    { key: 'dashboard', label: 'Dashboard', icon: Home },
-    { key: 'community_forum', label: 'Community Forum', icon: MessageSquare },
-    { key: 'messages', label: 'Messages', icon: MessageCircle },
-    { key: 'group_chats', label: 'Group Chats', icon: Users },
-    { key: 'jobs', label: 'Browse Jobs', icon: Briefcase },
-    { key: 'job_posting', label: 'Job Posting', icon: Settings },
-    { key: 'my_profile', label: 'My Profile', icon: User },
+  const navItems: Array<{ key: PortalTab; label: string; shortLabel: string; icon: LucideIcon; badge?: number }> = [
+    { key: 'dashboard', label: 'Dashboard', shortLabel: 'Home', icon: Home },
+    { key: 'community_forum', label: 'Community Forum', shortLabel: 'Forum', icon: MessageSquare, badge: forumPosts.length },
+    { key: 'messages', label: 'Messages', shortLabel: 'Chats', icon: MessageCircle, badge: directChatCount },
+    { key: 'group_chats', label: 'Group Chats', shortLabel: 'Groups', icon: Users, badge: groupChatCount },
+    { key: 'jobs', label: 'Browse Jobs', shortLabel: 'Jobs', icon: Briefcase, badge: jobs.length },
+    { key: 'job_posting', label: 'Job Posting', shortLabel: 'Post Job', icon: Pencil, badge: myPostedJobs.length },
+    { key: 'my_profile', label: 'My Profile', shortLabel: 'Profile', icon: User },
   ];
+  const primaryNavItems = navItems.filter((item) => item.key !== 'my_profile');
+  const activeNavItem = navItems.find((item) => item.key === activeTab);
 
   const profileInputClass = `w-full rounded-2xl border px-4 py-3 text-sm outline-none transition ${
     profileIsEditing
@@ -1677,128 +1897,204 @@ export default function GraduatePortal() {
     );
   };
 
+  const ActiveNavIcon = activeNavItem?.icon || MessageSquare;
+
   return (
-    <div className="min-h-screen bg-[#f4f6fb] text-slate-900 lg:flex">
-      <aside
-        className={`fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-white/10 bg-[#203d8f] text-white transition-all duration-300 lg:flex ${
-          sidebarOpen ? 'w-64' : 'w-20'
-        }`}
-      >
-        <div className="flex items-center justify-center border-b border-white/10 px-4 py-5">
-          {sidebarOpen ? (
-            <img src="/Gradtrack_Logo2.png" alt="GradTrack" className="h-12 object-contain" />
-          ) : (
-            <img src="/Gradtrack_small.png" alt="GradTrack" className="h-10 w-10 object-contain" />
-          )}
+    <div className="min-h-screen bg-[#f4f6fb] text-slate-900">
+      <header className="sticky top-0 z-50 border-b border-gray-200 bg-white shadow-sm">
+        <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-4 px-4 py-2 sm:px-6">
+          <button
+            type="button"
+            onClick={() => selectTab('dashboard')}
+            className="flex shrink-0 items-center gap-3 text-left"
+            title="GradTrack Community"
+            aria-label="Open GradTrack Community"
+          >
+            <img src="/Gradtrack_small.png" alt="GradTrack" className="h-9 w-9 object-contain" />
+            <div className="hidden sm:block">
+              <p className="text-base font-bold leading-tight text-gray-900">GradTrack</p>
+              <p className="text-[11px] leading-tight text-slate-500">Community</p>
+            </div>
+          </button>
+
+          <nav className="hidden items-center gap-0.5 lg:flex" aria-label="Graduate portal navigation">
+            {primaryNavItems.map((item) => {
+              const isActive = activeTab === item.key;
+
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => selectTab(item.key)}
+                  title={item.label}
+                  aria-label={item.label}
+                  className={`relative flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all ${
+                    isActive
+                      ? 'bg-blue-700 text-white shadow-sm'
+                      : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                  }`}
+                >
+                  <item.icon className="h-4 w-4" />
+                  <span className="hidden xl:inline">{item.label}</span>
+                  <span className="xl:hidden">{item.shortLabel}</span>
+                  {typeof item.badge === 'number' && item.badge > 0 && (
+                    <span
+                      className={`absolute -right-1 -top-1 min-w-5 rounded-full px-1.5 py-0.5 text-center text-[10px] font-bold leading-none ${
+                        isActive ? 'bg-[#f8c331] text-blue-950' : 'bg-rose-500 text-white'
+                      }`}
+                    >
+                      {item.badge > 99 ? '99+' : item.badge}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </nav>
+
+          <div className="flex shrink-0 items-center gap-3">
+            <button
+              type="button"
+              onClick={() => openForumComposer()}
+              className="hidden items-center gap-2 rounded-full bg-blue-700 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-800 sm:inline-flex"
+              title="Create forum post"
+              aria-label="Create forum post"
+            >
+              <Plus className="h-4 w-4" />
+              Post
+            </button>
+
+            <NotificationBell audience="graduate" />
+
+            <div className="relative min-w-0" ref={profileMenuRef}>
+              <button
+                type="button"
+                onClick={() => setProfileMenuOpen((current) => !current)}
+                className={`flex items-center gap-2 rounded-full border bg-white px-2 py-1.5 shadow-sm transition hover:border-gray-300 ${
+                  activeTab === 'my_profile' ? 'border-blue-200 ring-2 ring-blue-100' : 'border-gray-200'
+                }`}
+                aria-haspopup="menu"
+                aria-expanded={profileMenuOpen}
+              >
+                <Avatar src={profileImagePreview || currentProfileImageUrl} label={user?.full_name} size="sm" />
+                <div className="hidden min-w-0 flex-1 text-left md:block">
+                  <p className="max-w-[150px] truncate text-sm font-semibold text-gray-800">{user?.full_name || 'Graduate User'}</p>
+                  <p className="max-w-[150px] truncate text-xs text-gray-500">{user?.program_code || 'Graduate'}</p>
+                </div>
+                <ChevronDown className={`hidden h-4 w-4 text-gray-500 transition md:block ${profileMenuOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {profileMenuOpen && (
+                <div className="absolute right-0 z-50 mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-2xl border bg-white py-2 shadow-xl sm:w-80">
+                  <div className="flex items-center gap-3 border-b px-4 py-3">
+                    <Avatar src={profileImagePreview || currentProfileImageUrl} label={user?.full_name} size="lg" />
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-gray-800">{user?.full_name || 'Graduate User'}</p>
+                      <p className="truncate text-xs text-gray-500">{user?.email || 'No email set'}</p>
+                      <p className="text-xs text-gray-500">{user?.program_name || user?.program_code || 'Graduate'}</p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfileMenuOpen(false);
+                      selectTab('my_profile');
+                    }}
+                    className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50"
+                  >
+                    <User className="h-4 w-4" />
+                    My Profile
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-red-600 transition-colors hover:bg-red-50"
+                  >
+                    <LogOut className="h-4 w-4" />
+                    Logout
+                  </button>
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setMobileNavOpen((current) => !current)}
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full text-gray-500 transition hover:bg-gray-100 lg:hidden"
+              aria-label="Toggle mobile navigation"
+              aria-expanded={mobileNavOpen}
+            >
+              {mobileNavOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </button>
+          </div>
         </div>
 
-        <nav className="flex-1 space-y-1 overflow-y-auto px-2 py-4">
-          {navItems.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => selectTab(item.key)}
-              className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left transition ${
-                activeTab === item.key
-                  ? 'bg-[#f8c331] font-semibold text-[#203d8f]'
-                  : 'text-blue-50 hover:bg-white/10'
-              }`}
-            >
-              <item.icon className="h-5 w-5 shrink-0" />
-              {sidebarOpen && <span className="text-sm">{item.label}</span>}
+        {mobileNavOpen && (
+          <div className="border-t border-gray-200 lg:hidden">
+            <div className="grid gap-1 px-4 py-3">
+              {navItems.map((item) => {
+                const isActive = activeTab === item.key;
+
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => {
+                      selectTab(item.key);
+                      setMobileNavOpen(false);
+                    }}
+                    className={`relative flex items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-medium transition ${
+                      isActive ? 'bg-blue-700 text-white' : 'text-gray-700 hover:bg-gray-100'
+                    }`}
+                    title={item.label}
+                    aria-label={item.label}
+                  >
+                    <item.icon className="h-5 w-5" />
+                    <span>{item.label}</span>
+                    {typeof item.badge === 'number' && item.badge > 0 && (
+                      <span className={`ml-auto min-w-5 rounded-full px-1.5 py-0.5 text-center text-[10px] font-bold leading-none ${isActive ? 'bg-[#f8c331] text-blue-950' : 'bg-rose-500 text-white'}`}>
+                        {item.badge > 99 ? '99+' : item.badge}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </header>
+
+      <main className="mx-auto max-w-screen-2xl px-3 py-4 pb-10 sm:px-6 sm:py-6">
+        <section className="mb-5 flex flex-col gap-4 border-b border-slate-200 pb-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-700 text-white shadow-sm">
+              <ActiveNavIcon className="h-6 w-6" />
+            </span>
+            <div className="min-w-0">
+              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-700">GradTrack Community</p>
+              <h1 className="mt-1 text-2xl font-bold text-slate-900 sm:text-3xl">{pageHeading.title}</h1>
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">{pageHeading.subtitle}</p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => openForumComposer()} className="inline-flex items-center gap-2 rounded-full bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-800">
+              <Plus className="h-4 w-4" />
+              New Post
             </button>
-          ))}
-        </nav>
-
-        <button
-          type="button"
-          onClick={() => setSidebarOpen((current) => !current)}
-          className="flex items-center justify-center border-t border-white/10 p-4 hover:bg-white/10"
-          aria-label="Toggle sidebar"
-        >
-          {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-        </button>
-      </aside>
-
-      <div className={`min-w-0 flex-1 transition-all duration-300 ${sidebarOpen ? 'lg:ml-64' : 'lg:ml-20'}`}>
-        <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
-          <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-700">GradTrack</p>
-              <h1 className="mt-1 text-xl font-bold text-slate-900 sm:text-2xl">{pageHeading.title}</h1>
-              <p className="text-sm text-slate-500">{pageHeading.subtitle}</p>
-            </div>
-
-            <div className="flex w-full items-center justify-end gap-3 sm:w-auto">
-              <NotificationBell audience="graduate" />
-
-              <div className="relative min-w-0" ref={profileMenuRef}>
-                <button
-                  type="button"
-                  onClick={() => setProfileMenuOpen((current) => !current)}
-                  className="flex min-w-[220px] max-w-full items-center gap-3 rounded-full border border-slate-200 bg-white px-3 py-2 shadow-sm transition hover:border-slate-300"
-                >
-                  <Avatar src={profileImagePreview || currentProfileImageUrl} label={user?.full_name} size="md" />
-                  <div className="min-w-0 flex-1 text-left">
-                    <p className="truncate text-sm font-semibold text-slate-900">{user?.full_name || 'Graduate User'}</p>
-                    <p className="truncate text-xs text-slate-500">{user?.program_code || 'Graduate'}</p>
-                  </div>
-                  <ChevronDown className={`h-4 w-4 text-slate-500 transition ${profileMenuOpen ? 'rotate-180' : ''}`} />
-                </button>
-
-                {profileMenuOpen && (
-                  <div className="absolute right-0 mt-2 w-72 overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl">
-                    <div className="flex items-center gap-3 border-b border-slate-100 px-4 py-4">
-                      <Avatar src={profileImagePreview || currentProfileImageUrl} label={user?.full_name} size="lg" />
-                      <div className="min-w-0">
-                        <p className="truncate font-semibold text-slate-900">{user?.full_name || 'Graduate User'}</p>
-                        <p className="truncate text-sm text-slate-500">{user?.email || 'No email set'}</p>
-                        <p className="text-xs text-slate-400">{user?.program_name || user?.program_code || 'Graduate'}</p>
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setProfileMenuOpen(false);
-                        selectTab('my_profile');
-                      }}
-                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-slate-700 hover:bg-slate-50"
-                    >
-                      <User className="h-4 w-4" />
-                      My Profile
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleLogout}
-                      className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-rose-600 hover:bg-rose-50"
-                    >
-                      <LogOut className="h-4 w-4" />
-                      Logout
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </header>
-
-        <main className="px-3 py-4 sm:px-6 sm:py-6">
-          <div className="mb-5 flex gap-2 overflow-x-auto rounded-3xl border border-slate-200 bg-white p-2 lg:hidden">
-            {navItems.map((item) => (
-              <button
-                key={item.key}
-                type="button"
-                onClick={() => selectTab(item.key)}
-                className={`shrink-0 rounded-2xl px-4 py-2 text-sm font-medium transition ${
-                  activeTab === item.key ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-700'
-                }`}
-              >
-                {item.label}
+            <button type="button" onClick={() => openChatModal('direct')} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:text-blue-700">
+              <MessageCircle className="h-4 w-4" />
+              New Chat
+            </button>
+            {canPostJobs && (
+              <button type="button" onClick={() => { selectTab('job_posting'); beginCreateJob(); }} className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100">
+                <Briefcase className="h-4 w-4" />
+                Post Job
               </button>
-            ))}
+            )}
           </div>
+        </section>
 
           {loading ? (
             <div className="flex min-h-[300px] items-center justify-center rounded-[32px] border border-slate-200 bg-white">
@@ -1962,11 +2258,7 @@ export default function GraduatePortal() {
                                 <h3 className="text-xl font-bold text-slate-900">{post.title}</h3>
                                 <p className="mt-3 whitespace-pre-line text-sm leading-7 text-slate-700">{previewText(post.content)}</p>
                               </button>
-                              {post.image_path && (
-                                <button type="button" onClick={() => void loadPostDetail(post.id)} className="mt-4 block w-full overflow-hidden rounded-lg border border-slate-200">
-                                  <img src={resolveAssetUrl(post.image_path)} alt={post.image_original_name || post.title} className="max-h-[520px] w-full object-cover" />
-                                </button>
-                              )}
+                              <ForumMediaGrid post={post} onOpen={(index) => openMediaViewer(post, index)} />
                             </div>
 
                             <div className="flex flex-wrap items-center gap-5 border-t border-slate-100 px-5 py-4 sm:px-6">
@@ -2492,12 +2784,11 @@ export default function GraduatePortal() {
               )}
             </>
           )}
-        </main>
-      </div>
+      </main>
 
       {forumComposerOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-6">
-          <form onSubmit={handleForumSubmit} className="w-full max-w-2xl space-y-5 rounded-[32px] border border-slate-200 bg-white p-6 shadow-2xl">
+          <form onSubmit={handleForumSubmit} className="max-h-[92vh] w-full max-w-2xl space-y-5 overflow-y-auto rounded-[32px] border border-slate-200 bg-white p-6 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h2 className="text-2xl font-bold text-slate-900">{forumForm.id ? 'Edit Forum Post' : 'Create Forum Post'}</h2>
@@ -2528,46 +2819,31 @@ export default function GraduatePortal() {
 
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
               <input
-                ref={forumImageInputRef}
+                ref={forumMediaInputRef}
                 type="file"
-                accept="image/png,image/jpeg,image/webp,image/gif"
+                accept={forumMediaAccept}
+                multiple
                 className="hidden"
-                onChange={(event) => {
-                  const file = event.target.files?.[0] || null;
-                  if (!file) {
-                    setForumImageFile(null);
-                    return;
-                  }
-
-                  if (file.size > 5 * 1024 * 1024) {
-                    event.target.value = '';
-                    setForumImageFile(null);
-                    notify('warning', 'Forum image must be 5 MB or smaller.', 'Community Forum');
-                    return;
-                  }
-
-                  setForumImageFile(file);
-                  setForumForm((current) => ({ ...current, remove_image: false }));
-                }}
+                onChange={(event) => handleForumMediaSelection(event.target.files)}
               />
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold text-slate-900">Post Picture</p>
-                  <p className="text-xs text-slate-500">JPG, PNG, WEBP, or GIF up to 5 MB.</p>
+                  <p className="text-sm font-semibold text-slate-900">Post Media</p>
+                  <p className="text-xs text-slate-500">Up to 10 photos/videos. Images up to 5 MB, videos up to 50 MB.</p>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={() => forumImageInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100">
+                  <button type="button" onClick={() => forumMediaInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100">
                     <ImagePlus className="h-4 w-4" />
-                    {forumImageFile || forumForm.image_path ? 'Change Picture' : 'Add Picture'}
+                    {forumMediaFiles.length > 0 || forumForm.media.length > 0 ? 'Replace Media' : 'Add Media'}
                   </button>
-                  {(forumImageFile || (forumForm.image_path && !forumForm.remove_image)) && (
+                  {(forumMediaFiles.length > 0 || (forumForm.media.length > 0 && !forumForm.remove_media)) && (
                     <button
                       type="button"
                       onClick={() => {
-                        setForumImageFile(null);
-                        setForumForm((current) => ({ ...current, remove_image: !!current.image_path }));
-                        if (forumImageInputRef.current) {
-                          forumImageInputRef.current.value = '';
+                        setForumMediaFiles([]);
+                        setForumForm((current) => ({ ...current, remove_media: current.media.length > 0 }));
+                        if (forumMediaInputRef.current) {
+                          forumMediaInputRef.current.value = '';
                         }
                       }}
                       className="rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100"
@@ -2577,17 +2853,19 @@ export default function GraduatePortal() {
                   )}
                 </div>
               </div>
-              {forumImageFile && <p className="mt-3 text-sm text-slate-600">{forumImageFile.name}</p>}
-              {!forumImageFile && forumForm.image_path && !forumForm.remove_image && (
-                <img src={resolveAssetUrl(forumForm.image_path)} alt={forumForm.image_original_name || 'Current forum attachment'} className="mt-3 max-h-64 w-full rounded-lg object-cover" />
+              {forumMediaFiles.length > 0 && (
+                <SelectedMediaPreview files={forumMediaFiles} />
               )}
-              {forumForm.remove_image && <p className="mt-3 text-sm text-rose-600">The current picture will be removed after saving.</p>}
+              {forumMediaFiles.length === 0 && forumForm.media.length > 0 && !forumForm.remove_media && (
+                <StaticMediaPreview media={forumForm.media} />
+              )}
+              {forumForm.remove_media && <p className="mt-3 text-sm text-rose-600">The current attachments will be removed after saving.</p>}
             </div>
 
             <div className="flex flex-wrap gap-3">
-              <button type="submit" disabled={forumSubmitting} className="inline-flex items-center gap-2 rounded-full bg-blue-700 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60">
-                {forumSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
-                {forumForm.id ? 'Update Post' : 'Submit Post'}
+              <button type="submit" disabled={forumSubmitting || aiModerating} className="inline-flex items-center gap-2 rounded-full bg-blue-700 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60">
+                {(forumSubmitting || aiModerating) && <Loader2 className="h-4 w-4 animate-spin" />}
+                {aiModerating ? 'Checking Post...' : forumForm.id ? 'Update Post' : 'Submit Post'}
               </button>
               <button type="button" onClick={closeForumComposer} className="rounded-full border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
                 Cancel
@@ -2650,15 +2928,31 @@ export default function GraduatePortal() {
                     </div>
 
                     <p className="mt-4 whitespace-pre-line text-sm leading-7 text-slate-700">{previewText(post.content, 260)}</p>
-                    {post.image_path && (
-                      <img src={resolveAssetUrl(post.image_path)} alt={post.image_original_name || post.title} className="mt-4 max-h-56 w-full rounded-lg object-cover" />
-                    )}
+                    <ForumMediaGrid post={post} compact onOpen={(index) => openMediaViewer(post, index)} />
                   </article>
                 ))
               )}
             </div>
           </div>
         </div>
+      )}
+
+      {mediaViewer && (
+        <ForumMediaViewer
+          viewer={mediaViewer}
+          zoom={mediaViewerZoom}
+          comments={mediaViewerComments}
+          commentsLoading={mediaViewerCommentsLoading}
+          commentDraft={mediaViewerCommentDraft}
+          commentSubmitting={mediaViewerCommentSubmitting}
+          onClose={closeMediaViewer}
+          onMove={moveMediaViewer}
+          onZoomIn={() => setMediaViewerZoom((current) => Math.min(3, current + 0.25))}
+          onZoomOut={() => setMediaViewerZoom((current) => Math.max(0.5, current - 0.25))}
+          onZoomReset={() => setMediaViewerZoom(1)}
+          onCommentDraftChange={setMediaViewerCommentDraft}
+          onCommentSubmit={handleMediaViewerCommentSubmit}
+        />
       )}
 
       {selectedPostOpen && (
@@ -2723,9 +3017,7 @@ export default function GraduatePortal() {
                   </div>
 
                   <p className="mt-6 whitespace-pre-line text-sm leading-8 text-slate-700">{selectedPost.content}</p>
-                  {selectedPost.image_path && (
-                    <img src={resolveAssetUrl(selectedPost.image_path)} alt={selectedPost.image_original_name || selectedPost.title} className="mt-6 max-h-[620px] w-full rounded-lg border border-slate-200 object-cover" />
-                  )}
+                  <ForumMediaGrid post={selectedPost} detail onOpen={(index) => openMediaViewer(selectedPost, index)} />
 
                   <div className="mt-6 flex flex-wrap items-center gap-5 border-t border-slate-100 pt-5">
                     <button type="button" onClick={() => void toggleLike(selectedPost.id)} disabled={forumActionKey === `like-${selectedPost.id}`} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700 hover:text-rose-500 disabled:opacity-60">
@@ -3092,6 +3384,302 @@ function Field({
       </span>
       {children}
     </label>
+  );
+}
+
+function ForumMediaGrid({
+  post,
+  compact,
+  detail,
+  onOpen,
+}: {
+  post: ForumPost;
+  compact?: boolean;
+  detail?: boolean;
+  onOpen: (index: number) => void;
+}) {
+  const media = getPostMedia(post);
+  if (media.length === 0) return null;
+
+  const visibleMedia = media.slice(0, 4);
+  const single = media.length === 1;
+  const wrapperClass = single
+    ? `${detail ? 'mt-6' : 'mt-4'} overflow-hidden rounded-lg border border-slate-200 bg-black`
+    : `${detail ? 'mt-6' : 'mt-4'} grid grid-cols-2 gap-1 overflow-hidden rounded-lg border border-slate-200 bg-slate-200`;
+
+  return (
+    <div className={wrapperClass}>
+      {visibleMedia.map((item, index) => (
+        <button
+          key={`${item.file_path}-${index}`}
+          type="button"
+          onClick={() => onOpen(index)}
+          className={`group relative block w-full overflow-hidden bg-black text-left ${single ? '' : 'aspect-square'} ${compact && single ? 'max-h-56' : ''}`}
+          aria-label={`Open ${item.original_name || post.title}`}
+        >
+          {isVideoMedia(item) ? (
+            <>
+              <video src={resolveAssetUrl(item.file_path)} muted playsInline preload="metadata" className={`${single ? 'max-h-[620px]' : 'h-full'} w-full object-cover`} />
+              <span className="absolute inset-0 flex items-center justify-center bg-black/20 text-white">
+                <span className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-black/55">
+                  <Video className="h-5 w-5" />
+                </span>
+              </span>
+            </>
+          ) : (
+            <img src={resolveAssetUrl(item.file_path)} alt={item.original_name || post.title} className={`${single ? 'max-h-[620px]' : 'h-full'} w-full object-cover transition duration-200 group-hover:scale-[1.02]`} />
+          )}
+          {index === 3 && media.length > visibleMedia.length && (
+            <span className="absolute inset-0 flex items-center justify-center bg-black/55 text-3xl font-bold text-white">
+              +{media.length - visibleMedia.length}
+            </span>
+          )}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function SelectedMediaPreview({ files }: { files: File[] }) {
+  const previews = useMemo(
+    () => files.map((file) => ({ file, url: URL.createObjectURL(file) })),
+    [files]
+  );
+
+  useEffect(() => {
+    return () => {
+      previews.forEach((preview) => URL.revokeObjectURL(preview.url));
+    };
+  }, [previews]);
+
+  return (
+    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+      {previews.map((preview) => (
+        <div key={`${preview.file.name}-${preview.file.size}-${preview.file.lastModified}`} className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+          <div className="aspect-video bg-black">
+            {isVideoFile(preview.file) ? (
+              <video src={preview.url} muted playsInline preload="metadata" className="h-full w-full object-cover" />
+            ) : (
+              <img src={preview.url} alt={preview.file.name} className="h-full w-full object-cover" />
+            )}
+          </div>
+          <div className="px-3 py-2">
+            <p className="truncate text-sm font-semibold text-slate-800">{preview.file.name}</p>
+            <p className="text-xs text-slate-500">{isVideoFile(preview.file) ? 'Video' : 'Photo'} {formatBytes(preview.file.size)}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StaticMediaPreview({ media }: { media: ForumMedia[] }) {
+  return (
+    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+      {media.slice(0, 6).map((item, index) => (
+        <div key={`${item.file_path}-${index}`} className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+          <div className="aspect-video bg-black">
+            {isVideoMedia(item) ? (
+              <video src={resolveAssetUrl(item.file_path)} muted playsInline preload="metadata" className="h-full w-full object-cover" />
+            ) : (
+              <img src={resolveAssetUrl(item.file_path)} alt={item.original_name || 'Forum attachment'} className="h-full w-full object-cover" />
+            )}
+          </div>
+          <div className="px-3 py-2">
+            <p className="truncate text-sm font-semibold text-slate-800">{item.original_name || 'Forum attachment'}</p>
+            <p className="text-xs text-slate-500">{isVideoMedia(item) ? 'Video' : 'Photo'} {formatBytes(item.file_size_bytes)}</p>
+          </div>
+        </div>
+      ))}
+      {media.length > 6 && (
+        <div className="flex min-h-24 items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white text-sm font-semibold text-slate-500">
+          +{media.length - 6} more
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ForumMediaViewer({
+  viewer,
+  zoom,
+  comments,
+  commentsLoading,
+  commentDraft,
+  commentSubmitting,
+  onClose,
+  onMove,
+  onZoomIn,
+  onZoomOut,
+  onZoomReset,
+  onCommentDraftChange,
+  onCommentSubmit,
+}: {
+  viewer: { post: ForumPost; mediaIndex: number };
+  zoom: number;
+  comments: ForumComment[];
+  commentsLoading: boolean;
+  commentDraft: string;
+  commentSubmitting: boolean;
+  onClose: () => void;
+  onMove: (direction: 1 | -1) => void;
+  onZoomIn: () => void;
+  onZoomOut: () => void;
+  onZoomReset: () => void;
+  onCommentDraftChange: (value: string) => void;
+  onCommentSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  const media = getPostMedia(viewer.post);
+  const current = media[viewer.mediaIndex] || media[0];
+  if (!current) return null;
+
+  const isVideo = isVideoMedia(current);
+  const canMove = media.length > 1;
+
+  return (
+    <div className="fixed inset-0 z-[70] bg-black text-white">
+      <div className="absolute left-4 top-4 z-20 flex items-center gap-3">
+        <button type="button" onClick={onClose} className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur transition hover:bg-white/20" aria-label="Close media viewer">
+          <X className="h-6 w-6" />
+        </button>
+        <div className="hidden text-sm font-semibold text-white/80 sm:block">
+          {viewer.mediaIndex + 1} of {media.length}
+        </div>
+      </div>
+
+      {!isVideo && (
+        <div className="absolute right-4 top-4 z-20 flex items-center gap-2">
+          <button type="button" onClick={onZoomOut} className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 backdrop-blur transition hover:bg-white/20" aria-label="Zoom out">
+            <ZoomOut className="h-5 w-5" />
+          </button>
+          <button type="button" onClick={onZoomReset} className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 backdrop-blur transition hover:bg-white/20" aria-label="Reset zoom">
+            <Maximize2 className="h-5 w-5" />
+          </button>
+          <button type="button" onClick={onZoomIn} className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 backdrop-blur transition hover:bg-white/20" aria-label="Zoom in">
+            <ZoomIn className="h-5 w-5" />
+          </button>
+        </div>
+      )}
+
+      <div className="grid h-full lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="relative flex min-h-0 items-center justify-center overflow-hidden px-4 py-20">
+          {canMove && (
+            <>
+              <button type="button" onClick={() => onMove(-1)} className="absolute left-4 top-1/2 z-10 inline-flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 backdrop-blur transition hover:bg-white/20" aria-label="Previous media">
+                <ChevronLeft className="h-7 w-7" />
+              </button>
+              <button type="button" onClick={() => onMove(1)} className="absolute right-4 top-1/2 z-10 inline-flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 backdrop-blur transition hover:bg-white/20" aria-label="Next media">
+                <ChevronRight className="h-7 w-7" />
+              </button>
+            </>
+          )}
+
+          {isVideo ? (
+            <video src={resolveAssetUrl(current.file_path)} controls autoPlay className="max-h-full max-w-full rounded-lg bg-black" />
+          ) : (
+            <img
+              src={resolveAssetUrl(current.file_path)}
+              alt={current.original_name || viewer.post.title}
+              className="max-h-full max-w-full select-none rounded-lg object-contain transition-transform duration-150"
+              style={{ transform: `scale(${zoom})` }}
+            />
+          )}
+        </div>
+
+        <aside className="hidden min-h-0 border-l border-white/10 bg-white text-slate-900 lg:flex lg:flex-col">
+          <div className="border-b border-slate-200 px-5 py-5">
+            <p className="text-sm font-semibold text-slate-900">{viewer.post.author_name}</p>
+            <p className="mt-1 text-xs text-slate-500">{viewer.post.author_program_code || viewer.post.author_program_name || 'Graduate'} - {formatDateTime(viewer.post.created_at)}</p>
+          </div>
+          <div className="flex-1 overflow-y-auto px-5 py-5">
+            <h2 className="text-lg font-bold text-slate-900">{viewer.post.title}</h2>
+            <p className="mt-3 whitespace-pre-line text-sm leading-7 text-slate-700">{viewer.post.content}</p>
+            <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="truncate text-sm font-semibold text-slate-800">{current.original_name || 'Forum attachment'}</p>
+              <p className="mt-1 text-xs text-slate-500">{isVideo ? 'Video' : 'Photo'} {formatBytes(current.file_size_bytes)}</p>
+            </div>
+            {media.length > 1 && (
+              <div className="mt-5 grid grid-cols-4 gap-2">
+                {media.map((item, index) => (
+                  <button
+                    key={`${item.file_path}-viewer-${index}`}
+                    type="button"
+                    onClick={() => {
+                      const direction = index > viewer.mediaIndex ? 1 : -1;
+                      for (let count = 0; count < Math.abs(index - viewer.mediaIndex); count += 1) {
+                        onMove(direction);
+                      }
+                    }}
+                    className={`aspect-square overflow-hidden rounded-lg border ${index === viewer.mediaIndex ? 'border-blue-600 ring-2 ring-blue-200' : 'border-slate-200'}`}
+                    aria-label={`Open attachment ${index + 1}`}
+                  >
+                    {isVideoMedia(item) ? (
+                      <div className="flex h-full w-full items-center justify-center bg-slate-900 text-white">
+                        <Video className="h-5 w-5" />
+                      </div>
+                    ) : (
+                      <img src={resolveAssetUrl(item.file_path)} alt={item.original_name || `Attachment ${index + 1}`} className="h-full w-full object-cover" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-6 border-t border-slate-200 pt-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-slate-900">Comments</h3>
+                <span className="text-xs text-slate-500">{comments.length}</span>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {commentsLoading ? (
+                  <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading comments...
+                  </div>
+                ) : comments.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-4 py-5 text-center text-sm text-slate-500">
+                    No comments yet.
+                  </div>
+                ) : (
+                  comments.map((comment) => (
+                    <article key={comment.id} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                      <div className="flex items-start gap-3">
+                        <Avatar src={resolveAssetUrl(comment.commenter_profile_image_path)} label={comment.commenter_name} size="sm" />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="text-sm font-semibold text-slate-900">{comment.commenter_name}</p>
+                            <span className="text-xs text-slate-400">{formatRelativeTime(comment.created_at)}</span>
+                          </div>
+                          <p className="text-xs text-slate-500">{comment.commenter_program_code || comment.commenter_program_name || 'Graduate'}</p>
+                          <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-700">{comment.comment}</p>
+                        </div>
+                      </div>
+                    </article>
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
+
+          <form onSubmit={onCommentSubmit} className="border-t border-slate-200 bg-white px-5 py-4">
+            <textarea
+              value={commentDraft}
+              onChange={(event) => onCommentDraftChange(event.target.value)}
+              rows={3}
+              placeholder="Write a comment..."
+              className="w-full resize-none rounded-lg border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-500"
+            />
+            <div className="mt-3 flex justify-end">
+              <button type="submit" disabled={commentSubmitting || !commentDraft.trim()} className="inline-flex items-center gap-2 rounded-full bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60">
+                {commentSubmitting && <Loader2 className="h-4 w-4 animate-spin" />}
+                Post Comment
+              </button>
+            </div>
+          </form>
+        </aside>
+      </div>
+    </div>
   );
 }
 

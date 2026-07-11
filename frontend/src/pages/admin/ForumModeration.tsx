@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, EyeOff, Loader2, MessageSquareMore, Search, Trash2 } from 'lucide-react';
-import { API_ENDPOINTS } from '../../config/api';
+import { CheckCircle2, EyeOff, Loader2, MessageSquareMore, Search, Trash2, Video } from 'lucide-react';
+import { API_BASE_URL, API_ENDPOINTS } from '../../config/api';
 import MessageBox from '../../components/MessageBox';
 
 type ForumStatus = 'approved' | 'pending' | 'hidden';
@@ -25,6 +25,16 @@ interface ModerationReport {
   reporter_name: string;
 }
 
+interface ForumMedia {
+  id: number;
+  post_id: number;
+  media_type: 'image' | 'video';
+  file_path: string;
+  original_name?: string | null;
+  mime_type?: string | null;
+  file_size_bytes?: number | null;
+}
+
 interface ModerationPost {
   id: number;
   graduate_id: number;
@@ -32,6 +42,11 @@ interface ModerationPost {
   content: string;
   category: string;
   status: ForumStatus;
+  image_path?: string | null;
+  image_original_name?: string | null;
+  image_mime_type?: string | null;
+  image_file_size_bytes?: number | null;
+  media?: ForumMedia[];
   created_at: string;
   updated_at: string;
   author_name: string;
@@ -54,6 +69,33 @@ const statusOptions: Array<{ value: ForumStatus | 'all'; label: string }> = [
   { value: 'hidden', label: 'Hidden' },
   { value: 'all', label: 'All' },
 ];
+
+function resolveAssetUrl(path?: string | null) {
+  if (!path) return '';
+  if (/^https?:\/\//i.test(path)) return path;
+  return `${API_BASE_URL}/${path.replace(/^\/+/, '')}`;
+}
+
+function isVideoMedia(media: Pick<ForumMedia, 'media_type' | 'mime_type'>) {
+  return media.media_type === 'video' || !!media.mime_type?.startsWith('video/');
+}
+
+function getPostMedia(post: ModerationPost): ForumMedia[] {
+  if (Array.isArray(post.media) && post.media.length > 0) return post.media;
+  if (!post.image_path) return [];
+
+  return [
+    {
+      id: 0,
+      post_id: post.id,
+      media_type: post.image_mime_type?.startsWith('video/') ? 'video' : 'image',
+      file_path: post.image_path,
+      original_name: post.image_original_name || post.title,
+      mime_type: post.image_mime_type || null,
+      file_size_bytes: post.image_file_size_bytes ?? null,
+    },
+  ];
+}
 
 export default function ForumModeration() {
   const [loading, setLoading] = useState(true);
@@ -343,6 +385,8 @@ export default function ForumModeration() {
                 <p className="whitespace-pre-line text-sm leading-6 text-slate-700">{post.content}</p>
               </div>
 
+              <ModerationMediaGrid post={post} />
+
               {post.reports?.length > 0 && (
                 <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
                   <h3 className="text-sm font-bold text-amber-900">Pending Reports</h3>
@@ -438,6 +482,31 @@ export default function ForumModeration() {
         message={msgBox.message}
         confirmText={msgBox.confirmText}
       />
+    </div>
+  );
+}
+
+function ModerationMediaGrid({ post }: { post: ModerationPost }) {
+  const media = getPostMedia(post);
+  if (media.length === 0) return null;
+
+  return (
+    <div className="mt-4 grid gap-3 md:grid-cols-2">
+      {media.map((item, index) => (
+        <div key={`${item.file_path}-${index}`} className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+          <div className="aspect-video bg-black">
+            {isVideoMedia(item) ? (
+              <video src={resolveAssetUrl(item.file_path)} controls preload="metadata" className="h-full w-full object-contain" />
+            ) : (
+              <img src={resolveAssetUrl(item.file_path)} alt={item.original_name || post.title} className="h-full w-full object-contain" />
+            )}
+          </div>
+          <div className="flex items-center gap-2 px-3 py-2 text-xs font-semibold text-slate-600">
+            {isVideoMedia(item) && <Video className="h-3.5 w-3.5" />}
+            <span className="truncate">{item.original_name || `Attachment ${index + 1}`}</span>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

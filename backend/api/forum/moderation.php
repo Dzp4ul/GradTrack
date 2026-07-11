@@ -212,6 +212,7 @@ try {
         }
         unset($post);
 
+        $posts = gradtrack_forum_attach_media_to_posts($db, $posts);
         $commentsByPost = gradtrack_forum_moderation_comments_by_post($db, $postIds);
         $reportsByPost = gradtrack_forum_moderation_reports_by_post($db, $postIds);
         foreach ($posts as &$post) {
@@ -293,9 +294,9 @@ try {
                 gradtrack_forum_moderation_json_error(404, 'Forum post not found');
             }
 
+            gradtrack_forum_remove_post_media_files($db, $postId);
             $deleteStmt = $db->prepare('DELETE FROM forum_posts WHERE id = :id');
             $deleteStmt->execute([':id' => $postId]);
-            gradtrack_forum_remove_post_image($post['image_path'] ?? null);
 
             // Audit Trail: call logAuditTrail() after a moderator deletes a community forum post.
             logAuditTrail(

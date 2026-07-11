@@ -2,65 +2,95 @@ import { Link } from 'react-router-dom';
 
 export default function Footer() {
   return (
-    <footer className="bg-blue-950 text-white py-16">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-12">
+    <footer className="border-t border-gray-200 bg-white">
+      <div className="mx-auto max-w-screen-2xl px-4 py-12 sm:px-6 lg:px-8">
+        <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-4">
+          {/* Brand */}
           <div className="min-w-0">
-            <div className="flex items-center space-x-3 mb-4">
-              <img src="/Gradtrack_small.png" alt="GradTrack" className="h-12 w-12 object-contain" />
+            <div className="flex items-center gap-3">
+              <img src="/Gradtrack_small.png" alt="GradTrack" className="h-10 w-10 object-contain" />
               <div>
-                <h3 className="font-bold text-lg">GradTrack</h3>
-                <p className="text-blue-200 text-xs">Graduate Tracer System</p>
+                <h3 className="text-lg font-bold text-gray-900">GradTrack</h3>
+                <p className="text-xs text-gray-500">Graduate Tracer System</p>
               </div>
             </div>
-            <p className="text-blue-300 text-sm leading-relaxed">
+            <p className="mt-4 text-sm leading-relaxed text-gray-600">
               Empowering graduates and strengthening connections for a brighter future.
             </p>
           </div>
 
+          {/* Quick Links */}
           <div>
-            <h4 className="font-bold text-lg mb-4">Quick Links</h4>
-            <ul className="space-y-2">
-              <li><a href="/#about" className="text-blue-200 hover:text-yellow-400 transition text-sm">About Us</a></li>
-              <li><a href="#" className="text-blue-200 hover:text-yellow-400 transition text-sm">FAQs</a></li>
-            </ul>
-          </div>
-
-          <div>
-            <h4 className="font-bold text-lg mb-4">Contact Information</h4>
-            <ul className="space-y-3 text-sm">
-              <li className="flex items-start space-x-2">
-                <span className="text-yellow-400 mt-1"></span>
-                <span className="break-words text-blue-200">norzagaraycollege2007@gmail.com</span>
+            <h4 className="mb-4 text-sm font-bold uppercase tracking-wider text-gray-900">Quick Links</h4>
+            <ul className="space-y-3">
+              <li>
+                <Link to="/about" className="text-sm text-gray-600 transition hover:text-blue-700">
+                  About Us
+                </Link>
               </li>
-              <li className="flex items-start space-x-2">
-                <span className="text-yellow-400 mt-1"></span>
-                <span className="text-blue-200">Norzagaray, Bulacan</span>
+              <li>
+                <Link to="/faq" className="text-sm text-gray-600 transition hover:text-blue-700">
+                  FAQs
+                </Link>
               </li>
-              <li className="flex items-start space-x-2">
-                <span className="text-yellow-400"></span>
-                <span className="text-blue-200">Mon-Fri: 8:00 AM - 5:00 PM</span>
+              <li>
+                <Link to="/survey" className="text-sm text-gray-600 transition hover:text-blue-700">
+                  Take Survey
+                </Link>
               </li>
             </ul>
           </div>
 
+          {/* Contact Information */}
           <div>
-            <h4 className="font-bold text-lg mb-4">Follow Us</h4>
-            <div className="flex space-x-4 mb-6">
-              <a href="https://www.facebook.com/norzagaraycollege2007" className="bg-blue-800 hover:bg-yellow-500 p-3 rounded-full transition transform hover:scale-110" aria-label="Facebook">
-                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+            <h4 className="mb-4 text-sm font-bold uppercase tracking-wider text-gray-900">Contact</h4>
+            <ul className="space-y-3 text-sm text-gray-600">
+              <li>
+                <span className="font-semibold text-gray-800">Email:</span>
+                <br />
+                <a href="mailto:norzagaraycollege2007@gmail.com" className="text-blue-700 hover:underline">
+                  norzagaraycollege2007@gmail.com
+                </a>
+              </li>
+              <li>
+                <span className="font-semibold text-gray-800">Location:</span>
+                <br />
+                Norzagaray, Bulacan
+              </li>
+              <li>
+                <span className="font-semibold text-gray-800">Hours:</span>
+                <br />
+                Mon-Fri: 8:00 AM - 5:00 PM
+              </li>
+            </ul>
+          </div>
+
+          {/* Social & Legal */}
+          <div>
+            <h4 className="mb-4 text-sm font-bold uppercase tracking-wider text-gray-900">Follow Us</h4>
+            <div className="flex gap-3">
+              <a
+                href="https://www.facebook.com/norzagaraycollege2007"
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-gray-100 text-gray-600 transition hover:bg-blue-700 hover:text-white"
+                aria-label="Facebook"
+              >
+                <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
+                </svg>
               </a>
             </div>
-            <h5 className="font-semibold text-sm mb-2">Legal</h5>
-            <ul className="space-y-2">
-              <li><Link to="/privacy-policy" className="text-blue-200 hover:text-yellow-400 transition text-sm">Privacy Policy</Link></li>
-            </ul>
+            <div className="mt-6">
+              <h5 className="mb-3 text-sm font-bold uppercase tracking-wider text-gray-900">Legal</h5>
+              <Link to="/privacy-policy" className="text-sm text-gray-600 transition hover:text-blue-700">
+                Privacy Policy
+              </Link>
+            </div>
           </div>
         </div>
 
-        <div className="border-t border-blue-800 pt-8 text-center">
-          <p className="text-blue-200 text-sm">&copy; 2026 Norzagaray College. All rights reserved.</p>
-          <p className="text-blue-300 text-xs mt-2">Empowering graduates, strengthening connections</p>
+        <div className="mt-10 border-t border-gray-100 pt-6 text-center">
+          <p className="text-sm text-gray-500">&copy; 2026 Norzagaray College. All rights reserved.</p>
+          <p className="mt-1 text-xs text-gray-400">Empowering graduates, strengthening connections</p>
         </div>
       </div>
     </footer>
