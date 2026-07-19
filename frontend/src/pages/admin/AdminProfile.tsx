@@ -26,6 +26,7 @@ const roleLabels: Record<string, string> = {
   mis_staff: 'MIS Staff',
   research_coordinator: 'Research Coordinator',
   registrar: 'Registrar',
+  alumni_admin: 'Alumni Admin',
   dean_cs: 'Dean-CCS',
   dean_coed: 'Dean - COED',
   dean_hm: 'Dean - HM',

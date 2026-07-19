@@ -16,7 +16,7 @@ if (!function_exists('gradtrack_forum_categories')) {
 if (!function_exists('gradtrack_forum_moderator_roles')) {
     function gradtrack_forum_moderator_roles(): array
     {
-        return ['super_admin', 'admin', 'mis_staff', 'research_coordinator'];
+        return ['alumni_admin'];
     }
 }
 
@@ -728,7 +728,7 @@ if (!function_exists('gradtrack_forum_require_moderator')) {
             http_response_code(403);
             echo json_encode([
                 'success' => false,
-                'error' => 'Only Admin, MIS Staff, or Research Coordinator accounts can moderate the forum',
+                'error' => 'Only Alumni Admin accounts can moderate the forum',
             ]);
             exit;
         }

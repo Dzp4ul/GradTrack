@@ -23,12 +23,14 @@ $role = (string) ($_SESSION['role'] ?? '');
 $viewAllRoles = ['super_admin', 'mis_staff', 'research_coordinator'];
 $deanScopes = gradtrack_audit_dean_program_scopes();
 $registrarModules = ['Graduate Records', 'Survey Responses', 'Reports'];
+$alumniAdminModules = ['Community Forum', 'Job Posting', 'Mentorship'];
 
 $canViewAll = in_array($role, $viewAllRoles, true);
 $isDean = isset($deanScopes[$role]);
 $isRegistrar = $role === 'registrar';
+$isAlumniAdmin = $role === 'alumni_admin';
 
-if (!$canViewAll && !$isDean && !$isRegistrar) {
+if (!$canViewAll && !$isDean && !$isRegistrar && !$isAlumniAdmin) {
     http_response_code(403);
     echo json_encode([
         'success' => false,
@@ -58,6 +60,15 @@ try {
         $modulePlaceholders = [];
         foreach ($registrarModules as $index => $module) {
             $placeholder = ':registrar_module_' . $index;
+            $modulePlaceholders[] = $placeholder;
+            $params[$placeholder] = $module;
+        }
+
+        $where[] = 'module IN (' . implode(', ', $modulePlaceholders) . ')';
+    } elseif ($isAlumniAdmin) {
+        $modulePlaceholders = [];
+        foreach ($alumniAdminModules as $index => $module) {
+            $placeholder = ':alumni_module_' . $index;
             $modulePlaceholders[] = $placeholder;
             $params[$placeholder] = $module;
         }
@@ -138,7 +149,7 @@ try {
         'data' => $logs,
         'access' => [
             'role' => $role,
-            'scope' => $canViewAll ? 'all' : ($isDean ? 'department' : 'registrar_modules'),
+            'scope' => $canViewAll ? 'all' : ($isDean ? 'department' : ($isAlumniAdmin ? 'alumni_portal_modules' : 'registrar_modules')),
         ],
     ]);
 } catch (Throwable $e) {

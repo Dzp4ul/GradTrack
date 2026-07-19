@@ -263,31 +263,6 @@ function gradtrack_notifications_add_dean(PDO $db, array &$notifications, string
         }
     }
 
-    $jobParams = [];
-    $jobPlaceholders = gradtrack_notifications_program_placeholders($programCodes, $jobParams, 'job_program');
-    $jobStmt = $db->prepare("SELECT jp.id, jp.title, jp.company, jp.created_at, p.code AS program_code
-                            FROM job_posts jp
-                            JOIN graduate_accounts ga ON ga.id = jp.posted_by_account_id
-                            JOIN graduates g ON g.id = ga.graduate_id
-                            JOIN programs p ON p.id = g.program_id
-                            WHERE jp.approval_status = 'pending'
-                              AND p.code IN ($jobPlaceholders)
-                            ORDER BY jp.created_at DESC, jp.id DESC
-                            LIMIT 5");
-    $jobStmt->execute($jobParams);
-
-    foreach ($jobStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        gradtrack_notifications_add(
-            $notifications,
-            'job-approval:' . $row['id'],
-            'approval',
-            'Job approval needed',
-            '"' . $row['title'] . '" at ' . $row['company'] . ' is pending for ' . $row['program_code'] . '.',
-            $row['created_at'],
-            '/admin/job-approvals',
-            'high'
-        );
-    }
 }
 
 function gradtrack_notifications_add_forum_moderator(PDO $db, array &$notifications): void
@@ -316,6 +291,67 @@ function gradtrack_notifications_add_forum_moderator(PDO $db, array &$notificati
             '/admin/forum-moderation',
             'high'
         );
+    }
+}
+
+function gradtrack_notifications_add_alumni_engagement(PDO $db, array &$notifications): void
+{
+    try {
+        gradtrack_ensure_engagement_approval_schema($db);
+    } catch (Throwable $ignored) {
+        return;
+    }
+
+    try {
+        $jobStmt = $db->query("SELECT id, title, company, created_at
+                              FROM job_posts
+                              WHERE approval_status = 'pending'
+                              ORDER BY created_at DESC, id DESC
+                              LIMIT 5");
+
+        foreach ($jobStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            gradtrack_notifications_add(
+                $notifications,
+                'job-approval:' . $row['id'],
+                'approval',
+                'Job approval needed',
+                '"' . $row['title'] . '" at ' . $row['company'] . ' is pending.',
+                $row['created_at'],
+                '/admin/job-approvals',
+                'high'
+            );
+        }
+    } catch (Throwable $ignored) {
+    }
+
+    try {
+        $mentorStmt = $db->query("SELECT m.id, m.current_job_title, m.company, m.created_at,
+                                         g.first_name, g.last_name, p.code AS program_code
+                                  FROM mentors m
+                                  JOIN graduates g ON g.id = m.graduate_id
+                                  LEFT JOIN programs p ON p.id = g.program_id
+                                  WHERE m.approval_status = 'pending'
+                                  ORDER BY m.created_at DESC, m.id DESC
+                                  LIMIT 5");
+
+        foreach ($mentorStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $name = trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? ''));
+            $role = trim((string) ($row['current_job_title'] ?? ''));
+            $company = trim((string) ($row['company'] ?? ''));
+            $headline = trim($role . ($company !== '' ? ' at ' . $company : ''));
+
+            gradtrack_notifications_add(
+                $notifications,
+                'mentor-approval:' . $row['id'],
+                'approval',
+                'Mentor approval needed',
+                ($name !== '' ? $name : 'A graduate') . ($headline !== '' ? ' submitted ' . $headline . '.' : ' submitted a mentor profile.'),
+                $row['created_at'],
+                '/admin/mentor-approvals',
+                'high'
+            );
+        }
+    } catch (Throwable $ignored) {
     }
 }
 
@@ -521,14 +557,13 @@ function gradtrack_notifications_generate(PDO $db, array $auth): array
 
         if ($role === 'admin') {
             gradtrack_notifications_add_admin_surveys($db, $notifications);
+        } elseif ($role === 'alumni_admin') {
             gradtrack_notifications_add_forum_moderator($db, $notifications);
-        } elseif ($role === 'mis_staff' || $role === 'research_coordinator') {
-            gradtrack_notifications_add_forum_moderator($db, $notifications);
+            gradtrack_notifications_add_alumni_engagement($db, $notifications);
         } elseif ($role === 'registrar') {
             gradtrack_notifications_add_registrar($db, $notifications);
         } elseif ($role === 'super_admin') {
             gradtrack_notifications_add_super_admin($db, $notifications, (int) $auth['target_id']);
-            gradtrack_notifications_add_forum_moderator($db, $notifications);
         } else {
             gradtrack_notifications_add_dean($db, $notifications, $role);
         }

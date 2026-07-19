@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/audit_trail.php';
+require_once __DIR__ . '/../config/admin_roles.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -19,25 +20,14 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'super_admin') {
     exit;
 }
 
-$allowedRoles = ['super_admin', 'admin', 'mis_staff', 'research_coordinator', 'registrar', 'dean_cs', 'dean_coed', 'dean_hm'];
+$allowedRoles = gradtrack_admin_role_values();
 $database = new Database();
 $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
 $auditUser = gradtrack_audit_current_admin_context();
 
-function ensureIsActiveColumn(PDO $conn): void
-{
-    $columnStmt = $conn->query("SHOW COLUMNS FROM admin_users LIKE 'is_active'");
-    if ($columnStmt === false || $columnStmt->rowCount() === 0) {
-        $conn->exec("ALTER TABLE admin_users ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1");
-    }
-}
-
-$db->exec("
-    ALTER TABLE admin_users
-    MODIFY role ENUM('super_admin', 'admin', 'mis_staff', 'research_coordinator', 'registrar', 'dean_cs', 'dean_coed', 'dean_hm') DEFAULT 'admin'
-");
-ensureIsActiveColumn($db);
+gradtrack_ensure_admin_role_column($db);
+gradtrack_ensure_admin_is_active_column($db);
 
 try {
     switch ($method) {

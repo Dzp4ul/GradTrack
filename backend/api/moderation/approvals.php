@@ -230,18 +230,17 @@ function gradtrack_moderation_reviewer(PDO $db): array
     }
 
     $role = $_SESSION['role'] ?? '';
-    $deanScopes = gradtrack_engagement_dean_program_scopes();
     $canReviewAll = in_array($role, gradtrack_engagement_admin_roles(), true);
 
-    if (!$canReviewAll && !isset($deanScopes[$role])) {
-        gradtrack_moderation_json_error(403, 'Only dean accounts can review approvals');
+    if (!$canReviewAll) {
+        gradtrack_moderation_json_error(403, 'Only Alumni Admin accounts can review graduate portal approvals');
     }
 
     return [
         'id' => (int) $_SESSION['user_id'],
         'role' => $role,
-        'program_scope' => $canReviewAll ? [] : $deanScopes[$role],
-        'can_review_all' => $canReviewAll,
+        'program_scope' => [],
+        'can_review_all' => true,
     ];
 }
 

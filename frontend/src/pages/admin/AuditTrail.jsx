@@ -9,6 +9,7 @@ const ROLE_LABELS = {
   mis_staff: 'MIS Staff',
   research_coordinator: 'Research Coordinator',
   registrar: 'Registrar',
+  alumni_admin: 'Alumni Admin',
   dean_cs: 'Dean-CCS',
   dean_coed: 'Dean - COED',
   dean_hm: 'Dean - HM',
@@ -16,13 +17,14 @@ const ROLE_LABELS = {
   guest: 'Guest',
 };
 
-const ALLOWED_ROLES = ['super_admin', 'mis_staff', 'research_coordinator', 'registrar', 'dean_cs', 'dean_coed', 'dean_hm'];
+const ALLOWED_ROLES = ['super_admin', 'mis_staff', 'research_coordinator', 'registrar', 'alumni_admin', 'dean_cs', 'dean_coed', 'dean_hm'];
 
 const ROLE_OPTIONS = [
   ['super_admin', 'Super Admin'],
   ['mis_staff', 'MIS Staff'],
   ['research_coordinator', 'Research Coordinator'],
   ['registrar', 'Registrar'],
+  ['alumni_admin', 'Alumni Admin'],
   ['dean_cs', 'Dean-CCS'],
   ['dean_coed', 'Dean - COED'],
   ['dean_hm', 'Dean - HM'],
@@ -50,6 +52,7 @@ const MODULE_OPTIONS = [
   'Graduate Records',
   'Reports',
   'Job Posting',
+  'Mentorship',
   'Community Forum',
 ];
 

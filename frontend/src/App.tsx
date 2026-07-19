@@ -35,7 +35,7 @@ import { GraduateProtectedRoute } from './lib/GraduateProtectedRoute';
 
 const SUPER_ADMIN_ROLES = ['super_admin'];
 const ADMIN_ROLES = ['admin'];
-const FORUM_MODERATOR_ROLES = ['super_admin', 'admin', 'mis_staff', 'research_coordinator'];
+const ALUMNI_ADMIN_ROLES = ['alumni_admin'];
 const DEAN_ROLES = ['dean_cs', 'dean_coed', 'dean_hm'];
 
 function AdminHome() {
@@ -49,12 +49,16 @@ function AdminHome() {
     return <Navigate to="/admin/graduates" replace />;
   }
 
+  if (user?.role === 'alumni_admin') {
+    return <Navigate to="/admin/forum-moderation" replace />;
+  }
+
   if (user?.role && DEAN_ROLES.includes(user.role)) {
     return <Navigate to="/admin/survey-status" replace />;
   }
 
   if (user?.role && ['mis_staff', 'research_coordinator'].includes(user.role)) {
-    return <Navigate to="/admin/forum-moderation" replace />;
+    return <Navigate to="/admin/audit-trail" replace />;
   }
 
   return <Dashboard />;
@@ -131,15 +135,23 @@ function App() {
             <Route
               path="job-approvals"
               element={
-                <ProtectedRoute allowedRoles={DEAN_ROLES}>
+                <ProtectedRoute allowedRoles={ALUMNI_ADMIN_ROLES}>
                   <EngagementApprovals mode="job" />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="mentor-approvals"
+              element={
+                <ProtectedRoute allowedRoles={ALUMNI_ADMIN_ROLES}>
+                  <EngagementApprovals mode="mentor" />
                 </ProtectedRoute>
               }
             />
             <Route
               path="forum-moderation"
               element={
-                <ProtectedRoute allowedRoles={FORUM_MODERATOR_ROLES}>
+                <ProtectedRoute allowedRoles={ALUMNI_ADMIN_ROLES}>
                   <ForumModeration />
                 </ProtectedRoute>
               }

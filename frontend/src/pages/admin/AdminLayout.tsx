@@ -33,7 +33,6 @@ type NavItem = {
 
 const adminNavItems: NavItem[] = [
   { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true },
-  { to: '/admin/forum-moderation', icon: MessageSquareMore, label: 'Forum Moderation' },
   { to: '/admin/graduates', icon: GraduationCap, label: 'Graduates' },
   { to: '/admin/surveys', icon: ClipboardList, label: 'Survey Management' },
   { to: '/admin/reports', icon: BarChart3, label: 'Reports & Analytics' },
@@ -41,7 +40,6 @@ const adminNavItems: NavItem[] = [
 
 const superAdminNavItems: NavItem[] = [
   { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true },
-  { to: '/admin/forum-moderation', icon: MessageSquareMore, label: 'Forum Moderation' },
   { to: '/admin/user-management', icon: Users, label: 'User Management' },
   { to: '/admin/auto-reminders', icon: Mail, label: 'Auto Email Reminders' },
   { to: '/admin/audit-trail', icon: History, label: 'Audit Trail' },
@@ -55,16 +53,20 @@ const registrarNavItems: NavItem[] = [
   { to: '/admin/audit-trail', icon: History, label: 'Audit Trail' },
 ];
 
-const forumModeratorNavItems: NavItem[] = [
-  { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true },
+const alumniAdminNavItems: NavItem[] = [
   { to: '/admin/forum-moderation', icon: MessageSquareMore, label: 'Forum Moderation', end: true },
+  { to: '/admin/job-approvals', icon: Briefcase, label: 'Job Approval' },
+  { to: '/admin/mentor-approvals', icon: Users, label: 'Mentor Approval' },
+  { to: '/admin/audit-trail', icon: History, label: 'Audit Trail' },
+];
+
+const staffNavItems: NavItem[] = [
   { to: '/admin/audit-trail', icon: History, label: 'Audit Trail' },
 ];
 
 const deanNavItems: NavItem[] = [
   { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true },
   { to: '/admin/survey-status', icon: ClipboardCheck, label: 'Survey Participation' },
-  { to: '/admin/job-approvals', icon: Briefcase, label: 'Job Approval' },
   { to: '/admin/audit-trail', icon: History, label: 'Audit Trail' },
 ];
 
@@ -74,6 +76,7 @@ const roleLabels: Record<string, string> = {
   mis_staff: 'MIS Staff',
   research_coordinator: 'Research Coordinator',
   registrar: 'Registrar',
+  alumni_admin: 'Alumni Admin',
   dean_cs: 'Dean-CCS',
   dean_coed: 'Dean - COED',
   dean_hm: 'Dean - HM',
@@ -109,8 +112,10 @@ export default function AdminLayout() {
       ? superAdminNavItems
       : user?.role === 'registrar'
       ? registrarNavItems
+      : user?.role === 'alumni_admin'
+      ? alumniAdminNavItems
       : ['mis_staff', 'research_coordinator'].includes(user?.role || '')
-        ? forumModeratorNavItems
+        ? staffNavItems
       : ['dean_cs', 'dean_coed', 'dean_hm'].includes(user?.role || '')
         ? deanNavItems
         : adminNavItems;

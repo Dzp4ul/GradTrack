@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/config/cors.php';
 require_once __DIR__ . '/config/database.php';
+require_once __DIR__ . '/config/admin_roles.php';
 
 if (!in_array($_SERVER['REQUEST_METHOD'], ['GET', 'POST'], true)) {
     http_response_code(405);
@@ -15,23 +16,12 @@ $fullName = 'Super Administrator';
 $role = 'super_admin';
 $passwordHash = password_hash($password, PASSWORD_BCRYPT);
 
-function ensureIsActiveColumn(PDO $conn): void
-{
-    $columnStmt = $conn->query("SHOW COLUMNS FROM admin_users LIKE 'is_active'");
-    if ($columnStmt === false || $columnStmt->rowCount() === 0) {
-        $conn->exec("ALTER TABLE admin_users ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1");
-    }
-}
-
 try {
     $database = new Database();
     $conn = $database->getConnection();
 
-    $conn->exec("
-    ALTER TABLE admin_users
-        MODIFY role ENUM('super_admin', 'admin', 'mis_staff', 'research_coordinator', 'registrar', 'dean_cs', 'dean_coed', 'dean_hm') DEFAULT 'admin'
-    ");
-    ensureIsActiveColumn($conn);
+    gradtrack_ensure_admin_role_column($conn);
+    gradtrack_ensure_admin_is_active_column($conn);
 
     $checkStmt = $conn->prepare("SELECT id FROM admin_users WHERE email = :email");
     $checkStmt->execute([':email' => $email]);

@@ -28,8 +28,10 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
     const fallbackPath =
       user.role === 'registrar'
         ? '/admin/graduates'
-        : ['mis_staff', 'research_coordinator'].includes(user.role)
+        : user.role === 'alumni_admin'
           ? '/admin/forum-moderation'
+        : ['mis_staff', 'research_coordinator'].includes(user.role)
+          ? '/admin/audit-trail'
         : ['dean_cs', 'dean_coed', 'dean_hm'].includes(user.role)
           ? '/admin/survey-status'
           : '/admin';

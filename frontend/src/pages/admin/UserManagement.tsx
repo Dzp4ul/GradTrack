@@ -39,6 +39,7 @@ const roleOptions = [
   { value: 'mis_staff', label: 'MIS Staff' },
   { value: 'research_coordinator', label: 'Research Coordinator' },
   { value: 'registrar', label: 'Registrar' },
+  { value: 'alumni_admin', label: 'Alumni Admin' },
   { value: 'dean_cs', label: 'Dean-CCS' },
   { value: 'dean_coed', label: 'Dean - COED' },
   { value: 'dean_hm', label: 'Dean - HM' },
@@ -50,6 +51,7 @@ const roleLabels: Record<string, string> = {
   mis_staff: 'MIS Staff',
   research_coordinator: 'Research Coordinator',
   registrar: 'Registrar',
+  alumni_admin: 'Alumni Admin',
   dean_cs: 'Dean-CCS',
   dean_coed: 'Dean - COED',
   dean_hm: 'Dean - HM',
@@ -243,7 +245,7 @@ export default function UserManagement() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[#1b2a4a]">User Management</h1>
-          <p className="text-sm text-gray-500">Manage admin, moderator, dean, and registrar accounts</p>
+          <p className="text-sm text-gray-500">Manage admin, alumni admin, moderator, dean, and registrar accounts</p>
         </div>
         <button
           onClick={openAddModal}
