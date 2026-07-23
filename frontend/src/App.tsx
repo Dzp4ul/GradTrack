@@ -136,15 +136,7 @@ function App() {
               path="job-approvals"
               element={
                 <ProtectedRoute allowedRoles={ALUMNI_ADMIN_ROLES}>
-                  <EngagementApprovals mode="job" />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="mentor-approvals"
-              element={
-                <ProtectedRoute allowedRoles={ALUMNI_ADMIN_ROLES}>
-                  <EngagementApprovals mode="mentor" />
+                  <EngagementApprovals />
                 </ProtectedRoute>
               }
             />

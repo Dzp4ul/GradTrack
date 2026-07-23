@@ -324,35 +324,6 @@ function gradtrack_notifications_add_alumni_engagement(PDO $db, array &$notifica
     } catch (Throwable $ignored) {
     }
 
-    try {
-        $mentorStmt = $db->query("SELECT m.id, m.current_job_title, m.company, m.created_at,
-                                         g.first_name, g.last_name, p.code AS program_code
-                                  FROM mentors m
-                                  JOIN graduates g ON g.id = m.graduate_id
-                                  LEFT JOIN programs p ON p.id = g.program_id
-                                  WHERE m.approval_status = 'pending'
-                                  ORDER BY m.created_at DESC, m.id DESC
-                                  LIMIT 5");
-
-        foreach ($mentorStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $name = trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? ''));
-            $role = trim((string) ($row['current_job_title'] ?? ''));
-            $company = trim((string) ($row['company'] ?? ''));
-            $headline = trim($role . ($company !== '' ? ' at ' . $company : ''));
-
-            gradtrack_notifications_add(
-                $notifications,
-                'mentor-approval:' . $row['id'],
-                'approval',
-                'Mentor approval needed',
-                ($name !== '' ? $name : 'A graduate') . ($headline !== '' ? ' submitted ' . $headline . '.' : ' submitted a mentor profile.'),
-                $row['created_at'],
-                '/admin/mentor-approvals',
-                'high'
-            );
-        }
-    } catch (Throwable $ignored) {
-    }
 }
 
 function gradtrack_notifications_add_graduate(PDO $db, array &$notifications, array $user): void

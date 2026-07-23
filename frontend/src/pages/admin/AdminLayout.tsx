@@ -39,12 +39,10 @@ const adminNavItems: NavItem[] = [
 ];
 
 const superAdminNavItems: NavItem[] = [
-  { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true },
   { to: '/admin/user-management', icon: Users, label: 'User Management' },
   { to: '/admin/auto-reminders', icon: Mail, label: 'Auto Email Reminders' },
   { to: '/admin/audit-trail', icon: History, label: 'Audit Trail' },
   { to: '/admin/backup-database', icon: DatabaseBackup, label: 'Backup Database' },
-  { to: '/admin/reports', icon: BarChart3, label: 'Reports & Analytics' },
 ];
 
 const registrarNavItems: NavItem[] = [
@@ -56,7 +54,6 @@ const registrarNavItems: NavItem[] = [
 const alumniAdminNavItems: NavItem[] = [
   { to: '/admin/forum-moderation', icon: MessageSquareMore, label: 'Forum Moderation', end: true },
   { to: '/admin/job-approvals', icon: Briefcase, label: 'Job Approval' },
-  { to: '/admin/mentor-approvals', icon: Users, label: 'Mentor Approval' },
   { to: '/admin/audit-trail', icon: History, label: 'Audit Trail' },
 ];
 
@@ -65,7 +62,6 @@ const staffNavItems: NavItem[] = [
 ];
 
 const deanNavItems: NavItem[] = [
-  { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true },
   { to: '/admin/survey-status', icon: ClipboardCheck, label: 'Survey Participation' },
   { to: '/admin/audit-trail', icon: History, label: 'Audit Trail' },
 ];
@@ -298,18 +294,7 @@ export default function AdminLayout() {
         )}
       </header>
 
-      {/* Page Header */}
       <div className="mx-auto max-w-screen-2xl px-4 pt-4 sm:px-6 sm:pt-6">
-        <div className="mb-4">
-          <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-700">GradTrack / Admin</p>
-          <h1 className="mt-0.5 text-xl font-bold text-gray-900 sm:text-2xl">
-            {navItems.find((item) => {
-              if (item.end) return location.pathname === item.to;
-              return location.pathname.startsWith(item.to);
-            })?.label || 'Dashboard'}
-          </h1>
-        </div>
-
         {/* Mobile Tab Scroller */}
         <div className="mb-5 flex gap-2 overflow-x-auto rounded-3xl border border-gray-200 bg-white p-2 lg:hidden">
           {navItems.map((item) => (

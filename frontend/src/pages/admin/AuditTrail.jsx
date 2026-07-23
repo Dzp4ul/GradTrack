@@ -3,6 +3,8 @@ import { FileText, RefreshCw, Search, ShieldAlert } from 'lucide-react';
 import { API_ENDPOINTS } from '../../config/api';
 import { useAuth } from '../../contexts/AuthContext';
 
+const PAGE_SIZE = 10;
+
 const ROLE_LABELS = {
   super_admin: 'Super Admin',
   admin: 'Admin',
@@ -52,7 +54,6 @@ const MODULE_OPTIONS = [
   'Graduate Records',
   'Reports',
   'Job Posting',
-  'Mentorship',
   'Community Forum',
 ];
 
@@ -85,6 +86,13 @@ export default function AuditTrail() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    per_page: PAGE_SIZE,
+    total: 0,
+    total_pages: 1,
+  });
   const [filters, setFilters] = useState({
     user_role: '',
     department: '',
@@ -97,12 +105,14 @@ export default function AuditTrail() {
 
   const queryString = useMemo(() => {
     const params = new URLSearchParams();
+    params.set('page', String(page));
+    params.set('per_page', String(PAGE_SIZE));
     if (deferredSearch.trim()) params.set('search', deferredSearch.trim());
     Object.entries(filters).forEach(([key, value]) => {
       if (value) params.set(key, value);
     });
     return params.toString();
-  }, [deferredSearch, filters]);
+  }, [deferredSearch, filters, page]);
 
   const fetchLogs = async (signal) => {
     if (!canAccess) return;
@@ -125,10 +135,22 @@ export default function AuditTrail() {
       }
 
       setLogs(Array.isArray(data.data) ? data.data : []);
+      const nextPagination = data.pagination || {};
+      setPagination({
+        page: Number(nextPagination.page) || 1,
+        per_page: Number(nextPagination.per_page) || PAGE_SIZE,
+        total: Number(nextPagination.total) || 0,
+        total_pages: Number(nextPagination.total_pages) || 1,
+      });
+
+      if (Number(nextPagination.page) && Number(nextPagination.page) !== page) {
+        setPage(Number(nextPagination.page));
+      }
     } catch (err) {
       if (err?.name !== 'AbortError') {
         setError(err instanceof Error ? err.message : 'Failed to load audit trail records');
         setLogs([]);
+        setPagination({ page: 1, per_page: PAGE_SIZE, total: 0, total_pages: 1 });
       }
     } finally {
       if (!signal?.aborted) {
@@ -144,13 +166,26 @@ export default function AuditTrail() {
   }, [canAccess, queryString]);
 
   const updateFilter = (key, value) => {
+    setPage(1);
     setFilters((current) => ({ ...current, [key]: value }));
   };
 
   const clearFilters = () => {
+    setPage(1);
     setSearch('');
     setFilters({ user_role: '', department: '', action: '', module: '', date: '' });
   };
+
+  const handleSearchChange = (value) => {
+    setPage(1);
+    setSearch(value);
+  };
+
+  const currentPage = pagination.page || page;
+  const totalPages = Math.max(1, pagination.total_pages || 1);
+  const totalRecords = pagination.total || 0;
+  const firstRecord = totalRecords === 0 ? 0 : ((currentPage - 1) * PAGE_SIZE) + 1;
+  const lastRecord = totalRecords === 0 ? 0 : Math.min(totalRecords, firstRecord + logs.length - 1);
 
   if (!canAccess) {
     return (
@@ -193,7 +228,7 @@ export default function AuditTrail() {
             <input
               type="text"
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) => handleSearchChange(event.target.value)}
               placeholder="Search audit logs..."
               className="w-full rounded-lg border px-10 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
@@ -270,7 +305,7 @@ export default function AuditTrail() {
         <div className="flex items-center justify-between border-b bg-gray-50 px-4 py-3">
           <div className="flex items-center gap-2 text-sm font-semibold text-[#1b2a4a]">
             <FileText className="h-4 w-4" />
-            {logs.length} record{logs.length === 1 ? '' : 's'}
+            {totalRecords} record{totalRecords === 1 ? '' : 's'}
           </div>
           {loading && <span className="text-xs text-gray-500">Loading latest logs...</span>}
         </div>
@@ -322,6 +357,33 @@ export default function AuditTrail() {
               )}
             </tbody>
           </table>
+        </div>
+
+        <div className="flex flex-col gap-3 border-t bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-gray-500">
+            Showing {firstRecord}-{lastRecord} of {totalRecords}
+          </p>
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              disabled={loading || currentPage <= 1}
+              className="rounded-lg border px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Previous
+            </button>
+            <span className="min-w-[6rem] text-center text-sm font-semibold text-[#1b2a4a]">
+              Page {currentPage} of {totalPages}
+            </span>
+            <button
+              type="button"
+              onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+              disabled={loading || currentPage >= totalPages}
+              className="rounded-lg border px-3 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Next
+            </button>
+          </div>
         </div>
       </div>
     </div>

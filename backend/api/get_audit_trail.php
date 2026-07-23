@@ -23,7 +23,7 @@ $role = (string) ($_SESSION['role'] ?? '');
 $viewAllRoles = ['super_admin', 'mis_staff', 'research_coordinator'];
 $deanScopes = gradtrack_audit_dean_program_scopes();
 $registrarModules = ['Graduate Records', 'Survey Responses', 'Reports'];
-$alumniAdminModules = ['Community Forum', 'Job Posting', 'Mentorship'];
+$alumniAdminModules = ['Community Forum', 'Job Posting'];
 
 $canViewAll = in_array($role, $viewAllRoles, true);
 $isDean = isset($deanScopes[$role]);
@@ -123,6 +123,18 @@ try {
     }
 
     $whereClause = count($where) > 0 ? 'WHERE ' . implode(' AND ', $where) : '';
+    $perPage = 10;
+    $requestedPage = isset($_GET['page']) ? (int) $_GET['page'] : 1;
+    $page = max(1, $requestedPage);
+
+    $countSql = "SELECT COUNT(*) AS total FROM audit_trail $whereClause";
+    $countStmt = $db->prepare($countSql);
+    $countStmt->execute($params);
+    $total = (int) ($countStmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0);
+    $totalPages = max(1, (int) ceil($total / $perPage));
+    $page = min($page, $totalPages);
+    $offset = ($page - 1) * $perPage;
+
     $sql = "
         SELECT
             audit_id,
@@ -138,6 +150,7 @@ try {
         FROM audit_trail
         $whereClause
         ORDER BY created_at DESC, audit_id DESC
+        LIMIT {$perPage} OFFSET {$offset}
     ";
 
     $stmt = $db->prepare($sql);
@@ -147,6 +160,12 @@ try {
     echo json_encode([
         'success' => true,
         'data' => $logs,
+        'pagination' => [
+            'page' => $page,
+            'per_page' => $perPage,
+            'total' => $total,
+            'total_pages' => $totalPages,
+        ],
         'access' => [
             'role' => $role,
             'scope' => $canViewAll ? 'all' : ($isDean ? 'department' : ($isAlumniAdmin ? 'alumni_portal_modules' : 'registrar_modules')),

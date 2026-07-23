@@ -1952,17 +1952,6 @@ export default function GraduatePortal() {
           </nav>
 
           <div className="flex shrink-0 items-center gap-3">
-            <button
-              type="button"
-              onClick={() => openForumComposer()}
-              className="hidden items-center gap-2 rounded-full bg-blue-700 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-blue-800 sm:inline-flex"
-              title="Create forum post"
-              aria-label="Create forum post"
-            >
-              <Plus className="h-4 w-4" />
-              Post
-            </button>
-
             <NotificationBell audience="graduate" />
 
             <div className="relative min-w-0" ref={profileMenuRef}>
@@ -2078,22 +2067,6 @@ export default function GraduatePortal() {
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => openForumComposer()} className="inline-flex items-center gap-2 rounded-full bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-800">
-              <Plus className="h-4 w-4" />
-              New Post
-            </button>
-            <button type="button" onClick={() => openChatModal('direct')} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:text-blue-700">
-              <MessageCircle className="h-4 w-4" />
-              New Chat
-            </button>
-            {canPostJobs && (
-              <button type="button" onClick={() => { selectTab('job_posting'); beginCreateJob(); }} className="inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-700 transition hover:bg-emerald-100">
-                <Briefcase className="h-4 w-4" />
-                Post Job
-              </button>
-            )}
-          </div>
         </section>
 
           {loading ? (

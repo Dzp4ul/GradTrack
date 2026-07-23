@@ -73,67 +73,9 @@ function gradtrack_moderation_create_mailer(): PHPMailer
         return $mail;
 }
 
-function gradtrack_moderation_send_approval_email(PDO $db, string $itemType, int $itemId): array
+function gradtrack_moderation_send_approval_email(PDO $db, int $itemId): array
 {
-        if ($itemType === 'mentor') {
-                $stmt = $db->prepare("SELECT ga.email, g.first_name, g.last_name, p.code AS program_code
-                                                            FROM mentors m
-                                                            JOIN graduate_accounts ga ON ga.id = m.graduate_account_id
-                                                            JOIN graduates g ON g.id = m.graduate_id
-                                                            LEFT JOIN programs p ON p.id = g.program_id
-                                                            WHERE m.id = :id
-                                                            LIMIT 1");
-                $stmt->execute([':id' => $itemId]);
-                $row = $stmt->fetch(PDO::FETCH_ASSOC);
-
-                if (!$row) {
-                        return ['sent' => false, 'reason' => 'Mentor profile owner not found'];
-                }
-
-                $email = gradtrack_moderation_clean_text($row['email'] ?? '');
-                if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-                        return ['sent' => false, 'reason' => 'Missing or invalid graduate email'];
-                }
-
-                $name = trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? ''));
-                $name = $name !== '' ? $name : 'Graduate';
-                $programCode = gradtrack_moderation_escape((string) ($row['program_code'] ?? ''));
-                $safeName = gradtrack_moderation_escape($name);
-                $link = gradtrack_moderation_frontend_url() . '/mentorship';
-                $safeLink = gradtrack_moderation_escape($link);
-
-                $subject = 'Mentor Profile Approved - GradTrack';
-                $html = <<<HTML
-<!doctype html>
-<html>
-    <body style="margin:0;padding:0;background:#f3f6fb;font-family:Arial,Helvetica,sans-serif;color:#14213d;">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f6fb;padding:28px 12px;">
-            <tr>
-                <td align="center">
-                    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;background:#ffffff;border:1px solid #dbe4f0;border-radius:8px;overflow:hidden;">
-                        <tr>
-                            <td style="background:#173b80;padding:22px 28px;border-bottom:4px solid #f4c400;">
-                                <div style="font-size:24px;font-weight:800;color:#ffffff;">Grad<span style="color:#f4c400;">Track</span></div>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td style="padding:30px 28px 10px;">
-                                <div style="display:inline-block;background:#eaf2ff;color:#173b80;border-radius:6px;padding:7px 10px;font-size:12px;font-weight:700;">{$programCode}</div>
-                                <h1 style="margin:18px 0 10px;font-size:24px;line-height:1.3;color:#10213f;">Mentor profile approved</h1>
-                                <p style="margin:0 0 18px;font-size:15px;line-height:1.7;color:#41516d;">Hello {$safeName}, your mentor profile has been approved.</p>
-                                <p style="margin:0;font-size:12px;line-height:1.6;color:#7b8798;">Open mentorship: <a href="{$safeLink}" style="color:#173b80;word-break:break-all;">{$safeLink}</a></p>
-                            </td>
-                        </tr>
-                    </table>
-                </td>
-            </tr>
-        </table>
-    </body>
-</html>
-HTML;
-                $text = "Hello {$name},\n\nYour mentor profile has been approved.\nOpen mentorship: {$link}\n\nThank you,\nGRADTRACK";
-        } else {
-                $stmt = $db->prepare("SELECT ga.email, g.first_name, g.last_name, p.code AS program_code, jp.title, jp.company
+        $stmt = $db->prepare("SELECT ga.email, g.first_name, g.last_name, p.code AS program_code, jp.title, jp.company
                                                             FROM job_posts jp
                                                             JOIN graduate_accounts ga ON ga.id = jp.posted_by_account_id
                                                             JOIN graduates g ON g.id = ga.graduate_id
@@ -190,8 +132,7 @@ HTML;
     </body>
 </html>
 HTML;
-                $text = "Hello {$name},\n\nYour job post \"" . (string) ($row['title'] ?? 'Job Post') . "\" at " . (string) ($row['company'] ?? '') . " has been approved and is now visible.\nOpen jobs page: {$link}\n\nThank you,\nGRADTRACK";
-        }
+        $text = "Hello {$name},\n\nYour job post \"" . (string) ($row['title'] ?? 'Job Post') . "\" at " . (string) ($row['company'] ?? '') . " has been approved and is now visible.\nOpen jobs page: {$link}\n\nThank you,\nGRADTRACK";
 
         $mailer = gradtrack_moderation_create_mailer();
         $mailer->addAddress($email, $name);
@@ -282,28 +223,17 @@ function gradtrack_moderation_search_clause(array $columns, string $search, arra
     return ' AND (' . implode(' OR ', $parts) . ')';
 }
 
-function gradtrack_moderation_counts(PDO $db, string $type, array $reviewer): array
+function gradtrack_moderation_counts(PDO $db, array $reviewer): array
 {
     $params = [];
-
-    if ($type === 'mentors') {
-        $scopeClause = gradtrack_moderation_scope_clause($reviewer, 'p', $params, 'mentor_count_program');
-        $sql = "SELECT m.approval_status, COUNT(*) AS total
-                FROM mentors m
-                JOIN graduates g ON m.graduate_id = g.id
-                LEFT JOIN programs p ON g.program_id = p.id
-                WHERE 1=1 {$scopeClause}
-                GROUP BY m.approval_status";
-    } else {
-        $scopeClause = gradtrack_moderation_scope_clause($reviewer, 'p', $params, 'job_count_program');
-        $sql = "SELECT jp.approval_status, COUNT(*) AS total
-                FROM job_posts jp
-                JOIN graduate_accounts ga ON jp.posted_by_account_id = ga.id
-                JOIN graduates g ON ga.graduate_id = g.id
-                LEFT JOIN programs p ON g.program_id = p.id
-                WHERE 1=1 {$scopeClause}
-                GROUP BY jp.approval_status";
-    }
+    $scopeClause = gradtrack_moderation_scope_clause($reviewer, 'p', $params, 'job_count_program');
+    $sql = "SELECT jp.approval_status, COUNT(*) AS total
+            FROM job_posts jp
+            JOIN graduate_accounts ga ON jp.posted_by_account_id = ga.id
+            JOIN graduates g ON ga.graduate_id = g.id
+            LEFT JOIN programs p ON g.program_id = p.id
+            WHERE 1=1 {$scopeClause}
+            GROUP BY jp.approval_status";
 
     $stmt = $db->prepare($sql);
     $stmt->execute($params);
@@ -317,59 +247,6 @@ function gradtrack_moderation_counts(PDO $db, string $type, array $reviewer): ar
     }
 
     return $counts;
-}
-
-function gradtrack_moderation_fetch_mentors(PDO $db, array $reviewer, string $status, string $search): array
-{
-    $params = [];
-    $scopeClause = gradtrack_moderation_scope_clause($reviewer, 'p', $params, 'mentor_program');
-    $statusClause = gradtrack_moderation_status_clause('m.approval_status', $status, $params, 'mentor');
-    $searchClause = gradtrack_moderation_search_clause([
-        'g.first_name',
-        'g.last_name',
-        'ga.email',
-        'p.code',
-        'p.name',
-        'm.current_job_title',
-        'm.company',
-        'm.industry',
-        'm.skills',
-    ], $search, $params, 'mentor');
-
-    $sql = "SELECT m.id, m.current_job_title, m.company, m.industry, m.skills, m.bio,
-                   m.availability_status, m.preferred_topics, m.is_active, m.created_at,
-                   m.approval_status, m.approval_reviewed_at, m.approval_notes,
-                   m.proof_file_path, m.proof_file_name, m.proof_mime_type,
-                   m.proof_file_size_bytes, m.proof_uploaded_at,
-                   reviewer.full_name AS approval_reviewed_by_name,
-                   g.first_name, g.middle_name, g.last_name, g.year_graduated,
-                   ga.email AS contact_email,
-                   p.name AS program_name, p.code AS program_code
-            FROM mentors m
-            JOIN graduate_accounts ga ON m.graduate_account_id = ga.id
-            JOIN graduates g ON m.graduate_id = g.id
-            LEFT JOIN programs p ON g.program_id = p.id
-            LEFT JOIN admin_users reviewer ON reviewer.id = m.approval_reviewed_by
-            WHERE 1=1 {$scopeClause} {$statusClause} {$searchClause}
-            ORDER BY CASE m.approval_status
-                         WHEN 'pending' THEN 0
-                         WHEN 'declined' THEN 1
-                         ELSE 2
-                     END,
-                     m.created_at DESC";
-
-    $stmt = $db->prepare($sql);
-    $stmt->execute($params);
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-    foreach ($rows as &$row) {
-        $row['id'] = (int) $row['id'];
-        $row['is_active'] = (int) $row['is_active'];
-        $row['year_graduated'] = $row['year_graduated'] !== null ? (int) $row['year_graduated'] : null;
-        $row['proof_file_size_bytes'] = $row['proof_file_size_bytes'] !== null ? (int) $row['proof_file_size_bytes'] : null;
-    }
-
-    return $rows;
 }
 
 function gradtrack_moderation_fetch_jobs(PDO $db, array $reviewer, string $status, string $search): array
@@ -427,22 +304,14 @@ function gradtrack_moderation_fetch_jobs(PDO $db, array $reviewer, string $statu
     return $rows;
 }
 
-function gradtrack_moderation_item_program(PDO $db, string $itemType, int $id): ?array
+function gradtrack_moderation_item_program(PDO $db, int $id): ?array
 {
-    if ($itemType === 'mentor') {
-        $sql = "SELECT m.id, p.code AS program_code
-                FROM mentors m
-                JOIN graduates g ON m.graduate_id = g.id
-                LEFT JOIN programs p ON g.program_id = p.id
-                WHERE m.id = :id";
-    } else {
-        $sql = "SELECT jp.id, p.code AS program_code
-                FROM job_posts jp
-                JOIN graduate_accounts ga ON jp.posted_by_account_id = ga.id
-                JOIN graduates g ON ga.graduate_id = g.id
-                LEFT JOIN programs p ON g.program_id = p.id
-                WHERE jp.id = :id";
-    }
+    $sql = "SELECT jp.id, p.code AS program_code
+            FROM job_posts jp
+            JOIN graduate_accounts ga ON jp.posted_by_account_id = ga.id
+            JOIN graduates g ON ga.graduate_id = g.id
+            LEFT JOIN programs p ON g.program_id = p.id
+            WHERE jp.id = :id";
 
     $stmt = $db->prepare($sql);
     $stmt->execute([':id' => $id]);
@@ -489,11 +358,9 @@ try {
             'program_scope' => $reviewer['program_scope'],
             'can_review_all' => $reviewer['can_review_all'],
             'summary' => [
-                'mentors' => gradtrack_moderation_counts($db, 'mentors', $reviewer),
-                'jobs' => gradtrack_moderation_counts($db, 'jobs', $reviewer),
+                'jobs' => gradtrack_moderation_counts($db, $reviewer),
             ],
             'data' => [
-                'mentors' => gradtrack_moderation_fetch_mentors($db, $reviewer, $status, $search),
                 'jobs' => gradtrack_moderation_fetch_jobs($db, $reviewer, $status, $search),
             ],
         ]);
@@ -507,19 +374,18 @@ try {
         $approvalStatus = isset($data['approval_status']) ? trim((string) $data['approval_status']) : '';
         $notes = isset($data['notes']) ? trim((string) $data['notes']) : null;
 
-        if (!in_array($itemType, ['mentor', 'job'], true) || $itemId <= 0) {
-            gradtrack_moderation_json_error(400, 'item_type and valid id are required');
+        if ($itemType !== 'job' || $itemId <= 0) {
+            gradtrack_moderation_json_error(400, 'Only job approval items can be reviewed');
         }
 
         if (!in_array($approvalStatus, ['approved', 'declined'], true)) {
             gradtrack_moderation_json_error(400, 'approval_status must be approved or declined');
         }
 
-        $item = gradtrack_moderation_item_program($db, $itemType, $itemId);
+        $item = gradtrack_moderation_item_program($db, $itemId);
         gradtrack_moderation_assert_can_review($reviewer, $item);
 
-        $table = $itemType === 'mentor' ? 'mentors' : 'job_posts';
-        $updateStmt = $db->prepare("UPDATE {$table}
+        $updateStmt = $db->prepare("UPDATE job_posts
                                     SET approval_status = :approval_status,
                                         approval_reviewed_by = :reviewed_by,
                                         approval_reviewed_at = NOW(),
@@ -539,7 +405,7 @@ try {
 
         if ($approvalStatus === 'approved') {
             try {
-                $emailNotification = gradtrack_moderation_send_approval_email($db, $itemType, $itemId);
+                $emailNotification = gradtrack_moderation_send_approval_email($db, $itemId);
             } catch (MailException $mailException) {
                 $emailNotification = ['sent' => false, 'reason' => $mailException->getMessage()];
             } catch (Exception $mailException) {
@@ -549,7 +415,7 @@ try {
 
         echo json_encode([
             'success' => true,
-            'message' => ucfirst($itemType) . ' ' . $approvalStatus . ' successfully',
+            'message' => 'Job ' . $approvalStatus . ' successfully',
             'email_notification' => $emailNotification,
         ]);
         exit;
