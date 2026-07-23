@@ -6,8 +6,9 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
 } from 'recharts';
-import { Download, Users, Briefcase, Target, FileText, Sparkles, TrendingUp, CheckCircle2, BarChart3 } from 'lucide-react';
+import { Download, Users, Briefcase, Target, FileText, Sparkles, TrendingUp, CheckCircle2, BarChart3, Filter, RotateCcw } from 'lucide-react';
 import { API_ROOT } from '../../config/api';
+import { PROGRAM_COLORS } from '../../config/programColors';
 
 const API_BASE = API_ROOT;
 
@@ -22,6 +23,24 @@ interface Overview {
   total_survey_responses: number;
   employment_rate: number;
   alignment_rate: number;
+}
+
+interface OverviewFilters {
+  employmentStatus: 'all' | 'employed' | 'unemployed';
+  programAlignment: 'all' | 'aligned' | 'not_aligned';
+  graduationYear: string;
+  programId: string;
+}
+
+interface OverviewFilterProgram {
+  id: number;
+  code: string;
+  name: string;
+}
+
+interface OverviewFilterOptions {
+  years: string[];
+  programs: OverviewFilterProgram[];
 }
 
 interface ProgramReport {
@@ -142,6 +161,12 @@ const COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
 const SURVEY_CHART_COLORS = ['#1d4ed8', '#16a34a', '#f59e0b', '#dc2626', '#7c3aed', '#0891b2', '#ea580c', '#475569'];
 const REPORT_TABS = ['overview', 'program', 'year', 'employment', 'salary', 'surveys'] as const;
 type ReportTab = typeof REPORT_TABS[number];
+const DEFAULT_OVERVIEW_FILTERS: OverviewFilters = {
+  employmentStatus: 'all',
+  programAlignment: 'all',
+  graduationYear: 'all',
+  programId: 'all',
+};
 const SELECTED_SURVEY_STORAGE_KEY = 'gradtrack_selected_survey_id';
 const NO_SURVEY_SELECTION_VALUE = 'none';
 const SURVEY_REPORT_HEADER_COLOR = 'FF1B2A4A';
@@ -150,15 +175,6 @@ const SURVEY_REPORT_TABLE_BORDER: Partial<ExcelJS.Borders> = {
   left: { style: 'thin', color: { argb: 'FF000000' } },
   bottom: { style: 'thin', color: { argb: 'FF000000' } },
   right: { style: 'thin', color: { argb: 'FF000000' } },
-};
-
-// Program-specific colors
-const PROGRAM_COLORS: Record<string, string> = {
-  'BSCS': 'rgb(255, 196, 0)',  // yellow
-  'BSHM': '#ef4444',  // red
-  'BSED': '#3b82f6',  // blue
-  'BEED': '#7dd3fc',  // light blue
-  'ACT': '#6b7280',   // gray
 };
 
 const DEFAULT_DEPARTMENTS = [
@@ -216,6 +232,36 @@ const getEmploymentStatusChartLabel = (status: string): string => {
   return status;
 };
 
+const getOverviewFilterKey = (filters: OverviewFilters): string => [
+  filters.employmentStatus,
+  filters.programAlignment,
+  filters.graduationYear,
+  filters.programId,
+].join('|');
+
+const areOverviewFiltersEqual = (a: OverviewFilters, b: OverviewFilters): boolean => (
+  getOverviewFilterKey(a) === getOverviewFilterKey(b)
+);
+
+const appendOverviewFilterParams = (params: URLSearchParams, filters?: OverviewFilters) => {
+  if (!filters) {
+    return;
+  }
+
+  if (filters.employmentStatus !== 'all') {
+    params.set('employmentStatus', filters.employmentStatus);
+  }
+  if (filters.programAlignment !== 'all') {
+    params.set('programAlignment', filters.programAlignment);
+  }
+  if (filters.graduationYear !== 'all') {
+    params.set('graduationYear', filters.graduationYear);
+  }
+  if (filters.programId !== 'all') {
+    params.set('programId', filters.programId);
+  }
+};
+
 export default function Reports() {
   const initialParams = new URLSearchParams(window.location.search);
   const initialTabParam = initialParams.get('tab') as ReportTab | null;
@@ -240,6 +286,10 @@ export default function Reports() {
   const [selectedSurveyDepartment, setSelectedSurveyDepartment] = useState<string>(SURVEY_DEPARTMENT_OPTIONS[0].value);
   const [availableYears, setAvailableYears] = useState<string[]>([]);
   const [availableDepartments, setAvailableDepartments] = useState<Array<{ code: string; name: string }>>([]);
+  const [overviewFilters, setOverviewFilters] = useState<OverviewFilters>({ ...DEFAULT_OVERVIEW_FILTERS });
+  const [overviewFilterDraft, setOverviewFilterDraft] = useState<OverviewFilters>({ ...DEFAULT_OVERVIEW_FILTERS });
+  const [overviewFilterOptions, setOverviewFilterOptions] = useState<OverviewFilterOptions>({ years: [], programs: [] });
+  const [overviewFilterError, setOverviewFilterError] = useState('');
   const [aiAnalysis, setAiAnalysis] = useState<string>('');
   const [aiSummary, setAiSummary] = useState<string>('');
   const [aiConclusion, setAiConclusion] = useState<string>('');
@@ -254,8 +304,13 @@ export default function Reports() {
   const reportCacheRef = useRef<Record<string, unknown>>({});
   const aiRequestSeqRef = useRef(0);
 
-  const getReportCacheKey = (type: string, year: string, department: string) => (
-    [type, selectedSurveyId ?? 'none', year, department].join('|')
+  const getReportCacheKey = (
+    type: string,
+    year: string,
+    department: string,
+    filters?: OverviewFilters,
+  ) => (
+    [type, selectedSurveyId ?? 'none', year, department, filters ? getOverviewFilterKey(filters) : 'standard'].join('|')
   );
 
   const applyReportDataByType = (type: string, data: unknown) => {
@@ -289,6 +344,7 @@ export default function Reports() {
     year: string = 'all',
     department: string = selectedDepartment,
     auditAction?: string,
+    filters?: OverviewFilters,
   ) => {
     const params = new URLSearchParams({ type });
     const effectiveDepartment = type === 'overview' ? 'all' : department;
@@ -302,6 +358,7 @@ export default function Reports() {
     if (auditAction) {
       params.set('audit_action', auditAction);
     }
+    appendOverviewFilterParams(params, filters);
 
     return `${API_BASE}/reports/index.php?${params.toString()}`;
   };
@@ -500,25 +557,73 @@ export default function Reports() {
     fetchSurveyItems();
   }, []);
 
-  const loadOverviewProgramData = () => {
-    fetch(buildReportUrl('by_program', 'all', 'all'), { credentials: 'include' })
+  const fetchOverviewFilterOptions = () => {
+    fetch(buildReportUrl('overview_filter_options', 'all', 'all'), { credentials: 'include' })
       .then((r) => r.json())
       .then((res) => {
         if (res.success && res.data) {
-          const allPrograms = res.data as ProgramReport[];
-          setOverviewProgramData(allPrograms);
-          const departments = allPrograms
-            .filter((item) => item.code)
-            .map((item) => ({ code: item.code, name: item.name || item.code }))
-            .sort((a, b) => a.code.localeCompare(b.code));
-          setAvailableDepartments(departments);
+          const years: string[] = Array.isArray(res.data.years) ? res.data.years.map(String) : [];
+          const programs: OverviewFilterProgram[] = Array.isArray(res.data.programs)
+            ? res.data.programs.map((program: OverviewFilterProgram) => ({
+                id: Number(program.id),
+                code: String(program.code),
+                name: String(program.name || program.code),
+              }))
+            : [];
+
+          setOverviewFilterOptions({ years, programs });
+          if (programs.length > 0) {
+            setAvailableDepartments(
+              programs
+                .filter((item) => item.code)
+                .map((item) => ({ code: item.code, name: item.name || item.code }))
+                .sort((a, b) => a.code.localeCompare(b.code)),
+            );
+          }
+        } else {
+          setOverviewFilterOptions({ years: [], programs: [] });
         }
       })
-      .catch(() => {});
+      .catch(() => setOverviewFilterOptions({ years: [], programs: [] }));
+  };
+
+  const fetchOverviewProgramData = async (filters: OverviewFilters): Promise<ProgramReport[]> => {
+    const response = await fetch(buildReportUrl('by_program', 'all', 'all', undefined, filters), {
+      credentials: 'include',
+    });
+    const result = await response.json();
+    return result.success && Array.isArray(result.data) ? (result.data as ProgramReport[]) : [];
+  };
+
+  const fetchOverviewReports = async (filters: OverviewFilters = overviewFilters) => {
+    setLoading(true);
+    setOverviewFilterError('');
+
+    try {
+      const [overviewResponse, programDataForOverview] = await Promise.all([
+        fetch(buildReportUrl('overview', 'all', 'all', undefined, filters), { credentials: 'include' }),
+        fetchOverviewProgramData(filters),
+      ]);
+      const overviewResult = await overviewResponse.json();
+
+      if (!overviewResult.success) {
+        throw new Error(overviewResult.error || 'Failed to load overview report.');
+      }
+
+      setOverview(overviewResult.data as Overview);
+      setOverviewProgramData(programDataForOverview);
+    } catch (error) {
+      setOverview(null);
+      setOverviewProgramData([]);
+      setOverviewFilterError(error instanceof Error ? error.message : 'Failed to load overview report.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
     reportCacheRef.current = {};
+    fetchOverviewFilterOptions();
 
     // Fetch year data first to populate the filter
     fetch(buildReportUrl('by_year', 'all', 'all'), { credentials: 'include' })
@@ -530,9 +635,6 @@ export default function Reports() {
         }
       })
       .catch(() => {});
-    
-    // Fetch unfiltered program data for overview charts and department options
-    loadOverviewProgramData();
   }, [selectedSurveyId]);
 
   useEffect(() => {
@@ -548,12 +650,12 @@ export default function Reports() {
     }
 
     if (tab === 'overview') {
-      loadOverviewProgramData();
+      fetchOverviewReports(overviewFilters);
+      return;
     }
 
-    const reportDepartment = tab === 'overview' ? 'all' : selectedDepartment;
-    fetchReport(typeMap[tab], selectedYear, reportDepartment);
-  }, [tab, selectedYear, selectedDepartment, selectedSurveyId]);
+    fetchReport(typeMap[tab], selectedYear, selectedDepartment);
+  }, [tab, selectedYear, selectedDepartment, selectedSurveyId, overviewFilters]);
 
   useEffect(() => {
     if (tab === 'surveys' && selectedSurveyId) {
@@ -564,6 +666,41 @@ export default function Reports() {
   useEffect(() => {
     setShowSurveyGraphs(false);
   }, [selectedSurveyId, selectedSurveyDepartment]);
+
+  const updateOverviewFilterDraft = <K extends keyof OverviewFilters>(key: K, value: OverviewFilters[K]) => {
+    setOverviewFilterDraft((current) => ({ ...current, [key]: value }));
+  };
+
+  const handleApplyOverviewFilters = () => {
+    const nextFilters = { ...overviewFilterDraft };
+    setOverviewFilterError('');
+    reportCacheRef.current = {};
+
+    if (areOverviewFiltersEqual(nextFilters, overviewFilters)) {
+      if (tab === 'overview') {
+        fetchOverviewReports(nextFilters);
+      }
+      return;
+    }
+
+    setOverviewFilters(nextFilters);
+  };
+
+  const handleResetOverviewFilters = () => {
+    const resetFilters = { ...DEFAULT_OVERVIEW_FILTERS };
+    setOverviewFilterDraft(resetFilters);
+    setOverviewFilterError('');
+    reportCacheRef.current = {};
+
+    if (areOverviewFiltersEqual(resetFilters, overviewFilters)) {
+      if (tab === 'overview') {
+        fetchOverviewReports(resetFilters);
+      }
+      return;
+    }
+
+    setOverviewFilters(resetFilters);
+  };
 
   useEffect(() => {
     if (tab !== 'overview' || !overview) {
@@ -823,6 +960,40 @@ export default function Reports() {
     pdf.save(`gradtrack_survey_analytics${programSuffix}_${fileDate}.pdf`);
   };
 
+  const getOverviewProgramFilterLabel = (programId: string = overviewFilters.programId) => {
+    if (programId === 'all') {
+      return 'All Courses';
+    }
+
+    const program = overviewFilterOptions.programs.find((item) => item.id.toString() === programId);
+    return program ? `${program.code} - ${program.name}` : `Program ID ${programId}`;
+  };
+
+  const getOverviewFilterLabels = (filters: OverviewFilters = overviewFilters) => ({
+    employmentStatus: filters.employmentStatus === 'all'
+      ? 'All'
+      : filters.employmentStatus === 'employed'
+      ? 'Employed'
+      : 'Unemployed',
+    programAlignment: filters.programAlignment === 'all'
+      ? 'All'
+      : filters.programAlignment === 'aligned'
+      ? 'Aligned'
+      : 'Not Aligned',
+    graduationYear: filters.graduationYear === 'all' ? 'All Years' : filters.graduationYear,
+    course: getOverviewProgramFilterLabel(filters.programId),
+  });
+
+  const getOverviewActiveFilterChips = () => {
+    const labels = getOverviewFilterLabels();
+    return [
+      overviewFilters.employmentStatus !== 'all' ? `Employability Status: ${labels.employmentStatus}` : null,
+      overviewFilters.programAlignment !== 'all' ? `Program Alignment: ${labels.programAlignment}` : null,
+      overviewFilters.graduationYear !== 'all' ? `Graduation Year: ${labels.graduationYear}` : null,
+      overviewFilters.programId !== 'all' ? `Course: ${labels.course}` : null,
+    ].filter((chip): chip is string => Boolean(chip));
+  };
+
   const handleExport = async () => {
     if (tab === 'surveys') {
       await handleSurveyExcelExport();
@@ -832,13 +1003,15 @@ export default function Reports() {
     const reportDepartment = tab === 'overview' ? 'all' : selectedDepartment;
     const cachedProgramExport = tab === 'overview' ? overviewProgramData : programData;
     const canUseCachedScopedData = tab !== 'overview';
+    const exportOverviewFilters = tab === 'overview' ? overviewFilters : undefined;
     const fetchReportData = async <T,>(
       type: string,
       applyYearFilter: boolean = false,
     ): Promise<T | null> => {
+      const exportYear = tab === 'overview' ? 'all' : selectedYear;
       const url = applyYearFilter
-        ? buildReportUrl(type, selectedYear, reportDepartment, 'export_excel')
-        : buildReportUrl(type, 'all', reportDepartment, 'export_excel');
+        ? buildReportUrl(type, exportYear, reportDepartment, 'export_excel', exportOverviewFilters)
+        : buildReportUrl(type, 'all', reportDepartment, 'export_excel', exportOverviewFilters);
 
       try {
         const response = await fetch(url, { credentials: 'include' });
@@ -850,8 +1023,8 @@ export default function Reports() {
     };
 
     const [overviewExport, programExport, yearExport, statusExport, salaryExport] = await Promise.all([
-      overview ? Promise.resolve(overview) : fetchReportData<Overview>('overview'),
-      canUseCachedScopedData && cachedProgramExport.length ? Promise.resolve(cachedProgramExport) : fetchReportData<ProgramReport[]>('by_program', true),
+      tab === 'overview' && overview ? Promise.resolve(overview) : fetchReportData<Overview>('overview'),
+      cachedProgramExport.length ? Promise.resolve(cachedProgramExport) : fetchReportData<ProgramReport[]>('by_program', true),
       canUseCachedScopedData && yearData.length ? Promise.resolve(yearData) : fetchReportData<YearReport[]>('by_year'),
       canUseCachedScopedData && statusData.length ? Promise.resolve(statusData) : fetchReportData<StatusData[]>('employment_status', true),
       canUseCachedScopedData && salaryData.length ? Promise.resolve(salaryData) : fetchReportData<SalaryData[]>('salary_distribution', true),
@@ -916,6 +1089,13 @@ export default function Reports() {
     summarySheet.addRow(['Generated At', new Date().toLocaleString()]);
     summarySheet.addRow(['Year Filter', selectedYear === 'all' ? 'All Years' : selectedYear]);
     summarySheet.addRow(['Department Filter', reportDepartment === 'all' ? 'All Departments' : reportDepartment]);
+    if (tab === 'overview') {
+      const labels = getOverviewFilterLabels();
+      summarySheet.addRow(['Employability Status', labels.employmentStatus]);
+      summarySheet.addRow(['Program Alignment', labels.programAlignment]);
+      summarySheet.addRow(['Graduation Year', labels.graduationYear]);
+      summarySheet.addRow(['Course', labels.course]);
+    }
     summarySheet.addRow(['Export Triggered From Tab', tab]);
     summarySheet.addRow([]);
     summarySheet.getRow(1).font = { bold: true, size: 14 };
@@ -1130,13 +1310,16 @@ export default function Reports() {
     const pageHeight = pdf.internal.pageSize.getHeight();
     const marginLeft = 40;
     const reportDepartment = tab === 'overview' ? 'all' : selectedDepartment;
+    const pdfOverviewFilters = tab === 'overview' ? overviewFilters : undefined;
+    const pdfOverviewFilterLabels = tab === 'overview' ? getOverviewFilterLabels() : null;
 
     const fetchReportData = async <T,>(
       type: string,
       year: string,
     ): Promise<T | null> => {
       try {
-        const response = await fetch(buildReportUrl(type, year, reportDepartment, 'export_pdf'), {
+        const exportYear = tab === 'overview' ? 'all' : year;
+        const response = await fetch(buildReportUrl(type, exportYear, reportDepartment, 'export_pdf', pdfOverviewFilters), {
           credentials: 'include',
         });
         const result = await response.json();
@@ -1154,7 +1337,7 @@ export default function Reports() {
       fetchReportData<SalaryData[]>('salary_distribution', selectedYear),
     ]);
 
-    const overviewForPdf = overviewPdf ?? overview;
+    const overviewForPdf = overviewPdf ?? (tab === 'overview' ? overview : null);
     const programForPdf = programPdf ?? (tab === 'overview' ? overviewProgramData : programData);
     const yearForPdf = yearPdf ?? yearData;
     const statusForPdf = statusPdf ?? statusData;
@@ -1167,7 +1350,7 @@ export default function Reports() {
       statusForPdf,
       salaryForPdf,
       reportDepartment,
-      selectedYear,
+      tab === 'overview' ? overviewFilters.graduationYear : selectedYear,
     );
 
     pdf.setFillColor(27, 42, 74);
@@ -1182,14 +1365,22 @@ export default function Reports() {
     pdf.setFontSize(11);
     pdf.text(`Generated: ${new Date().toLocaleString()}`, marginLeft, 144);
     pdf.text(`Department: ${reportDepartment === 'all' ? 'All Departments' : reportDepartment}`, marginLeft, 162);
-    pdf.text(`Year Scope: ${selectedYear === 'all' ? 'All Years' : selectedYear}`, marginLeft, 180);
+    pdf.text(`Year Scope: ${pdfOverviewFilterLabels ? pdfOverviewFilterLabels.graduationYear : selectedYear === 'all' ? 'All Years' : selectedYear}`, marginLeft, 180);
+    let coverDescriptionY = 204;
+    if (pdfOverviewFilterLabels) {
+      pdf.text(`Employability Status: ${pdfOverviewFilterLabels.employmentStatus}`, marginLeft, 198);
+      pdf.text(`Program Alignment: ${pdfOverviewFilterLabels.programAlignment}`, marginLeft, 216);
+      pdf.text(`Graduation Year: ${pdfOverviewFilterLabels.graduationYear}`, marginLeft, 234);
+      pdf.text(`Course: ${pdfOverviewFilterLabels.course}`, marginLeft, 252);
+      coverDescriptionY = 280;
+    }
     pdf.setFontSize(11);
     const coverDescription = pdf.splitTextToSize(sectionDescriptions.cover, pageWidth - 80);
-    pdf.text(coverDescription, marginLeft, 204);
+    pdf.text(coverDescription, marginLeft, coverDescriptionY);
 
     if (overviewForPdf) {
       autoTable(pdf, {
-        startY: 248,
+        startY: pdfOverviewFilterLabels ? 324 : 248,
         head: [['Key Performance Indicator', 'Value']],
         body: [
           ['Total Graduates', overviewForPdf.total_graduates],
@@ -1434,7 +1625,16 @@ export default function Reports() {
     ? buildSurveyReportCharts(surveyAnalytics.report_tables).length
     : 0;
   const overviewUnemployed = overview?.total_unemployed ?? Math.max((overview?.total_graduates ?? 0) - (overview?.total_employed ?? 0), 0);
+  const overviewNotAligned = Math.max((overview?.total_employed ?? 0) - (overview?.total_aligned ?? 0), 0);
   const overviewPrograms = overviewProgramData;
+  const overviewActiveFilterChips = getOverviewActiveFilterChips();
+  const overviewHasRecords = (overview?.total_graduates ?? 0) > 0;
+  const hasOverviewEmploymentData = (overview?.total_employed ?? 0) + overviewUnemployed > 0;
+  const hasOverviewWorkLocationData = (overview?.total_employed_local ?? 0) + (overview?.total_employed_abroad ?? 0) > 0;
+  const hasOverviewAlignmentData = (overview?.total_aligned ?? 0) + overviewNotAligned > 0;
+  const hasOverviewProgramEmploymentData = overviewPrograms.some((program) => Number(program.employed ?? 0) > 0);
+  const hasOverviewProgramAlignmentData = overviewPrograms.some((program) => Number(program.aligned ?? 0) > 0);
+  const hasOverviewProgramRateData = overviewPrograms.some((program) => Number(program.total_graduates ?? 0) > 0 && Number(program.employed ?? 0) > 0);
   const programChartData = programData.map((program) => ({
     ...program,
     not_employed: getNotEmployedCount(program),
@@ -1456,6 +1656,120 @@ export default function Reports() {
   const exportButtonClass = (disabled: boolean) => `flex w-full items-center justify-center gap-2 border px-4 py-2.5 rounded-lg text-sm font-medium transition-colors sm:w-auto ${
     disabled ? 'cursor-not-allowed bg-gray-100 text-gray-400' : 'hover:bg-gray-50'
   }`;
+  const renderOverviewFiltersSection = () => (
+    <div className="border rounded-xl p-4 bg-gray-50">
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-[#1b2a4a]" />
+            <h3 className="text-sm font-semibold text-[#1b2a4a]">Report Filters</h3>
+          </div>
+          {loading && tab === 'overview' && (
+            <div className="flex items-center gap-2 text-xs font-medium text-gray-500">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-b-[#1b2a4a]" />
+              Loading filtered data...
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
+            Employability Status
+            <select
+              value={overviewFilterDraft.employmentStatus}
+              onChange={(e) => updateOverviewFilterDraft('employmentStatus', e.target.value as OverviewFilters['employmentStatus'])}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            >
+              <option value="all">All</option>
+              <option value="employed">Employed</option>
+              <option value="unemployed">Unemployed</option>
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
+            Program Alignment
+            <select
+              value={overviewFilterDraft.programAlignment}
+              onChange={(e) => updateOverviewFilterDraft('programAlignment', e.target.value as OverviewFilters['programAlignment'])}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            >
+              <option value="all">All</option>
+              <option value="aligned">Aligned</option>
+              <option value="not_aligned">Not Aligned</option>
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
+            Graduation Year
+            <select
+              value={overviewFilterDraft.graduationYear}
+              onChange={(e) => updateOverviewFilterDraft('graduationYear', e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            >
+              <option value="all">All Years</option>
+              {overviewFilterOptions.years.map((year) => (
+                <option key={year} value={year}>{year}</option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
+            Course or Program
+            <select
+              value={overviewFilterDraft.programId}
+              onChange={(e) => updateOverviewFilterDraft('programId', e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            >
+              <option value="all">All Courses</option>
+              {overviewFilterOptions.programs.map((program) => (
+                <option key={program.id} value={program.id}>
+                  {program.code} - {program.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap gap-2">
+            {overviewActiveFilterChips.length > 0 ? (
+              overviewActiveFilterChips.map((chip) => (
+                <span key={chip} className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+                  {chip}
+                </span>
+              ))
+            ) : (
+              <span className="text-xs text-gray-500">No active filters</span>
+            )}
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <button
+              type="button"
+              onClick={handleApplyOverviewFilters}
+              disabled={loading && tab === 'overview'}
+              className={`flex items-center justify-center gap-2 rounded-lg bg-[#1b2a4a] px-4 py-2 text-sm font-semibold text-white transition-colors ${
+                loading && tab === 'overview' ? 'cursor-not-allowed opacity-60' : 'hover:bg-[#24385f]'
+              }`}
+            >
+              <Filter className="w-4 h-4" />
+              Apply Filters
+            </button>
+            <button
+              type="button"
+              onClick={handleResetOverviewFilters}
+              disabled={loading && tab === 'overview'}
+              className={`flex items-center justify-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold text-gray-700 transition-colors ${
+                loading && tab === 'overview' ? 'cursor-not-allowed opacity-60' : 'hover:bg-white'
+              }`}
+            >
+              <RotateCcw className="w-4 h-4" />
+              Reset Filters
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -1570,15 +1884,20 @@ export default function Reports() {
         </div>
 
         <div className="p-5">
-          {loading ? (
-            <div className="flex justify-center py-12">
-              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#1b2a4a]" />
-            </div>
-          ) : (
-            <>
-              {/* Overview */}
-              {tab === 'overview' && overview && (
-                <div className="space-y-6">
+          {tab === 'overview' ? (
+            <div className="space-y-6">
+              {renderOverviewFiltersSection()}
+              {overviewFilterError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                  {overviewFilterError}
+                </div>
+              )}
+              {loading ? (
+                <div className="flex justify-center py-12">
+                  <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#1b2a4a]" />
+                </div>
+              ) : overview ? (
+                <>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                     <StatCard icon={Users} label="Total Graduate Responses" value={overview.total_graduates.toString()} color="bg-blue-100 text-blue-700" />
                     <StatCard icon={Briefcase} label="Employed (Total)" value={overview.total_employed.toString()} sub={`${overview.employment_rate}%`} color="bg-green-100 text-green-700" />
@@ -1587,31 +1906,41 @@ export default function Reports() {
                     <StatCard icon={Target} label="Aligned" value={overview.total_aligned.toString()} sub={`${overview.alignment_rate}%`} color="bg-orange-100 text-orange-700" />
                   </div>
 
+                  {!overviewHasRecords ? (
+                    <div className="border rounded-xl p-8 text-center">
+                      <p className="font-semibold text-[#1b2a4a]">No graduate records match the selected filters. Try changing or resetting the filters.</p>
+                    </div>
+                  ) : (
+                    <>
                   {/* Pie Charts Section */}
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {/* Employment Status Pie Chart */}
                     <div className="border rounded-xl p-5">
                       <h3 className="text-sm font-semibold text-[#1b2a4a] mb-4">Employment Status</h3>
                       <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
-                            <Pie 
-                              data={[
-                                { name: 'Employed', value: overview.total_employed },
-                                { name: 'Unemployed', value: overviewUnemployed }
-                              ]} 
-                              cx="50%" 
-                              cy="50%" 
-                              outerRadius={80} 
-                              dataKey="value"
-                              label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
-                            >
-                              <Cell fill="#22c55e" />
-                              <Cell fill="#ef4444" />
-                            </Pie>
-                            <Tooltip />
-                          </PieChart>
-                        </ResponsiveContainer>
+                        {hasOverviewEmploymentData ? (
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie 
+                                data={[
+                                  { name: 'Employed', value: overview.total_employed },
+                                  { name: 'Unemployed', value: overviewUnemployed }
+                                ]} 
+                                cx="50%" 
+                                cy="50%" 
+                                outerRadius={80} 
+                                dataKey="value"
+                                label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
+                              >
+                                <Cell fill="#22c55e" />
+                                <Cell fill="#ef4444" />
+                              </Pie>
+                              <Tooltip />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        ) : (
+                          <OverviewChartEmptyState />
+                        )}
                       </div>
                       <div className="flex justify-center gap-4 mt-2">
                         <div className="flex items-center gap-2">
@@ -1629,25 +1958,29 @@ export default function Reports() {
                     <div className="border rounded-xl p-5">
                       <h3 className="text-sm font-semibold text-[#1b2a4a] mb-4">Work Location</h3>
                       <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
-                            <Pie 
-                              data={[
-                                { name: 'Local', value: overview.total_employed_local },
-                                { name: 'Abroad', value: overview.total_employed_abroad }
-                              ]} 
-                              cx="50%" 
-                              cy="50%" 
-                              outerRadius={80} 
-                              dataKey="value"
-                              label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
-                            >
-                              <Cell fill="#14b8a6" />
-                              <Cell fill="#6366f1" />
-                            </Pie>
-                            <Tooltip />
-                          </PieChart>
-                        </ResponsiveContainer>
+                        {hasOverviewWorkLocationData ? (
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie 
+                                data={[
+                                  { name: 'Local', value: overview.total_employed_local },
+                                  { name: 'Abroad', value: overview.total_employed_abroad }
+                                ]} 
+                                cx="50%" 
+                                cy="50%" 
+                                outerRadius={80} 
+                                dataKey="value"
+                                label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
+                              >
+                                <Cell fill="#14b8a6" />
+                                <Cell fill="#6366f1" />
+                              </Pie>
+                              <Tooltip />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        ) : (
+                          <OverviewChartEmptyState message="No work-location data for the selected filters." />
+                        )}
                       </div>
                       <div className="flex justify-center gap-4 mt-2">
                         <div className="flex items-center gap-2">
@@ -1665,25 +1998,29 @@ export default function Reports() {
                     <div className="border rounded-xl p-5">
                       <h3 className="text-sm font-semibold text-[#1b2a4a] mb-4">Job Alignment</h3>
                       <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
-                            <Pie 
-                              data={[
-                                { name: 'Aligned', value: overview.total_aligned },
-                                { name: 'Not Aligned', value: overview.total_employed - overview.total_aligned }
-                              ]} 
-                              cx="50%" 
-                              cy="50%" 
-                              outerRadius={80} 
-                              dataKey="value"
-                              label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
-                            >
-                              <Cell fill="#f59e0b" />
-                              <Cell fill="#94a3b8" />
-                            </Pie>
-                            <Tooltip />
-                          </PieChart>
-                        </ResponsiveContainer>
+                        {hasOverviewAlignmentData ? (
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie 
+                                data={[
+                                  { name: 'Aligned', value: overview.total_aligned },
+                                  { name: 'Not Aligned', value: overviewNotAligned }
+                                ]} 
+                                cx="50%" 
+                                cy="50%" 
+                                outerRadius={80} 
+                                dataKey="value"
+                                label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
+                              >
+                                <Cell fill="#f59e0b" />
+                                <Cell fill="#94a3b8" />
+                              </Pie>
+                              <Tooltip />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        ) : (
+                          <OverviewChartEmptyState message="No job-alignment data for the selected filters." />
+                        )}
                       </div>
                       <div className="flex justify-center gap-4 mt-2">
                         <div className="flex items-center gap-2">
@@ -1692,7 +2029,7 @@ export default function Reports() {
                         </div>
                         <div className="flex items-center gap-2">
                           <div className="w-3 h-3 rounded-full bg-slate-400" />
-                          <span className="text-xs text-gray-600">Not Aligned: {overview.total_employed - overview.total_aligned}</span>
+                          <span className="text-xs text-gray-600">Not Aligned: {overviewNotAligned}</span>
                         </div>
                       </div>
                     </div>
@@ -1704,23 +2041,27 @@ export default function Reports() {
                     <div className="border rounded-xl p-5">
                       <h3 className="text-sm font-semibold text-[#1b2a4a] mb-4">Employment by Program</h3>
                       <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
-                            <Pie 
-                              data={overviewPrograms.map((p) => ({ name: p.code, value: p.employed }))} 
-                              cx="50%" 
-                              cy="50%" 
-                              outerRadius={80} 
-                              dataKey="value"
-                              label={({ name, value }) => `${name}: ${value}`}
-                            >
-                              {overviewPrograms.map((p, i) => (
-                                <Cell key={i} fill={PROGRAM_COLORS[p.code] || COLORS[i % COLORS.length]} />
-                              ))}
-                            </Pie>
-                            <Tooltip />
-                          </PieChart>
-                        </ResponsiveContainer>
+                        {hasOverviewProgramEmploymentData ? (
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie 
+                                data={overviewPrograms.map((p) => ({ name: p.code, value: p.employed }))} 
+                                cx="50%" 
+                                cy="50%" 
+                                outerRadius={80} 
+                                dataKey="value"
+                                label={({ name, value }) => `${name}: ${value}`}
+                              >
+                                {overviewPrograms.map((p, i) => (
+                                  <Cell key={i} fill={PROGRAM_COLORS[p.code] || COLORS[i % COLORS.length]} />
+                                ))}
+                              </Pie>
+                              <Tooltip />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        ) : (
+                          <OverviewChartEmptyState message="No employed graduates by program for the selected filters." />
+                        )}
                       </div>
                       <div className="flex flex-wrap justify-center gap-2 mt-2">
                         {overviewPrograms.map((p, i) => (
@@ -1736,23 +2077,27 @@ export default function Reports() {
                     <div className="border rounded-xl p-5">
                       <h3 className="text-sm font-semibold text-[#1b2a4a] mb-4">Alignment by Program</h3>
                       <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
-                            <Pie 
-                              data={overviewPrograms.map((p) => ({ name: p.code, value: p.aligned }))} 
-                              cx="50%" 
-                              cy="50%" 
-                              outerRadius={80} 
-                              dataKey="value"
-                              label={({ name, value }) => `${name}: ${value}`}
-                            >
-                              {overviewPrograms.map((p, i) => (
-                                <Cell key={i} fill={PROGRAM_COLORS[p.code] || COLORS[i % COLORS.length]} />
-                              ))}
-                            </Pie>
-                            <Tooltip />
-                          </PieChart>
-                        </ResponsiveContainer>
+                        {hasOverviewProgramAlignmentData ? (
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie 
+                                data={overviewPrograms.map((p) => ({ name: p.code, value: p.aligned }))} 
+                                cx="50%" 
+                                cy="50%" 
+                                outerRadius={80} 
+                                dataKey="value"
+                                label={({ name, value }) => `${name}: ${value}`}
+                              >
+                                {overviewPrograms.map((p, i) => (
+                                  <Cell key={i} fill={PROGRAM_COLORS[p.code] || COLORS[i % COLORS.length]} />
+                                ))}
+                              </Pie>
+                              <Tooltip />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        ) : (
+                          <OverviewChartEmptyState message="No aligned graduates by program for the selected filters." />
+                        )}
                       </div>
                       <div className="flex flex-wrap justify-center gap-2 mt-2">
                         {overviewPrograms.map((p, i) => (
@@ -1768,26 +2113,30 @@ export default function Reports() {
                     <div className="border rounded-xl p-5">
                       <h3 className="text-sm font-semibold text-[#1b2a4a] mb-4">Employment Rate by Program</h3>
                       <div className="h-64">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
-                            <Pie 
-                              data={overviewPrograms.map((p) => ({ 
-                                name: p.code, 
-                                value: p.total_graduates > 0 ? Math.round((p.employed / p.total_graduates) * 100) : 0 
-                              }))} 
-                              cx="50%" 
-                              cy="50%" 
-                              outerRadius={80} 
-                              dataKey="value"
-                              label={({ name, value }) => `${name}: ${value}%`}
-                            >
-                              {overviewPrograms.map((p, i) => (
-                                <Cell key={i} fill={PROGRAM_COLORS[p.code] || COLORS[i % COLORS.length]} />
-                              ))}
-                            </Pie>
-                            <Tooltip formatter={(value) => `${value}%`} />
-                          </PieChart>
-                        </ResponsiveContainer>
+                        {hasOverviewProgramRateData ? (
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie 
+                                data={overviewPrograms.map((p) => ({ 
+                                  name: p.code, 
+                                  value: p.total_graduates > 0 ? Math.round((p.employed / p.total_graduates) * 100) : 0 
+                                }))} 
+                                cx="50%" 
+                                cy="50%" 
+                                outerRadius={80} 
+                                dataKey="value"
+                                label={({ name, value }) => `${name}: ${value}%`}
+                              >
+                                {overviewPrograms.map((p, i) => (
+                                  <Cell key={i} fill={PROGRAM_COLORS[p.code] || COLORS[i % COLORS.length]} />
+                                ))}
+                              </Pie>
+                              <Tooltip formatter={(value) => `${value}%`} />
+                            </PieChart>
+                          </ResponsiveContainer>
+                        ) : (
+                          <OverviewChartEmptyState message="Employment rates are 0% for the selected filters." />
+                        )}
                       </div>
                       <div className="flex flex-wrap justify-center gap-2 mt-2">
                         {overviewPrograms.map((p, i) => (
@@ -1800,9 +2149,24 @@ export default function Reports() {
                     </div>
                   </div>
 
+                    </>
+                  )}
+
                   {renderAiAnalyticsSection()}
+                </>
+              ) : (
+                <div className="border rounded-xl p-8 text-center">
+                  <p className="font-semibold text-[#1b2a4a]">No overview data available.</p>
+                  <p className="text-sm text-gray-500 mt-1">Select a survey or reset the filters to reload the complete Overview report.</p>
                 </div>
               )}
+            </div>
+          ) : loading ? (
+            <div className="flex justify-center py-12">
+              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#1b2a4a]" />
+            </div>
+          ) : (
+            <>
 
               {/* By Program */}
               {tab === 'program' && (
@@ -2209,6 +2573,14 @@ function StatCard({ icon: Icon, label, value, sub, color }: {
       </div>
       <p className="text-2xl font-bold text-[#1b2a4a]">{value}</p>
       {sub && <p className="text-xs text-gray-400">{sub} rate</p>}
+    </div>
+  );
+}
+
+function OverviewChartEmptyState({ message = 'No chart data for the selected filters.' }: { message?: string }) {
+  return (
+    <div className="flex h-full min-h-[180px] items-center justify-center rounded-lg bg-gray-50 px-4 text-center text-sm font-medium text-gray-500">
+      {message}
     </div>
   );
 }

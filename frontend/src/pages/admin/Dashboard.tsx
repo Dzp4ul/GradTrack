@@ -6,11 +6,12 @@ import {
   BarChart3,
 } from 'lucide-react';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList,
   LineChart, Line, Legend,
   PieChart, Pie, Cell,
 } from 'recharts';
 import { API_ROOT } from '../../config/api';
+import { getProgramColor } from '../../config/programColors';
 
 const API_BASE = API_ROOT;
 const SELECTED_SURVEY_STORAGE_KEY = 'gradtrack_selected_survey_id';
@@ -49,7 +50,6 @@ interface DashboardCacheEntry {
 }
 
 const PIE_COLORS = ['#0d9488', '#e11d48', '#64748b'];
-const BAR_COLORS = ['#22c55e', '#f59e0b', '#ef4444', '#3b82f6', '#8b5cf6'];
 
 const numberFormatter = new Intl.NumberFormat('en-US');
 
@@ -60,6 +60,10 @@ function formatNumber(value: number | null | undefined) {
 function formatPercent(value: number | null | undefined) {
   const normalized = Number(value ?? 0);
   return Number.isInteger(normalized) ? `${normalized}` : normalized.toFixed(1);
+}
+
+function formatPercentOneDecimal(value: unknown) {
+  return `${Number(value ?? 0).toFixed(1)}%`;
 }
 
 export default function Dashboard() {
@@ -361,7 +365,7 @@ export default function Dashboard() {
         <div className="bg-white rounded-xl shadow-sm border p-5">
           <h3 className="text-lg font-semibold text-[#1b2a4a] mb-4">Employability Index by Program</h3>
           <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={data.program_stats} barSize={50}>
+            <BarChart data={data.program_stats} barSize={50} margin={{ top: 28 }}>
               <CartesianGrid strokeDasharray="3 3" vertical={false} />
               <XAxis dataKey="code" tick={{ fontSize: 13, fontWeight: 600 }} />
               <YAxis domain={[0, 100]} tick={{ fontSize: 12 }} />
@@ -373,8 +377,19 @@ export default function Dashboard() {
                 contentStyle={{ borderRadius: 8, border: '1px solid #e5e7eb' }}
               />
               <Bar dataKey="employability_index" radius={[6, 6, 0, 0]}>
-                {data.program_stats.map((_, i) => (
-                  <Cell key={i} fill={BAR_COLORS[i % BAR_COLORS.length]} />
+                <LabelList
+                  dataKey="employability_index"
+                  position="top"
+                  offset={8}
+                  formatter={formatPercentOneDecimal}
+                  style={{
+                    fill: '#1b2a4a',
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                />
+                {data.program_stats.map((program) => (
+                  <Cell key={program.code} fill={getProgramColor(program.code)} />
                 ))}
               </Bar>
             </BarChart>
