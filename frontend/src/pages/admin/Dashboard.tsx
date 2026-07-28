@@ -20,6 +20,10 @@ const DASHBOARD_CACHE_TTL_MS = 2 * 60 * 1000;
 
 interface DashboardData {
   total_graduates: number;
+  total_employed?: number;
+  total_unemployed?: number;
+  total_employment_known?: number;
+  total_aligned?: number;
   employment_rate: number;
   alignment_rate: number;
   avg_time_to_employment: number;
@@ -259,8 +263,8 @@ export default function Dashboard() {
       return { employed: 0, unemployed: 0, aligned: 0, notAligned: 0 };
     }
 
-    const employedCount = Math.round((data.total_responses * data.employment_rate) / 100);
-    const unemployedCount = Math.max(data.total_responses - employedCount, 0);
+    const employedCount = Number(data.total_employed ?? Math.round((data.total_responses * data.employment_rate) / 100));
+    const unemployedCount = Number(data.total_unemployed ?? Math.max(data.total_responses - employedCount, 0));
     const alignedCount = alignmentDistribution.find((item) => item.name === 'Aligned')?.value ?? 0;
     const notAlignedCount = alignmentDistribution.find((item) => item.name === 'Not Aligned')?.value ?? 0;
 

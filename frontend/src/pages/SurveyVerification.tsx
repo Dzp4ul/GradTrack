@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ShieldCheck, AlertCircle, Loader2 } from 'lucide-react';
-import { API_ROOT } from '../config/api';
+import { ShieldCheck, AlertCircle, Loader2, UserPlus, Eye, EyeOff } from 'lucide-react';
+import { API_ENDPOINTS, API_ROOT } from '../config/api';
 import MessageBox from '../components/MessageBox';
 
 interface Program {
@@ -16,14 +16,55 @@ interface SurveySummary {
   status: string;
 }
 
+interface AccountPrefillData {
+  first_name: string;
+  middle_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  year_graduated: string;
+  address: string;
+  program_id: number | null;
+  program_name: string;
+}
+
+interface AccountCreationContext {
+  graduateId: number;
+  graduateName: string;
+  surveyResponseId: number;
+  prefill: AccountPrefillData;
+}
+
 type VerificationMethod = 'student_number' | 'email';
 
 const SURVEY_ACCESS_KEYS = ['survey_token', 'graduate_id', 'graduate_name', 'graduate_profile'] as const;
+const PASSWORD_COMPLEXITY_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
+
+const cleanText = (value: unknown) => String(value ?? '').trim();
 
 const formatStudentNumber = (value: string): string => {
   const digits = value.replace(/\D/g, '').slice(0, 8);
   if (digits.length <= 4) return digits;
   return `${digits.slice(0, 4)}-${digits.slice(4)}`;
+};
+
+const buildAccountPrefill = (data: Record<string, unknown> | undefined, fallbackEmail: string): AccountPrefillData => {
+  const profile = data?.profile && typeof data.profile === 'object'
+    ? data.profile as Record<string, unknown>
+    : {};
+  const programId = Number(profile.program_id);
+
+  return {
+    first_name: cleanText(profile.first_name),
+    middle_name: cleanText(profile.middle_name),
+    last_name: cleanText(profile.last_name),
+    email: cleanText(profile.email || fallbackEmail).toLowerCase(),
+    phone: cleanText(profile.phone),
+    year_graduated: cleanText(profile.year_graduated),
+    address: cleanText(profile.address),
+    program_id: Number.isFinite(programId) && programId > 0 ? programId : null,
+    program_name: cleanText(profile.program_name || profile.program_code || data?.program),
+  };
 };
 
 function SurveyVerification() {
@@ -40,6 +81,13 @@ function SurveyVerification() {
   const [loading, setLoading] = useState(false);
   const [loadingPrograms, setLoadingPrograms] = useState(true);
   const [activeSurvey, setActiveSurvey] = useState<SurveySummary | null>(null);
+  const [accountContext, setAccountContext] = useState<AccountCreationContext | null>(null);
+  const [accountEmail, setAccountEmail] = useState('');
+  const [accountPassword, setAccountPassword] = useState('');
+  const [accountConfirmPassword, setAccountConfirmPassword] = useState('');
+  const [showAccountPassword, setShowAccountPassword] = useState(false);
+  const [showAccountConfirmPassword, setShowAccountConfirmPassword] = useState(false);
+  const [accountSubmitting, setAccountSubmitting] = useState(false);
   const [msgBox, setMsgBox] = useState<{
     isOpen: boolean;
     type: 'success' | 'error' | 'warning' | 'info';
@@ -93,6 +141,148 @@ function SurveyVerification() {
     }
   };
 
+  const resetAccountCreation = () => {
+    setAccountContext(null);
+    setAccountEmail('');
+    setAccountPassword('');
+    setAccountConfirmPassword('');
+    setShowAccountPassword(false);
+    setShowAccountConfirmPassword(false);
+  };
+
+  const openAccountCreation = (data: Record<string, unknown> | undefined, fallbackEmail: string) => {
+    const graduateId = Number(data?.graduate_id);
+    const surveyResponseId = Number(data?.survey_response_id);
+
+    if (!Number.isFinite(graduateId) || graduateId <= 0 || !Number.isFinite(surveyResponseId) || surveyResponseId <= 0) {
+      return false;
+    }
+
+    const prefill = buildAccountPrefill(data, fallbackEmail);
+    setAccountContext({
+      graduateId,
+      surveyResponseId,
+      graduateName: cleanText(data?.graduate_name),
+      prefill,
+    });
+    setAccountEmail(prefill.email);
+    setAccountPassword('');
+    setAccountConfirmPassword('');
+    setShowAccountPassword(false);
+    setShowAccountConfirmPassword(false);
+    setMsgBox({ isOpen: false, type: 'info', message: '' });
+    return true;
+  };
+
+  const handleCreateGraduateAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!accountContext) {
+      setMsgBox({
+        isOpen: true,
+        type: 'error',
+        title: 'Cannot Create Account',
+        message: 'Please verify your identity again before creating an account.',
+      });
+      return;
+    }
+
+    const cleanEmail = accountEmail.trim().toLowerCase();
+
+    if (!cleanEmail) {
+      setMsgBox({
+        isOpen: true,
+        type: 'warning',
+        title: 'Email Required',
+        message: 'Please enter the email address you want to use for your Graduate Portal account.',
+      });
+      return;
+    }
+
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      setMsgBox({
+        isOpen: true,
+        type: 'warning',
+        title: 'Invalid Email',
+        message: 'Please enter a valid email address.',
+      });
+      return;
+    }
+
+    if (!PASSWORD_COMPLEXITY_REGEX.test(accountPassword)) {
+      setMsgBox({
+        isOpen: true,
+        type: 'warning',
+        title: 'Weak Password',
+        message: 'Password must be 8 or more characters and include uppercase, lowercase, number, and symbol.',
+      });
+      return;
+    }
+
+    if (accountPassword !== accountConfirmPassword) {
+      setMsgBox({
+        isOpen: true,
+        type: 'warning',
+        title: 'Password Mismatch',
+        message: 'Password and confirm password must match.',
+      });
+      return;
+    }
+
+    setAccountSubmitting(true);
+    try {
+      const response = await fetch(API_ENDPOINTS.GRADUATE_AUTH.REGISTER_FROM_SURVEY, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          survey_response_id: accountContext.surveyResponseId,
+          graduate_id: accountContext.graduateId,
+          email: cleanEmail,
+          phone: accountContext.prefill.phone,
+          year_graduated: accountContext.prefill.year_graduated ? Number(accountContext.prefill.year_graduated) : null,
+          address: accountContext.prefill.address,
+          program_id: accountContext.prefill.program_id,
+          password: accountPassword,
+          confirm_password: accountConfirmPassword,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        const suggestion = result.suggestion ? `\n\n${result.suggestion}` : '';
+        setMsgBox({
+          isOpen: true,
+          type: 'error',
+          title: 'Account Creation Failed',
+          message: `${result.error || 'Unable to create account right now.'}${suggestion}`,
+        });
+        return;
+      }
+
+      setMsgBox({
+        isOpen: true,
+        type: 'success',
+        title: 'Account Created',
+        message: 'Your GradTrack account was created successfully. Redirecting to the Graduate Portal...',
+      });
+
+      setTimeout(() => {
+        window.location.href = '/graduate/portal';
+      }, 1200);
+    } catch (error) {
+      setMsgBox({
+        isOpen: true,
+        type: 'error',
+        title: 'Network Error',
+        message: error instanceof Error ? error.message : 'Unable to create account. Please try again later.',
+      });
+    } finally {
+      setAccountSubmitting(false);
+    }
+  };
+
   const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
     const selectedIdentifier = verificationMethod === 'student_number' ? studentNumber.trim() : email.trim();
@@ -132,6 +322,7 @@ function SurveyVerification() {
     }
 
     setLoading(true);
+    resetAccountCreation();
 
     try {
       console.log('Sending verification request:', {
@@ -190,14 +381,32 @@ function SurveyVerification() {
       } else {
         const failureMessage = result.message || result.error || 'Verification failed';
         const isAlreadyAnswered = /already completed this survey|already answered|already submitted/i.test(failureMessage);
+        const canCreateAccount = Boolean(result.data?.already_answered && result.data?.can_create_account);
+
+        if (isAlreadyAnswered && canCreateAccount) {
+          const opened = openAccountCreation(
+            result.data,
+            verificationMethod === 'email' ? selectedIdentifier : ''
+          );
+
+          if (opened) {
+            return;
+          }
+        }
 
         setMsgBox({
           isOpen: true,
           type: isAlreadyAnswered ? 'info' : 'error',
           message: isAlreadyAnswered
-            ? 'You already answered this survey. Thank you for your response.'
+            ? result.data?.account_exists
+              ? 'You already answered this survey and your Graduate Portal account already exists. Please sign in instead.'
+              : 'You already answered this survey. Thank you for your response.'
             : failureMessage,
-          title: isAlreadyAnswered ? 'Survey Already Answered' : 'Verification Failed'
+          title: isAlreadyAnswered
+            ? result.data?.account_exists
+              ? 'Account Already Exists'
+              : 'Survey Already Answered'
+            : 'Verification Failed'
         });
       }
     } catch (error) {
@@ -221,6 +430,182 @@ function SurveyVerification() {
         ? 'border-blue-600 bg-blue-600 text-white shadow-sm'
         : 'border-gray-300 bg-white text-gray-700 hover:border-blue-400 hover:text-blue-700'
     }`;
+
+  if (accountContext) {
+    const accountDisplayName = [
+      accountContext.prefill.first_name,
+      accountContext.prefill.middle_name,
+      accountContext.prefill.last_name,
+    ].filter(Boolean).join(' ') || accountContext.graduateName || '-';
+
+    return (
+      <div
+        className="min-h-screen bg-cover bg-center bg-fixed relative flex flex-col items-center justify-center p-4 sm:p-6"
+        style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}
+      >
+        <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80 pointer-events-none"></div>
+
+        <div className="flex justify-center mb-6 relative z-10">
+          <img src="/Gradtrack_Logo2.png" alt="GradTrack Logo" className="h-20 object-contain" />
+        </div>
+
+        <div className="w-full max-w-lg bg-white rounded-2xl shadow-xl p-5 border border-blue-100 relative z-10 sm:p-8">
+          <div className="flex justify-center mb-6">
+            <div className="bg-blue-600 p-4 rounded-full">
+              <UserPlus className="w-10 h-10 text-white" />
+            </div>
+          </div>
+
+          <h1 className="text-2xl font-bold text-blue-900 text-center mb-2">
+            Create Graduate Portal Account
+          </h1>
+          {activeSurvey && (
+            <p className="text-center text-sm text-gray-500 mb-2">
+              Survey: <span className="font-semibold text-blue-600">{activeSurvey.title}</span>
+            </p>
+          )}
+          <p className="text-gray-600 text-center mb-6 text-sm">
+            You already answered this survey. Set your password to activate your Graduate Portal account.
+          </p>
+
+          <div className="bg-blue-50 rounded-lg p-4 mb-6 flex items-start space-x-3">
+            <AlertCircle className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-gray-700">
+              Your identity has been verified. Review your details, add your email, then create your account.
+            </p>
+          </div>
+
+          <form onSubmit={handleCreateGraduateAccount} className="space-y-4">
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700 space-y-1">
+              <p><span className="font-semibold">Name:</span> {accountDisplayName}</p>
+              <p><span className="font-semibold">Program:</span> {accountContext.prefill.program_name || '-'}</p>
+              <p><span className="font-semibold">Year Graduated:</span> {accountContext.prefill.year_graduated || '-'}</p>
+              <p><span className="font-semibold">Contact:</span> {accountContext.prefill.phone || '-'}</p>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">
+                Email Address <span className="text-red-600">*</span>
+              </label>
+              <input
+                type="email"
+                value={accountEmail}
+                onChange={(e) => setAccountEmail(e.target.value)}
+                placeholder="e.g., juan@email.com"
+                className={inputClass}
+                required
+                disabled={accountSubmitting}
+              />
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Password <span className="text-red-600">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type={showAccountPassword ? 'text' : 'password'}
+                    value={accountPassword}
+                    onChange={(e) => setAccountPassword(e.target.value)}
+                    placeholder="Min 8 chars, Aa1!"
+                    minLength={8}
+                    className={`${inputClass} pr-12`}
+                    required
+                    disabled={accountSubmitting}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAccountPassword((prev) => !prev)}
+                    className="absolute inset-y-0 right-0 px-3 text-gray-500 hover:text-gray-700"
+                    aria-label={showAccountPassword ? 'Hide password' : 'Show password'}
+                    title={showAccountPassword ? 'Hide password' : 'Show password'}
+                    disabled={accountSubmitting}
+                  >
+                    {showAccountPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Confirm Password <span className="text-red-600">*</span>
+                </label>
+                <div className="relative">
+                  <input
+                    type={showAccountConfirmPassword ? 'text' : 'password'}
+                    value={accountConfirmPassword}
+                    onChange={(e) => setAccountConfirmPassword(e.target.value)}
+                    placeholder="Re-enter password"
+                    minLength={8}
+                    className={`${inputClass} pr-12`}
+                    required
+                    disabled={accountSubmitting}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAccountConfirmPassword((prev) => !prev)}
+                    className="absolute inset-y-0 right-0 px-3 text-gray-500 hover:text-gray-700"
+                    aria-label={showAccountConfirmPassword ? 'Hide password' : 'Show password'}
+                    title={showAccountConfirmPassword ? 'Hide password' : 'Show password'}
+                    disabled={accountSubmitting}
+                  >
+                    {showAccountConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-500">
+              Password must include uppercase, lowercase, number, and symbol.
+            </p>
+
+            <button
+              type="submit"
+              disabled={accountSubmitting}
+              className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-semibold transition shadow-md hover:shadow-lg flex items-center justify-center space-x-2"
+            >
+              {accountSubmitting ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>Creating Account...</span>
+                </>
+              ) : (
+                <span>Create Account</span>
+              )}
+            </button>
+          </form>
+
+          <div className="mt-6 grid gap-3 text-center sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={resetAccountCreation}
+              className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+              disabled={accountSubmitting}
+            >
+              Back to verification
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/graduate/signin')}
+              className="text-gray-600 hover:text-blue-600 text-sm font-medium underline"
+              disabled={accountSubmitting}
+            >
+              Already have an account?
+            </button>
+          </div>
+        </div>
+
+        <MessageBox
+          isOpen={msgBox.isOpen}
+          onClose={() => setMsgBox({ ...msgBox, isOpen: false })}
+          type={msgBox.type}
+          message={msgBox.message}
+          title={msgBox.title}
+        />
+      </div>
+    );
+  }
 
   return (
     <div

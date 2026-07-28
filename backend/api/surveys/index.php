@@ -100,7 +100,7 @@ try {
                     $survey['questions'] = $qStmt->fetchAll(PDO::FETCH_ASSOC);
 
                     // Get response count
-                    $rStmt = $db->prepare("SELECT COUNT(*) as count FROM survey_responses WHERE survey_id = :id");
+                    $rStmt = $db->prepare("SELECT COUNT(DISTINCT id) as count FROM survey_responses WHERE survey_id = :id AND submitted_at IS NOT NULL");
                     $rStmt->bindParam(':id', $_GET['id']);
                     $rStmt->execute();
                     $survey['response_count'] = (int)$rStmt->fetch(PDO::FETCH_ASSOC)['count'];
@@ -117,7 +117,7 @@ try {
                 $stmt = $db->query("
                     SELECT s.*, 
                         (SELECT COUNT(*) FROM survey_questions WHERE survey_id = s.id AND question_type <> 'header' AND LOWER(question_text) NOT LIKE 'professional examination(s) passed%') as question_count,
-                        (SELECT COUNT(*) FROM survey_responses WHERE survey_id = s.id) as response_count
+                        (SELECT COUNT(DISTINCT id) FROM survey_responses WHERE survey_id = s.id AND submitted_at IS NOT NULL) as response_count
                     FROM surveys s
                     ORDER BY s.created_at DESC
                 ");

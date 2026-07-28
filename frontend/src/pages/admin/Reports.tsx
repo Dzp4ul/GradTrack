@@ -30,6 +30,10 @@ interface OverviewFilters {
   programAlignment: 'all' | 'aligned' | 'not_aligned';
   graduationYear: string;
   programId: string;
+  region: string;
+  province: string;
+  cityMunicipality: string;
+  barangay: string;
 }
 
 interface OverviewFilterProgram {
@@ -41,6 +45,18 @@ interface OverviewFilterProgram {
 interface OverviewFilterOptions {
   years: string[];
   programs: OverviewFilterProgram[];
+  regions: LocationFilterOption[];
+  provinces: LocationFilterOption[];
+  cities: LocationFilterOption[];
+  barangays: LocationFilterOption[];
+}
+
+interface LocationFilterOption {
+  value: string;
+  code: string | null;
+  name: string | null;
+  label: string;
+  count: number;
 }
 
 interface ProgramReport {
@@ -71,6 +87,15 @@ interface StatusData {
 interface SalaryData {
   salary_range: string;
   count: number;
+}
+
+interface LocationReport {
+  location_id: string;
+  location_label: string;
+  code: string | null;
+  name: string | null;
+  count: number;
+  percentage: number;
 }
 
 interface SurveySummary {
@@ -159,14 +184,20 @@ interface SurveyReportChart {
 
 const COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
 const SURVEY_CHART_COLORS = ['#1d4ed8', '#16a34a', '#f59e0b', '#dc2626', '#7c3aed', '#0891b2', '#ea580c', '#475569'];
-const REPORT_TABS = ['overview', 'program', 'year', 'employment', 'salary', 'surveys'] as const;
+const REPORT_TABS = ['overview', 'program', 'year', 'employment', 'salary', 'location', 'surveys'] as const;
 type ReportTab = typeof REPORT_TABS[number];
+type LocationLevel = 'region' | 'province' | 'city_municipality' | 'barangay';
 const DEFAULT_OVERVIEW_FILTERS: OverviewFilters = {
   employmentStatus: 'all',
   programAlignment: 'all',
   graduationYear: 'all',
   programId: 'all',
+  region: 'all',
+  province: 'all',
+  cityMunicipality: 'all',
+  barangay: 'all',
 };
+const LOCATION_REPORT_TYPES = new Set(['by_region', 'by_province', 'by_city', 'by_city_municipality', 'by_barangay']);
 const SELECTED_SURVEY_STORAGE_KEY = 'gradtrack_selected_survey_id';
 const NO_SURVEY_SELECTION_VALUE = 'none';
 const SURVEY_REPORT_HEADER_COLOR = 'FF1B2A4A';
@@ -237,6 +268,10 @@ const getOverviewFilterKey = (filters: OverviewFilters): string => [
   filters.programAlignment,
   filters.graduationYear,
   filters.programId,
+  filters.region,
+  filters.province,
+  filters.cityMunicipality,
+  filters.barangay,
 ].join('|');
 
 const areOverviewFiltersEqual = (a: OverviewFilters, b: OverviewFilters): boolean => (
@@ -260,6 +295,18 @@ const appendOverviewFilterParams = (params: URLSearchParams, filters?: OverviewF
   if (filters.programId !== 'all') {
     params.set('programId', filters.programId);
   }
+  if (filters.region !== 'all') {
+    params.set('region', filters.region);
+  }
+  if (filters.province !== 'all') {
+    params.set('province', filters.province);
+  }
+  if (filters.cityMunicipality !== 'all') {
+    params.set('cityMunicipality', filters.cityMunicipality);
+  }
+  if (filters.barangay !== 'all') {
+    params.set('barangay', filters.barangay);
+  }
 };
 
 export default function Reports() {
@@ -280,6 +327,8 @@ export default function Reports() {
   const [yearData, setYearData] = useState<YearReport[]>([]);
   const [statusData, setStatusData] = useState<StatusData[]>([]);
   const [salaryData, setSalaryData] = useState<SalaryData[]>([]);
+  const [locationData, setLocationData] = useState<LocationReport[]>([]);
+  const [locationLevel, setLocationLevel] = useState<LocationLevel>('barangay');
   const [loading, setLoading] = useState(true);
   const [selectedYear, setSelectedYear] = useState<string>('all');
   const [selectedDepartment, setSelectedDepartment] = useState<string>('all');
@@ -288,7 +337,14 @@ export default function Reports() {
   const [availableDepartments, setAvailableDepartments] = useState<Array<{ code: string; name: string }>>([]);
   const [overviewFilters, setOverviewFilters] = useState<OverviewFilters>({ ...DEFAULT_OVERVIEW_FILTERS });
   const [overviewFilterDraft, setOverviewFilterDraft] = useState<OverviewFilters>({ ...DEFAULT_OVERVIEW_FILTERS });
-  const [overviewFilterOptions, setOverviewFilterOptions] = useState<OverviewFilterOptions>({ years: [], programs: [] });
+  const [overviewFilterOptions, setOverviewFilterOptions] = useState<OverviewFilterOptions>({
+    years: [],
+    programs: [],
+    regions: [],
+    provinces: [],
+    cities: [],
+    barangays: [],
+  });
   const [overviewFilterError, setOverviewFilterError] = useState('');
   const [aiAnalysis, setAiAnalysis] = useState<string>('');
   const [aiSummary, setAiSummary] = useState<string>('');
@@ -333,6 +389,13 @@ export default function Reports() {
         break;
       case 'salary_distribution':
         setSalaryData(data as SalaryData[]);
+        break;
+      case 'by_region':
+      case 'by_province':
+      case 'by_city':
+      case 'by_city_municipality':
+      case 'by_barangay':
+        setLocationData(data as LocationReport[]);
         break;
       default:
         break;
@@ -424,12 +487,13 @@ export default function Reports() {
       return data;
     };
 
-    const cacheKey = getReportCacheKey(type, reportYear, reportDepartment);
+    const activeFilters = type === 'overview_filter_options' ? undefined : overviewFilters;
+    const cacheKey = getReportCacheKey(type, reportYear, reportDepartment, activeFilters);
     const cachedData = reportCacheRef.current[cacheKey];
 
     if (cachedData !== undefined) {
       applyReportDataByType(type, cachedData);
-      if (type !== 'overview') {
+      if (type !== 'overview' && !LOCATION_REPORT_TYPES.has(type)) {
         fetchAIAnalytics(type, buildAiPayload(type, cachedData), reportYear, reportDepartment);
       }
       setLoading(false);
@@ -437,7 +501,7 @@ export default function Reports() {
     }
 
     setLoading(true);
-    const url = buildReportUrl(type, reportYear, reportDepartment);
+    const url = buildReportUrl(type, reportYear, reportDepartment, undefined, activeFilters);
 
     fetch(url, { credentials: 'include' })
       .then((r) => r.json())
@@ -446,7 +510,7 @@ export default function Reports() {
           reportCacheRef.current[cacheKey] = res.data;
           applyReportDataByType(type, res.data);
 
-          if (type !== 'overview') {
+          if (type !== 'overview' && !LOCATION_REPORT_TYPES.has(type)) {
             fetchAIAnalytics(type, buildAiPayload(type, res.data), reportYear, reportDepartment);
           }
         }
@@ -570,8 +634,29 @@ export default function Reports() {
                 name: String(program.name || program.code),
               }))
             : [];
+          const normalizeLocationOptions = (items: unknown): LocationFilterOption[] => (
+            Array.isArray(items)
+              ? items.map((item) => {
+                  const option = item as Partial<LocationFilterOption>;
+                  return {
+                    value: String(option.value ?? option.code ?? option.name ?? ''),
+                    code: option.code ? String(option.code) : null,
+                    name: option.name ? String(option.name) : null,
+                    label: String(option.label || option.name || option.code || 'Not specified'),
+                    count: Number(option.count ?? 0),
+                  };
+                }).filter((item) => item.value !== '')
+              : []
+          );
 
-          setOverviewFilterOptions({ years, programs });
+          setOverviewFilterOptions({
+            years,
+            programs,
+            regions: normalizeLocationOptions(res.data.regions),
+            provinces: normalizeLocationOptions(res.data.provinces),
+            cities: normalizeLocationOptions(res.data.cities),
+            barangays: normalizeLocationOptions(res.data.barangays),
+          });
           if (programs.length > 0) {
             setAvailableDepartments(
               programs
@@ -581,10 +666,10 @@ export default function Reports() {
             );
           }
         } else {
-          setOverviewFilterOptions({ years: [], programs: [] });
+          setOverviewFilterOptions({ years: [], programs: [], regions: [], provinces: [], cities: [], barangays: [] });
         }
       })
-      .catch(() => setOverviewFilterOptions({ years: [], programs: [] }));
+      .catch(() => setOverviewFilterOptions({ years: [], programs: [], regions: [], provinces: [], cities: [], barangays: [] }));
   };
 
   const fetchOverviewProgramData = async (filters: OverviewFilters): Promise<ProgramReport[]> => {
@@ -654,8 +739,13 @@ export default function Reports() {
       return;
     }
 
+    if (tab === 'location') {
+      fetchReport(`by_${locationLevel}`, selectedYear, selectedDepartment);
+      return;
+    }
+
     fetchReport(typeMap[tab], selectedYear, selectedDepartment);
-  }, [tab, selectedYear, selectedDepartment, selectedSurveyId, overviewFilters]);
+  }, [tab, selectedYear, selectedDepartment, selectedSurveyId, overviewFilters, locationLevel]);
 
   useEffect(() => {
     if (tab === 'surveys' && selectedSurveyId) {
@@ -969,6 +1059,15 @@ export default function Reports() {
     return program ? `${program.code} - ${program.name}` : `Program ID ${programId}`;
   };
 
+  const getLocationFilterLabel = (options: LocationFilterOption[], value: string, allLabel: string) => {
+    if (value === 'all') {
+      return allLabel;
+    }
+
+    const option = options.find((item) => item.value === value || item.code === value || item.name === value);
+    return option ? option.label : value;
+  };
+
   const getOverviewFilterLabels = (filters: OverviewFilters = overviewFilters) => ({
     employmentStatus: filters.employmentStatus === 'all'
       ? 'All'
@@ -982,6 +1081,10 @@ export default function Reports() {
       : 'Not Aligned',
     graduationYear: filters.graduationYear === 'all' ? 'All Years' : filters.graduationYear,
     course: getOverviewProgramFilterLabel(filters.programId),
+    region: getLocationFilterLabel(overviewFilterOptions.regions, filters.region, 'All Regions'),
+    province: getLocationFilterLabel(overviewFilterOptions.provinces, filters.province, 'All Provinces'),
+    cityMunicipality: getLocationFilterLabel(overviewFilterOptions.cities, filters.cityMunicipality, 'All Cities/Municipalities'),
+    barangay: getLocationFilterLabel(overviewFilterOptions.barangays, filters.barangay, 'All Barangays'),
   });
 
   const getOverviewActiveFilterChips = () => {
@@ -991,6 +1094,10 @@ export default function Reports() {
       overviewFilters.programAlignment !== 'all' ? `Program Alignment: ${labels.programAlignment}` : null,
       overviewFilters.graduationYear !== 'all' ? `Graduation Year: ${labels.graduationYear}` : null,
       overviewFilters.programId !== 'all' ? `Course: ${labels.course}` : null,
+      overviewFilters.region !== 'all' ? `Region: ${labels.region}` : null,
+      overviewFilters.province !== 'all' ? `Province: ${labels.province}` : null,
+      overviewFilters.cityMunicipality !== 'all' ? `City/Municipality: ${labels.cityMunicipality}` : null,
+      overviewFilters.barangay !== 'all' ? `Barangay: ${labels.barangay}` : null,
     ].filter((chip): chip is string => Boolean(chip));
   };
 
@@ -1003,7 +1110,7 @@ export default function Reports() {
     const reportDepartment = tab === 'overview' ? 'all' : selectedDepartment;
     const cachedProgramExport = tab === 'overview' ? overviewProgramData : programData;
     const canUseCachedScopedData = tab !== 'overview';
-    const exportOverviewFilters = tab === 'overview' ? overviewFilters : undefined;
+    const exportOverviewFilters = overviewFilters;
     const fetchReportData = async <T,>(
       type: string,
       applyYearFilter: boolean = false,
@@ -1022,12 +1129,13 @@ export default function Reports() {
       }
     };
 
-    const [overviewExport, programExport, yearExport, statusExport, salaryExport] = await Promise.all([
+    const [overviewExport, programExport, yearExport, statusExport, salaryExport, locationExport] = await Promise.all([
       tab === 'overview' && overview ? Promise.resolve(overview) : fetchReportData<Overview>('overview'),
       cachedProgramExport.length ? Promise.resolve(cachedProgramExport) : fetchReportData<ProgramReport[]>('by_program', true),
       canUseCachedScopedData && yearData.length ? Promise.resolve(yearData) : fetchReportData<YearReport[]>('by_year'),
       canUseCachedScopedData && statusData.length ? Promise.resolve(statusData) : fetchReportData<StatusData[]>('employment_status', true),
       canUseCachedScopedData && salaryData.length ? Promise.resolve(salaryData) : fetchReportData<SalaryData[]>('salary_distribution', true),
+      tab === 'location' && locationData.length ? Promise.resolve(locationData) : fetchReportData<LocationReport[]>(`by_${locationLevel}`, true),
     ]);
 
     const overviewRows: ExcelRow[] = overviewExport
@@ -1076,7 +1184,13 @@ export default function Reports() {
       Count: item.count,
     }));
 
-    if (!overviewRows.length && !programRows.length && !yearRows.length && !statusRows.length && !salaryRows.length) {
+    const locationRows: ExcelRow[] = (locationExport ?? []).map((item) => ({
+      [locationLevelLabel[locationLevel]]: item.location_label,
+      Respondents: item.count,
+      'Percentage (%)': Number(item.percentage ?? 0),
+    }));
+
+    if (!overviewRows.length && !programRows.length && !yearRows.length && !statusRows.length && !salaryRows.length && !locationRows.length) {
       return;
     }
 
@@ -1089,13 +1203,18 @@ export default function Reports() {
     summarySheet.addRow(['Generated At', new Date().toLocaleString()]);
     summarySheet.addRow(['Year Filter', selectedYear === 'all' ? 'All Years' : selectedYear]);
     summarySheet.addRow(['Department Filter', reportDepartment === 'all' ? 'All Departments' : reportDepartment]);
-    if (tab === 'overview') {
-      const labels = getOverviewFilterLabels();
-      summarySheet.addRow(['Employability Status', labels.employmentStatus]);
-      summarySheet.addRow(['Program Alignment', labels.programAlignment]);
-      summarySheet.addRow(['Graduation Year', labels.graduationYear]);
-      summarySheet.addRow(['Course', labels.course]);
+    if (tab === 'location') {
+      summarySheet.addRow(['Location Level', locationLevelLabel[locationLevel]]);
     }
+    const labels = getOverviewFilterLabels();
+    summarySheet.addRow(['Employability Status', labels.employmentStatus]);
+    summarySheet.addRow(['Program Alignment', labels.programAlignment]);
+    summarySheet.addRow(['Graduation Year', labels.graduationYear]);
+    summarySheet.addRow(['Course', labels.course]);
+    summarySheet.addRow(['Region', labels.region]);
+    summarySheet.addRow(['Province', labels.province]);
+    summarySheet.addRow(['City/Municipality', labels.cityMunicipality]);
+    summarySheet.addRow(['Barangay', labels.barangay]);
     summarySheet.addRow(['Export Triggered From Tab', tab]);
     summarySheet.addRow([]);
     summarySheet.getRow(1).font = { bold: true, size: 14 };
@@ -1138,6 +1257,7 @@ export default function Reports() {
     addSheetFromRows('By Year', yearRows);
     addSheetFromRows('Employment Status', statusRows);
     addSheetFromRows('Salary Distribution', salaryRows);
+    addSheetFromRows('Location', locationRows);
 
     const chartsSheet = workbook.addWorksheet('Charts');
     chartsSheet.addRow(['Report Graphs']);
@@ -1283,6 +1403,26 @@ export default function Reports() {
       });
     }
 
+    if (locationRows.length) {
+      await addChartImage(`${locationLevelLabel[locationLevel]} Distribution (Bar Chart)`, {
+        type: 'bar',
+        data: {
+          labels: locationRows.map((row) => row[locationLevelLabel[locationLevel]]),
+          datasets: [
+            {
+              label: 'Respondents',
+              backgroundColor: '#3b82f6',
+              data: locationRows.map((row) => row.Respondents),
+            },
+          ],
+        },
+        options: {
+          title: { display: true, text: `${locationLevelLabel[locationLevel]} Distribution` },
+          legend: { display: false },
+        },
+      });
+    }
+
     const yearSuffix = selectedYear !== 'all' ? `_${selectedYear}` : '_all_years';
     const fileDate = new Date().toISOString().slice(0, 10);
 
@@ -1310,7 +1450,7 @@ export default function Reports() {
     const pageHeight = pdf.internal.pageSize.getHeight();
     const marginLeft = 40;
     const reportDepartment = tab === 'overview' ? 'all' : selectedDepartment;
-    const pdfOverviewFilters = tab === 'overview' ? overviewFilters : undefined;
+    const pdfOverviewFilters = overviewFilters;
     const pdfOverviewFilterLabels = tab === 'overview' ? getOverviewFilterLabels() : null;
 
     const fetchReportData = async <T,>(
@@ -1569,6 +1709,7 @@ export default function Reports() {
     { key: 'year', label: 'By Year' },
     { key: 'employment', label: 'Employment Status' },
     { key: 'salary', label: 'Salary Distribution' },
+    { key: 'location', label: 'Location' },
     { key: 'surveys', label: 'Survey Analytics' },
   ] as const;
 
@@ -1643,6 +1784,13 @@ export default function Reports() {
     ...year,
     not_employed: getNotEmployedCount(year),
   }));
+  const locationLevelLabel: Record<LocationLevel, string> = {
+    region: 'Region',
+    province: 'Province',
+    city_municipality: 'City/Municipality',
+    barangay: 'Barangay',
+  };
+  const locationTotal = locationData.reduce((sum, item) => sum + Number(item.count ?? 0), 0);
   const departmentOptionMap = new Map(DEFAULT_DEPARTMENTS.map((department) => [department.code, department]));
   availableDepartments.forEach((department) => {
     if (department.code) {
@@ -1728,6 +1876,70 @@ export default function Reports() {
               ))}
             </select>
           </label>
+
+          <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
+            Region
+            <select
+              value={overviewFilterDraft.region}
+              onChange={(e) => updateOverviewFilterDraft('region', e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            >
+              <option value="all">All Regions</option>
+              {overviewFilterOptions.regions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label} ({option.count})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
+            Province
+            <select
+              value={overviewFilterDraft.province}
+              onChange={(e) => updateOverviewFilterDraft('province', e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            >
+              <option value="all">All Provinces</option>
+              {overviewFilterOptions.provinces.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label} ({option.count})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
+            City/Municipality
+            <select
+              value={overviewFilterDraft.cityMunicipality}
+              onChange={(e) => updateOverviewFilterDraft('cityMunicipality', e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            >
+              <option value="all">All Cities/Municipalities</option>
+              {overviewFilterOptions.cities.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label} ({option.count})
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
+            Barangay
+            <select
+              value={overviewFilterDraft.barangay}
+              onChange={(e) => updateOverviewFilterDraft('barangay', e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            >
+              <option value="all">All Barangays</option>
+              {overviewFilterOptions.barangays.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label} ({option.count})
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
 
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -1800,7 +2012,7 @@ export default function Reports() {
             </div>
           )}
           {/* Year Filter */}
-          {(tab === 'program' || tab === 'employment' || tab === 'salary') && availableYears.length > 0 && (
+          {(tab === 'program' || tab === 'employment' || tab === 'salary' || tab === 'location') && availableYears.length > 0 && (
             <div className="flex w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
               <label className="text-sm font-medium text-gray-700">Filter by Year:</label>
               <select
@@ -1829,6 +2041,21 @@ export default function Reports() {
                     {department.code} - {department.name}
                   </option>
                 ))}
+              </select>
+            </div>
+          )}
+          {tab === 'location' && (
+            <div className="flex w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
+              <label className="text-sm font-medium text-gray-700">Location:</label>
+              <select
+                value={locationLevel}
+                onChange={(e) => setLocationLevel(e.target.value as LocationLevel)}
+                className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white sm:w-auto"
+              >
+                <option value="region">Region</option>
+                <option value="province">Province</option>
+                <option value="city_municipality">City/Municipality</option>
+                <option value="barangay">Barangay</option>
               </select>
             </div>
           )}
@@ -2167,6 +2394,16 @@ export default function Reports() {
             </div>
           ) : (
             <>
+              {tab !== 'surveys' && (
+                <div className="mb-6 space-y-3">
+                  {renderOverviewFiltersSection()}
+                  {overviewFilterError && (
+                    <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+                      {overviewFilterError}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* By Program */}
               {tab === 'program' && (
@@ -2457,6 +2694,66 @@ export default function Reports() {
                   </div>
 
                   {renderAiAnalyticsSection()}
+                </div>
+              )}
+
+              {tab === 'location' && (
+                <div className="space-y-6">
+                  <div className="rounded-xl border bg-gray-50 p-4">
+                    <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+                      <div>
+                        <h3 className="text-lg font-bold text-[#1b2a4a]">{locationLevelLabel[locationLevel]} Distribution</h3>
+                        <p className="text-sm text-gray-500">
+                          {locationTotal} filtered respondent{locationTotal === 1 ? '' : 's'} counted once
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {locationData.length > 0 ? (
+                    <>
+                      <ResponsiveContainer width="100%" height={320}>
+                        <BarChart data={locationData} margin={{ top: 18, right: 24, bottom: 44, left: 8 }}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                          <XAxis dataKey="location_label" tick={{ fontSize: 11 }} interval={0} angle={-18} textAnchor="end" height={70} />
+                          <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
+                          <Tooltip
+                            contentStyle={{ borderRadius: 8 }}
+                            formatter={(value, name) => (
+                              name === 'Percentage' ? [`${Number(value).toFixed(1)}%`, name] : [value, name]
+                            )}
+                          />
+                          <Legend />
+                          <Bar dataKey="count" name="Respondents" fill="#3b82f6" radius={[6, 6, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="text-left px-4 py-3 font-semibold text-gray-600">{locationLevelLabel[locationLevel]}</th>
+                              <th className="text-center px-4 py-3 font-semibold text-gray-600">Respondents</th>
+                              <th className="text-center px-4 py-3 font-semibold text-gray-600">Percentage</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {locationData.map((item) => (
+                              <tr key={item.location_id} className="border-t hover:bg-gray-50">
+                                <td className="px-4 py-3 font-medium">{item.location_label}</td>
+                                <td className="px-4 py-3 text-center">{item.count}</td>
+                                <td className="px-4 py-3 text-center">{Number(item.percentage ?? 0).toFixed(1)}%</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="border rounded-xl p-8 text-center">
+                      <p className="font-semibold text-[#1b2a4a]">No location data matches the selected filters.</p>
+                    </div>
+                  )}
                 </div>
               )}
 

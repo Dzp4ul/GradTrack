@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/survey_response_analytics.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -34,18 +35,19 @@ try {
     }
 
     // Get total responses
-    $stmt = $db->prepare("SELECT COUNT(*) as total FROM survey_responses WHERE survey_id = :id");
+    $stmt = $db->prepare("SELECT COUNT(DISTINCT id) as total FROM survey_responses WHERE survey_id = :id AND submitted_at IS NOT NULL");
     $stmt->bindParam(':id', $surveyId);
     $stmt->execute();
     $totalResponses = (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
 
     // Get all responses
     $stmt = $db->prepare("
-        SELECT sr.responses, sr.graduate_id, g.year_graduated, p.code AS program_code, p.name AS program_name
+        SELECT sr.id AS response_id, sr.responses, sr.graduate_id, g.year_graduated, p.code AS program_code, p.name AS program_name
         FROM survey_responses sr
         LEFT JOIN graduates g ON g.id = sr.graduate_id
         LEFT JOIN programs p ON p.id = g.program_id
         WHERE sr.survey_id = :id
+          AND sr.submitted_at IS NOT NULL
     ");
     $stmt->bindParam(':id', $surveyId);
     $stmt->execute();
@@ -87,20 +89,21 @@ try {
         ];
 
         $answers = [];
-        $responseKeys = $questionResponseKeys[(string)$question['id']] ?? [(string)$question['id']];
+        $seenResponses = [];
         foreach ($responses as $response) {
+            if (gradtrack_survey_is_duplicate_response($response, $seenResponses)) {
+                continue;
+            }
+
             $responseData = json_decode($response['responses'], true);
             if (!is_array($responseData)) {
                 continue;
             }
 
-            foreach ($responseKeys as $responseKey) {
-                if (array_key_exists($responseKey, $responseData)) {
-                    if (hasAnswerValue($responseData[$responseKey])) {
-                        $answers[] = $responseData[$responseKey];
-                    }
-                    break;
-                }
+            $answerMap = gradtrack_survey_build_answer_map($questions, $responseData);
+            $answer = $answerMap[$questionId] ?? null;
+            if (hasAnswerValue($answer)) {
+                $answers[] = $answer;
             }
         }
 
@@ -112,10 +115,10 @@ try {
             case 'multiple_choice':
             case 'radio':
             case 'rating':
-                $questionAnalytics['data'] = analyzeMultipleChoice($answers, $questionAnalytics['options']);
+                $questionAnalytics['data'] = analyzeMultipleChoice($answers, $questionAnalytics['options'], $totalResponses);
                 break;
             case 'checkbox':
-                $questionAnalytics['data'] = analyzeCheckbox($answers, $questionAnalytics['options']);
+                $questionAnalytics['data'] = analyzeCheckbox($answers, $questionAnalytics['options'], $totalResponses);
                 break;
             case 'text':
             case 'date':
@@ -157,7 +160,7 @@ function calculateResponseRate($db, $surveyId) {
     $totalGraduates = (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
     
     // Get total responses
-    $stmt = $db->prepare("SELECT COUNT(*) as total FROM survey_responses WHERE survey_id = :id");
+    $stmt = $db->prepare("SELECT COUNT(DISTINCT id) as total FROM survey_responses WHERE survey_id = :id AND submitted_at IS NOT NULL");
     $stmt->bindParam(':id', $surveyId);
     $stmt->execute();
     $totalResponses = (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
@@ -249,13 +252,13 @@ function seedOptionDistribution($options) {
     return $distribution;
 }
 
-function analyzeMultipleChoice($answers, $options = []) {
+function analyzeMultipleChoice($answers, $options = [], $denominator = null) {
     $distribution = [];
     if (!empty($options)) {
         $distribution = seedOptionDistribution($options);
     }
 
-    $total = count($answers);
+    $total = $denominator !== null ? (int)$denominator : count($answers);
     
     foreach ($answers as $answer) {
         $option = answerLabel($answer);
@@ -272,13 +275,13 @@ function analyzeMultipleChoice($answers, $options = []) {
     return distributionToRows($distribution, $total);
 }
 
-function analyzeCheckbox($answers, $options = []) {
+function analyzeCheckbox($answers, $options = [], $denominator = null) {
     $distribution = [];
     if (!empty($options)) {
         $distribution = seedOptionDistribution($options);
     }
 
-    $total = count($answers);
+    $total = $denominator !== null ? (int)$denominator : count($answers);
     
     foreach ($answers as $answer) {
         // Checkbox answers can be arrays or comma-separated strings
@@ -619,18 +622,19 @@ function findSurveyQuestionId($questions, $requiredTerms, $excludedTerms = []) {
 
 function buildSurveyReportRecords($responses, $questions, $questionResponseKeys, $questionIds) {
     $records = [];
+    $seenResponses = [];
 
     foreach ($responses as $response) {
+        if (gradtrack_survey_is_duplicate_response($response, $seenResponses)) {
+            continue;
+        }
+
         $data = json_decode((string)$response['responses'], true);
         if (!is_array($data)) {
             continue;
         }
 
-        $answers = [];
-        foreach ($questions as $question) {
-            $questionId = (string)$question['id'];
-            $answers[$questionId] = getAnswerFromKeys($data, $questionResponseKeys[$questionId] ?? [$questionId]);
-        }
+        $answers = gradtrack_survey_build_answer_map($questions, $data);
 
         $program = strtoupper(trim((string)($response['program_code'] ?? '')));
         if ($program === '' && !empty($questionIds['program'])) {
@@ -2042,15 +2046,22 @@ function analyzeEmploymentData($responses, $questions, $questionResponseKeys) {
     $notAligned = 0;
     $salaryDistribution = [];
     $timeToJobDistribution = [];
+    $seenResponses = [];
     
     foreach ($responses as $response) {
+        if (gradtrack_survey_is_duplicate_response($response, $seenResponses)) {
+            continue;
+        }
+
         $data = json_decode($response['responses'], true);
         if (!is_array($data)) {
             continue;
         }
+
+        $answerMap = gradtrack_survey_build_answer_map($questions, $data);
         
         // Employment status
-        $employmentAnswer = getAnswerFromKeys($data, $questionResponseKeys[$employmentQuestionId] ?? [$employmentQuestionId]);
+        $employmentAnswer = $answerMap[$employmentQuestionId] ?? null;
         if ($employmentAnswer !== null) {
             $employmentStatus = parseEmploymentAnswer($employmentAnswer);
 
@@ -2063,7 +2074,7 @@ function analyzeEmploymentData($responses, $questions, $questionResponseKeys) {
         
         // Alignment
         if ($alignmentQuestionId) {
-            $alignmentAnswer = getAnswerFromKeys($data, $questionResponseKeys[$alignmentQuestionId] ?? [$alignmentQuestionId]);
+            $alignmentAnswer = $answerMap[$alignmentQuestionId] ?? null;
             $alignment = strtolower(trim((string)$alignmentAnswer));
             if ($alignment !== '') {
                 if (strpos($alignment, 'directly') !== false || strpos($alignment, 'yes') !== false) {
@@ -2078,7 +2089,7 @@ function analyzeEmploymentData($responses, $questions, $questionResponseKeys) {
         
         // Salary
         if ($salaryQuestionId) {
-            $salary = getAnswerFromKeys($data, $questionResponseKeys[$salaryQuestionId] ?? [$salaryQuestionId]);
+            $salary = $answerMap[$salaryQuestionId] ?? null;
             if ($salary !== null && $salary !== '') {
                 if (!isset($salaryDistribution[$salary])) {
                     $salaryDistribution[$salary] = 0;
@@ -2089,7 +2100,7 @@ function analyzeEmploymentData($responses, $questions, $questionResponseKeys) {
         
         // Time to job
         if ($timeToJobQuestionId) {
-            $time = getAnswerFromKeys($data, $questionResponseKeys[$timeToJobQuestionId] ?? [$timeToJobQuestionId]);
+            $time = $answerMap[$timeToJobQuestionId] ?? null;
             if ($time !== null && $time !== '') {
                 if (!isset($timeToJobDistribution[$time])) {
                     $timeToJobDistribution[$time] = 0;

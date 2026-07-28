@@ -85,9 +85,9 @@ try {
     $status = isset($_GET['status']) ? trim((string) $_GET['status']) : 'all';
     $havingClause = '';
     if ($status === 'answered') {
-        $havingClause = 'HAVING COUNT(sr.id) > 0';
+        $havingClause = 'HAVING COUNT(DISTINCT sr.id) > 0';
     } elseif ($status === 'not_answered') {
-        $havingClause = 'HAVING COUNT(sr.id) = 0';
+        $havingClause = 'HAVING COUNT(DISTINCT sr.id) = 0';
     }
 
     $whereClause = count($whereParts) > 0 ? 'WHERE ' . implode(' AND ', $whereParts) : '';
@@ -97,8 +97,8 @@ try {
     $offset = ($page - 1) * $limit;
 
     $responseJoin = $selectedSurveyId !== null
-        ? 'LEFT JOIN survey_responses sr ON sr.graduate_id = g.id AND sr.survey_id = :survey_id'
-        : 'LEFT JOIN survey_responses sr ON sr.graduate_id = g.id';
+        ? 'LEFT JOIN survey_responses sr ON sr.graduate_id = g.id AND sr.survey_id = :survey_id AND sr.submitted_at IS NOT NULL'
+        : 'LEFT JOIN survey_responses sr ON sr.graduate_id = g.id AND sr.submitted_at IS NOT NULL';
 
     $fromAndJoins = "
         FROM graduates g
@@ -131,8 +131,8 @@ try {
             g.year_graduated,
             p.code AS program_code,
             p.name AS program_name,
-            COUNT(sr.id) AS response_count,
-            CASE WHEN COUNT(sr.id) > 0 THEN 1 ELSE 0 END AS has_answered,
+            COUNT(DISTINCT sr.id) AS response_count,
+            CASE WHEN COUNT(DISTINCT sr.id) > 0 THEN 1 ELSE 0 END AS has_answered,
             MAX(sr.submitted_at) AS last_submitted_at
         $fromAndJoins
         $whereClause
@@ -153,7 +153,7 @@ try {
         FROM (
             SELECT
                 g.id,
-                COUNT(sr.id) AS response_count
+                COUNT(DISTINCT sr.id) AS response_count
             $fromAndJoins
             $whereClause
             GROUP BY g.id

@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/survey_response_analytics.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -89,7 +90,7 @@ function getOverviewData(PDO $db, ?int $surveyId): array
         ];
     }
 
-    $stmt = $db->prepare("SELECT COUNT(*) as total FROM survey_responses WHERE survey_id = :survey_id");
+    $stmt = $db->prepare("SELECT COUNT(DISTINCT id) as total FROM survey_responses WHERE survey_id = :survey_id AND submitted_at IS NOT NULL");
     $stmt->bindValue(':survey_id', $surveyId, PDO::PARAM_INT);
     $stmt->execute();
     $totalResponses = (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
@@ -103,34 +104,7 @@ function getOverviewData(PDO $db, ?int $surveyId): array
     $stmt->bindValue(':survey_id', $surveyId, PDO::PARAM_INT);
     $stmt->execute();
     $questions = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    $questionMap = [];
-    foreach ($questions as $q) {
-        $questionMap[$q['id']] = strtolower((string)$q['question_text']);
-    }
-
-    $responseKeys = getSurveyResponseQuestionKeys($db, $surveyId);
-    if (!empty($questions) && !empty($responseKeys)) {
-        $firstResponseKey = min($responseKeys);
-        $firstQuestion = $questions[0];
-        $firstQuestionId = (int)$firstQuestion['id'];
-        $firstSortOrder = (int)$firstQuestion['sort_order'];
-        $idOffset = $firstQuestionId - $firstResponseKey;
-
-        foreach ($questions as $q) {
-            $questionText = strtolower((string)$q['question_text']);
-            $historicalKeyBySort = $firstResponseKey + ((int)$q['sort_order'] - $firstSortOrder);
-            $historicalKeyById = (int)$q['id'] - $idOffset;
-
-            if ($historicalKeyBySort > 0 && !isset($questionMap[$historicalKeyBySort])) {
-                $questionMap[$historicalKeyBySort] = $questionText;
-            }
-            if ($historicalKeyById > 0 && !isset($questionMap[$historicalKeyById])) {
-                $questionMap[$historicalKeyById] = $questionText;
-            }
-        }
-    }
-
-    $stmt = $db->prepare("SELECT responses FROM survey_responses WHERE survey_id = :survey_id");
+    $stmt = $db->prepare("SELECT id AS response_id, responses FROM survey_responses WHERE survey_id = :survey_id AND submitted_at IS NOT NULL");
     $stmt->bindValue(':survey_id', $surveyId, PDO::PARAM_INT);
     $stmt->execute();
     $surveyResponses = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -141,19 +115,31 @@ function getOverviewData(PDO $db, ?int $surveyId): array
     $employedAbroadCount = 0;
     $alignedCount = 0;
 
+    $seenResponses = [];
     foreach ($surveyResponses as $response) {
+        if (gradtrack_survey_is_duplicate_response($response, $seenResponses)) {
+            continue;
+        }
+
         $data = json_decode((string)$response['responses'], true);
         if (!is_array($data)) {
             continue;
         }
 
+        $answerMap = gradtrack_survey_build_answer_map($questions, $data);
         $isEmployed = false;
         $isUnemployed = false;
         $jobRelated = '';
         $workLocation = '';
 
-        foreach ($data as $questionId => $answer) {
-            $questionText = $questionMap[$questionId] ?? '';
+        foreach ($questions as $question) {
+            $questionId = (string)($question['id'] ?? '');
+            if ($questionId === '') {
+                continue;
+            }
+
+            $answer = $answerMap[$questionId] ?? null;
+            $questionText = strtolower((string)($question['question_text'] ?? ''));
             $answerValue = is_string($answer) ? strtolower(trim($answer)) : '';
 
             if (strpos($questionText, 'employment status') !== false || strpos($questionText, 'presently employed') !== false) {
@@ -217,6 +203,7 @@ function getSurveyResponseQuestionKeys(PDO $db, ?int $surveyId): array
         SELECT responses
         FROM survey_responses
         WHERE survey_id = :survey_id
+          AND submitted_at IS NOT NULL
         ORDER BY id ASC
         LIMIT 25
     ");

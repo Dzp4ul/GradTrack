@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/survey_response_analytics.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -108,6 +109,7 @@ function getSurveyResponseQuestionKeys(PDO $db, ?int $surveyId): array
         SELECT responses
         FROM survey_responses
         WHERE survey_id = :survey_id
+          AND submitted_at IS NOT NULL
         ORDER BY id ASC
         LIMIT 25
     ");
@@ -185,11 +187,30 @@ function getSurveyResponses(PDO $db, ?int $surveyId): array
     }
 
     $stmt = $db->prepare("
-        SELECT sr.responses, g.year_graduated, p.code AS graduate_program_code, p.name AS graduate_program_name
+        SELECT sr.id AS response_id, sr.responses, g.year_graduated, p.code AS graduate_program_code, p.name AS graduate_program_name
         FROM survey_responses sr
         LEFT JOIN graduates g ON g.id = sr.graduate_id
         LEFT JOIN programs p ON p.id = g.program_id
         WHERE sr.survey_id = :survey_id
+          AND sr.submitted_at IS NOT NULL
+    ");
+    $stmt->bindValue(':survey_id', $surveyId, PDO::PARAM_INT);
+    $stmt->execute();
+
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function getSurveyQuestions(PDO $db, ?int $surveyId): array
+{
+    if ($surveyId === null) {
+        return [];
+    }
+
+    $stmt = $db->prepare("
+        SELECT id, question_text, sort_order
+        FROM survey_questions
+        WHERE survey_id = :survey_id
+        ORDER BY sort_order ASC, id ASC
     ");
     $stmt->bindValue(':survey_id', $surveyId, PDO::PARAM_INT);
     $stmt->execute();
@@ -203,7 +224,7 @@ function getSurveyResponseCount(PDO $db, ?int $surveyId): int
         return 0;
     }
 
-    $stmt = $db->prepare("SELECT COUNT(*) as total FROM survey_responses WHERE survey_id = :survey_id");
+    $stmt = $db->prepare("SELECT COUNT(DISTINCT id) as total FROM survey_responses WHERE survey_id = :survey_id AND submitted_at IS NOT NULL");
     $stmt->bindValue(':survey_id', $surveyId, PDO::PARAM_INT);
     $stmt->execute();
 
@@ -266,12 +287,13 @@ try {
     // Get selected survey responses with canonical graduate program/year context
     $surveyResponses = getSurveyResponses($db, $selectedSurveyId);
 
-    // Get selected survey questions to map responses, including historical IDs from saved responses
-    $questionMap = getQuestionMap($db, $selectedSurveyId);
+    // Get selected survey questions for per-response legacy answer mapping.
+    $questions = getSurveyQuestions($db, $selectedSurveyId);
     
     // Parse survey data
     $employedCount = 0;
-    $totalResponses = count($surveyResponses);
+    $unemployedCount = 0;
+    $totalResponses = 0;
     $alignedCount = 0;
     $partiallyAlignedCount = 0;
     $notAlignedCount = 0;
@@ -281,14 +303,22 @@ try {
     $jobTitles = [];
     $latestGraduationYear = 0;
     $yearlyStats = [];
+    $seenResponses = [];
     
     foreach ($surveyResponses as $response) {
+        if (gradtrack_survey_is_duplicate_response($response, $seenResponses)) {
+            continue;
+        }
+
         $data = json_decode($response['responses'], true);
         
         if (!is_array($data)) continue;
+
+        $totalResponses++;
         
         // Find employment status and job alignment
         $isEmployed = false;
+        $isUnemployed = false;
         $degreeProgramCode = '';
         $degreeProgramName = '';
         if (!empty($response['graduate_program_code'])) {
@@ -314,8 +344,16 @@ try {
         $fallbackProgramAnswer = '';
         $jobRelated = '';
         
-        foreach ($data as $questionId => $answer) {
-            $questionText = isset($questionMap[$questionId]) ? $questionMap[$questionId] : '';
+        $answerMap = gradtrack_survey_build_answer_map($questions, $data);
+
+        foreach ($questions as $question) {
+            $questionId = (string)($question['id'] ?? '');
+            if ($questionId === '') {
+                continue;
+            }
+
+            $answer = $answerMap[$questionId] ?? null;
+            $questionText = strtolower((string)($question['question_text'] ?? ''));
             
             // Check for employment status
             if (strpos($questionText, 'employment status') !== false || strpos($questionText, 'presently employed') !== false || strpos($questionText, 'are you employed') !== false) {
@@ -323,6 +361,8 @@ try {
                 if ($employmentAnswer !== null) {
                     if ($employmentAnswer) {
                         $isEmployed = true;
+                    } else {
+                        $isUnemployed = true;
                     }
                 }
             }
@@ -342,7 +382,7 @@ try {
             ) {
                 $candidateRelated = answerToText($answer);
                 if (!answerIndicatesAlignment($candidateRelated) && strpos($questionText, 'job related to') !== false) {
-                    $candidateRelated = getNeighborAnswerText($data, $questionId, -1);
+                    $candidateRelated = getNeighborAnswerText($answerMap, $questionId, -1);
                 }
 
                 if (answerIndicatesAlignment($candidateRelated)) {
@@ -356,6 +396,8 @@ try {
             if ($responseYear > 0 && isset($yearlyStats[$responseYear])) {
                 $yearlyStats[$responseYear]['employed']++;
             }
+        } elseif ($isUnemployed) {
+            $unemployedCount++;
         }
         
         // Count alignment based on survey response
@@ -550,6 +592,10 @@ try {
         "success" => true,
         "data" => [
             "total_graduates" => (int)$totalResponses,
+            "total_employed" => (int)$employedCount,
+            "total_unemployed" => (int)$unemployedCount,
+            "total_employment_known" => (int)($employedCount + $unemployedCount),
+            "total_aligned" => (int)$alignedCount,
             "employment_rate" => $employmentRate,
             "alignment_rate" => $alignmentRate,
             "avg_time_to_employment" => $avgTime,
