@@ -1,9 +1,12 @@
 const DEFAULT_API_BASE_URL = 'http://localhost/GradTrack/backend';
+const DEFAULT_PSGC_API_BASE_URL = 'https://psgc.cloud/api/v2';
 
 const rawApiBaseUrl = import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL;
+const rawPsgcApiBaseUrl = import.meta.env.VITE_PSGC_API_BASE_URL || DEFAULT_PSGC_API_BASE_URL;
 
 export const API_BASE_URL = rawApiBaseUrl.replace(/\/+$/, '');
 export const API_ROOT = `${API_BASE_URL}/api`;
+export const PSGC_API_BASE_URL = rawPsgcApiBaseUrl.replace(/\/+$/, '');
 
 export const API_ENDPOINTS = {
   AUTH: {

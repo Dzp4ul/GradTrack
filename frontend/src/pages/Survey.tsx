@@ -1,9 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ShieldCheck, ChevronRight, ChevronLeft, ClipboardList, Save, Eye, EyeOff, Users, Briefcase } from 'lucide-react';
+import { ShieldCheck, ChevronRight, ChevronLeft, ClipboardList, Save, Eye, EyeOff, Users, Briefcase, RefreshCw } from 'lucide-react';
 import MessageBox from '../components/MessageBox';
+import SearchableSelect from '../components/SearchableSelect';
 import { API_ENDPOINTS, API_ROOT } from '../config/api';
-import { philippineProvinces, philippineRegions } from '../data/philippineAddress';
+import { usePsgcAddress } from '../hooks/usePsgcAddress';
+import { PsgcAddressPayload } from '../services/psgc';
 
 interface Question {
   id?: number;
@@ -48,9 +50,18 @@ interface TokenProfileData {
   year_graduated?: number | string | null;
   address?: string | null;
   region?: string | null;
+  region_code?: string | null;
+  region_name?: string | null;
   province?: string | null;
+  province_code?: string | null;
+  province_name?: string | null;
   city?: string | null;
   municipality?: string | null;
+  city_municipality_code?: string | null;
+  city_municipality_name?: string | null;
+  barangay?: string | null;
+  barangay_code?: string | null;
+  barangay_name?: string | null;
   civil_status?: string | null;
   sex?: string | null;
   gender?: string | null;
@@ -337,62 +348,53 @@ const hasBlankOtherSelection = (question: Question, answer: SurveyAnswer) => {
   return typeof answer === 'string' && isOtherStoredValue(answer, otherOption) && !getOtherTextFromAnswer(answer, otherOption).trim();
 };
 
-const getProvinceRegion = (provinceName: string) => {
-  const normalizedProvince = normalizeComparable(provinceName);
+interface PsgcAddressQuestionMap {
+  region?: Question;
+  province?: Question;
+  cityMunicipality?: Question;
+  barangay?: Question;
+}
 
-  for (const [regionCode, provinces] of Object.entries(philippineProvinces)) {
-    const match = provinces.find((province) => normalizeComparable(province) === normalizedProvince);
-    if (match) {
-      const region = philippineRegions.find((item) => item.code === regionCode);
-      return { province: match, region: region?.name || regionCode };
+const getPsgcAddressQuestions = (questions: Question[]): PsgcAddressQuestionMap => {
+  const map: PsgcAddressQuestionMap = {};
+
+  questions.forEach((question) => {
+    const text = normalizeComparable(question.question_text);
+    if (!map.region && /\bregion\b/.test(text)) {
+      map.region = question;
+    } else if (!map.province && /\bprovince\b/.test(text)) {
+      map.province = question;
+    } else if (!map.cityMunicipality && (/\bcity\b/.test(text) || /\bmunicipality\b/.test(text))) {
+      map.cityMunicipality = question;
+    } else if (!map.barangay && /\bbarangay\b/.test(text)) {
+      map.barangay = question;
     }
-  }
+  });
 
-  return { province: provinceName, region: '' };
+  return map;
 };
 
+const getPsgcAddressQuestionIds = (map: PsgcAddressQuestionMap) =>
+  new Set(
+    [map.region?.id, map.province?.id, map.cityMunicipality?.id, map.barangay?.id]
+      .filter((id): id is number => Boolean(id))
+  );
+
+const hasPsgcAddressQuestions = (map: PsgcAddressQuestionMap) =>
+  Boolean(map.region || map.province || map.cityMunicipality || map.barangay);
+
 const extractAddressParts = (profile: TokenProfileData) => {
-  const address = getProfileText(profile, ['address']);
-  const directProvince = getProfileText(profile, ['province']);
-  const directCity = getProfileText(profile, ['city', 'municipality']);
-  const directRegion = getProfileText(profile, ['region']);
-  const addressParts = address.split(',').map((part) => part.trim()).filter(Boolean);
-  const normalizedAddress = normalizeComparable(address);
+  const addressParts = getProfileText(profile, ['address'])
+    .split(',')
+    .map((part) => part.trim())
+    .filter(Boolean);
 
-  let province = directProvince;
-  let region = directRegion;
-
-  if (!province && normalizedAddress) {
-    for (const provinces of Object.values(philippineProvinces)) {
-      const match = provinces.find((item) => normalizedAddress.includes(normalizeComparable(item)));
-      if (match) {
-        province = match;
-        break;
-      }
-    }
-  }
-
-  if (!region && province) {
-    region = getProvinceRegion(province).region;
-  }
-
-  let city = directCity;
-  if (!city && addressParts.length > 0) {
-    const provinceIndex = province
-      ? addressParts.findIndex((part) => normalizeComparable(part).includes(normalizeComparable(province)))
-      : -1;
-
-    if (provinceIndex > 0) {
-      city = addressParts[provinceIndex - 1];
-    } else {
-      city = addressParts.find((part) => {
-        const normalizedPart = normalizeComparable(part);
-        return normalizedPart !== normalizeComparable(province) && !normalizedPart.includes('region');
-      }) || '';
-    }
-  }
-
-  return { region, province, city };
+  return {
+    region: getProfileText(profile, ['region_name', 'region']),
+    province: getProfileText(profile, ['province_name', 'province']),
+    city: getProfileText(profile, ['city_municipality_name', 'city', 'municipality']),
+    barangay: getProfileText(profile, ['barangay_name', 'barangay']) || addressParts[0] || '',
+  };
 };
 
 const matchQuestionOption = (question: Question, candidates: string[]) => {
@@ -487,6 +489,10 @@ const getGraduateAutofillValue = (question: Question, profile: TokenProfileData)
     return formatValueForQuestion(question, [addressParts.city]);
   }
 
+  if (questionText.includes('barangay')) {
+    return formatValueForQuestion(question, [addressParts.barangay]);
+  }
+
   if (questionText.includes('address')) {
     return formatValueForQuestion(question, [getProfileText(profile, ['address'])]);
   }
@@ -556,10 +562,76 @@ const applyGraduateAutofill = (
   return { responses: nextResponses, filledQuestionIds };
 };
 
+const hasPsgcAddressValue = (value?: Partial<PsgcAddressPayload> | null) =>
+  Boolean(
+    value
+    && (
+      value.region_code
+      || value.region_name
+      || value.province_code
+      || value.province_name
+      || value.city_municipality_code
+      || value.city_municipality_name
+      || value.barangay_code
+      || value.barangay_name
+    )
+  );
+
+const getProfilePsgcAddress = (profile: TokenProfileData): Partial<PsgcAddressPayload> | null => {
+  const address = {
+    region_code: getProfileText(profile, ['region_code']),
+    region_name: getProfileText(profile, ['region_name', 'region']),
+    province_code: getProfileText(profile, ['province_code']),
+    province_name: getProfileText(profile, ['province_name', 'province']),
+    city_municipality_code: getProfileText(profile, ['city_municipality_code']),
+    city_municipality_name: getProfileText(profile, ['city_municipality_name', 'city', 'municipality']),
+    barangay_code: getProfileText(profile, ['barangay_code']),
+    barangay_name: getProfileText(profile, ['barangay_name', 'barangay']),
+  };
+
+  return hasPsgcAddressValue(address) ? address : null;
+};
+
+const setResponseValue = (
+  nextResponses: SurveyResponses,
+  question: Question | undefined,
+  value: string | null | undefined,
+) => {
+  if (!question?.id) return;
+
+  const cleanValue = String(value || '').trim();
+  if (cleanValue) {
+    nextResponses[question.id] = cleanValue;
+  } else {
+    delete nextResponses[question.id];
+  }
+};
+
+const mergePsgcAddressResponses = (
+  sourceResponses: SurveyResponses,
+  addressQuestions: PsgcAddressQuestionMap,
+  addressPayload: PsgcAddressPayload | Partial<PsgcAddressPayload> | null,
+  provinceApplicable: boolean,
+) => {
+  const nextResponses = { ...sourceResponses };
+
+  setResponseValue(nextResponses, addressQuestions.region, addressPayload?.region_name);
+  setResponseValue(
+    nextResponses,
+    addressQuestions.province,
+    provinceApplicable ? addressPayload?.province_name : null,
+  );
+  setResponseValue(nextResponses, addressQuestions.cityMunicipality, addressPayload?.city_municipality_name);
+  setResponseValue(nextResponses, addressQuestions.barangay, addressPayload?.barangay_name);
+
+  return nextResponses;
+};
+
 function Survey() {
   const [searchParams] = useSearchParams();
   const surveyIdFromUrl = searchParams.get('survey_id');
   const hydratedDraftKeyRef = useRef<string | null>(null);
+  const psgcAddress = usePsgcAddress();
   
   const [agreed, setAgreed] = useState(false);
   const [agreedCheckbox, setAgreedCheckbox] = useState(false);
@@ -729,11 +801,13 @@ function Survey() {
 
     const saved = localStorage.getItem(draftKey);
     let initialResponses: SurveyResponses = {};
+    let initialPsgcAddress: Partial<PsgcAddressPayload> | null = null;
 
     if (saved) {
       try {
         const draft = JSON.parse(saved);
         initialResponses = sanitizeDraftResponses(draft.responses, activeSurvey.questions);
+        initialPsgcAddress = hasPsgcAddressValue(draft.psgcAddress) ? draft.psgcAddress : null;
         setCurrentSection(draft.section || 0);
         if (draft.timestamp) {
           setLastSaved(new Date(draft.timestamp));
@@ -746,17 +820,23 @@ function Survey() {
     const autofill = applyGraduateAutofill(activeSurvey.questions, tokenProfileData, initialResponses);
     setResponses(autofill.responses);
     setAutoFilledQuestionIds(new Set(autofill.filledQuestionIds));
+    psgcAddress.restoreAddress(initialPsgcAddress || getProfilePsgcAddress(tokenProfileData));
   }, [activeSurvey, tokenProfileData, graduateId]);
 
   // Auto-save draft
   useEffect(() => {
-    if (activeSurvey && graduateId && Object.keys(responses).length > 0) {
+    if (activeSurvey && graduateId && (Object.keys(responses).length > 0 || hasPsgcAddressValue(psgcAddress.draftValue))) {
       const draftKey = getSurveyDraftKey(activeSurvey.id, graduateId);
-      const draft = { responses, section: currentSection, timestamp: new Date().toISOString() };
+      const draft = {
+        responses,
+        psgcAddress: psgcAddress.draftValue,
+        section: currentSection,
+        timestamp: new Date().toISOString(),
+      };
       localStorage.setItem(draftKey, JSON.stringify(draft));
       setLastSaved(new Date());
     }
-  }, [responses, currentSection, activeSurvey, graduateId]);
+  }, [responses, psgcAddress.draftValue, currentSection, activeSurvey, graduateId]);
 
   useEffect(() => {
     if (!activeSurvey) {
@@ -770,6 +850,37 @@ function Survey() {
         : cleanedResponses;
     });
   }, [activeSurvey, responses]);
+
+  useEffect(() => {
+    if (!activeSurvey) {
+      return;
+    }
+
+    const addressQuestions = getPsgcAddressQuestions(activeSurvey.questions);
+    if (!hasPsgcAddressQuestions(addressQuestions)) {
+      return;
+    }
+
+    setResponses((prev) => {
+      const next = mergePsgcAddressResponses(
+        prev,
+        addressQuestions,
+        psgcAddress.draftValue,
+        psgcAddress.provinceApplicable,
+      );
+
+      const changed = Object.keys({ ...prev, ...next }).some((key) => {
+        const questionId = Number(key);
+        return prev[questionId] !== next[questionId];
+      });
+
+      return changed ? next : prev;
+    });
+  }, [
+    activeSurvey,
+    psgcAddress.draftValue,
+    psgcAddress.provinceApplicable,
+  ]);
 
   const fetchActiveSurvey = async (targetSurveyId?: string | number | null) => {
     try {
@@ -916,6 +1027,7 @@ function Survey() {
         }
       } else if (
         questionText.includes('address')
+        || questionText.includes('region')
         || questionText.includes('barangay')
         || questionText.includes('city')
         || questionText.includes('municipality')
@@ -965,6 +1077,15 @@ function Survey() {
       prefill.middle_name = fullNameParts.slice(1, fullNameParts.length - 1).join(' ');
     }
 
+    if (psgcAddress.payload) {
+      prefill.address = [
+        psgcAddress.payload.barangay_name,
+        psgcAddress.payload.city_municipality_name,
+        psgcAddress.payload.province_name,
+        psgcAddress.payload.region_name,
+      ].filter(Boolean).join(', ');
+    }
+
     return prefill;
   };
 
@@ -978,6 +1099,7 @@ function Survey() {
     setSubmittedResponseId(null);
     setPrefillData(null);
     setResponses({});
+    psgcAddress.resetAddress();
     setAutoFilledQuestionIds(new Set());
     setCurrentSection(0);
     setAgreed(false);
@@ -1090,8 +1212,67 @@ function Survey() {
 
   // Validate current section before moving to next
   const validateCurrentSection = () => {
+    const sectionAddressQuestions = getPsgcAddressQuestions(currentSectionQuestions);
+    const sectionAddressQuestionIds = getPsgcAddressQuestionIds(sectionAddressQuestions);
+
+    if (hasPsgcAddressQuestions(sectionAddressQuestions)) {
+      const addressErrors = [
+        psgcAddress.errors.regions,
+        psgcAddress.errors.provinces,
+        psgcAddress.errors.cities,
+        psgcAddress.errors.barangays,
+      ].filter(Boolean);
+
+      if (psgcAddress.isLoading) {
+        setMsgBox({
+          isOpen: true,
+          type: 'warning',
+          message: 'Please wait until the address list has finished loading.',
+          title: 'Address Loading',
+        });
+        return false;
+      }
+
+      if (addressErrors.length > 0) {
+        setMsgBox({
+          isOpen: true,
+          type: 'error',
+          message: addressErrors[0] || 'Philippine address information is temporarily unavailable. Please try again.',
+          title: 'Address Unavailable',
+        });
+        return false;
+      }
+
+      if (sectionAddressQuestions.region && !psgcAddress.selection.regionCode) {
+        setMsgBox({ isOpen: true, type: 'warning', message: 'Please select a region.', title: 'Required Field' });
+        return false;
+      }
+
+      if (
+        sectionAddressQuestions.province
+        && psgcAddress.provinceApplicable
+        && !psgcAddress.selection.provinceCode
+      ) {
+        setMsgBox({ isOpen: true, type: 'warning', message: 'Please select a province.', title: 'Required Field' });
+        return false;
+      }
+
+      if (sectionAddressQuestions.cityMunicipality && !psgcAddress.selection.cityMunicipalityCode) {
+        setMsgBox({ isOpen: true, type: 'warning', message: 'Please select a city or municipality.', title: 'Required Field' });
+        return false;
+      }
+
+      if (sectionAddressQuestions.barangay && !psgcAddress.selection.barangayCode) {
+        setMsgBox({ isOpen: true, type: 'warning', message: 'Please select a barangay.', title: 'Required Field' });
+        return false;
+      }
+    }
+
     const requiredQuestions = currentSectionQuestions.filter(
-      q => !isHeaderQuestion(q) && Number(q.is_required) === 1 && !isQuestionDisabled(q)
+      q => !isHeaderQuestion(q)
+        && Number(q.is_required) === 1
+        && !isQuestionDisabled(q)
+        && (!q.id || !sectionAddressQuestionIds.has(q.id))
     );
     
     for (const question of requiredQuestions) {
@@ -1126,8 +1307,40 @@ function Survey() {
   const handleSubmit = async () => {
     if (!activeSurvey || !token || !graduateId) return;
 
+    const addressQuestions = getPsgcAddressQuestions(activeSurvey.questions);
+    const shouldSubmitPsgcAddress = hasPsgcAddressQuestions(addressQuestions);
+
+    if (shouldSubmitPsgcAddress && psgcAddress.isLoading) {
+      setMsgBox({
+        isOpen: true,
+        type: 'warning',
+        message: 'Please wait until the address list has finished loading.',
+        title: 'Address Loading',
+      });
+      return;
+    }
+
+    if (shouldSubmitPsgcAddress && !psgcAddress.payload) {
+      setMsgBox({
+        isOpen: true,
+        type: 'warning',
+        message: 'Please complete the Philippine address section before submitting.',
+        title: 'Required Address',
+      });
+      return;
+    }
+
+    const responsePayload = shouldSubmitPsgcAddress
+      ? mergePsgcAddressResponses(
+        removeDisabledResponses(responses, activeSurvey.questions),
+        addressQuestions,
+        psgcAddress.payload,
+        psgcAddress.provinceApplicable,
+      )
+      : removeDisabledResponses(responses, activeSurvey.questions);
+
     const submissionResponses = sanitizeDraftResponses(
-      removeDisabledResponses(responses, activeSurvey.questions),
+      responsePayload,
       activeSurvey.questions,
     );
 
@@ -1140,6 +1353,7 @@ function Survey() {
           graduate_id: graduateId,
           token: token,
           responses: submissionResponses,
+          psgc_address: shouldSubmitPsgcAddress ? psgcAddress.payload : null,
         }),
       });
 
@@ -1157,9 +1371,10 @@ function Survey() {
         setPostSubmitModalOpen(true);
         setShowCreateAccountForm(false);
       } else {
-        const errorMsg = result.error || 'Unknown error occurred';
-        const hint = result.hint || '';
-        setMsgBox({ isOpen: true, type: 'error', message: `Error: ${errorMsg}\n\n${hint}`, title: 'Submission Error' });
+        const errorMsg = response.status >= 500
+          ? 'We could not save your survey right now. Please try again later.'
+          : result.message || result.error || 'Unable to save your survey response.';
+        setMsgBox({ isOpen: true, type: 'error', message: errorMsg, title: 'Submission Error' });
         console.error('Survey submission error:', result);
       }
     } catch (error) {
@@ -1596,6 +1811,162 @@ function Survey() {
   };
   
   const currentSectionQuestions = getFilteredQuestions();
+  const currentAddressQuestions = getPsgcAddressQuestions(currentSectionQuestions);
+  const currentAddressQuestionIds = getPsgcAddressQuestionIds(currentAddressQuestions);
+  const surveyAddressQuestions = getPsgcAddressQuestions(activeSurvey.questions);
+  const surveyAddressQuestionIds = getPsgcAddressQuestionIds(surveyAddressQuestions);
+  const isCurrentAddressLoading = hasPsgcAddressQuestions(currentAddressQuestions) && psgcAddress.isLoading;
+  const isSurveyAddressLoading = hasPsgcAddressQuestions(surveyAddressQuestions) && psgcAddress.isLoading;
+
+  const clearAddressAutoFill = () => {
+    setAutoFilledQuestionIds((prev) => {
+      const next = new Set(prev);
+      surveyAddressQuestionIds.forEach((id) => next.delete(id));
+      return next.size === prev.size ? prev : next;
+    });
+  };
+
+  const renderAddressError = (
+    level: 'regions' | 'provinces' | 'cities' | 'barangays',
+    retryLabel: string,
+  ) => {
+    const error = psgcAddress.errors[level];
+    if (!error) return null;
+
+    return (
+      <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p>{error}</p>
+        <button
+          type="button"
+          onClick={() => psgcAddress.retry(level)}
+          className="mt-2 inline-flex items-center gap-1 text-sm font-semibold text-red-700 hover:text-red-800"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          {retryLabel}
+        </button>
+      </div>
+    );
+  };
+
+  const renderAddressLabel = (label: string, required: boolean) => (
+    <label className="mb-3 block text-base font-semibold text-gray-800">
+      {label}
+      {required && (
+        <span className="ml-1 font-bold text-red-600" style={{ fontSize: '1.2em' }}>*</span>
+      )}
+    </label>
+  );
+
+  const renderPsgcAddressGroup = () => (
+    <div key="psgc-address-group" className="rounded-xl border border-blue-100 bg-blue-50 p-4 sm:p-5">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {currentAddressQuestions.region && (
+          <div>
+            {renderAddressLabel('Region', true)}
+            <SearchableSelect
+              id={`psgc-region-${currentAddressQuestions.region.id}`}
+              value={psgcAddress.selection.regionCode}
+              options={psgcAddress.regions}
+              placeholder="Select region"
+              loading={psgcAddress.loading.regions}
+              disabled={psgcAddress.loading.regions}
+              required
+              onChange={(code) => {
+                clearAddressAutoFill();
+                psgcAddress.selectRegion(code);
+              }}
+            />
+            {renderAddressError('regions', 'Retry regions')}
+          </div>
+        )}
+
+        {currentAddressQuestions.province && (
+          <div>
+            {renderAddressLabel('Province', psgcAddress.provinceApplicable)}
+            {psgcAddress.provinceApplicable ? (
+              <>
+                <SearchableSelect
+                  id={`psgc-province-${currentAddressQuestions.province.id}`}
+                  value={psgcAddress.selection.provinceCode || ''}
+                  options={psgcAddress.provinces}
+                  placeholder="Select province"
+                  loading={psgcAddress.loading.provinces}
+                  disabled={
+                    !psgcAddress.selection.regionCode
+                    || psgcAddress.loading.provinces
+                    || Boolean(psgcAddress.errors.regions)
+                  }
+                  required={psgcAddress.provinceApplicable}
+                  onChange={(code) => {
+                    clearAddressAutoFill();
+                    psgcAddress.selectProvince(code);
+                  }}
+                />
+                {renderAddressError('provinces', 'Retry provinces')}
+              </>
+            ) : (
+              <input
+                type="text"
+                value="Not Applicable"
+                disabled
+                className="w-full cursor-not-allowed rounded-lg border border-gray-200 bg-gray-100 px-4 py-2.5 text-sm text-gray-500"
+              />
+            )}
+          </div>
+        )}
+
+        {currentAddressQuestions.cityMunicipality && (
+          <div>
+            {renderAddressLabel('City/Municipality', true)}
+            <SearchableSelect
+              id={`psgc-city-${currentAddressQuestions.cityMunicipality.id}`}
+              value={psgcAddress.selection.cityMunicipalityCode}
+              options={psgcAddress.citiesMunicipalities}
+              placeholder="Select city or municipality"
+              loading={psgcAddress.loading.cities}
+              disabled={
+                !psgcAddress.selection.regionCode
+                || (psgcAddress.provinceApplicable && !psgcAddress.selection.provinceCode)
+                || psgcAddress.loading.provinces
+                || psgcAddress.loading.cities
+                || Boolean(psgcAddress.errors.provinces)
+              }
+              required
+              onChange={(code) => {
+                clearAddressAutoFill();
+                psgcAddress.selectCityMunicipality(code);
+              }}
+            />
+            {renderAddressError('cities', 'Retry cities')}
+          </div>
+        )}
+
+        {currentAddressQuestions.barangay && (
+          <div>
+            {renderAddressLabel('Barangay', true)}
+            <SearchableSelect
+              id={`psgc-barangay-${currentAddressQuestions.barangay.id}`}
+              value={psgcAddress.selection.barangayCode}
+              options={psgcAddress.barangays}
+              placeholder="Select barangay"
+              loading={psgcAddress.loading.barangays}
+              disabled={
+                !psgcAddress.selection.cityMunicipalityCode
+                || psgcAddress.loading.barangays
+                || Boolean(psgcAddress.errors.cities)
+              }
+              required
+              onChange={(code) => {
+                clearAddressAutoFill();
+                psgcAddress.selectBarangay(code);
+              }}
+            />
+            {renderAddressError('barangays', 'Retry barangays')}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-cover bg-center bg-fixed relative" style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
@@ -1683,7 +2054,25 @@ function Survey() {
                     i++;
                     continue;
                   }
-                  
+
+                  if (question.id && currentAddressQuestions.region?.id === question.id) {
+                    renderedQuestions.push(renderPsgcAddressGroup());
+                    i++;
+                    while (
+                      i < currentSectionQuestions.length
+                      && currentSectionQuestions[i].id
+                      && currentAddressQuestionIds.has(currentSectionQuestions[i].id!)
+                    ) {
+                      i++;
+                    }
+                    continue;
+                  }
+
+                  if (question.id && currentAddressQuestionIds.has(question.id)) {
+                    i++;
+                    continue;
+                  }
+                   
                   // Check if this is Last Name and next two are First Name and Middle Name
                   if (questionText.includes('last name') &&
                       i + 2 < currentSectionQuestions.length &&
@@ -1969,7 +2358,8 @@ function Survey() {
                     setCurrentSection(prev => prev + 1);
                   }
                 }}
-                className="flex w-full items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold transition shadow-md hover:shadow-lg sm:w-auto"
+                disabled={isCurrentAddressLoading}
+                className="flex w-full items-center justify-center space-x-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-semibold transition shadow-md hover:shadow-lg sm:w-auto"
               >
                 <span>Next</span>
                 <ChevronRight className="w-5 h-5" />
@@ -1981,7 +2371,8 @@ function Survey() {
                     handleSubmit();
                   }
                 }}
-                className="w-full bg-green-600 hover:bg-green-700 text-white px-8 py-3 rounded-lg font-semibold transition shadow-md hover:shadow-lg sm:w-auto"
+                disabled={isSurveyAddressLoading}
+                className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-8 py-3 rounded-lg font-semibold transition shadow-md hover:shadow-lg sm:w-auto"
               >
                 Submit Survey
               </button>

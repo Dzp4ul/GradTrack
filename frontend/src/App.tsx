@@ -109,7 +109,7 @@ function App() {
                 <AdminLayout />
               </ProtectedRoute>
             }
-          >
+          >nb           
             <Route index element={<AdminHome />} />
             <Route path="profile" element={<AdminProfile />} />
             <Route

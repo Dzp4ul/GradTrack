@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/audit_trail.php';
+require_once __DIR__ . '/../config/psgc_address.php';
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 use PHPMailer\PHPMailer\Exception as MailException;
@@ -156,6 +157,146 @@ function survey_response_frontend_url(): string
         return null;
     }
 
+function survey_response_normalize_label($value): string
+{
+        $text = strtolower(trim((string) ($value ?? '')));
+        $text = preg_replace('/[^a-z0-9]+/', ' ', $text);
+        return trim((string) $text);
+}
+
+function survey_response_answer_text($value): string
+{
+        if (is_array($value)) {
+                return trim(implode(', ', array_map('strval', $value)));
+        }
+
+        return trim((string) ($value ?? ''));
+}
+
+function survey_response_psgc_question_map(PDO $conn, int $surveyId): array
+{
+        $stmt = $conn->prepare(
+                'SELECT id, question_text
+                 FROM survey_questions
+                 WHERE survey_id = :survey_id
+                 ORDER BY sort_order ASC, id ASC'
+        );
+        $stmt->execute([':survey_id' => $surveyId]);
+        $questions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $map = [];
+        foreach ($questions as $question) {
+                $id = isset($question['id']) ? (int) $question['id'] : 0;
+                $label = survey_response_normalize_label($question['question_text'] ?? '');
+
+                if ($id <= 0) {
+                        continue;
+                }
+
+                if (!isset($map['region']) && preg_match('/\bregion\b/', $label)) {
+                        $map['region'] = $id;
+                } elseif (!isset($map['province']) && preg_match('/\bprovince\b/', $label)) {
+                        $map['province'] = $id;
+                } elseif (!isset($map['city_municipality']) && (preg_match('/\bcity\b/', $label) || preg_match('/\bmunicipality\b/', $label))) {
+                        $map['city_municipality'] = $id;
+                } elseif (!isset($map['barangay']) && preg_match('/\bbarangay\b/', $label)) {
+                        $map['barangay'] = $id;
+                }
+        }
+
+        return $map;
+}
+
+function survey_response_has_psgc_questions(array $questionMap): bool
+{
+        return isset($questionMap['region'])
+                || isset($questionMap['province'])
+                || isset($questionMap['city_municipality'])
+                || isset($questionMap['barangay']);
+}
+
+function survey_response_assert_psgc_answer_matches(array $responses, array $questionMap, string $field, ?string $expectedName, bool $allowBlank = false): void
+{
+        if (!isset($questionMap[$field])) {
+                return;
+        }
+
+        $questionId = (string) $questionMap[$field];
+        if (!array_key_exists($questionId, $responses) && !array_key_exists($questionMap[$field], $responses)) {
+                return;
+        }
+
+        $answer = array_key_exists($questionId, $responses)
+                ? $responses[$questionId]
+                : $responses[$questionMap[$field]];
+
+        $answerText = survey_response_answer_text($answer);
+        if ($allowBlank && ($answerText === '' || survey_response_normalize_label($answerText) === 'not applicable')) {
+                return;
+        }
+
+        if (survey_response_normalize_label($answerText) !== survey_response_normalize_label($expectedName)) {
+                throw new GradTrackPsgcValidationException('The submitted address answers do not match the selected PSGC address.');
+        }
+}
+
+function survey_response_validate_psgc_submission(PDO $conn, int $surveyId, array &$responses, $submittedAddress): ?array
+{
+        $questionMap = survey_response_psgc_question_map($conn, $surveyId);
+        $requiresPsgcAddress = survey_response_has_psgc_questions($questionMap) || is_array($submittedAddress);
+
+        if (!$requiresPsgcAddress) {
+                return null;
+        }
+
+        $canonicalAddress = gradtrack_psgc_validate_address($submittedAddress);
+
+        survey_response_assert_psgc_answer_matches($responses, $questionMap, 'region', $canonicalAddress['region_name']);
+        survey_response_assert_psgc_answer_matches($responses, $questionMap, 'province', $canonicalAddress['province_name'], $canonicalAddress['province_code'] === null);
+        survey_response_assert_psgc_answer_matches($responses, $questionMap, 'city_municipality', $canonicalAddress['city_municipality_name']);
+        survey_response_assert_psgc_answer_matches($responses, $questionMap, 'barangay', $canonicalAddress['barangay_name']);
+
+        $responses['__psgc_address'] = $canonicalAddress;
+        return $canonicalAddress;
+}
+
+function survey_response_existing_columns(PDO $conn): array
+{
+        static $columns = null;
+
+        if ($columns !== null) {
+                return $columns;
+        }
+
+        $columns = [];
+        $stmt = $conn->query('SHOW COLUMNS FROM survey_responses');
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $column) {
+                if (!empty($column['Field'])) {
+                        $columns[(string) $column['Field']] = true;
+                }
+        }
+
+        return $columns;
+}
+
+function survey_response_psgc_insert_values(?array $address): array
+{
+        if (!$address) {
+                return [];
+        }
+
+        return [
+                'region_code' => $address['region_code'] ?? null,
+                'region_name' => $address['region_name'] ?? null,
+                'province_code' => $address['province_code'] ?? null,
+                'province_name' => $address['province_name'] ?? null,
+                'city_municipality_code' => $address['city_municipality_code'] ?? null,
+                'city_municipality_name' => $address['city_municipality_name'] ?? null,
+                'barangay_code' => $address['barangay_code'] ?? null,
+                'barangay_name' => $address['barangay_name'] ?? null,
+        ];
+}
+
 function survey_response_send_confirmation_email(PDO $conn, int $graduateId, int $surveyId): array
 {
         $graduateStmt = $conn->prepare("SELECT g.first_name, g.last_name, g.email, p.code AS program_code
@@ -257,8 +398,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $surveyId = $data['survey_id'] ?? null;
     $graduateId = $data['graduate_id'] ?? null;
     $responses = $data['responses'] ?? [];
+    $responses = is_array($responses) ? $responses : [];
+    $submittedPsgcAddress = $data['psgc_address'] ?? ($responses['__psgc_address'] ?? null);
 
     try {
+        $validatedPsgcAddress = $surveyId
+            ? survey_response_validate_psgc_submission($conn, (int) $surveyId, $responses, $submittedPsgcAddress)
+            : null;
+
         $conn->beginTransaction();
         
         // If token provided, validate it
@@ -312,15 +459,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         
         // Insert survey response
-        $query = "INSERT INTO survey_responses (survey_id, graduate_id, responses, submitted_at)
-                  VALUES (:survey_id, :graduate_id, :responses, NOW())";
+        $insertColumns = ['survey_id', 'graduate_id', 'responses', 'submitted_at'];
+        $insertPlaceholders = [':survey_id', ':graduate_id', ':responses', 'NOW()'];
+        $insertValues = [
+            ':survey_id' => $surveyId,
+            ':graduate_id' => $graduateId,
+            ':responses' => json_encode($responses, JSON_UNESCAPED_UNICODE),
+        ];
+
+        $existingColumns = survey_response_existing_columns($conn);
+        foreach (survey_response_psgc_insert_values($validatedPsgcAddress) as $column => $value) {
+            if (!isset($existingColumns[$column])) {
+                continue;
+            }
+
+            $placeholder = ':' . $column;
+            $insertColumns[] = $column;
+            $insertPlaceholders[] = $placeholder;
+            $insertValues[$placeholder] = $value;
+        }
+
+        $query = 'INSERT INTO survey_responses (' . implode(', ', $insertColumns) . ')
+                  VALUES (' . implode(', ', $insertPlaceholders) . ')';
 
         $stmt = $conn->prepare($query);
-        $responsesJson = json_encode($responses);
 
-        $stmt->bindParam(':survey_id', $surveyId);
-        $stmt->bindParam(':graduate_id', $graduateId);
-        $stmt->bindParam(':responses', $responsesJson);
+        foreach ($insertValues as $placeholder => $value) {
+            $stmt->bindValue($placeholder, $value);
+        }
 
         $stmt->execute();
         $responseId = $conn->lastInsertId();
@@ -386,22 +552,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             "survey_response_id" => $responseId,
             "email_notification" => $emailNotification
         ]);
+    } catch(GradTrackPsgcValidationException $e) {
+        if (isset($conn) && $conn->inTransaction()) {
+            $conn->rollBack();
+        }
+
+        http_response_code(422);
+        echo json_encode([
+            "success" => false,
+            "error" => "Invalid address",
+            "message" => $e->getMessage()
+        ]);
+    } catch(GradTrackPsgcUnavailableException $e) {
+        if (isset($conn) && $conn->inTransaction()) {
+            $conn->rollBack();
+        }
+
+        http_response_code(503);
+        echo json_encode([
+            "success" => false,
+            "error" => "Address service unavailable",
+            "message" => "We could not verify the Philippine address right now. Please try again later."
+        ]);
     } catch(PDOException $e) {
-        $conn->rollBack();
+        if (isset($conn) && $conn->inTransaction()) {
+            $conn->rollBack();
+        }
+        error_log('Survey response database error: ' . $e->getMessage());
         http_response_code(500);
         echo json_encode([
             "success" => false,
-            "error" => "Database error: " . $e->getMessage(),
-            "hint" => "Please ensure graduate_id column allows NULL values"
+            "error" => "Unable to save survey response",
+            "message" => "We could not save your survey right now. Please try again later."
         ]);
     } catch(Exception $e) {
         if (isset($conn) && $conn->inTransaction()) {
             $conn->rollBack();
         }
+        error_log('Survey response error: ' . $e->getMessage());
         http_response_code(500);
         echo json_encode([
             "success" => false,
-            "error" => "Error: " . $e->getMessage()
+            "error" => "Unable to save survey response",
+            "message" => "We could not save your survey right now. Please try again later."
         ]);
     }
 }
