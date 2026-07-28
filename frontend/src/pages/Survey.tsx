@@ -279,14 +279,18 @@ const isOtherOption = (option: string) => {
   return normalized === 'other' || normalized === 'others';
 };
 
+const getOtherOptionLabel = (option: string) =>
+  option.replace(/\s*:+\s*$/, '').trim() || option.trim();
+
 const isOtherStoredValue = (value: string, option: string) => {
   const trimmedValue = value.trim();
+  const otherLabel = getOtherOptionLabel(option);
   const normalizedValue = normalizeComparable(trimmedValue);
-  const normalizedOption = normalizeComparable(option);
+  const normalizedOption = normalizeComparable(otherLabel);
 
   return (
     normalizedValue === normalizedOption ||
-    trimmedValue.toLowerCase().startsWith(`${option.toLowerCase()}:`) ||
+    trimmedValue.toLowerCase().startsWith(`${otherLabel.toLowerCase()}:`) ||
     (isOtherOption(option) && /^(other|others)\s*:/.test(trimmedValue.toLowerCase()))
   );
 };
@@ -296,13 +300,14 @@ const getOtherOption = (question: Question) =>
 
 const buildOtherAnswer = (option: string, text: string) => {
   const trimmedText = text.trim();
-  return trimmedText ? `${option}: ${trimmedText}` : option;
+  const otherLabel = getOtherOptionLabel(option);
+  return trimmedText ? `${otherLabel}: ${trimmedText}` : otherLabel;
 };
 
 const getOtherTextFromValue = (value: string, option: string) => {
   const trimmedValue = value.trim();
   const lowerValue = trimmedValue.toLowerCase();
-  const optionPrefix = `${option.toLowerCase()}:`;
+  const optionPrefix = `${getOtherOptionLabel(option).toLowerCase()}:`;
 
   if (lowerValue.startsWith(optionPrefix)) {
     return trimmedValue.slice(optionPrefix.length).trimStart();
@@ -1636,7 +1641,16 @@ function Survey() {
                       name={`question-${question.id}`}
                       value={option}
                       checked={checked}
-                      onChange={(e) => handleResponseChange(question.id!, e.target.value)}
+                      onClick={() => {
+                        if (checked) {
+                          handleResponseChange(question.id!, '');
+                        }
+                      }}
+                      onChange={() => {
+                        if (!checked) {
+                          handleResponseChange(question.id!, option);
+                        }
+                      }}
                       className="w-4 h-4 text-blue-600 focus:ring-blue-500"
                       required={Number(question.is_required) === 1}
                       disabled={disabled}
@@ -1866,6 +1880,7 @@ function Survey() {
             <SearchableSelect
               id={`psgc-region-${currentAddressQuestions.region.id}`}
               value={psgcAddress.selection.regionCode}
+              selectedName={psgcAddress.selection.regionName}
               options={psgcAddress.regions}
               placeholder="Select region"
               loading={psgcAddress.loading.regions}
@@ -1888,6 +1903,7 @@ function Survey() {
                 <SearchableSelect
                   id={`psgc-province-${currentAddressQuestions.province.id}`}
                   value={psgcAddress.selection.provinceCode || ''}
+                  selectedName={psgcAddress.selection.provinceName || ''}
                   options={psgcAddress.provinces}
                   placeholder="Select province"
                   loading={psgcAddress.loading.provinces}
@@ -1921,6 +1937,7 @@ function Survey() {
             <SearchableSelect
               id={`psgc-city-${currentAddressQuestions.cityMunicipality.id}`}
               value={psgcAddress.selection.cityMunicipalityCode}
+              selectedName={psgcAddress.selection.cityMunicipalityName}
               options={psgcAddress.citiesMunicipalities}
               placeholder="Select city or municipality"
               loading={psgcAddress.loading.cities}
@@ -1947,6 +1964,7 @@ function Survey() {
             <SearchableSelect
               id={`psgc-barangay-${currentAddressQuestions.barangay.id}`}
               value={psgcAddress.selection.barangayCode}
+              selectedName={psgcAddress.selection.barangayName}
               options={psgcAddress.barangays}
               placeholder="Select barangay"
               loading={psgcAddress.loading.barangays}

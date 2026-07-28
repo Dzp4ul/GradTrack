@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { PsgcAddressPayload, PsgcLocation, psgcService } from '../services/psgc';
+import {
+  FALLBACK_PSGC_REGIONS,
+  PsgcAddressPayload,
+  PsgcLocation,
+  psgcService,
+} from '../services/psgc';
 
 type AddressLevel = 'regions' | 'provinces' | 'cities' | 'barangays';
 
@@ -85,8 +90,14 @@ export const usePsgcAddress = () => {
     barangays: 0,
   });
 
+  const invalidateLevels = useCallback((levels: AddressLevel[]) => {
+    levels.forEach((level) => {
+      requestSequence.current[level] += 1;
+    });
+  }, []);
+
   const [selection, setSelection] = useState<PsgcAddressSelection>(emptySelection);
-  const [regions, setRegions] = useState<PsgcLocation[]>([]);
+  const [regions, setRegions] = useState<PsgcLocation[]>(FALLBACK_PSGC_REGIONS);
   const [provinces, setProvinces] = useState<PsgcLocation[]>([]);
   const [citiesMunicipalities, setCitiesMunicipalities] = useState<PsgcLocation[]>([]);
   const [barangays, setBarangays] = useState<PsgcLocation[]>([]);
@@ -106,7 +117,7 @@ export const usePsgcAddress = () => {
       .getRegions(controller.signal)
       .then((items) => {
         if (requestSequence.current.regions !== requestId) return;
-        setRegions(items);
+        setRegions(items.length > 0 ? items : FALLBACK_PSGC_REGIONS);
         if (items.length === 0) {
           setErrors((prev) => ({
             ...prev,
@@ -116,6 +127,9 @@ export const usePsgcAddress = () => {
       })
       .catch((error) => {
         if (isAbortError(error) || requestSequence.current.regions !== requestId) return;
+        setRegions((currentRegions) => (
+          currentRegions.length > 0 ? currentRegions : FALLBACK_PSGC_REGIONS
+        ));
         setErrors((prev) => ({ ...prev, regions: unavailableMessage }));
       })
       .finally(() => {
@@ -129,10 +143,30 @@ export const usePsgcAddress = () => {
 
   useEffect(() => {
     if (!selection.regionCode) {
+      invalidateLevels(['provinces', 'cities', 'barangays']);
+      setSelection((prev) => {
+        const hasStaleAddress = Boolean(
+          prev.regionName
+          || prev.provinceCode
+          || prev.provinceName
+          || prev.cityMunicipalityCode
+          || prev.cityMunicipalityName
+          || prev.barangayCode
+          || prev.barangayName
+        );
+
+        return hasStaleAddress ? emptySelection : prev;
+      });
       setProvinces([]);
       setCitiesMunicipalities([]);
       setBarangays([]);
       setProvinceApplicable(true);
+      setLoading((prev) => ({
+        ...prev,
+        provinces: false,
+        cities: false,
+        barangays: false,
+      }));
       return;
     }
 
@@ -191,15 +225,39 @@ export const usePsgcAddress = () => {
       });
 
     return () => controller.abort();
-  }, [selection.regionCode, retryCounts.provinces]);
+  }, [invalidateLevels, selection.regionCode, retryCounts.provinces]);
 
   useEffect(() => {
     const canLoadByProvince = provinceApplicable && Boolean(selection.provinceCode);
     const canLoadByRegion = !provinceApplicable && Boolean(selection.regionCode);
 
     if (!canLoadByProvince && !canLoadByRegion) {
+      invalidateLevels(['cities', 'barangays']);
+      setSelection((prev) => {
+        const hasStaleLowerAddress = Boolean(
+          prev.cityMunicipalityCode
+          || prev.cityMunicipalityName
+          || prev.barangayCode
+          || prev.barangayName
+        );
+
+        return hasStaleLowerAddress
+          ? {
+            ...prev,
+            cityMunicipalityCode: '',
+            cityMunicipalityName: '',
+            barangayCode: '',
+            barangayName: '',
+          }
+          : prev;
+      });
       setCitiesMunicipalities([]);
       setBarangays([]);
+      setLoading((prev) => ({
+        ...prev,
+        cities: false,
+        barangays: false,
+      }));
       return;
     }
 
@@ -256,11 +314,26 @@ export const usePsgcAddress = () => {
     selection.provinceCode,
     selection.regionCode,
     retryCounts.cities,
+    invalidateLevels,
   ]);
 
   useEffect(() => {
     if (!selection.cityMunicipalityCode) {
+      invalidateLevels(['barangays']);
+      setSelection((prev) => (
+        prev.barangayCode || prev.barangayName
+          ? {
+            ...prev,
+            barangayCode: '',
+            barangayName: '',
+          }
+          : prev
+      ));
       setBarangays([]);
+      setLoading((prev) => ({
+        ...prev,
+        barangays: false,
+      }));
       return;
     }
 
@@ -308,10 +381,11 @@ export const usePsgcAddress = () => {
       });
 
     return () => controller.abort();
-  }, [selection.cityMunicipalityCode, retryCounts.barangays]);
+  }, [invalidateLevels, selection.cityMunicipalityCode, retryCounts.barangays]);
 
   const selectRegion = useCallback((code: string) => {
     const region = findByCode(regions, code);
+    invalidateLevels(['provinces', 'cities', 'barangays']);
     setSelection({
       regionCode: region?.code || '',
       regionName: region?.name || '',
@@ -333,10 +407,11 @@ export const usePsgcAddress = () => {
       delete next.barangays;
       return next;
     });
-  }, [regions]);
+  }, [invalidateLevels, regions]);
 
   const selectProvince = useCallback((code: string) => {
     const province = findByCode(provinces, code);
+    invalidateLevels(['cities', 'barangays']);
     setSelection((prev) => ({
       ...prev,
       provinceCode: province?.code || null,
@@ -354,10 +429,11 @@ export const usePsgcAddress = () => {
       delete next.barangays;
       return next;
     });
-  }, [provinces]);
+  }, [invalidateLevels, provinces]);
 
   const selectCityMunicipality = useCallback((code: string) => {
     const cityMunicipality = findByCode(citiesMunicipalities, code);
+    invalidateLevels(['barangays']);
     setSelection((prev) => ({
       ...prev,
       cityMunicipalityCode: cityMunicipality?.code || '',
@@ -371,7 +447,7 @@ export const usePsgcAddress = () => {
       delete next.barangays;
       return next;
     });
-  }, [citiesMunicipalities]);
+  }, [citiesMunicipalities, invalidateLevels]);
 
   const selectBarangay = useCallback((code: string) => {
     const barangay = findByCode(barangays, code);

@@ -10,6 +10,7 @@ interface SearchableSelectProps {
   id: string;
   options: SearchableSelectOption[];
   value: string;
+  selectedName?: string;
   placeholder: string;
   disabled?: boolean;
   loading?: boolean;
@@ -24,6 +25,7 @@ export default function SearchableSelect({
   id,
   options,
   value,
+  selectedName = '',
   placeholder,
   disabled = false,
   loading = false,
@@ -32,24 +34,25 @@ export default function SearchableSelect({
 }: SearchableSelectProps) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const selectedOption = options.find((option) => option.code === value) || null;
+  const displayName = selectedOption?.name || selectedName;
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState(selectedOption?.name || '');
+  const [query, setQuery] = useState(displayName);
 
   useEffect(() => {
-    setQuery(selectedOption?.name || '');
-  }, [selectedOption?.name]);
+    setQuery(displayName);
+  }, [displayName]);
 
   useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
       if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
         setOpen(false);
-        setQuery(selectedOption?.name || '');
+        setQuery(displayName);
       }
     };
 
     document.addEventListener('mousedown', handlePointerDown);
     return () => document.removeEventListener('mousedown', handlePointerDown);
-  }, [selectedOption?.name]);
+  }, [displayName]);
 
   const filteredOptions = useMemo(() => {
     const normalizedQuery = normalizeText(query);
@@ -69,13 +72,17 @@ export default function SearchableSelect({
           type="text"
           value={query}
           onChange={(event) => {
-            setQuery(event.target.value);
+            const nextQuery = event.target.value;
+            setQuery(nextQuery);
             setOpen(true);
+            if (value && nextQuery.trim() === '') {
+              onChange('');
+            }
           }}
           onFocus={() => !disabled && setOpen(true)}
           onBlur={() => {
             window.setTimeout(() => {
-              setQuery(selectedOption?.name || '');
+              setQuery(displayName);
             }, 120);
           }}
           placeholder={loading ? 'Loading...' : placeholder}
