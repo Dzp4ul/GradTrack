@@ -27,6 +27,7 @@ import DeanSurveyStatus from './pages/admin/DeanSurveyStatus';
 import UserManagement from './pages/admin/UserManagement';
 import EngagementApprovals from './pages/admin/EngagementApprovals';
 import ForumModeration from './pages/admin/ForumModeration';
+import AlumniRegisteredList from './pages/admin/AlumniRegisteredList';
 import AuditTrail from './pages/admin/AuditTrail.jsx';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ProtectedRoute } from './lib/ProtectedRoute';
@@ -50,7 +51,7 @@ function AdminHome() {
   }
 
   if (user?.role === 'alumni_admin') {
-    return <Navigate to="/admin/forum-moderation" replace />;
+    return <Navigate to="/admin/alumni-registered-list" replace />;
   }
 
   if (user?.role && DEAN_ROLES.includes(user.role)) {
@@ -109,7 +110,7 @@ function App() {
                 <AdminLayout />
               </ProtectedRoute>
             }
-          >nb           
+          >
             <Route index element={<AdminHome />} />
             <Route path="profile" element={<AdminProfile />} />
             <Route
@@ -137,6 +138,14 @@ function App() {
               element={
                 <ProtectedRoute allowedRoles={ALUMNI_ADMIN_ROLES}>
                   <EngagementApprovals />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="alumni-registered-list"
+              element={
+                <ProtectedRoute allowedRoles={ALUMNI_ADMIN_ROLES}>
+                  <AlumniRegisteredList />
                 </ProtectedRoute>
               }
             />

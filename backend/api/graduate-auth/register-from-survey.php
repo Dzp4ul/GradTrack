@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
+require_once __DIR__ . '/../config/alumni_registry.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -44,6 +45,7 @@ $database = new Database();
 $db = $database->getConnection();
 
 try {
+    gradtrack_alumni_registry_ensure_schema($db);
     $db->beginTransaction();
 
     $responseQuery = "SELECT id, graduate_id FROM survey_responses WHERE id = :response_id";
@@ -131,6 +133,8 @@ try {
     $createAccountStmt->execute();
 
     $accountId = (int) $db->lastInsertId();
+
+    gradtrack_alumni_registry_sync_for_graduate_account($db, $accountId);
 
     $linkSurveyQuery = "UPDATE survey_responses
                         SET graduate_account_id = :account_id

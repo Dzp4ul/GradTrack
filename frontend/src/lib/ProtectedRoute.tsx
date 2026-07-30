@@ -29,7 +29,7 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
       user.role === 'registrar'
         ? '/admin/graduates'
         : user.role === 'alumni_admin'
-          ? '/admin/forum-moderation'
+          ? '/admin/alumni-registered-list'
         : ['mis_staff', 'research_coordinator'].includes(user.role)
           ? '/admin/audit-trail'
         : ['dean_cs', 'dean_coed', 'dean_hm'].includes(user.role)
