@@ -58,10 +58,6 @@ function AdminHome() {
     return <Navigate to="/admin/survey-status" replace />;
   }
 
-  if (user?.role && ['mis_staff', 'research_coordinator'].includes(user.role)) {
-    return <Navigate to="/admin/audit-trail" replace />;
-  }
-
   return <Dashboard />;
 }
 
@@ -229,7 +225,14 @@ function App() {
                 </ProtectedRoute>
               }
             />
-            <Route path="audit-trail" element={<AuditTrail />} />
+            <Route
+              path="audit-trail"
+              element={
+                <ProtectedRoute allowedRoles={SUPER_ADMIN_ROLES}>
+                  <AuditTrail />
+                </ProtectedRoute>
+              }
+            />
           </Route>
         </Routes>
       </GraduateAuthProvider>

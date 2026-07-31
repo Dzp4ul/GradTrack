@@ -28,7 +28,7 @@ function SignIn() {
       } else if (user.role === 'alumni_admin') {
         navigate('/admin/forum-moderation');
       } else if (['mis_staff', 'research_coordinator'].includes(user.role)) {
-        navigate('/admin/audit-trail');
+        navigate('/admin');
       } else if (['dean_cs', 'dean_coed', 'dean_hm'].includes(user.role)) {
         navigate('/admin/survey-status');
       } else {

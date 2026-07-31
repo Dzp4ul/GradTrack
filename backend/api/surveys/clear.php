@@ -35,7 +35,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $auditUser['department'],
             'Delete',
             'Survey Management',
-            'Deleted all surveys, survey questions, and survey responses.'
+            'Deleted all survey records, questions, and responses.'
         );
         
         echo json_encode([

@@ -396,7 +396,11 @@ function alumni_registry_handle_export(PDO $db, array $admin): void
         null,
         'Export',
         'Alumni Registered List',
-        'Exported ' . count($rows) . ' registered alumni record(s).'
+        'Exported ' . count($rows) . ' alumni records.',
+        null,
+        null,
+        null,
+        ['record_count' => count($rows)]
     );
 
     if ($format === 'csv') {
@@ -554,7 +558,16 @@ function alumni_registry_handle_import(PDO $db, array $admin): void
             null,
             'Import',
             'Alumni Registered List',
-            'Imported alumni registry file "' . $payload['file_name'] . '" worksheet "' . ($payload['worksheet_name'] ?: 'N/A') . "\". Inserted {$inserted}, skipped {$preview['duplicate_rows']} duplicate(s), invalid {$preview['invalid_rows']}, updated {$updated}."
+            "Imported {$inserted} alumni records.",
+            null,
+            null,
+            null,
+            [
+                'inserted_count' => $inserted,
+                'updated_count' => $updated,
+                'duplicate_count' => $preview['duplicate_rows'],
+                'invalid_count' => $preview['invalid_rows'],
+            ]
         );
 
         echo json_encode([
@@ -643,7 +656,14 @@ function alumni_registry_handle_update(PDO $db, array $admin): void
         $courseMatch['course_code'],
         'Update',
         'Alumni Registered List',
-        "Updated registry record {$fullName} (ID: {$id})."
+        "Updated alumni record with ID {$id}.",
+        $id,
+        null,
+        [
+            'course_code' => $courseMatch['course_code'],
+            'batch_year' => $batchYear,
+            'registration_status' => $status,
+        ]
     );
 
     echo json_encode(['success' => true, 'message' => 'Registry record updated successfully']);
@@ -693,7 +713,14 @@ function alumni_registry_handle_link(PDO $db, array $admin): void
         $record['course_code'] ?? null,
         'Link',
         'Alumni Registered List',
-        'Linked registry record "' . ($record['full_name'] ?? 'Alumni') . "\" (ID: {$id}) to graduate account {$accountId}. Match strength: {$strength}."
+        "Linked alumni record with ID {$id} to a graduate account.",
+        $id,
+        null,
+        [
+            'linked_user_id' => $accountId,
+            'registration_status' => $status,
+        ],
+        ['match_strength' => $strength]
     );
 
     echo json_encode([
@@ -723,7 +750,10 @@ function alumni_registry_handle_unlink(PDO $db, array $admin): void
         $record['course_code'] ?? null,
         'Unlink',
         'Alumni Registered List',
-        'Unlinked registry record "' . ($record['full_name'] ?? 'Alumni') . "\" (ID: {$id})."
+        "Unlinked alumni record with ID {$id}.",
+        $id,
+        ['registration_status' => $record['registration_status'] ?? null],
+        ['registration_status' => $nextStatus]
     );
 
     echo json_encode(['success' => true, 'message' => 'Registry record unlinked successfully']);
@@ -748,7 +778,10 @@ function alumni_registry_handle_status(PDO $db, array $admin, string $status, st
         $record['course_code'] ?? null,
         $action,
         'Alumni Registered List',
-        $action . ' registry record "' . ($record['full_name'] ?? 'Alumni') . "\" (ID: {$id})."
+        $action . " alumni record with ID {$id}.",
+        $id,
+        ['registration_status' => $record['registration_status'] ?? null],
+        ['registration_status' => $status]
     );
 
     echo json_encode(['success' => true, 'message' => "Registry record marked as {$status}"]);
@@ -773,7 +806,8 @@ function alumni_registry_handle_delete(PDO $db, array $admin): void
         $record['course_code'] ?? null,
         'Delete',
         'Alumni Registered List',
-        'Deleted registry record "' . ($record['full_name'] ?? 'Alumni') . "\" (ID: {$id})."
+        "Deleted alumni record with ID {$id}.",
+        $id
     );
 
     echo json_encode(['success' => true, 'message' => 'Registry record deleted successfully']);

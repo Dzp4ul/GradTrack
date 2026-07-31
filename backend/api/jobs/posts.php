@@ -478,7 +478,8 @@ try {
             $user['program_code'] ?? null,
             'Create',
             'Job Posting',
-            "Created job posting \"{$title}\" at {$company} (ID: {$newJobId}); status pending approval."
+            "Created job posting with record ID {$newJobId}.",
+            $newJobId
         );
 
         echo json_encode([
@@ -611,7 +612,8 @@ try {
             $user['program_code'] ?? null,
             'Update',
             'Job Posting',
-            "Updated job posting \"{$title}\" at {$company} (ID: {$jobId}); status reset to pending approval."
+            "Updated job posting with record ID {$jobId}.",
+            $jobId
         );
 
         echo json_encode(['success' => true, 'message' => 'Job post submitted for approval', 'approval_status' => 'pending']);
@@ -675,7 +677,8 @@ try {
             $user['program_code'] ?? null,
             'Delete',
             'Job Posting',
-            'Deleted job posting "' . ($owner['title'] ?? 'Untitled Job') . '" at ' . ($owner['company'] ?? 'Unknown Company') . " (ID: {$jobId})."
+            "Deleted job posting with record ID {$jobId}.",
+            $jobId
         );
 
         echo json_encode(['success' => true, 'message' => 'Job post deleted successfully']);

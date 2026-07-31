@@ -44,7 +44,7 @@ if ($email === $hardcodedEmail && $password === $hardcodedPassword) {
         null,
         'Login',
         'Authentication',
-        'System Administrator logged in.'
+        'Logged in to the administrative portal.'
     );
 
     http_response_code(200);
@@ -127,7 +127,7 @@ try {
         gradtrack_audit_role_department((string)$user['role']),
         'Login',
         'Authentication',
-        $loginName . ' logged in.'
+        'Logged in to the administrative portal.'
     );
 
     http_response_code(200);

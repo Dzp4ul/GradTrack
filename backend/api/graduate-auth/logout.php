@@ -22,7 +22,7 @@ if ($graduateAccountId !== null) {
         null,
         'Logout',
         'Authentication',
-        'Graduate Account #' . $graduateAccountId . ' logged out of the graduate portal.'
+        'Logged out of the graduate portal.'
     );
 }
 

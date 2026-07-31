@@ -193,7 +193,13 @@ try {
                 $auditUser['department'],
                 'Create',
                 'Survey Management',
-                "Created survey \"{$data['title']}\" (ID: {$surveyId}) with status {$status}."
+                "Created survey with record ID {$surveyId}.",
+                $surveyId,
+                null,
+                [
+                    'status' => $status,
+                    'question_count' => isset($data['questions']) && is_array($data['questions']) ? count($data['questions']) : 0,
+                ]
             );
             echo json_encode(["success" => true, "message" => "Survey created", "id" => $surveyId]);
             break;
@@ -309,7 +315,13 @@ try {
                 $auditUser['department'],
                 'Update',
                 'Survey Management',
-                "Updated survey \"{$data['title']}\" (ID: {$data['id']}) with status {$status}."
+                "Updated survey with record ID {$data['id']}.",
+                $data['id'],
+                null,
+                [
+                    'status' => $status,
+                    'question_count' => isset($data['questions']) && is_array($data['questions']) ? count($data['questions']) : 0,
+                ]
             );
             echo json_encode(["success" => true, "message" => "Survey updated"]);
             break;
@@ -336,7 +348,8 @@ try {
                 $auditUser['department'],
                 'Delete',
                 'Survey Management',
-                'Deleted survey "' . ($surveyToDelete['title'] ?? 'Unknown Survey') . '" (ID: ' . $data['id'] . ').'
+                'Deleted survey with record ID ' . $data['id'] . '.',
+                $data['id']
             );
             echo json_encode(["success" => true, "message" => "Survey deleted"]);
             break;

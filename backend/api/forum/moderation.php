@@ -258,15 +258,21 @@ try {
             ':id' => $postId,
         ]);
 
+        $auditAction = $status === 'approved' ? 'Approve' : ($status === 'hidden' ? 'Reject' : 'Update');
+        $auditVerb = $auditAction === 'Approve' ? 'Approved' : ($auditAction === 'Reject' ? 'Rejected' : 'Updated');
+
         // Audit Trail: call logAuditTrail() after a moderator updates a community forum post status.
         logAuditTrail(
             $moderator['id'],
             $moderator['full_name'] ?: $moderator['email'],
             $moderator['role'],
             $post['program_code'] ?? null,
-            'Update',
+            $auditAction,
             'Community Forum',
-            'Updated forum post "' . ($post['title'] ?? 'Untitled Post') . "\" (ID: {$postId}) status to {$status}."
+            "{$auditVerb} forum post with record ID {$postId}.",
+            $postId,
+            null,
+            ['status' => $status]
         );
 
         echo json_encode([
@@ -306,7 +312,8 @@ try {
                 $post['program_code'] ?? null,
                 'Delete',
                 'Community Forum',
-                'Deleted forum post "' . ($post['title'] ?? 'Untitled Post') . "\" (ID: {$postId})."
+                "Deleted forum post with record ID {$postId}.",
+                $postId
             );
 
             echo json_encode([

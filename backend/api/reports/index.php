@@ -1039,12 +1039,17 @@ try {
         $auditDepartment,
         $reportAuditAction,
         'Reports',
-        "{$reportAuditVerbPast} {$reportType} report data" .
-            ($selectedSurveyId !== null ? " for survey ID {$selectedSurveyId}" : '') .
-            ($filterYear !== null ? " filtered by year {$filterYear}" : '') .
-            ($filterDepartment !== null ? " filtered by department {$filterDepartment}" : '') .
-            $overviewFilterAuditText .
-            '.'
+        "{$reportAuditVerbPast} graduate tracer report.",
+        $selectedSurveyId,
+        null,
+        null,
+        [
+            'report_type' => $reportType,
+            'survey_id' => $selectedSurveyId,
+            'year' => $filterYear,
+            'department' => $filterDepartment,
+            'overview_filters' => $overviewFilters,
+        ]
     );
 
     switch ($reportType) {

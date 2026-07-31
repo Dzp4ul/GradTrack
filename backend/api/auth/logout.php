@@ -22,7 +22,7 @@ logAuditTrail(
     $auditUser['department'],
     'Logout',
     'Authentication',
-    $auditUser['user_name'] . ' logged out.'
+    'Logged out of the administrative portal.'
 );
 
 $_SESSION = [];

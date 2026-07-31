@@ -251,7 +251,8 @@ try {
             $user['program_code'] ?? null,
             'Create',
             'Community Forum',
-            "Created forum post \"{$title}\" in {$category} (ID: {$postId}); status pending review."
+            "Created forum post with record ID {$postId}.",
+            $postId
         );
 
         echo json_encode([
@@ -338,7 +339,8 @@ try {
             $user['program_code'] ?? null,
             'Update',
             'Community Forum',
-            "Updated forum post \"{$title}\" in {$category} (ID: {$postId}); status reset to pending review."
+            "Updated forum post with record ID {$postId}.",
+            $postId
         );
 
         echo json_encode([
@@ -382,7 +384,8 @@ try {
             $user['program_code'] ?? null,
             'Delete',
             'Community Forum',
-            'Deleted forum post "' . ($owner['title'] ?? 'Untitled Post') . "\" (ID: {$postId})."
+            "Deleted forum post with record ID {$postId}.",
+            $postId
         );
 
         echo json_encode([

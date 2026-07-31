@@ -60,7 +60,7 @@ try {
             $user['program_code'] ?? null,
             'Login',
             'Authentication',
-            gradtrack_audit_graduate_name($user) . ' logged in to the graduate portal.'
+            'Logged in to the graduate portal.'
         );
     }
 

@@ -3519,7 +3519,7 @@ function ForumMediaViewer({
         </button>
         <div className="hidden text-sm font-semibold text-white/80 sm:block">
           {viewer.mediaIndex + 1} of {media.length}
-        </div>
+        </div>A 
       </div>
 
       {!isVideo && (

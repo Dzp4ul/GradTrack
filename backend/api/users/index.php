@@ -114,7 +114,13 @@ try {
                 $auditUser['department'],
                 'Create',
                 'User Management',
-                "Created user account {$email} with role {$role} (ID: {$createdUserId})."
+                "Created user account with record ID {$createdUserId}.",
+                $createdUserId,
+                null,
+                [
+                    'role' => $role,
+                    'status' => $isActive === 1 ? 'Active' : 'Suspended',
+                ]
             );
 
             echo json_encode(["success" => true, "message" => "User created"]);
@@ -204,15 +210,39 @@ try {
                 ]);
             }
 
+            $previousStatusLabel = (int) $existing['is_active'] === 1 ? 'Active' : 'Suspended';
+            $nextStatusLabel = $nextIsActive === 1 ? 'Active' : 'Suspended';
+            $auditAction = 'Update';
+            $auditDescription = "Updated user account with record ID {$id}.";
+
+            if ($previousStatusLabel !== $nextStatusLabel) {
+                $auditAction = $nextIsActive === 1 ? 'Activate' : 'Suspend';
+                $auditDescription = "Changed account status from {$previousStatusLabel} to {$nextStatusLabel} for user account ID {$id}.";
+            } elseif ((string) $existing['role'] !== (string) $nextRole) {
+                $auditDescription = "Changed account role from {$existing['role']} to {$nextRole} for user account ID {$id}.";
+            }
+
             // Audit Trail: call logAuditTrail() after a user account is successfully updated.
             logAuditTrail(
                 $auditUser['user_id'],
                 $auditUser['user_name'],
                 $auditUser['user_role'],
                 $auditUser['department'],
-                'Update',
+                $auditAction,
                 'User Management',
-                "Updated user account {$nextEmail} (ID: {$id}); role={$nextRole}, status=" . ($nextIsActive === 1 ? 'active' : 'inactive') . "."
+                $auditDescription,
+                $id,
+                [
+                    'role' => $existing['role'],
+                    'status' => $previousStatusLabel,
+                ],
+                [
+                    'role' => $nextRole,
+                    'status' => $nextStatusLabel,
+                ],
+                [
+                    'password_changed' => $newPassword !== '',
+                ]
             );
 
             echo json_encode(["success" => true, "message" => "User updated"]);
@@ -259,7 +289,11 @@ try {
                 $auditUser['department'],
                 'Delete',
                 'User Management',
-                "Deleted user account {$existing['email']} with role {$existing['role']} (ID: {$id})."
+                "Deleted user account with record ID {$id}.",
+                $id,
+                [
+                    'role' => $existing['role'],
+                ]
             );
 
             echo json_encode(["success" => true, "message" => "User deleted"]);

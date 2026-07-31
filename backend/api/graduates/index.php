@@ -311,7 +311,8 @@ try {
                 $programCode,
                 'Create',
                 'Graduate Records',
-                "Added graduate record {$graduateName} (ID: {$graduateId}, Student No: " . ($studentId ?? 'N/A') . ")."
+                "Created graduate record with ID {$graduateId}.",
+                $graduateId
             );
 
             echo json_encode(["success" => true, "message" => "Graduate added successfully", "id" => $graduateId]);
@@ -427,7 +428,8 @@ try {
                 $programCode,
                 'Update',
                 'Graduate Records',
-                "Updated graduate record {$graduateName} (ID: {$data['id']}, Student No: " . ($studentId ?? 'N/A') . ")."
+                "Updated graduate record with ID {$data['id']}.",
+                $data['id']
             );
 
             echo json_encode(["success" => true, "message" => "Graduate updated successfully"]);
@@ -472,7 +474,11 @@ try {
                     $auditDepartment,
                     'Delete',
                     'Graduate Records',
-                    "Deleted {$deletedCount} selected graduate record(s)."
+                    "Deleted {$deletedCount} selected graduate records.",
+                    null,
+                    null,
+                    null,
+                    ['deleted_count' => $deletedCount]
                 );
 
                 echo json_encode([
@@ -515,7 +521,14 @@ try {
                     $programCode,
                     'Delete',
                     'Graduate Records',
-                    "Deleted {$deletedCount} graduate record(s) for year {$year}."
+                    "Deleted {$deletedCount} graduate records for graduation year {$year}.",
+                    null,
+                    null,
+                    null,
+                    [
+                        'deleted_count' => $deletedCount,
+                        'graduation_year' => $year,
+                    ]
                 );
 
                 echo json_encode([
@@ -543,7 +556,8 @@ try {
                 $graduateToDelete['program_code'] ?? null,
                 'Delete',
                 'Graduate Records',
-                'Deleted graduate record ' . ($graduateToDelete ? graduates_audit_display_name($graduateToDelete) : 'Unknown Graduate') . ' (ID: ' . $data['id'] . ').'
+                'Deleted graduate record with ID ' . $data['id'] . '.',
+                $data['id']
             );
             echo json_encode(["success" => true, "message" => "Graduate deleted successfully"]);
             break;

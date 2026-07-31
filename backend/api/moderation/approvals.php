@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/engagement_approval.php';
+require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 use PHPMailer\PHPMailer\Exception as MailException;
@@ -306,7 +307,7 @@ function gradtrack_moderation_fetch_jobs(PDO $db, array $reviewer, string $statu
 
 function gradtrack_moderation_item_program(PDO $db, int $id): ?array
 {
-    $sql = "SELECT jp.id, p.code AS program_code
+    $sql = "SELECT jp.id, jp.approval_status, p.code AS program_code
             FROM job_posts jp
             JOIN graduate_accounts ga ON jp.posted_by_account_id = ga.id
             JOIN graduates g ON ga.graduate_id = g.id
@@ -412,6 +413,23 @@ try {
                 $emailNotification = ['sent' => false, 'reason' => $mailException->getMessage()];
             }
         }
+
+        $auditUser = gradtrack_audit_current_admin_context();
+        $auditAction = $approvalStatus === 'approved' ? 'Approve' : 'Reject';
+        $auditDescription = ($approvalStatus === 'approved' ? 'Approved' : 'Rejected') . " job posting with record ID {$itemId}.";
+        logAuditTrail(
+            $auditUser['user_id'],
+            $auditUser['user_name'],
+            $auditUser['user_role'],
+            $item['program_code'] ?? null,
+            $auditAction,
+            'Job Posting',
+            $auditDescription,
+            $itemId,
+            ['approval_status' => $item['approval_status'] ?? null],
+            ['approval_status' => $approvalStatus],
+            ['email_notification_sent' => (bool) ($emailNotification['sent'] ?? false)]
+        );
 
         echo json_encode([
             'success' => true,

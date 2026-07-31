@@ -49,23 +49,20 @@ const superAdminNavItems: NavItem[] = [
 const registrarNavItems: NavItem[] = [
   { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true },
   { to: '/admin/graduates', icon: GraduationCap, label: 'Manage Graduates' },
-  { to: '/admin/audit-trail', icon: History, label: 'Audit Trail' },
 ];
 
 const alumniAdminNavItems: NavItem[] = [
   { to: '/admin/alumni-registered-list', icon: Users, label: 'Alumni Registered List' },
   { to: '/admin/forum-moderation', icon: MessageSquareMore, label: 'Forum Moderation', end: true },
   { to: '/admin/job-approvals', icon: Briefcase, label: 'Job Approval' },
-  { to: '/admin/audit-trail', icon: History, label: 'Audit Trail' },
 ];
 
 const staffNavItems: NavItem[] = [
-  { to: '/admin/audit-trail', icon: History, label: 'Audit Trail' },
+  { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true },
 ];
 
 const deanNavItems: NavItem[] = [
   { to: '/admin/survey-status', icon: ClipboardCheck, label: 'Survey Participation' },
-  { to: '/admin/audit-trail', icon: History, label: 'Audit Trail' },
 ];
 
 const roleLabels: Record<string, string> = {
