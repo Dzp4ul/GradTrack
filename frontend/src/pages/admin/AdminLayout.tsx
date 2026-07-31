@@ -23,6 +23,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { API_BASE_URL } from '../../config/api';
 import MessageBox from '../../components/MessageBox';
 import NotificationBell from '../../components/NotificationBell';
+import ThemeToggle from '../../components/ThemeToggle';
 
 type NavItem = {
   to: string;
@@ -196,6 +197,7 @@ export default function AdminLayout() {
 
           {/* Right Section */}
           <div className="flex items-center gap-3">
+            <ThemeToggle compact />
             <NotificationBell audience="admin" colorScheme="light" />
 
             {/* Profile dropdown */}

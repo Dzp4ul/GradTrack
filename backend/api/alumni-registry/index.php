@@ -83,6 +83,13 @@ function alumni_registry_filter_clause(array $input, array &$params): string
         }
     }
 
+    $surveyAnswerStatus = strtolower(gradtrack_alumni_registry_clean_text($input['survey_answer_status'] ?? '', 30));
+    if (in_array($surveyAnswerStatus, ['answered', 'done', 'done_answering'], true)) {
+        $where[] = "ra.registration_status IN ('Registered', 'Verified')";
+    } elseif (in_array($surveyAnswerStatus, ['not_answered', 'unanswered', 'not_done', 'pending'], true)) {
+        $where[] = "ra.registration_status = 'Unclaimed'";
+    }
+
     $scope = gradtrack_alumni_registry_clean_text($input['scope'] ?? '', 40);
     if ($scope === 'unclaimed') {
         $where[] = "ra.registration_status = 'Unclaimed'";
@@ -171,7 +178,9 @@ function alumni_registry_handle_summary(PDO $db): void
             COUNT(*) AS total_official,
             SUM(CASE WHEN linked_user_id IS NOT NULL OR registration_status IN ('Registered', 'Verified') THEN 1 ELSE 0 END) AS registered_accounts,
             SUM(CASE WHEN registration_status = 'Unclaimed' THEN 1 ELSE 0 END) AS unclaimed_alumni,
-            SUM(CASE WHEN registration_status = 'Verified' THEN 1 ELSE 0 END) AS verified_alumni
+            SUM(CASE WHEN registration_status = 'Verified' THEN 1 ELSE 0 END) AS verified_alumni,
+            SUM(CASE WHEN registration_status IN ('Registered', 'Verified') THEN 1 ELSE 0 END) AS answered_alumni,
+            SUM(CASE WHEN registration_status = 'Unclaimed' THEN 1 ELSE 0 END) AS not_answered_alumni
         FROM registered_alumni");
     $summary = $summaryStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
@@ -206,6 +215,8 @@ function alumni_registry_handle_summary(PDO $db): void
             'registered_accounts' => (int) ($summary['registered_accounts'] ?? 0),
             'unclaimed_alumni' => (int) ($summary['unclaimed_alumni'] ?? 0),
             'verified_alumni' => (int) ($summary['verified_alumni'] ?? 0),
+            'answered_alumni' => (int) ($summary['answered_alumni'] ?? 0),
+            'not_answered_alumni' => (int) ($summary['not_answered_alumni'] ?? 0),
             'course_totals' => $courseTotals,
         ],
         'filters' => [
@@ -350,8 +361,7 @@ function alumni_registry_export_rows(PDO $db): array
     $params = [];
     $whereClause = alumni_registry_filter_clause($_GET, $params);
     $sortClause = alumni_registry_sort_clause($_GET);
-    $stmt = $db->prepare("SELECT ra.full_name, ra.course_name, ra.course_code, ra.batch_year,
-                                 ra.registration_status, ra.created_at
+    $stmt = $db->prepare("SELECT ra.full_name, ra.course_name, ra.batch_year
                           FROM registered_alumni ra
                           {$whereClause}
                           {$sortClause}
@@ -359,15 +369,15 @@ function alumni_registry_export_rows(PDO $db): array
     $stmt->execute($params);
 
     $rows = [];
+    $rowNumber = 1;
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $rows[] = [
-            'NAME' => gradtrack_alumni_registry_safe_export_value($row['full_name'] ?? ''),
-            'COURSE' => gradtrack_alumni_registry_safe_export_value($row['course_name'] ?? ''),
-            'COURSE CODE' => gradtrack_alumni_registry_safe_export_value($row['course_code'] ?? ''),
-            'BATCH' => gradtrack_alumni_registry_safe_export_value($row['batch_year'] ?? ''),
-            'ACCOUNT STATUS' => gradtrack_alumni_registry_safe_export_value($row['registration_status'] ?? ''),
-            'DATE IMPORTED' => gradtrack_alumni_registry_safe_export_value($row['created_at'] ?? ''),
+            'No.' => $rowNumber,
+            'Alumni Name' => gradtrack_alumni_registry_safe_export_value($row['full_name'] ?? ''),
+            'Course' => gradtrack_alumni_registry_safe_export_value($row['course_name'] ?? ''),
+            'Batch' => gradtrack_alumni_registry_safe_export_value($row['batch_year'] ?? ''),
         ];
+        $rowNumber++;
     }
 
     return $rows;
@@ -395,7 +405,7 @@ function alumni_registry_handle_export(PDO $db, array $admin): void
         header('Content-Disposition: attachment; filename="' . $filename . '.csv"');
 
         $out = fopen('php://output', 'w');
-        fputcsv($out, ['NAME', 'COURSE', 'COURSE CODE', 'BATCH', 'ACCOUNT STATUS', 'DATE IMPORTED']);
+        fputcsv($out, ['No.', 'Alumni Name', 'Course', 'Batch']);
         foreach ($rows as $row) {
             fputcsv($out, array_values($row));
         }

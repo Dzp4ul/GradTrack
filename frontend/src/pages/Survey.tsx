@@ -1997,9 +1997,11 @@ function Survey() {
               <img src="/logo.png" alt="Norzagaray College" className="h-10 w-10 object-contain" />
               <h1 className="text-lg font-bold text-white">GradTrack Survey</h1>
             </div>
-            <Link to="/" className="text-white hover:text-yellow-400 font-medium transition text-sm">
+            <div className="flex items-center gap-3">
+              <Link to="/" className="text-white hover:text-yellow-400 font-medium transition text-sm">
               ← Back to Home
-            </Link>
+              </Link>
+            </div>
           </div>
         </div>
       </nav>

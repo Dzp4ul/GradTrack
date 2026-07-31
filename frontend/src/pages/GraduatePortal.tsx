@@ -34,6 +34,7 @@ import type { LucideIcon } from 'lucide-react';
 import { API_BASE_URL, API_ENDPOINTS } from '../config/api';
 import MessageBox from '../components/MessageBox';
 import NotificationBell from '../components/NotificationBell';
+import ThemeToggle from '../components/ThemeToggle';
 import { useGraduateAuth } from '../contexts/GraduateAuthContext';
 import type { GraduateUser } from '../contexts/GraduateAuthContext';
 
@@ -1952,6 +1953,7 @@ export default function GraduatePortal() {
           </nav>
 
           <div className="flex shrink-0 items-center gap-3">
+            <ThemeToggle compact />
             <NotificationBell audience="graduate" />
 
             <div className="relative min-w-0" ref={profileMenuRef}>

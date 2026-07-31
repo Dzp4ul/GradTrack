@@ -5,6 +5,59 @@
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Norzagaray College GradTrack Homepage</title>
+    <style>
+      html {
+        background: #f8fafc;
+        color-scheme: light;
+      }
+
+      html.dark {
+        background: #0f172a;
+        color-scheme: dark;
+      }
+
+      html.dark body {
+        background: #0f172a;
+        color: #f8fafc;
+      }
+    </style>
+    <script>
+      (function () {
+        var storageKey = 'gradtrack-theme';
+        var mode = 'system';
+
+        try {
+          var storedMode = window.localStorage.getItem(storageKey);
+          if (storedMode === 'light' || storedMode === 'dark' || storedMode === 'system') {
+            mode = storedMode;
+          }
+        } catch (error) {
+          mode = 'system';
+        }
+
+        var lightOnlyPaths = [
+          '/admin/signin',
+          '/admin/forgot-password'
+        ];
+        var normalizedPath = window.location.pathname.replace(/\/+$/, '') || '/';
+        if (lightOnlyPaths.indexOf(normalizedPath) !== -1) {
+          mode = 'light';
+        }
+
+        var prefersDark = false;
+        try {
+          prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        } catch (error) {
+          prefersDark = false;
+        }
+
+        var resolvedTheme = mode === 'dark' || (mode === 'system' && prefersDark) ? 'dark' : 'light';
+        document.documentElement.classList.toggle('dark', resolvedTheme === 'dark');
+        document.documentElement.dataset.theme = mode;
+        document.documentElement.dataset.resolvedTheme = resolvedTheme;
+        document.documentElement.style.colorScheme = resolvedTheme;
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

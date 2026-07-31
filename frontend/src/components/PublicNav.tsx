@@ -13,6 +13,7 @@ import {
   Users,
   X,
 } from 'lucide-react';
+import ThemeToggle from './ThemeToggle';
 
 type PublicNavProps = {
   active?: 'about' | 'faq' | 'privacy';
@@ -62,6 +63,8 @@ export default function PublicNav({ active }: PublicNavProps) {
         </nav>
 
         <div className="flex items-center gap-3">
+          <ThemeToggle compact />
+
           <div className="hidden items-center gap-3 md:flex">
             <Link
               to="/survey"

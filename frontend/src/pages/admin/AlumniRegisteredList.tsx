@@ -5,7 +5,6 @@ import {
   ChevronRight,
   Download,
   Edit2,
-  Eye,
   FileSpreadsheet,
   Link2,
   Loader2,
@@ -26,6 +25,8 @@ type RegistryStatus = 'Unclaimed' | 'Registered' | 'Verified' | 'Inactive';
 type SortKey = 'name' | 'course' | 'batch' | 'import_date';
 type SortDirection = 'asc' | 'desc';
 type MessageType = 'confirm' | 'success' | 'error' | 'warning' | 'info';
+type SurveyAnswerStatus = 'all' | 'answered' | 'not_answered';
+type SurveyAnswerCountKey = 'total_official_alumni' | 'answered_alumni' | 'not_answered_alumni';
 
 interface RegisteredAlumni {
   id: number;
@@ -59,6 +60,8 @@ interface RegistrySummary {
   registered_accounts: number;
   unclaimed_alumni: number;
   verified_alumni: number;
+  answered_alumni: number;
+  not_answered_alumni: number;
   course_totals: Record<string, number>;
 }
 
@@ -162,7 +165,9 @@ const EMPTY_SUMMARY: RegistrySummary = {
   registered_accounts: 0,
   unclaimed_alumni: 0,
   verified_alumni: 0,
-  course_totals: { BSCS: 0, ACT: 0, BSHM: 0, BSED: 0, BEED: 0, BSN: 0 },
+  answered_alumni: 0,
+  not_answered_alumni: 0,
+  course_totals: { BSCS: 0, ACT: 0, BSHM: 0, BSED: 0, BEED: 0 },
 };
 
 const DEFAULT_IMPORT_STATE: ImportState = {
@@ -180,16 +185,14 @@ const DEFAULT_IMPORT_STATE: ImportState = {
   duplicate_behavior: 'skip',
 };
 
-const statusStyles: Record<RegistryStatus, string> = {
-  Unclaimed: 'border-amber-200 bg-amber-50 text-amber-700',
-  Registered: 'border-blue-200 bg-blue-50 text-blue-700',
-  Verified: 'border-green-200 bg-green-50 text-green-700',
-  Inactive: 'border-gray-200 bg-gray-50 text-gray-500',
-};
-
 const statusOptions: RegistryStatus[] = ['Unclaimed', 'Registered', 'Verified', 'Inactive'];
-const courseCodeOrder = ['BSCS', 'ACT', 'BSHM', 'BSED', 'BEED', 'BSN'];
+const courseCodeOrder = ['BSCS', 'ACT', 'BSHM', 'BSED', 'BEED'];
 const maxImportSizeBytes = 10 * 1024 * 1024;
+const surveyAnswerTabs: Array<{ value: SurveyAnswerStatus; label: string; countKey: SurveyAnswerCountKey }> = [
+  { value: 'all', label: 'All Alumni', countKey: 'total_official_alumni' },
+  { value: 'answered', label: 'Done Answering', countKey: 'answered_alumni' },
+  { value: 'not_answered', label: 'Not Answered', countKey: 'not_answered_alumni' },
+];
 
 const headerAliases = {
   name: ['name', 'alumni name', 'full name', 'fullname', 'graduate name', 'alumni full name'],
@@ -269,12 +272,6 @@ function extractRowsFromSheet(workbook: XLSX.WorkBook, sheetName: string): { row
   return { rows: detected, error: '' };
 }
 
-function formatDate(value?: string | null) {
-  if (!value) return '-';
-  const date = new Date(value.replace(' ', 'T'));
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString();
-}
-
 function formatDateTime(value?: string | null) {
   if (!value) return '-';
   const date = new Date(value.replace(' ', 'T'));
@@ -339,6 +336,7 @@ export default function AlumniRegisteredList() {
   const [courseCode, setCourseCode] = useState('');
   const [batchYear, setBatchYear] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [surveyAnswerStatus, setSurveyAnswerStatus] = useState<SurveyAnswerStatus>('all');
   const [sort, setSort] = useState<SortKey>('import_date');
   const [direction, setDirection] = useState<SortDirection>('desc');
   const [page, setPage] = useState(1);
@@ -379,8 +377,9 @@ export default function AlumniRegisteredList() {
     if (courseCode) params.set('course_code', courseCode);
     if (batchYear) params.set('batch_year', batchYear);
     if (statusFilter) params.set('registration_status', statusFilter);
+    if (surveyAnswerStatus !== 'all') params.set('survey_answer_status', surveyAnswerStatus);
     return params;
-  }, [batchYear, courseCode, courseId, direction, limit, page, search, sort, statusFilter]);
+  }, [batchYear, courseCode, courseId, direction, limit, page, search, sort, statusFilter, surveyAnswerStatus]);
 
   const fetchSummary = useCallback(async () => {
     setSummaryLoading(true);
@@ -452,6 +451,7 @@ export default function AlumniRegisteredList() {
     setCourseCode('');
     setBatchYear('');
     setStatusFilter('');
+    setSurveyAnswerStatus('all');
     setSort('import_date');
     setDirection('desc');
     setPage(1);
@@ -960,14 +960,7 @@ export default function AlumniRegisteredList() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard label="Total Official Alumni" value={summary.total_official_alumni} loading={summaryLoading} className="border-blue-200 bg-blue-50 text-blue-800" />
-        <SummaryCard label="Registered Accounts" value={summary.registered_accounts} loading={summaryLoading} className="border-cyan-200 bg-cyan-50 text-cyan-800" />
-        <SummaryCard label="Unclaimed Alumni" value={summary.unclaimed_alumni} loading={summaryLoading} className="border-amber-200 bg-amber-50 text-amber-800" />
-        <SummaryCard label="Verified Alumni" value={summary.verified_alumni} loading={summaryLoading} className="border-green-200 bg-green-50 text-green-800" />
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {courseCodeOrder.map((code) => (
           <div key={code} className="rounded-lg border bg-white px-4 py-3 shadow-sm">
             <p className="text-xs font-semibold text-gray-500">{code}</p>
@@ -975,6 +968,33 @@ export default function AlumniRegisteredList() {
           </div>
         ))}
       </div>
+
+      <nav aria-label="Survey answer list navigation" className="flex flex-wrap gap-2">
+        {surveyAnswerTabs.map((tab) => {
+          const active = surveyAnswerStatus === tab.value;
+          return (
+            <button
+              key={tab.value}
+              type="button"
+              onClick={() => {
+                setSurveyAnswerStatus(tab.value);
+                setStatusFilter('');
+                setPage(1);
+              }}
+              className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold transition ${
+                active
+                  ? 'border-[#1b2a4a] bg-[#1b2a4a] text-white shadow-sm'
+                  : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+              }`}
+            >
+              <span>{tab.label}</span>
+              <span className={`rounded-full px-2 py-0.5 text-xs ${active ? 'bg-white/15 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                {summaryLoading ? '...' : summary[tab.countKey]}
+              </span>
+            </button>
+          );
+        })}
+      </nav>
 
       <div className="rounded-xl border bg-white p-4 shadow-sm">
         <div className="grid gap-3 xl:grid-cols-[1fr_180px_150px_150px_170px_auto] xl:items-center">
@@ -1019,7 +1039,11 @@ export default function AlumniRegisteredList() {
           </select>
           <select
             value={statusFilter}
-            onChange={(event) => { setStatusFilter(event.target.value); setPage(1); }}
+            onChange={(event) => {
+              setStatusFilter(event.target.value);
+              setSurveyAnswerStatus('all');
+              setPage(1);
+            }}
             className="w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="">All Statuses</option>
@@ -1063,78 +1087,69 @@ export default function AlumniRegisteredList() {
             <EmptyBlock label="No official alumni records match the current filters." />
           ) : (
             records.map((record, index) => (
-              <div key={record.id} className="p-4">
-                <div className="flex items-start justify-between gap-3">
+              <button
+                key={record.id}
+                type="button"
+                onClick={() => setViewRecord(record)}
+                className="block w-full p-4 text-left transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500"
+              >
+                <div className="grid gap-3">
                   <div className="min-w-0">
                     <p className="text-xs font-semibold text-gray-400">No. {(pagination.page - 1) * pagination.limit + index + 1}</p>
                     <p className="mt-1 font-semibold text-[#1b2a4a]">{record.full_name}</p>
-                    <p className="mt-1 text-sm text-gray-500">{record.course_code} - Batch {record.batch_year}</p>
                   </div>
-                  <StatusBadge status={record.registration_status} />
+                  <div className="grid gap-2 text-sm text-gray-600 sm:grid-cols-[1fr_96px]">
+                    <p>{record.course_name}</p>
+                    <p className="font-medium text-gray-700">Batch {record.batch_year}</p>
+                  </div>
                 </div>
-                <div className="mt-3 flex flex-wrap gap-1">
-                  <ActionButtons
-                    record={record}
-                    actionKey={actionKey}
-                    onView={setViewRecord}
-                    onEdit={openEdit}
-                    onLink={openLink}
-                    onConfirmStatus={confirmStatusAction}
-                    onDelete={confirmDelete}
-                  />
-                </div>
-              </div>
+              </button>
             ))
           )}
         </div>
 
         <div className="hidden overflow-x-auto md:block">
-          <table className="w-full min-w-[1150px] text-sm">
+          <table className="w-full min-w-[720px] text-sm">
+            <colgroup>
+              <col className="w-20" />
+              <col className="w-[34%]" />
+              <col />
+              <col className="w-28" />
+            </colgroup>
             <thead className="border-b bg-gray-50">
               <tr>
                 <th className="px-4 py-3 text-left font-semibold text-gray-600">No.</th>
                 <SortableTh label="Alumni Name" sortKey="name" currentSort={sort} direction={direction} onSort={toggleSort} />
                 <SortableTh label="Course" sortKey="course" currentSort={sort} direction={direction} onSort={toggleSort} />
-                <th className="px-4 py-3 text-left font-semibold text-gray-600">Course Code</th>
                 <SortableTh label="Batch" sortKey="batch" currentSort={sort} direction={direction} onSort={toggleSort} />
-                <th className="px-4 py-3 text-left font-semibold text-gray-600">Account Status</th>
-                <SortableTh label="Date Imported" sortKey="import_date" currentSort={sort} direction={direction} onSort={toggleSort} />
-                <th className="px-4 py-3 text-center font-semibold text-gray-600">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8}><LoadingBlock label="Loading alumni records..." /></td></tr>
+                <tr><td colSpan={4}><LoadingBlock label="Loading alumni records..." /></td></tr>
               ) : records.length === 0 ? (
-                <tr><td colSpan={8}><EmptyBlock label="No official alumni records match the current filters." /></td></tr>
+                <tr><td colSpan={4}><EmptyBlock label="No official alumni records match the current filters." /></td></tr>
               ) : (
                 records.map((record, index) => (
-                  <tr key={record.id} className="border-b last:border-0 hover:bg-gray-50">
+                  <tr
+                    key={record.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setViewRecord(record)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        setViewRecord(record);
+                      }
+                    }}
+                    className="cursor-pointer border-b transition last:border-0 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500"
+                  >
                     <td className="px-4 py-3 text-gray-500">{(pagination.page - 1) * pagination.limit + index + 1}</td>
                     <td className="px-4 py-3">
                       <p className="font-semibold text-[#1b2a4a]">{record.full_name}</p>
-                      {record.linked_email && <p className="mt-0.5 text-xs text-gray-500">{record.linked_email}</p>}
                     </td>
                     <td className="px-4 py-3 text-gray-600">{record.course_name}</td>
-                    <td className="px-4 py-3">
-                      <span className="rounded border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700">{record.course_code}</span>
-                    </td>
                     <td className="px-4 py-3 text-gray-700">{record.batch_year}</td>
-                    <td className="px-4 py-3"><StatusBadge status={record.registration_status} /></td>
-                    <td className="px-4 py-3 text-gray-600">{formatDate(record.created_at)}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-center gap-1">
-                        <ActionButtons
-                          record={record}
-                          actionKey={actionKey}
-                          onView={setViewRecord}
-                          onEdit={openEdit}
-                          onLink={openLink}
-                          onConfirmStatus={confirmStatusAction}
-                          onDelete={confirmDelete}
-                        />
-                      </div>
-                    </td>
                   </tr>
                 ))
               )}
@@ -1168,7 +1183,27 @@ export default function AlumniRegisteredList() {
       </div>
 
       {viewRecord && (
-        <DetailModal record={viewRecord} onClose={() => setViewRecord(null)} />
+        <DetailModal
+          record={viewRecord}
+          actionKey={actionKey}
+          onClose={() => setViewRecord(null)}
+          onEdit={(record) => {
+            setViewRecord(null);
+            openEdit(record);
+          }}
+          onLink={(record) => {
+            setViewRecord(null);
+            openLink(record);
+          }}
+          onConfirmStatus={(record, action) => {
+            setViewRecord(null);
+            confirmStatusAction(record, action);
+          }}
+          onDelete={(record) => {
+            setViewRecord(null);
+            confirmDelete(record);
+          }}
+        />
       )}
 
       {editForm && (
@@ -1242,23 +1277,6 @@ export default function AlumniRegisteredList() {
   );
 }
 
-function SummaryCard({ label, value, loading, className }: { label: string; value: number; loading: boolean; className: string }) {
-  return (
-    <div className={`rounded-xl border p-4 ${className}`}>
-      <p className="text-sm font-semibold">{label}</p>
-      <p className="mt-2 text-2xl font-bold">{loading ? '...' : value}</p>
-    </div>
-  );
-}
-
-function StatusBadge({ status }: { status: RegistryStatus }) {
-  return (
-    <span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${statusStyles[status] || statusStyles.Unclaimed}`}>
-      {status}
-    </span>
-  );
-}
-
 function SortableTh({
   label,
   sortKey,
@@ -1299,7 +1317,6 @@ function EmptyBlock({ label }: { label: string }) {
 function ActionButtons({
   record,
   actionKey,
-  onView,
   onEdit,
   onLink,
   onConfirmStatus,
@@ -1307,7 +1324,6 @@ function ActionButtons({
 }: {
   record: RegisteredAlumni;
   actionKey: string;
-  onView: (record: RegisteredAlumni) => void;
   onEdit: (record: RegisteredAlumni) => void;
   onLink: (record: RegisteredAlumni) => void;
   onConfirmStatus: (record: RegisteredAlumni, action: 'verify' | 'inactive' | 'unlink') => void;
@@ -1316,9 +1332,6 @@ function ActionButtons({
   const busy = actionKey !== '';
   return (
     <>
-      <IconButton title="View details" onClick={() => onView(record)} disabled={busy} className="text-slate-600 hover:bg-slate-50">
-        <Eye className="h-4 w-4" />
-      </IconButton>
       <IconButton title="Edit registry information" onClick={() => onEdit(record)} disabled={busy} className="text-blue-600 hover:bg-blue-50">
         <Edit2 className="h-4 w-4" />
       </IconButton>
@@ -1371,7 +1384,23 @@ function IconButton({
   );
 }
 
-function DetailModal({ record, onClose }: { record: RegisteredAlumni; onClose: () => void }) {
+function DetailModal({
+  record,
+  actionKey,
+  onClose,
+  onEdit,
+  onLink,
+  onConfirmStatus,
+  onDelete,
+}: {
+  record: RegisteredAlumni;
+  actionKey: string;
+  onClose: () => void;
+  onEdit: (record: RegisteredAlumni) => void;
+  onLink: (record: RegisteredAlumni) => void;
+  onConfirmStatus: (record: RegisteredAlumni, action: 'verify' | 'inactive' | 'unlink') => void;
+  onDelete: (record: RegisteredAlumni) => void;
+}) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
       <div className="w-full max-w-2xl overflow-hidden rounded-lg bg-white shadow-2xl">
@@ -1386,7 +1415,19 @@ function DetailModal({ record, onClose }: { record: RegisteredAlumni; onClose: (
           <Info label="Linked Account" value={record.linked_email || '-'} />
           <Info label="Linked Name" value={linkedName(record) || '-'} />
         </div>
-        <ModalFooter onClose={onClose} />
+        <div className="flex flex-col gap-3 border-t px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap gap-1">
+            <ActionButtons
+              record={record}
+              actionKey={actionKey}
+              onEdit={onEdit}
+              onLink={onLink}
+              onConfirmStatus={onConfirmStatus}
+              onDelete={onDelete}
+            />
+          </div>
+          <button type="button" onClick={onClose} className="rounded-lg border px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">Close</button>
+        </div>
       </div>
     </div>
   );
@@ -1795,14 +1836,6 @@ function ModalHeader({ title, subtitle, onClose }: { title: string; subtitle?: s
       <button type="button" onClick={onClose} className="rounded-lg p-2 text-gray-500 hover:bg-gray-100" aria-label="Close">
         <X className="h-5 w-5" />
       </button>
-    </div>
-  );
-}
-
-function ModalFooter({ onClose }: { onClose: () => void }) {
-  return (
-    <div className="border-t px-5 py-4 text-right">
-      <button type="button" onClick={onClose} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800">Close</button>
     </div>
   );
 }

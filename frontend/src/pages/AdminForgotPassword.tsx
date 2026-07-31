@@ -3,6 +3,7 @@ import { Eye, EyeOff, KeyRound } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import MessageBox from '../components/MessageBox';
 import { API_ENDPOINTS } from '../config/api';
+import { useLightOnlyTheme } from '../contexts/theme';
 
 type ForgotPasswordStep = 'request_otp' | 'verify_otp' | 'reset_password';
 
@@ -21,6 +22,8 @@ const defaultForm: ForgotPasswordForm = {
 };
 
 export default function AdminForgotPassword() {
+  useLightOnlyTheme();
+
   const navigate = useNavigate();
   const [step, setStep] = useState<ForgotPasswordStep>('request_otp');
   const [form, setForm] = useState<ForgotPasswordForm>(defaultForm);
