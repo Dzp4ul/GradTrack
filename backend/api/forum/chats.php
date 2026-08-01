@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/forum.php';
+require_once __DIR__ . '/../config/chat.php';
 
 function gradtrack_forum_chats_request_data(): array
 {
@@ -123,12 +124,14 @@ function gradtrack_forum_chats_participants_by_room(PDO $db, array $roomIds): ar
                                  g.id AS graduate_id,
                                  TRIM(CONCAT(COALESCE(g.first_name, ''), ' ', COALESCE(g.last_name, ''))) AS full_name,
                                  p.code AS program_code,
-                                 gpi.file_path AS profile_image_path
+                                 gpi.file_path AS profile_image_path,
+                                 gp.last_active_at
                           FROM forum_chat_members fcm
                           JOIN graduates g ON g.id = fcm.graduate_id
                           LEFT JOIN graduate_accounts ga ON ga.graduate_id = g.id
                           LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
                           LEFT JOIN programs p ON p.id = g.program_id
+                          LEFT JOIN graduate_presence gp ON gp.graduate_id = g.id
                           WHERE fcm.room_id IN ($placeholders)
                           ORDER BY g.first_name ASC, g.last_name ASC");
     $stmt->execute($params);
@@ -145,6 +148,8 @@ function gradtrack_forum_chats_participants_by_room(PDO $db, array $roomIds): ar
             'full_name' => trim((string) ($row['full_name'] ?? '')) ?: 'Graduate',
             'program_code' => $row['program_code'] ?? null,
             'profile_image_path' => $row['profile_image_path'] ?? null,
+            'last_active_at' => $row['last_active_at'] ?? null,
+            'is_online' => false,
         ];
     }
 
@@ -155,8 +160,17 @@ function gradtrack_forum_chats_rooms(PDO $db, int $currentGraduateId): array
 {
     $stmt = $db->prepare("SELECT r.id, r.created_by, r.name, r.is_group, r.created_at, r.updated_at,
                                  lm.message AS last_message,
+                                 lm.message_type AS last_message_type,
                                  lm.created_at AS last_message_at,
-                                 lm.graduate_id AS last_message_sender_id
+                                 lm.graduate_id AS last_message_sender_id,
+                                 (
+                                     SELECT COUNT(*)
+                                     FROM forum_chat_messages unread
+                                     WHERE unread.room_id = r.id
+                                       AND unread.graduate_id <> :unread_graduate_id
+                                       AND unread.deleted_at IS NULL
+                                       AND (mine.last_read_at IS NULL OR unread.created_at > mine.last_read_at)
+                                 ) AS unread_count
                           FROM forum_chat_rooms r
                           JOIN forum_chat_members mine
                             ON mine.room_id = r.id
@@ -166,11 +180,15 @@ function gradtrack_forum_chats_rooms(PDO $db, int $currentGraduateId): array
                                 SELECT msg.id
                                 FROM forum_chat_messages msg
                                 WHERE msg.room_id = r.id
+                                  AND msg.deleted_at IS NULL
                                 ORDER BY msg.created_at DESC, msg.id DESC
                                 LIMIT 1
                             )
-                          ORDER BY COALESCE(lm.created_at, r.updated_at, r.created_at) DESC, r.id DESC");
-    $stmt->execute([':graduate_id' => $currentGraduateId]);
+                          ORDER BY COALESCE(lm.created_at, r.last_message_at, r.updated_at, r.created_at) DESC, r.id DESC");
+    $stmt->execute([
+        ':graduate_id' => $currentGraduateId,
+        ':unread_graduate_id' => $currentGraduateId,
+    ]);
     $rooms = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     $roomIds = [];
@@ -179,6 +197,8 @@ function gradtrack_forum_chats_rooms(PDO $db, int $currentGraduateId): array
         $room['created_by'] = (int) $room['created_by'];
         $room['is_group'] = (int) ($room['is_group'] ?? 0) === 1;
         $room['last_message_sender_id'] = isset($room['last_message_sender_id']) ? (int) $room['last_message_sender_id'] : null;
+        $room['last_message'] = gradtrack_chat_message_preview($room['last_message'] ?? null, $room['last_message_type'] ?? null);
+        $room['unread_count'] = (int) ($room['unread_count'] ?? 0);
         $roomIds[] = $room['id'];
     }
     unset($room);
@@ -219,7 +239,7 @@ $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
 
 try {
-    gradtrack_forum_ensure_schema($db);
+    gradtrack_chat_prepare_schema($db);
     $user = gradtrack_require_graduate_auth($db);
     $currentGraduateId = (int) $user['graduate_id'];
 
@@ -314,5 +334,6 @@ try {
 
     gradtrack_forum_chats_json_error(405, 'Method not allowed');
 } catch (Throwable $e) {
-    gradtrack_forum_chats_json_error(500, $e->getMessage());
+    error_log('GradTrack chats API error: ' . $e->getMessage());
+    gradtrack_forum_chats_json_error(500, 'Unable to process chats right now');
 }

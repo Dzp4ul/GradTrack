@@ -31,12 +31,24 @@ import {
   ZoomOut,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import type { Socket } from 'socket.io-client';
 import { API_BASE_URL, API_ENDPOINTS } from '../config/api';
+import RealtimeMessagingWorkspace from '../components/messaging/RealtimeMessagingWorkspace';
+import type {
+  MessageAttachment,
+  MessagePagination,
+  MessagingMessage,
+  MessagingParticipant,
+  MessagingRoom,
+  SelectedAttachment,
+} from '../components/messaging/types';
 import MessageBox from '../components/MessageBox';
 import NotificationBell from '../components/NotificationBell';
 import ThemeToggle from '../components/ThemeToggle';
 import { useGraduateAuth } from '../contexts/GraduateAuthContext';
 import type { GraduateUser } from '../contexts/GraduateAuthContext';
+import { createRealtimeChatSocket, emitWithAck } from '../services/realtimeChat';
+import type { RealtimeChatStatus } from '../services/realtimeChat';
 
 type PortalTab = 'dashboard' | 'community_forum' | 'messages' | 'group_chats' | 'jobs' | 'job_posting' | 'my_profile';
 type ForumStatus = 'approved' | 'pending' | 'hidden';
@@ -134,38 +146,9 @@ interface ReportTarget {
   label: string;
 }
 
-interface ChatParticipant {
-  graduate_id: number;
-  full_name: string;
-  program_code?: string | null;
-  profile_image_path?: string | null;
-}
-
-interface ChatRoom {
-  id: number;
-  created_by: number;
-  name?: string | null;
-  is_group: boolean;
-  created_at: string;
-  updated_at: string;
-  last_message?: string | null;
-  last_message_at?: string | null;
-  last_message_sender_id?: number | null;
-  participants: ChatParticipant[];
-  participant_count: number;
-}
-
-interface ChatMessage {
-  id: number;
-  room_id: number;
-  graduate_id: number;
-  message: string;
-  created_at: string;
-  sender_name: string;
-  sender_program_code?: string | null;
-  sender_profile_image_path?: string | null;
-  is_mine: boolean;
-}
+type ChatParticipant = MessagingParticipant;
+type ChatRoom = MessagingRoom;
+type ChatMessage = MessagingMessage;
 
 interface JobPost {
   id: number;
@@ -251,7 +234,7 @@ function getPortalTab(rawValue: string | null): PortalTab {
 
 function resolveAssetUrl(path?: string | null) {
   if (!path) return '';
-  if (/^https?:\/\//i.test(path)) return path;
+  if (/^(https?:|blob:|data:)/i.test(path)) return path;
   return `${API_BASE_URL}/${path.replace(/^\/+/, '')}`;
 }
 
@@ -353,6 +336,125 @@ function formatBytes(value?: number | null) {
   if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
   if (value >= 1024) return `${Math.round(value / 1024)} KB`;
   return `${value} B`;
+}
+
+const chatAttachmentAccept = '.jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv';
+const chatImageMaxBytes = 10 * 1024 * 1024;
+const chatDocumentMaxBytes = 25 * 1024 * 1024;
+const chatImageExtensions = ['jpg', 'jpeg', 'png', 'webp'];
+const chatDocumentExtensions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv'];
+const chatDangerousExtensions = ['exe', 'bat', 'cmd', 'sh', 'js', 'php', 'phtml', 'phar', 'jar', 'msi', 'com', 'scr', 'vbs', 'ps1'];
+const chatAllowedMimeTypes = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'text/plain',
+  'text/csv',
+];
+
+function getFileExtension(name: string) {
+  return name.split('.').pop()?.toLowerCase() || '';
+}
+
+function validateChatAttachmentFile(file: File): string | null {
+  const extension = getFileExtension(file.name);
+
+  if (!extension || chatDangerousExtensions.includes(extension)) {
+    return 'This file type is not allowed.';
+  }
+
+  const isImage = chatImageExtensions.includes(extension);
+  const isDocument = chatDocumentExtensions.includes(extension);
+  if (!isImage && !isDocument) {
+    return `Unsupported file type. Allowed: ${chatAttachmentAccept}.`;
+  }
+
+  if (file.type && !chatAllowedMimeTypes.includes(file.type)) {
+    return 'Unsupported file content type.';
+  }
+
+  const maxBytes = isImage ? chatImageMaxBytes : chatDocumentMaxBytes;
+  if (file.size > maxBytes) {
+    return `${isImage ? 'Images' : 'Documents'} must be ${Math.round(maxBytes / 1024 / 1024)} MB or smaller.`;
+  }
+
+  return null;
+}
+
+function createClientMessageId(currentGraduateId: number) {
+  const randomPart = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+  return `grad-${currentGraduateId}-${randomPart}`;
+}
+
+function normalizeChatMessage(message: ChatMessage, currentGraduateId: number): ChatMessage {
+  const isMine = message.graduate_id === currentGraduateId;
+
+  return {
+    ...message,
+    message: message.message || '',
+    is_mine: isMine,
+    attachments: Array.isArray(message.attachments) ? message.attachments : [],
+    status: isMine
+      ? (message.read_at ? 'read' : message.delivered_at ? 'delivered' : message.status || 'sent')
+      : 'received',
+  };
+}
+
+function mergeChatMessages(currentMessages: ChatMessage[], incomingMessages: ChatMessage[]) {
+  const byKey = new Map<string, ChatMessage>();
+
+  [...currentMessages, ...incomingMessages].forEach((message) => {
+    const key = message.client_message_id
+      ? `client-${message.room_id}-${message.graduate_id}-${message.client_message_id}`
+      : `id-${message.id}`;
+    const existing = byKey.get(key);
+    if (!existing || existing.id < 0 || message.id > 0) {
+      byKey.set(key, {
+        ...existing,
+        ...message,
+        attachments: message.attachments || existing?.attachments || [],
+      });
+    }
+  });
+
+  return Array.from(byKey.values()).sort((a, b) => {
+    const timeDifference = (parseDate(a.created_at)?.getTime() ?? 0) - (parseDate(b.created_at)?.getTime() ?? 0);
+    if (timeDifference !== 0) return timeDifference;
+    if (a.id > 0 && b.id > 0) return a.id - b.id;
+    if (a.id > 0) return -1;
+    if (b.id > 0) return 1;
+    return a.id - b.id;
+  });
+}
+
+function sortChatRooms(roomList: ChatRoom[]) {
+  return [...roomList].sort((a, b) => {
+    const first = parseDate(a.last_message_at || a.updated_at || a.created_at)?.getTime() || 0;
+    const second = parseDate(b.last_message_at || b.updated_at || b.created_at)?.getTime() || 0;
+    return second - first || b.id - a.id;
+  });
+}
+
+function getChatMessagePreview(message: ChatMessage) {
+  const text = message.message.trim();
+  if (text) return text;
+  if (message.message_type === 'image') return 'Photo';
+  if (message.message_type === 'file') return 'Attachment';
+  if (message.message_type === 'mixed') return 'Message with attachment';
+  return 'Message';
+}
+
+function getNewestMessageId(messages: ChatMessage[]) {
+  return messages.reduce((max, message) => (message.id > max ? message.id : max), 0);
 }
 
 function forumStatusClass(status: ForumStatus) {
@@ -567,9 +669,15 @@ export default function GraduatePortal() {
   const [selectedRoomId, setSelectedRoomId] = useState<number | null>(null);
   const [activeRoom, setActiveRoom] = useState<ChatRoom | null>(null);
   const [roomMessages, setRoomMessages] = useState<ChatMessage[]>([]);
+  const [messagePagination, setMessagePagination] = useState<MessagePagination | null>(null);
   const [roomLoading, setRoomLoading] = useState(false);
+  const [olderMessagesLoading, setOlderMessagesLoading] = useState(false);
   const [chatMessageDraft, setChatMessageDraft] = useState('');
-  const [chatSending, setChatSending] = useState(false);
+  const [chatConnectionStatus, setChatConnectionStatus] = useState<RealtimeChatStatus>('disconnected');
+  const [chatSelectedAttachment, setChatSelectedAttachment] = useState<SelectedAttachment | null>(null);
+  const [chatTypingUsers, setChatTypingUsers] = useState<Record<number, Record<number, { name: string; expiresAt: number }>>>({});
+  const [chatNewMessageAvailable, setChatNewMessageAvailable] = useState(false);
+  const [chatMobileConversationOpen, setChatMobileConversationOpen] = useState(false);
   const [chatModalOpen, setChatModalOpen] = useState(false);
   const [chatModalMode, setChatModalMode] = useState<'direct' | 'group'>('direct');
   const [chatModalName, setChatModalName] = useState('');
@@ -587,6 +695,21 @@ export default function GraduatePortal() {
   const profileImageInputRef = useRef<HTMLInputElement | null>(null);
   const forumMediaInputRef = useRef<HTMLInputElement | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
+  const chatSocketRef = useRef<Socket | null>(null);
+  const chatNearBottomRef = useRef(true);
+  const chatTypingStopTimeoutRef = useRef<number | null>(null);
+  const chatTypingRoomIdRef = useRef<number | null>(null);
+  const chatJoinedRoomIdRef = useRef<number | null>(null);
+  const selectedRoomIdRef = useRef<number | null>(null);
+  const previousSelectedRoomIdRef = useRef<number | null>(null);
+  const roomMessagesRef = useRef<ChatMessage[]>([]);
+  const retryAttachmentsRef = useRef<Record<string, SelectedAttachment>>({});
+  const chatSelectedAttachmentRef = useRef<SelectedAttachment | null>(null);
+  const chatTypingExpiryTimeoutsRef = useRef<Map<string, number>>(new Map());
+  const roomLoadRequestRef = useRef(0);
+  const loadMissedRoomMessagesRef = useRef<(roomId: number) => Promise<void>>(async () => undefined);
+  const markVisibleMessagesAsReadRef = useRef<(roomId?: number, messages?: ChatMessage[]) => Promise<void>>(async () => undefined);
+  const bootStartedRef = useRef(false);
 
   const currentGraduateId = user?.graduate_id ?? 0;
   const currentProfileImageUrl = resolveAssetUrl(user?.profile_image_path);
@@ -637,8 +760,6 @@ export default function GraduatePortal() {
   const directRooms = useMemo(() => rooms.filter((room) => !room.is_group), [rooms]);
   const groupRooms = useMemo(() => rooms.filter((room) => room.is_group), [rooms]);
   const filteredRooms = rooms.filter(matchesChatSearch);
-  const filteredDirectRooms = directRooms.filter(matchesChatSearch);
-  const filteredGroupRooms = groupRooms.filter(matchesChatSearch);
 
   const filteredDirectory = directory.filter((participant) => {
     const query = chatModalSearch.trim().toLowerCase();
@@ -740,7 +861,7 @@ export default function GraduatePortal() {
 
   const loadChats = useCallback(async () => {
     const response = await authenticatedFetch(API_ENDPOINTS.FORUM.CHATS);
-    const roomList = Array.isArray(response.data?.rooms) ? (response.data.rooms as ChatRoom[]) : [];
+    const roomList = sortChatRooms(Array.isArray(response.data?.rooms) ? (response.data.rooms as ChatRoom[]) : []);
     const directoryList = Array.isArray(response.data?.directory) ? (response.data.directory as ChatParticipant[]) : [];
 
     setRooms(roomList);
@@ -750,6 +871,7 @@ export default function GraduatePortal() {
       setSelectedRoomId(null);
       setActiveRoom(null);
       setRoomMessages([]);
+      setMessagePagination(null);
       return;
     }
 
@@ -793,55 +915,275 @@ export default function GraduatePortal() {
 
   const loadRoomMessages = useCallback(
     async (roomId: number, silent = false) => {
+      const requestId = ++roomLoadRequestRef.current;
       if (!silent) {
         setRoomLoading(true);
       }
 
       try {
-        const response = await authenticatedFetch(`${API_ENDPOINTS.FORUM.CHAT_MESSAGES}?room_id=${roomId}`);
+        const response = await authenticatedFetch(`${API_ENDPOINTS.FORUM.CHAT_MESSAGES}?room_id=${roomId}&limit=30`);
+        if (requestId !== roomLoadRequestRef.current) return;
+
+        const serverMessages = Array.isArray(response.data?.messages)
+          ? (response.data.messages as ChatMessage[]).map((message) => normalizeChatMessage(message, currentGraduateId))
+          : [];
         setActiveRoom((response.data?.room as ChatRoom | undefined) || null);
-        setRoomMessages(Array.isArray(response.data?.messages) ? (response.data.messages as ChatMessage[]) : []);
-      } finally {
+        setRoomMessages((current) => {
+          const pendingForRoom = current.filter((message) => (
+            message.room_id === roomId
+            && (message.id < 0 || message.status === 'sending' || message.status === 'failed')
+          ));
+          const next = silent
+            ? mergeChatMessages(current.filter((message) => message.room_id === roomId), serverMessages)
+            : mergeChatMessages(serverMessages, pendingForRoom);
+          roomMessagesRef.current = next;
+          return next;
+        });
         if (!silent) {
+          setMessagePagination((response.data?.pagination as MessagePagination | undefined) || null);
+          setChatNewMessageAvailable(false);
+        }
+      } catch (error) {
+        if (!silent && requestId === roomLoadRequestRef.current) {
+          notify('error', error instanceof Error ? error.message : 'Unable to load conversation', 'Messages');
+        }
+      } finally {
+        if (!silent && requestId === roomLoadRequestRef.current) {
           setRoomLoading(false);
         }
+      }
+    },
+    [authenticatedFetch, currentGraduateId, notify],
+  );
+
+  const loadOlderRoomMessages = useCallback(async () => {
+    if (!selectedRoomId || olderMessagesLoading || !messagePagination?.has_more_older) return;
+
+    const beforeId = messagePagination.oldest_id || roomMessages.find((message) => message.id > 0)?.id;
+    if (!beforeId) return;
+
+    setOlderMessagesLoading(true);
+    try {
+      const response = await authenticatedFetch(`${API_ENDPOINTS.FORUM.CHAT_MESSAGES}?room_id=${selectedRoomId}&before_id=${beforeId}&limit=30`);
+      const olderMessages = Array.isArray(response.data?.messages)
+        ? (response.data.messages as ChatMessage[]).map((message) => normalizeChatMessage(message, currentGraduateId))
+        : [];
+
+      setRoomMessages((current) => {
+        const next = mergeChatMessages(olderMessages, current);
+        roomMessagesRef.current = next;
+        return next;
+      });
+      setMessagePagination((response.data?.pagination as MessagePagination | undefined) || null);
+    } catch (error) {
+      notify('error', error instanceof Error ? error.message : 'Unable to load older messages', 'Messages');
+    } finally {
+      setOlderMessagesLoading(false);
+    }
+  }, [authenticatedFetch, currentGraduateId, messagePagination, notify, olderMessagesLoading, roomMessages, selectedRoomId]);
+
+  const loadMissedRoomMessages = useCallback(
+    async (roomId: number) => {
+      let newestId = getNewestMessageId(roomMessagesRef.current.filter((message) => message.room_id === roomId));
+      if (!newestId) {
+        await loadRoomMessages(roomId, true);
+        return;
+      }
+
+      const missedMessages: ChatMessage[] = [];
+      let hasMoreNewer = true;
+      let pageCount = 0;
+
+      while (hasMoreNewer && pageCount < 10) {
+        pageCount += 1;
+        const response = await authenticatedFetch(`${API_ENDPOINTS.FORUM.CHAT_MESSAGES}?room_id=${roomId}&after_id=${newestId}&limit=60`);
+        const pageMessages = Array.isArray(response.data?.messages)
+          ? (response.data.messages as ChatMessage[]).map((message) => normalizeChatMessage(message, currentGraduateId))
+          : [];
+
+        if (pageMessages.length === 0) {
+          break;
+        }
+
+        missedMessages.push(...pageMessages);
+        newestId = getNewestMessageId(pageMessages) || newestId;
+        hasMoreNewer = Boolean((response.data?.pagination as MessagePagination | undefined)?.has_more_newer);
+      }
+
+      if (missedMessages.length > 0) {
+        setRoomMessages((current) => {
+          if (selectedRoomIdRef.current !== roomId) return current;
+          const next = mergeChatMessages(current, missedMessages);
+          roomMessagesRef.current = next;
+          return next;
+        });
+      }
+    },
+    [authenticatedFetch, currentGraduateId, loadRoomMessages],
+  );
+
+  const markVisibleMessagesAsRead = useCallback(
+    async (roomId = selectedRoomIdRef.current || 0, messages = roomMessagesRef.current) => {
+      if (!roomId || messages.length === 0) return;
+
+      const newestIncoming = [...messages].reverse().find((message) => !message.is_mine && message.id > 0);
+      if (!newestIncoming || newestIncoming.read_at) return;
+
+      try {
+        const socket = chatSocketRef.current;
+        if (socket?.connected) {
+          const response = await emitWithAck(socket, 'message:read', {
+            room_id: roomId,
+            up_to_message_id: newestIncoming.id,
+          });
+
+          if (!response.success) {
+            throw new Error(response.error || 'Unable to mark messages as read');
+          }
+        } else {
+          await authenticatedFetch(API_ENDPOINTS.FORUM.CHAT_MESSAGES, {
+            method: 'POST',
+            body: JSON.stringify({
+              action: 'read',
+              room_id: roomId,
+              up_to_message_id: newestIncoming.id,
+            }),
+          });
+        }
+
+        const localReadAt = new Date().toISOString();
+        setRoomMessages((current) => {
+          if (selectedRoomIdRef.current !== roomId) return current;
+          const next = current.map((message) => (
+            !message.is_mine && message.id > 0 && message.id <= newestIncoming.id
+              ? { ...message, read_at: message.read_at || localReadAt }
+              : message
+          ));
+          roomMessagesRef.current = next;
+          return next;
+        });
+        setRooms((current) => current.map((room) => (room.id === roomId ? { ...room, unread_count: 0 } : room)));
+      } catch {
+        // Read receipts are best effort and will be retried on the next sync.
       }
     },
     [authenticatedFetch],
   );
 
+  useEffect(() => {
+    loadMissedRoomMessagesRef.current = loadMissedRoomMessages;
+  }, [loadMissedRoomMessages]);
+
+  useEffect(() => {
+    markVisibleMessagesAsReadRef.current = markVisibleMessagesAsRead;
+  }, [markVisibleMessagesAsRead]);
+
+  const upsertConversation = useCallback((conversation?: ChatRoom | null) => {
+    if (!conversation) return;
+
+    setRooms((current) => {
+      const exists = current.some((room) => room.id === conversation.id);
+      const next = exists
+        ? current.map((room) => (room.id === conversation.id ? { ...room, ...conversation } : room))
+        : [conversation, ...current];
+      return sortChatRooms(next);
+    });
+
+    setActiveRoom((current) => (current?.id === conversation.id ? { ...current, ...conversation } : current));
+  }, []);
+
+  const applyPresenceStatus = useCallback((status: { graduate_id: number; is_online: boolean; last_active_at?: string | null }) => {
+    const updateParticipant = (participant: ChatParticipant) =>
+      participant.graduate_id === status.graduate_id
+        ? { ...participant, is_online: status.is_online, last_active_at: status.last_active_at ?? participant.last_active_at }
+        : participant;
+
+    setRooms((current) => current.map((room) => ({ ...room, participants: room.participants.map(updateParticipant) })));
+    setDirectory((current) => current.map(updateParticipant));
+    setActiveRoom((current) => current ? { ...current, participants: current.participants.map(updateParticipant) } : current);
+  }, []);
+
+  const applyMessageDelivery = useCallback((payload: { messages?: Array<{ id: number; delivered_at?: string | null }> }) => {
+    const deliveredById = new Map((payload.messages || []).map((message) => [Number(message.id), message.delivered_at || new Date().toISOString()]));
+    if (deliveredById.size === 0) return;
+
+    setRoomMessages((current) => {
+      const next = current.map((message) => (
+        deliveredById.has(message.id)
+          ? { ...message, delivered_at: deliveredById.get(message.id) || message.delivered_at, status: message.read_at ? 'read' as const : 'delivered' as const }
+          : message
+      ));
+      roomMessagesRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const applyMessageRead = useCallback((payload: { messages?: Array<{ id: number; read_at?: string | null }> }) => {
+    const readById = new Map((payload.messages || []).map((message) => [Number(message.id), message.read_at || new Date().toISOString()]));
+    if (readById.size === 0) return;
+
+    setRoomMessages((current) => {
+      const next = current.map((message) => (
+        readById.has(message.id)
+          ? {
+              ...message,
+              read_at: readById.get(message.id) || message.read_at,
+              delivered_at: message.delivered_at || readById.get(message.id) || null,
+              status: 'read' as const,
+            }
+          : message
+      ));
+      roomMessagesRef.current = next;
+      return next;
+    });
+  }, []);
+
   const loadBootData = useCallback(
-    async (silent = false) => {
+    async (silent = false, tab: PortalTab = 'dashboard') => {
       if (!silent) {
         setLoading(true);
       }
 
-      const results = await Promise.allSettled([
-        loadRatingSummary(),
-        loadForumFeed(),
-        loadMyForumPosts(),
-        loadJobs(),
-        loadMyJobs(),
-        loadChats(),
-        loadActivityLogs(),
-      ]);
+      const tasks = [
+        { key: 'rating', label: 'rating summary', run: loadRatingSummary },
+        { key: 'forum', label: 'forum feed', run: loadForumFeed },
+        { key: 'my_forum', label: 'my forum posts', run: loadMyForumPosts },
+        { key: 'jobs', label: 'jobs', run: loadJobs },
+        { key: 'my_jobs', label: 'my job posts', run: loadMyJobs },
+        { key: 'chats', label: 'chats', run: loadChats },
+        { key: 'activity', label: 'activity logs', run: loadActivityLogs },
+      ];
+
+      const blockingKeysByTab: Record<PortalTab, string[]> = {
+        dashboard: tasks.map((task) => task.key),
+        community_forum: ['forum', 'my_forum', 'activity'],
+        messages: ['chats'],
+        group_chats: ['chats'],
+        jobs: ['jobs', 'rating'],
+        job_posting: ['my_jobs', 'rating'],
+        my_profile: ['rating'],
+      };
+
+      const blockingKeys = new Set(silent ? tasks.map((task) => task.key) : blockingKeysByTab[tab]);
+      const blockingTasks = tasks.filter((task) => blockingKeys.has(task.key));
+      const backgroundTasks = silent ? [] : tasks.filter((task) => !blockingKeys.has(task.key));
+
+      const results = await Promise.allSettled(blockingTasks.map((task) => task.run()));
 
       if (!silent) {
         setLoading(false);
       }
 
-      const failed = [
-        results[0].status === 'rejected' ? 'rating summary' : null,
-        results[1].status === 'rejected' ? 'forum feed' : null,
-        results[2].status === 'rejected' ? 'my forum posts' : null,
-        results[3].status === 'rejected' ? 'jobs' : null,
-        results[4].status === 'rejected' ? 'my job posts' : null,
-        results[5].status === 'rejected' ? 'chats' : null,
-        results[6].status === 'rejected' ? 'activity logs' : null,
-      ].filter(Boolean);
+      const failed = results
+        .map((result, index) => (result.status === 'rejected' ? blockingTasks[index].label : null))
+        .filter(Boolean);
 
       if (failed.length > 0 && !silent) {
         notify('warning', `Some data could not be loaded: ${failed.join(', ')}.`);
+      }
+
+      if (backgroundTasks.length > 0) {
+        void Promise.allSettled(backgroundTasks.map((task) => task.run()));
       }
     },
     [loadActivityLogs, loadChats, loadForumFeed, loadJobs, loadMyForumPosts, loadMyJobs, loadRatingSummary, notify],
@@ -872,8 +1214,10 @@ export default function GraduatePortal() {
   );
 
   useEffect(() => {
-    void loadBootData();
-  }, [loadBootData]);
+    if (bootStartedRef.current) return;
+    bootStartedRef.current = true;
+    void loadBootData(false, activeTab);
+  }, [activeTab, loadBootData]);
 
   useEffect(() => {
     setActiveTab(getPortalTab(searchParams.get('tab')));
@@ -893,6 +1237,8 @@ export default function GraduatePortal() {
       setSelectedRoomId(null);
       setActiveRoom(null);
       setRoomMessages([]);
+      setMessagePagination(null);
+      setChatMobileConversationOpen(false);
       return;
     }
 
@@ -958,20 +1304,286 @@ export default function GraduatePortal() {
   }, []);
 
   useEffect(() => {
-    if (!selectedRoomId) return;
-    void loadRoomMessages(selectedRoomId);
-  }, [loadRoomMessages, selectedRoomId]);
+    selectedRoomIdRef.current = selectedRoomId;
+  }, [selectedRoomId]);
 
   useEffect(() => {
-    if (!['community_forum', 'messages', 'group_chats'].includes(activeTab)) return undefined;
+    const socket = chatSocketRef.current;
+    const joinedRoomId = chatJoinedRoomIdRef.current;
+    const typingRoomId = chatTypingRoomIdRef.current;
+    const previousSelectedRoomId = previousSelectedRoomIdRef.current;
+    previousSelectedRoomIdRef.current = selectedRoomId;
+
+    if (previousSelectedRoomId && previousSelectedRoomId !== selectedRoomId) {
+      setChatMessageDraft('');
+      setChatSelectedAttachment((current) => {
+        if (current?.preview_url) URL.revokeObjectURL(current.preview_url);
+        return null;
+      });
+      setChatNewMessageAvailable(false);
+    }
+
+    if (chatTypingStopTimeoutRef.current) {
+      window.clearTimeout(chatTypingStopTimeoutRef.current);
+      chatTypingStopTimeoutRef.current = null;
+    }
+    if (socket?.connected && typingRoomId) {
+      socket.emit('typing:stop', { room_id: typingRoomId });
+    }
+    chatTypingRoomIdRef.current = null;
+
+    if (!selectedRoomId) {
+      if (socket?.connected && joinedRoomId) {
+        socket.emit('conversation:leave', { room_id: joinedRoomId });
+      }
+      chatJoinedRoomIdRef.current = null;
+      return;
+    }
+
+    setChatTypingUsers((current) => ({ ...current, [selectedRoomId]: {} }));
+    if (activeTab === 'messages') {
+      setChatMobileConversationOpen(true);
+    }
+    void loadRoomMessages(selectedRoomId);
+
+    if (socket?.connected) {
+      void (async () => {
+        if (joinedRoomId && joinedRoomId !== selectedRoomId) {
+          await emitWithAck(socket, 'conversation:leave', { room_id: joinedRoomId });
+        }
+        const response = await emitWithAck(socket, 'conversation:join', { room_id: selectedRoomId });
+        if (response.success && selectedRoomIdRef.current === selectedRoomId) {
+          chatJoinedRoomIdRef.current = selectedRoomId;
+        }
+      })();
+    }
+  }, [activeTab, loadRoomMessages, selectedRoomId]);
+
+  useEffect(() => {
+    roomMessagesRef.current = roomMessages;
+  }, [roomMessages]);
+
+  const chatFeatureOpen = ['community_forum', 'messages', 'group_chats'].includes(activeTab);
+
+  useEffect(() => {
+    if (!currentGraduateId || !chatFeatureOpen) {
+      setChatConnectionStatus('disconnected');
+      return undefined;
+    }
+
+    const socket = createRealtimeChatSocket();
+    let hasConnectedOnce = false;
+    const typingExpiryTimeouts = chatTypingExpiryTimeoutsRef.current;
+    chatSocketRef.current = socket;
+    setChatConnectionStatus('connecting');
+
+    const handleConnect = () => {
+      const isReconnect = hasConnectedOnce;
+      hasConnectedOnce = true;
+      setChatConnectionStatus('connected');
+      const roomId = selectedRoomIdRef.current;
+      if (roomId) {
+        void emitWithAck(socket, 'conversation:join', { room_id: roomId }).then(async (response) => {
+          if (!response.success || selectedRoomIdRef.current !== roomId) return;
+          chatJoinedRoomIdRef.current = roomId;
+          if (isReconnect) {
+            await loadMissedRoomMessagesRef.current(roomId);
+          }
+        });
+      }
+      if (isReconnect) {
+        void loadChats();
+      }
+    };
+
+    const handleDisconnect = () => {
+      chatJoinedRoomIdRef.current = null;
+      chatTypingRoomIdRef.current = null;
+      setChatTypingUsers({});
+      setChatConnectionStatus(socket.active ? 'reconnecting' : 'disconnected');
+    };
+
+    const handleConnectError = (error: Error) => {
+      if (/authentication required|origin is not allowed/i.test(error.message)) {
+        setChatConnectionStatus('error');
+        socket.disconnect();
+        return;
+      }
+      setChatConnectionStatus(socket.active ? 'reconnecting' : 'error');
+    };
+
+    const updateRoomPreview = (message: ChatMessage) => {
+      setRooms((current) => sortChatRooms(current.map((room) => (
+        room.id === message.room_id
+          ? {
+              ...room,
+              last_message: getChatMessagePreview(message),
+              last_message_type: message.message_type || 'text',
+              last_message_at: message.created_at,
+              last_message_sender_id: message.graduate_id,
+              updated_at: message.created_at,
+            }
+          : room
+      ))));
+    };
+
+    const removeTypingUser = (roomId: number, graduateId: number) => {
+      const timeoutKey = `${roomId}:${graduateId}`;
+      const timeoutId = typingExpiryTimeouts.get(timeoutKey);
+      if (timeoutId) window.clearTimeout(timeoutId);
+      typingExpiryTimeouts.delete(timeoutKey);
+      setChatTypingUsers((current) => {
+        const roomTyping = { ...(current[roomId] || {}) };
+        delete roomTyping[graduateId];
+        return { ...current, [roomId]: roomTyping };
+      });
+    };
+
+    const handleMessageNew = (payload: { message?: ChatMessage }) => {
+      if (!payload.message) return;
+      const incoming = normalizeChatMessage(payload.message, currentGraduateId);
+      updateRoomPreview(incoming);
+      removeTypingUser(incoming.room_id, incoming.graduate_id);
+      if (selectedRoomIdRef.current !== incoming.room_id) return;
+
+      const nextMessages = mergeChatMessages(roomMessagesRef.current, [incoming]);
+      setRoomMessages(nextMessages);
+      roomMessagesRef.current = nextMessages;
+      const shouldStickToBottom = chatNearBottomRef.current;
+      setChatNewMessageAvailable(!shouldStickToBottom);
+      if (!incoming.is_mine && shouldStickToBottom) {
+        void markVisibleMessagesAsReadRef.current(incoming.room_id, nextMessages);
+      }
+    };
+
+    const handleMessageConfirmed = (payload: { message?: ChatMessage }) => {
+      if (!payload.message) return;
+      const sent = normalizeChatMessage(payload.message, currentGraduateId);
+      updateRoomPreview(sent);
+      if (selectedRoomIdRef.current !== sent.room_id) return;
+      const nextMessages = mergeChatMessages(roomMessagesRef.current, [{ ...sent, status: sent.status || 'sent' }]);
+      setRoomMessages(nextMessages);
+      roomMessagesRef.current = nextMessages;
+    };
+
+    const handleMessageFailed = (payload: { room_id?: number; client_message_id?: string; error?: string }) => {
+      const roomId = Number(payload.room_id || 0);
+      if (!payload.client_message_id || selectedRoomIdRef.current !== roomId) return;
+      const nextMessages = roomMessagesRef.current.map((message) => (
+        message.client_message_id === payload.client_message_id
+          ? { ...message, status: 'failed' as const, error: payload.error || 'Unable to send message' }
+          : message
+      ));
+      roomMessagesRef.current = nextMessages;
+      setRoomMessages(nextMessages);
+    };
+
+    const handleTypingUpdate = (payload: { room_id?: number; graduate_id?: number; name?: string; is_typing?: boolean }) => {
+      const roomId = Number(payload.room_id || 0);
+      const graduateId = Number(payload.graduate_id || 0);
+      if (!roomId || !graduateId || graduateId === currentGraduateId) return;
+
+      if (!payload.is_typing) {
+        removeTypingUser(roomId, graduateId);
+        return;
+      }
+
+      const expiresAt = Date.now() + 2800;
+      setChatTypingUsers((current) => ({
+        ...current,
+        [roomId]: {
+          ...(current[roomId] || {}),
+          [graduateId]: { name: payload.name || 'Graduate', expiresAt },
+        },
+      }));
+
+      const timeoutKey = `${roomId}:${graduateId}`;
+      const previousTimeout = typingExpiryTimeouts.get(timeoutKey);
+      if (previousTimeout) window.clearTimeout(previousTimeout);
+      const timeoutId = window.setTimeout(() => {
+        typingExpiryTimeouts.delete(timeoutKey);
+        setChatTypingUsers((current) => {
+          const typing = current[roomId]?.[graduateId];
+          if (!typing || typing.expiresAt > Date.now()) return current;
+          const roomTyping = { ...(current[roomId] || {}) };
+          delete roomTyping[graduateId];
+          return { ...current, [roomId]: roomTyping };
+        });
+      }, 3000);
+      typingExpiryTimeouts.set(timeoutKey, timeoutId);
+    };
+
+    const handleConversationUpdated = (payload: { conversation?: ChatRoom | null }) => {
+      upsertConversation(payload.conversation);
+    };
+
+    const handleUnreadUpdated = (payload: { rooms?: Record<string, number> }) => {
+      if (!payload.rooms) return;
+      setRooms((current) => current.map((room) => {
+        const unreadCount = payload.rooms?.[String(room.id)];
+        return typeof unreadCount === 'number' ? { ...room, unread_count: unreadCount } : room;
+      }));
+    };
+
+    const handleReconnectAttempt = () => setChatConnectionStatus('reconnecting');
+
+    socket.on('connect', handleConnect);
+    socket.on('disconnect', handleDisconnect);
+    socket.on('connect_error', handleConnectError);
+    socket.on('message:new', handleMessageNew);
+    socket.on('message:confirmed', handleMessageConfirmed);
+    socket.on('message:failed', handleMessageFailed);
+    socket.on('message:delivered', applyMessageDelivery);
+    socket.on('message:read', applyMessageRead);
+    socket.on('typing:update', handleTypingUpdate);
+    socket.on('conversation:updated', handleConversationUpdated);
+    socket.on('unread-count:updated', handleUnreadUpdated);
+    socket.on('user:status', applyPresenceStatus);
+    socket.io.on('reconnect_attempt', handleReconnectAttempt);
+    socket.connect();
+
+    return () => {
+      const typingRoomId = chatTypingRoomIdRef.current;
+      if (typingRoomId && socket.connected) {
+        socket.emit('typing:stop', { room_id: typingRoomId });
+      }
+      if (chatTypingStopTimeoutRef.current) {
+        window.clearTimeout(chatTypingStopTimeoutRef.current);
+        chatTypingStopTimeoutRef.current = null;
+      }
+      typingExpiryTimeouts.forEach((timeoutId) => window.clearTimeout(timeoutId));
+      typingExpiryTimeouts.clear();
+      socket.off('connect', handleConnect);
+      socket.off('disconnect', handleDisconnect);
+      socket.off('connect_error', handleConnectError);
+      socket.off('message:new', handleMessageNew);
+      socket.off('message:confirmed', handleMessageConfirmed);
+      socket.off('message:failed', handleMessageFailed);
+      socket.off('message:delivered', applyMessageDelivery);
+      socket.off('message:read', applyMessageRead);
+      socket.off('typing:update', handleTypingUpdate);
+      socket.off('conversation:updated', handleConversationUpdated);
+      socket.off('unread-count:updated', handleUnreadUpdated);
+      socket.off('user:status', applyPresenceStatus);
+      socket.io.off('reconnect_attempt', handleReconnectAttempt);
+      socket.disconnect();
+      chatSocketRef.current = null;
+      chatJoinedRoomIdRef.current = null;
+      chatTypingRoomIdRef.current = null;
+    };
+  }, [applyMessageDelivery, applyMessageRead, applyPresenceStatus, chatFeatureOpen, currentGraduateId, loadChats, upsertConversation]);
+
+  useEffect(() => {
+    if (!chatFeatureOpen || chatConnectionStatus === 'connected') return undefined;
 
     const roomInterval = window.setInterval(() => {
       void loadChats();
     }, 15000);
 
     const messageInterval = window.setInterval(() => {
-      if (selectedRoomId) {
-        void loadRoomMessages(selectedRoomId, true);
+      const roomId = selectedRoomIdRef.current;
+      if (roomId) {
+        void loadMissedRoomMessages(roomId);
       }
     }, 7000);
 
@@ -979,15 +1591,38 @@ export default function GraduatePortal() {
       window.clearInterval(roomInterval);
       window.clearInterval(messageInterval);
     };
-  }, [activeTab, loadChats, loadRoomMessages, selectedRoomId]);
+  }, [chatConnectionStatus, chatFeatureOpen, loadChats, loadMissedRoomMessages]);
 
   useEffect(() => {
+    if (activeTab === 'messages') return;
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [roomMessages]);
+  }, [activeTab, roomMessages]);
+
+  useEffect(() => {
+    if (activeTab !== 'messages' || !chatNearBottomRef.current) return;
+    void markVisibleMessagesAsRead();
+  }, [activeTab, markVisibleMessagesAsRead, roomMessages]);
+
+  useEffect(() => {
+    chatSelectedAttachmentRef.current = chatSelectedAttachment;
+  }, [chatSelectedAttachment]);
+
+  useEffect(() => {
+    return () => {
+      const previewUrls = new Set<string>();
+      const selectedPreview = chatSelectedAttachmentRef.current?.preview_url;
+      if (selectedPreview) previewUrls.add(selectedPreview);
+      Object.values(retryAttachmentsRef.current).forEach((attachment) => {
+        if (attachment.preview_url) previewUrls.add(attachment.preview_url);
+      });
+      previewUrls.forEach((previewUrl) => URL.revokeObjectURL(previewUrl));
+      retryAttachmentsRef.current = {};
+    };
+  }, []);
 
   useEffect(() => {
     const handleNotificationUpdate = () => {
-      void loadBootData(true);
+      void loadBootData(true, activeTab);
       if (selectedRoomId) {
         void loadRoomMessages(selectedRoomId, true);
       }
@@ -995,7 +1630,7 @@ export default function GraduatePortal() {
 
     window.addEventListener('gradtrack:notifications-updated', handleNotificationUpdate);
     return () => window.removeEventListener('gradtrack:notifications-updated', handleNotificationUpdate);
-  }, [loadBootData, loadRoomMessages, selectedRoomId]);
+  }, [activeTab, loadBootData, loadRoomMessages, selectedRoomId]);
 
   useEffect(() => {
     if (!mediaViewer) return undefined;
@@ -1401,6 +2036,8 @@ export default function GraduatePortal() {
   };
 
   const createDirectChat = async (graduateId: number) => {
+    setChatCreating(true);
+
     try {
       const response = await authenticatedFetch(API_ENDPOINTS.FORUM.CHATS, {
         method: 'POST',
@@ -1414,12 +2051,16 @@ export default function GraduatePortal() {
       await loadChats();
       if (roomId > 0) {
         setSelectedRoomId(roomId);
+        setChatMobileConversationOpen(true);
         await loadRoomMessages(roomId);
       }
       setSelectedPostOpen(false);
+      setChatModalOpen(false);
       selectTab('messages');
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to start direct chat', 'Chats');
+    } finally {
+      setChatCreating(false);
     }
   };
 
@@ -1459,6 +2100,7 @@ export default function GraduatePortal() {
 
       if (roomId > 0) {
         setSelectedRoomId(roomId);
+        setChatMobileConversationOpen(true);
         await loadRoomMessages(roomId);
       }
       selectTab(chatModalMode === 'group' ? 'group_chats' : 'messages');
@@ -1475,36 +2117,341 @@ export default function GraduatePortal() {
     }
   };
 
-  const handleSendMessage = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
+  const stopChatTyping = (roomId = chatTypingRoomIdRef.current || selectedRoomIdRef.current) => {
+    if (chatTypingStopTimeoutRef.current) {
+      window.clearTimeout(chatTypingStopTimeoutRef.current);
+      chatTypingStopTimeoutRef.current = null;
+    }
 
-    if (!selectedRoomId) {
+    const typingRoomId = chatTypingRoomIdRef.current;
+    if (!roomId || !typingRoomId) return;
+    const socket = chatSocketRef.current;
+    if (socket?.connected) {
+      socket.emit('typing:stop', { room_id: typingRoomId });
+    }
+    chatTypingRoomIdRef.current = null;
+  };
+
+  const handleChatDraftInput = (value: string) => {
+    const nextValue = value.slice(0, 5000);
+    setChatMessageDraft(nextValue);
+
+    const roomId = selectedRoomIdRef.current;
+    const socket = chatSocketRef.current;
+    if (!roomId || !socket?.connected) return;
+
+    if (!nextValue.trim()) {
+      stopChatTyping(roomId);
+      return;
+    }
+
+    if (chatTypingRoomIdRef.current !== roomId) {
+      if (chatTypingRoomIdRef.current) {
+        stopChatTyping(chatTypingRoomIdRef.current);
+      }
+      chatTypingRoomIdRef.current = roomId;
+      void emitWithAck(socket, 'typing:start', { room_id: roomId }).then((response) => {
+        if (!response.success && chatTypingRoomIdRef.current === roomId) {
+          chatTypingRoomIdRef.current = null;
+        }
+      });
+    }
+
+    if (chatTypingStopTimeoutRef.current) {
+      window.clearTimeout(chatTypingStopTimeoutRef.current);
+    }
+    chatTypingStopTimeoutRef.current = window.setTimeout(() => stopChatTyping(roomId), 1800);
+  };
+
+  const handleChatAttachmentSelected = (file: File) => {
+    const validationError = validateChatAttachmentFile(file);
+    if (validationError) {
+      notify('warning', validationError, 'Attachment');
+      return;
+    }
+
+    setChatSelectedAttachment((current) => {
+      if (current?.preview_url) URL.revokeObjectURL(current.preview_url);
+      return {
+        file,
+        preview_url: file.type.startsWith('image/') ? URL.createObjectURL(file) : undefined,
+        progress: 0,
+        status: 'selected',
+      };
+    });
+  };
+
+  const removeChatAttachment = () => {
+    setChatSelectedAttachment((current) => {
+      if (current?.preview_url) URL.revokeObjectURL(current.preview_url);
+      return null;
+    });
+  };
+
+  const uploadChatAttachment = async (
+    attachment: SelectedAttachment,
+    roomId: number,
+    clientMessageId: string,
+  ): Promise<MessageAttachment> => {
+    if (attachment.uploaded) return attachment.uploaded;
+    retryAttachmentsRef.current[clientMessageId] = {
+      ...attachment,
+      status: 'uploading',
+      progress: 0,
+      error: undefined,
+    };
+
+    return new Promise((resolve, reject) => {
+      const formData = new FormData();
+      formData.append('room_id', String(roomId));
+      formData.append('attachment', attachment.file);
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', API_ENDPOINTS.FORUM.CHAT_ATTACHMENTS);
+      xhr.withCredentials = true;
+
+      xhr.upload.onprogress = (event) => {
+        if (!event.lengthComputable) return;
+        const progress = Math.round((event.loaded / event.total) * 100);
+        const retryAttachment = retryAttachmentsRef.current[clientMessageId];
+        if (retryAttachment) {
+          retryAttachmentsRef.current[clientMessageId] = { ...retryAttachment, progress };
+        }
+      };
+
+      xhr.onload = () => {
+        let data: { success?: boolean; error?: string; data?: { attachment?: MessageAttachment } } = {};
+        try {
+          data = xhr.responseText ? JSON.parse(xhr.responseText) : {};
+        } catch {
+          data = {};
+        }
+
+        if (xhr.status >= 200 && xhr.status < 300 && data.success && data.data?.attachment) {
+          retryAttachmentsRef.current[clientMessageId] = {
+            ...attachment,
+            uploaded: data.data.attachment,
+            status: 'uploaded',
+            progress: 100,
+          };
+          resolve(data.data.attachment);
+          return;
+        }
+
+        const errorMessage = data.error || 'Attachment upload failed';
+        retryAttachmentsRef.current[clientMessageId] = { ...attachment, status: 'failed', error: errorMessage };
+        reject(new Error(errorMessage));
+      };
+
+      xhr.onerror = () => {
+        const errorMessage = 'Attachment upload failed';
+        retryAttachmentsRef.current[clientMessageId] = { ...attachment, status: 'failed', error: errorMessage };
+        reject(new Error(errorMessage));
+      };
+
+      xhr.send(formData);
+    });
+  };
+
+  const sendMessageToServer = async (payload: {
+    room_id: number;
+    message: string;
+    client_message_id: string;
+    attachment_ids: number[];
+  }) => {
+    const sendViaHttp = async () => {
+      const response = await authenticatedFetch(API_ENDPOINTS.FORUM.CHAT_MESSAGES, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      const savedMessage = response.data?.message as ChatMessage | undefined;
+      if (!savedMessage) {
+        throw new Error(response.error || 'Unable to send message');
+      }
+
+      return savedMessage;
+    };
+
+    const socket = chatSocketRef.current;
+    if (socket?.connected) {
+      const response = await emitWithAck<{ message?: ChatMessage }>(socket, 'message:send', payload, 5000);
+      if (response.success && response.message) {
+        return response.message;
+      }
+
+      if (response.error === 'Realtime server did not respond') {
+        return sendViaHttp();
+      }
+
+      throw new Error(response.error || 'Unable to send message');
+    }
+
+    return sendViaHttp();
+  };
+
+  const handleSendMessage = async (event?: FormEvent<HTMLFormElement>, retryMessage?: ChatMessage) => {
+    event?.preventDefault();
+
+    const roomId = retryMessage?.room_id || selectedRoomId;
+    if (!roomId) {
       notify('warning', 'Select a chat room first.', 'Chats');
       return;
     }
 
-    const message = chatMessageDraft.trim();
-    if (!message) return;
+    const message = retryMessage ? retryMessage.message.trim() : chatMessageDraft.trim();
+    const selectedAttachment = retryMessage?.client_message_id
+      ? retryAttachmentsRef.current[retryMessage.client_message_id] || null
+      : chatSelectedAttachment;
+    if (!message && !selectedAttachment && !retryMessage?.attachments?.length) return;
 
-    setChatSending(true);
+    const clientMessageId = retryMessage?.client_message_id || createClientMessageId(currentGraduateId);
+    if (selectedAttachment) {
+      retryAttachmentsRef.current[clientMessageId] = selectedAttachment;
+    }
+    const optimisticMessage: ChatMessage = retryMessage || {
+      id: -Date.now(),
+      room_id: roomId,
+      graduate_id: currentGraduateId,
+      message,
+      message_type: selectedAttachment ? (message ? 'mixed' : selectedAttachment.file.type.startsWith('image/') ? 'image' : 'file') : 'text',
+      client_message_id: clientMessageId,
+      created_at: new Date().toISOString(),
+      sender_name: user?.full_name || 'You',
+      sender_program_code: user?.program_code || null,
+      sender_profile_image_path: user?.profile_image_path || null,
+      is_mine: true,
+      attachments: selectedAttachment
+        ? [{
+            id: -Date.now() - 1,
+            room_id: roomId,
+            message_id: null,
+            original_name: selectedAttachment.file.name,
+            stored_name: selectedAttachment.file.name,
+            mime_type: selectedAttachment.file.type || 'application/octet-stream',
+            file_size: selectedAttachment.file.size,
+            attachment_type: selectedAttachment.file.type.startsWith('image/') ? 'image' : 'file',
+            url: selectedAttachment.preview_url || '',
+            download_url: selectedAttachment.preview_url || '',
+          }]
+        : [],
+      status: 'sending',
+    };
+
+    const optimisticMessages = mergeChatMessages(
+      retryMessage ? roomMessagesRef.current.map((item) => (item.client_message_id === clientMessageId ? { ...item, status: 'sending', error: undefined } : item)) : roomMessagesRef.current,
+      retryMessage ? [] : [optimisticMessage],
+    );
+    setRoomMessages(optimisticMessages);
+    roomMessagesRef.current = optimisticMessages;
+    setChatNewMessageAvailable(!chatNearBottomRef.current);
+    if (!retryMessage) {
+      setChatMessageDraft('');
+      if (selectedAttachment) {
+        setChatSelectedAttachment(null);
+      }
+    }
 
     try {
-      await authenticatedFetch(API_ENDPOINTS.FORUM.CHAT_MESSAGES, {
-        method: 'POST',
-        body: JSON.stringify({
-          room_id: selectedRoomId,
-          message,
-        }),
+      stopChatTyping(roomId);
+
+      const uploadedAttachment = selectedAttachment
+        ? await uploadChatAttachment(selectedAttachment, roomId, clientMessageId)
+        : null;
+      const existingAttachmentIds = retryMessage?.attachments
+        ?.filter((attachment) => attachment.id > 0)
+        .map((attachment) => attachment.id) || [];
+      const attachmentIds = existingAttachmentIds.length > 0
+        ? existingAttachmentIds
+        : (uploadedAttachment ? [uploadedAttachment.id] : []);
+
+      const savedMessage = await sendMessageToServer({
+        room_id: roomId,
+        message,
+        client_message_id: clientMessageId,
+        attachment_ids: attachmentIds,
       });
 
-      setChatMessageDraft('');
-      await Promise.all([loadChats(), loadRoomMessages(selectedRoomId, true)]);
+      const normalized = normalizeChatMessage(savedMessage, currentGraduateId);
+      if (selectedRoomIdRef.current === roomId) {
+        const nextMessages = mergeChatMessages(roomMessagesRef.current, [normalized]);
+        setRoomMessages(nextMessages);
+        roomMessagesRef.current = nextMessages;
+      }
+      setRooms((current) => sortChatRooms(current.map((room) => (
+        room.id === normalized.room_id
+          ? {
+              ...room,
+              last_message: getChatMessagePreview(normalized),
+              last_message_type: normalized.message_type || 'text',
+              last_message_at: normalized.created_at,
+              last_message_sender_id: normalized.graduate_id,
+              updated_at: normalized.created_at,
+              unread_count: 0,
+            }
+          : room
+      ))));
+      const completedAttachment = retryAttachmentsRef.current[clientMessageId];
+      if (completedAttachment?.preview_url) {
+        URL.revokeObjectURL(completedAttachment.preview_url);
+      }
+      delete retryAttachmentsRef.current[clientMessageId];
     } catch (error) {
-      notify('error', error instanceof Error ? error.message : 'Unable to send message', 'Chats');
-    } finally {
-      setChatSending(false);
+      const errorMessage = error instanceof Error ? error.message : 'Unable to send message';
+      if (selectedRoomIdRef.current === roomId) {
+        const failedMessages = roomMessagesRef.current.map((item) => (
+          item.client_message_id === clientMessageId
+            ? { ...item, status: 'failed' as const, error: errorMessage }
+            : item
+        ));
+        roomMessagesRef.current = failedMessages;
+        setRoomMessages(failedMessages);
+      }
+      notify('error', errorMessage, 'Chats');
     }
   };
+
+  const handleRetryMessage = (message: ChatMessage) => {
+    void handleSendMessage(undefined, message);
+  };
+
+  const handleRetryAttachment = () => {
+    const roomId = selectedRoomIdRef.current;
+    if (!chatSelectedAttachment || !roomId) return;
+    const attachment = chatSelectedAttachment;
+    const retryId = createClientMessageId(currentGraduateId);
+    void uploadChatAttachment(attachment, roomId, retryId)
+      .then((uploaded) => {
+        setChatSelectedAttachment((current) => (
+          current?.file === attachment.file
+            ? { ...current, uploaded, status: 'uploaded', progress: 100, error: undefined }
+            : current
+        ));
+        delete retryAttachmentsRef.current[retryId];
+      })
+      .catch((error) => {
+        setChatSelectedAttachment((current) => (
+          current?.file === attachment.file
+            ? { ...current, status: 'failed', error: error instanceof Error ? error.message : 'Attachment upload failed' }
+            : current
+        ));
+        notify('error', error instanceof Error ? error.message : 'Attachment upload failed', 'Attachment');
+      });
+  };
+
+  const handleChatNearBottomChange = useCallback((nearBottom: boolean) => {
+    chatNearBottomRef.current = nearBottom;
+    if (nearBottom) {
+      setChatNewMessageAvailable(false);
+      void markVisibleMessagesAsRead();
+    }
+  }, [markVisibleMessagesAsRead]);
+
+  const handleScrollToNewest = useCallback(() => {
+    chatNearBottomRef.current = true;
+    setChatNewMessageAvailable(false);
+    void markVisibleMessagesAsRead();
+  }, [markVisibleMessagesAsRead]);
 
   const beginCreateJob = () => {
     resetJobForm();
@@ -1760,142 +2707,65 @@ export default function GraduatePortal() {
 
   const renderChatWorkspace = (mode: 'direct' | 'group') => {
     const isGroupMode = mode === 'group';
-    const scopedRooms = isGroupMode ? filteredGroupRooms : filteredDirectRooms;
-    const allScopedRooms = isGroupMode ? groupRooms : directRooms;
-    const visibleActiveRoom = activeRoom && activeRoom.is_group === isGroupMode ? activeRoom : null;
-    const title = isGroupMode ? 'Group Chats' : 'Messages';
-    const description = isGroupMode
-      ? 'Create and follow group conversations with fellow graduates.'
-      : 'Start and continue private graduate conversations.';
-    const createLabel = isGroupMode ? 'New Group Chat' : 'New Message';
-    const searchPlaceholder = isGroupMode ? 'Search group chats' : 'Search messages';
-    const emptyMessage =
-      allScopedRooms.length === 0
-        ? isGroupMode
-          ? 'No group chats yet. Create a group chat to get everyone in one place.'
-          : 'No direct messages yet. Start a new message with a fellow graduate.'
-        : 'No chats match your search.';
+    {
+      const activeTypingNames = selectedRoomId
+        ? Object.values(chatTypingUsers[selectedRoomId] || {})
+            .filter((typing) => typing.expiresAt > Date.now())
+            .map((typing) => typing.name)
+        : [];
 
-    return (
-      <section className="space-y-5">
-        <div className="rounded-[32px] border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h2 className="text-2xl font-bold text-slate-900">{title}</h2>
-              <p className="text-sm text-slate-500">{description}</p>
-            </div>
-            <button type="button" onClick={() => openChatModal(mode)} className="inline-flex items-center gap-2 rounded-full bg-blue-700 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-800">
-              <Plus className="h-4 w-4" />
-              {createLabel}
-            </button>
-          </div>
+      return (
+        <RealtimeMessagingWorkspace
+          currentGraduate={{
+            graduate_id: currentGraduateId,
+            full_name: user?.full_name || 'Graduate',
+            profile_image_path: user?.profile_image_path,
+            program_code: user?.program_code,
+            program_name: user?.program_name,
+          }}
+          rooms={isGroupMode ? groupRooms : directRooms}
+          directory={directory}
+          selectedRoomId={selectedRoomId}
+          activeRoom={activeRoom && activeRoom.id === selectedRoomId && activeRoom.is_group === isGroupMode ? activeRoom : null}
+          messages={activeRoom && activeRoom.id === selectedRoomId && activeRoom.is_group === isGroupMode ? roomMessages : []}
+          search={chatSearch}
+          draft={chatMessageDraft}
+          roomLoading={roomLoading}
+          initialLoading={loading && (isGroupMode ? groupRooms.length : directRooms.length) === 0}
+          connectionStatus={chatConnectionStatus}
+          loadingOlder={olderMessagesLoading}
+          hasMoreOlder={!!messagePagination?.has_more_older}
+          typingNames={activeTypingNames}
+          selectedAttachment={chatSelectedAttachment}
+          newMessageAvailable={chatNewMessageAvailable}
+          mobileChatOpen={chatMobileConversationOpen}
+          newConversationOpen={!isGroupMode && chatModalOpen && chatModalMode === 'direct' && activeTab === 'messages'}
+          newConversationSearch={chatModalSearch}
+          newConversationCreating={chatCreating}
+          resolveAssetUrl={resolveAssetUrl}
+          onSearchChange={setChatSearch}
+          onSelectRoom={(roomId) => {
+            setSelectedRoomId(roomId);
+            setChatMobileConversationOpen(true);
+          }}
+          onBackToList={() => setChatMobileConversationOpen(false)}
+          onDraftChange={handleChatDraftInput}
+          onSend={handleSendMessage}
+          onRetryMessage={handleRetryMessage}
+          onLoadOlder={loadOlderRoomMessages}
+          onNearBottomChange={handleChatNearBottomChange}
+          onScrollToNewest={handleScrollToNewest}
+          onAttachmentSelected={handleChatAttachmentSelected}
+          onRemoveAttachment={removeChatAttachment}
+          onRetryAttachment={handleRetryAttachment}
+          onOpenNewConversation={() => openChatModal(mode)}
+          onCloseNewConversation={() => setChatModalOpen(false)}
+          onNewConversationSearchChange={setChatModalSearch}
+          onStartConversation={(graduateId) => void createDirectChat(graduateId)}
+        />
+      );
+    }
 
-          <label className="relative mt-4 block">
-            <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input value={chatSearch} onChange={(event) => setChatSearch(event.target.value)} placeholder={searchPlaceholder} className="w-full rounded-2xl border border-slate-200 bg-[#fafbff] px-11 py-3 text-sm outline-none transition focus:border-blue-500" />
-          </label>
-        </div>
-
-        <div className="grid gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
-          <div className="rounded-[32px] border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="mb-3 flex items-center justify-between gap-3 px-1">
-              <p className="text-sm font-bold text-slate-900">{isGroupMode ? 'Groups' : 'Conversations'}</p>
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
-                {allScopedRooms.length}
-              </span>
-            </div>
-
-            <div className="max-h-[640px] space-y-2 overflow-y-auto pr-1">
-              {scopedRooms.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-slate-200 bg-[#fafbff] px-4 py-8 text-center text-sm text-slate-500">
-                  {emptyMessage}
-                </div>
-              ) : (
-                scopedRooms.map((room) => {
-                  const active = selectedRoomId === room.id;
-
-                  return (
-                    <button key={room.id} type="button" onClick={() => setSelectedRoomId(room.id)} className={`flex w-full items-start gap-3 rounded-2xl border px-3 py-3 text-left transition ${active ? 'border-blue-200 bg-blue-50' : 'border-transparent bg-[#fafbff] hover:border-slate-200 hover:bg-slate-50'}`}>
-                      <Avatar src={resolveAssetUrl(getRoomOtherParticipants(room, currentGraduateId)[0]?.profile_image_path || room.participants[0]?.profile_image_path)} label={getRoomLabel(room, currentGraduateId)} size="sm" />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-start justify-between gap-3">
-                          <p className="truncate text-sm font-semibold text-slate-900">{getRoomLabel(room, currentGraduateId)}</p>
-                          <span className="shrink-0 text-[11px] text-slate-400">{formatRelativeTime(room.last_message_at || room.updated_at)}</span>
-                        </div>
-                        <p className="truncate text-xs text-slate-500">{getRoomSubtitle(room, currentGraduateId)}</p>
-                        <p className="mt-1 truncate text-xs text-slate-500">{room.last_message || 'No messages yet'}</p>
-                      </div>
-                    </button>
-                  );
-                })
-              )}
-            </div>
-          </div>
-
-          <div className="flex min-h-[640px] flex-col overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-sm">
-            <div className="border-b border-slate-100 px-5 py-4">
-              {visibleActiveRoom ? (
-                <div className="flex items-center gap-3">
-                  <Avatar src={resolveAssetUrl(getRoomOtherParticipants(visibleActiveRoom, currentGraduateId)[0]?.profile_image_path || visibleActiveRoom.participants[0]?.profile_image_path)} label={getRoomLabel(visibleActiveRoom, currentGraduateId)} size="md" />
-                  <div className="min-w-0">
-                    <p className="truncate font-semibold text-slate-900">{getRoomLabel(visibleActiveRoom, currentGraduateId)}</p>
-                    <p className="truncate text-xs text-slate-500">{getRoomSubtitle(visibleActiveRoom, currentGraduateId)}</p>
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <p className="font-semibold text-slate-900">Select a chat</p>
-                  <p className="text-xs text-slate-500">Your messages will appear here.</p>
-                </div>
-              )}
-            </div>
-
-            <div className="flex min-h-0 flex-1 flex-col bg-[#fcfcfe]">
-              {roomLoading ? (
-                <div className="flex flex-1 items-center justify-center text-sm text-slate-500">
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Loading conversation...
-                </div>
-              ) : visibleActiveRoom ? (
-                <>
-                  <div className="flex-1 space-y-3 overflow-y-auto px-5 py-5">
-                    {roomMessages.length === 0 ? (
-                      <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-8 text-center text-sm text-slate-500">
-                        No messages yet. Say hello and start the conversation.
-                      </div>
-                    ) : (
-                      roomMessages.map((message) => (
-                        <div key={message.id} className={`flex ${message.is_mine ? 'justify-end' : 'justify-start'}`}>
-                          <div className={`max-w-[78%] rounded-3xl px-4 py-3 text-sm shadow-sm ${message.is_mine ? 'bg-blue-700 text-white' : 'border border-slate-200 bg-white text-slate-800'}`}>
-                            {!message.is_mine && <p className="mb-1 text-xs font-semibold text-slate-500">{message.sender_name}</p>}
-                            <p className="whitespace-pre-line leading-6">{message.message}</p>
-                            <p className={`mt-2 text-[11px] ${message.is_mine ? 'text-blue-100' : 'text-slate-400'}`}>{formatRelativeTime(message.created_at)}</p>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                    <div ref={chatEndRef} />
-                  </div>
-
-                  <form onSubmit={handleSendMessage} className="border-t border-slate-100 bg-white p-4">
-                    <div className="flex items-end gap-2">
-                      <textarea value={chatMessageDraft} onChange={(event) => setChatMessageDraft(event.target.value)} rows={2} placeholder="Type a message..." className="min-h-[52px] flex-1 resize-none rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-500" />
-                      <button type="submit" disabled={chatSending || !chatMessageDraft.trim()} className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-blue-700 text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60" aria-label="Send message">
-                        {chatSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                      </button>
-                    </div>
-                  </form>
-                </>
-              ) : (
-                <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-slate-500">
-                  Pick a room from the list to read and send messages.
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </section>
-    );
   };
 
   const ActiveNavIcon = activeNavItem?.icon || MessageSquare;
@@ -2358,9 +3228,9 @@ export default function GraduatePortal() {
 
                                 <form onSubmit={handleSendMessage} className="border-t border-slate-100 bg-white p-3">
                                   <div className="flex items-end gap-2">
-                                    <textarea value={chatMessageDraft} onChange={(event) => setChatMessageDraft(event.target.value)} rows={2} placeholder="Type a message..." className="min-h-[52px] flex-1 resize-none rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-500" />
-                                    <button type="submit" disabled={chatSending || !chatMessageDraft.trim()} className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-blue-700 text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60" aria-label="Send message">
-                                      {chatSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                                    <textarea value={chatMessageDraft} onChange={(event) => handleChatDraftInput(event.target.value)} rows={2} placeholder="Type a message..." className="min-h-[52px] flex-1 resize-none rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-500" />
+                                    <button type="submit" disabled={!chatMessageDraft.trim()} className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-blue-700 text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60" aria-label="Send message">
+                                      <Send className="h-4 w-4" />
                                     </button>
                                   </div>
                                 </form>
@@ -3073,7 +3943,7 @@ export default function GraduatePortal() {
         </div>
       )}
 
-      {chatModalOpen && (
+      {chatModalOpen && !(activeTab === 'messages' && chatModalMode === 'direct') && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-6">
           <form onSubmit={handleCreateChat} className="w-full max-w-2xl rounded-[32px] border border-slate-200 bg-white shadow-2xl">
             <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">

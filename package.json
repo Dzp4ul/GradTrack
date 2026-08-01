@@ -9,6 +9,8 @@
     "install:all": "npm run install:frontend && npm run install:backend",
     "dev:frontend": "cd frontend && npm run dev",
     "dev:backend": "cd backend && php -S localhost:8000",
+    "dev:realtime": "node backend/realtime/socket-server.js",
+    "test:realtime": "node backend/tests/realtime_messaging_integration.js",
     "build:frontend": "cd frontend && npm run build",
     "deploy:backend": "cd backend && eb deploy",
     "deploy:frontend": "cd frontend && amplify publish",
@@ -22,5 +24,10 @@
     "education"
   ],
   "author": "GradTrack Team",
-  "license": "UNLICENSED"
+  "license": "UNLICENSED",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "mysql2": "^3.23.2",
+    "socket.io": "^4.8.3"
+  }
 }

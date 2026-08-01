@@ -1,12 +1,15 @@
 const DEFAULT_API_BASE_URL = 'http://localhost/GradTrack/backend';
 const DEFAULT_PSGC_API_BASE_URL = 'https://psgc.cloud/api/v2';
+const DEFAULT_REALTIME_URL = 'http://localhost:3001';
 
 const rawApiBaseUrl = import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL;
 const rawPsgcApiBaseUrl = import.meta.env.VITE_PSGC_API_BASE_URL || DEFAULT_PSGC_API_BASE_URL;
+const rawRealtimeUrl = import.meta.env.VITE_REALTIME_URL || DEFAULT_REALTIME_URL;
 
 export const API_BASE_URL = rawApiBaseUrl.replace(/\/+$/, '');
 export const API_ROOT = `${API_BASE_URL}/api`;
 export const PSGC_API_BASE_URL = rawPsgcApiBaseUrl.replace(/\/+$/, '');
+export const REALTIME_URL = rawRealtimeUrl.replace(/\/+$/, '');
 
 export const API_ENDPOINTS = {
   AUTH: {
@@ -52,6 +55,7 @@ export const API_ENDPOINTS = {
     ACTIVITY: `${API_ROOT}/forum/activity.php`,
     CHATS: `${API_ROOT}/forum/chats.php`,
     CHAT_MESSAGES: `${API_ROOT}/forum/chat-messages.php`,
+    CHAT_ATTACHMENTS: `${API_ROOT}/forum/chat-attachments.php`,
     MODERATION: `${API_ROOT}/forum/moderation.php`,
   },
   JOBS: {
