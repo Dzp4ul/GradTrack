@@ -3,7 +3,6 @@ import { Eye, EyeOff, KeyRound } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import MessageBox from '../components/MessageBox';
 import { API_ENDPOINTS } from '../config/api';
-import ThemeToggle from '../components/ThemeToggle';
 
 type ForgotPasswordStep = 'request_otp' | 'verify_otp' | 'reset_password';
 
@@ -228,7 +227,6 @@ export default function GraduateForgotPassword() {
       className="min-h-screen bg-cover bg-center bg-fixed relative flex items-center justify-center p-4 sm:p-6"
       style={{ backgroundImage: 'url(/520382375_1065446909052636_3412465913398569974_n.jpg)' }}
     >
-      <ThemeToggle className="fixed right-4 top-4 z-20" compact />
       <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80"></div>
 
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-5 border border-blue-100 relative z-10 sm:p-8">
