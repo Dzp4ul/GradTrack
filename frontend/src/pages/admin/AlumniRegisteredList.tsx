@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent, type ReactNode } from 'react';
 import {
+  AlertTriangle,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Clock3,
   Download,
   Edit2,
   FileSpreadsheet,
@@ -15,6 +17,7 @@ import {
   Upload,
   UserCheck,
   UserX,
+  ShieldCheck,
   X,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -22,11 +25,14 @@ import MessageBox from '../../components/MessageBox';
 import { API_ENDPOINTS } from '../../config/api';
 
 type RegistryStatus = 'Unclaimed' | 'Registered' | 'Verified' | 'Inactive';
+type VerificationStatus = 'pending' | 'approved' | 'rejected';
+type AccountReviewFilter = VerificationStatus | 'all';
 type SortKey = 'name' | 'course' | 'batch' | 'import_date';
 type SortDirection = 'asc' | 'desc';
 type MessageType = 'confirm' | 'success' | 'error' | 'warning' | 'info';
 type SurveyAnswerStatus = 'all' | 'answered' | 'not_answered';
 type SurveyAnswerCountKey = 'total_official_alumni' | 'answered_alumni' | 'not_answered_alumni';
+type AccountReviewCountKey = 'pending_verification_accounts' | 'approved_verification_accounts' | 'rejected_verification_accounts';
 
 interface RegisteredAlumni {
   id: number;
@@ -44,6 +50,9 @@ interface RegisteredAlumni {
   updated_at: string;
   linked_email?: string | null;
   linked_account_status?: string | null;
+  linked_verification_status?: VerificationStatus | null;
+  linked_verification_reason?: string | null;
+  linked_verification_reviewed_at?: string | null;
   linked_first_name?: string | null;
   linked_middle_name?: string | null;
   linked_last_name?: string | null;
@@ -62,6 +71,10 @@ interface RegistrySummary {
   verified_alumni: number;
   answered_alumni: number;
   not_answered_alumni: number;
+  total_graduate_accounts: number;
+  pending_verification_accounts: number;
+  approved_verification_accounts: number;
+  rejected_verification_accounts: number;
   course_totals: Record<string, number>;
 }
 
@@ -149,6 +162,33 @@ interface LinkCandidate {
   linked_registry_id?: number | null;
 }
 
+interface ReviewAccount {
+  account_id: number;
+  graduate_id: number;
+  email: string;
+  account_status: string;
+  alumni_verification_status: VerificationStatus;
+  alumni_verification_reason?: string | null;
+  alumni_verification_submitted_at?: string | null;
+  alumni_verification_reviewed_at?: string | null;
+  reviewed_by_name?: string | null;
+  full_name: string;
+  student_id?: string | null;
+  phone?: string | null;
+  year_graduated?: number | null;
+  address?: string | null;
+  program_id?: number | null;
+  program_name?: string | null;
+  program_code?: string | null;
+  source_survey_response_id?: number | null;
+  survey_submitted_at?: string | null;
+  linked_registry_id?: number | null;
+  linked_registry_name?: string | null;
+  linked_registry_status?: RegistryStatus | null;
+  linked_registry_course_code?: string | null;
+  linked_registry_batch_year?: number | null;
+}
+
 interface EditForm {
   id: number;
   full_name: string;
@@ -167,6 +207,10 @@ const EMPTY_SUMMARY: RegistrySummary = {
   verified_alumni: 0,
   answered_alumni: 0,
   not_answered_alumni: 0,
+  total_graduate_accounts: 0,
+  pending_verification_accounts: 0,
+  approved_verification_accounts: 0,
+  rejected_verification_accounts: 0,
   course_totals: { BSCS: 0, ACT: 0, BSHM: 0, BSED: 0, BEED: 0 },
 };
 
@@ -192,6 +236,12 @@ const surveyAnswerTabs: Array<{ value: SurveyAnswerStatus; label: string; countK
   { value: 'all', label: 'All Alumni', countKey: 'total_official_alumni' },
   { value: 'answered', label: 'Done Answering', countKey: 'answered_alumni' },
   { value: 'not_answered', label: 'Not Answered', countKey: 'not_answered_alumni' },
+];
+
+const accountReviewTabs: Array<{ value: AccountReviewFilter; label: string; countKey: AccountReviewCountKey }> = [
+  { value: 'pending', label: 'Pending', countKey: 'pending_verification_accounts' },
+  { value: 'approved', label: 'Approved', countKey: 'approved_verification_accounts' },
+  { value: 'rejected', label: 'Rejected', countKey: 'rejected_verification_accounts' },
 ];
 
 const headerAliases = {
@@ -324,13 +374,17 @@ function linkedName(record: RegisteredAlumni) {
 
 export default function AlumniRegisteredList() {
   const [records, setRecords] = useState<RegisteredAlumni[]>([]);
+  const [reviewAccounts, setReviewAccounts] = useState<ReviewAccount[]>([]);
   const [summary, setSummary] = useState<RegistrySummary>(EMPTY_SUMMARY);
   const [programs, setPrograms] = useState<ProgramOption[]>([]);
   const [batchYears, setBatchYears] = useState<number[]>([]);
   const [courseCodes, setCourseCodes] = useState<string[]>(courseCodeOrder);
   const [loading, setLoading] = useState(true);
+  const [reviewLoading, setReviewLoading] = useState(true);
   const [summaryLoading, setSummaryLoading] = useState(true);
   const [actionKey, setActionKey] = useState('');
+  const [reviewFilter, setReviewFilter] = useState<AccountReviewFilter>('pending');
+  const [reviewSearch, setReviewSearch] = useState('');
   const [search, setSearch] = useState('');
   const [courseId, setCourseId] = useState('');
   const [courseCode, setCourseCode] = useState('');
@@ -343,6 +397,9 @@ export default function AlumniRegisteredList() {
   const [limit, setLimit] = useState(10);
   const [pagination, setPagination] = useState<Pagination>({ total: 0, page: 1, limit: 10, pages: 1 });
   const [viewRecord, setViewRecord] = useState<RegisteredAlumni | null>(null);
+  const [viewAccount, setViewAccount] = useState<ReviewAccount | null>(null);
+  const [rejectAccount, setRejectAccount] = useState<ReviewAccount | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
   const [editForm, setEditForm] = useState<EditForm | null>(null);
   const [linkRecord, setLinkRecord] = useState<RegisteredAlumni | null>(null);
   const [linkSearch, setLinkSearch] = useState('');
@@ -433,6 +490,37 @@ export default function AlumniRegisteredList() {
     }
   }, [limit, page, queryParams]);
 
+  const fetchReviewAccounts = useCallback(async () => {
+    setReviewLoading(true);
+    try {
+      const params = new URLSearchParams({
+        action: 'pending_accounts',
+        verification_status: reviewFilter,
+        limit: '50',
+      });
+      if (reviewSearch.trim()) params.set('search', reviewSearch.trim());
+
+      const response = await fetch(`${API_ENDPOINTS.ALUMNI_REGISTRY}?${params.toString()}`, {
+        credentials: 'include',
+      });
+      const data = await response.json();
+      if (!response.ok || data.success === false) {
+        throw new Error(data.error || 'Unable to load alumni account verification queue');
+      }
+
+      setReviewAccounts(Array.isArray(data.data) ? data.data : []);
+    } catch (error) {
+      setReviewAccounts([]);
+      setMsgBox({
+        isOpen: true,
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Unable to load alumni account verification queue',
+      });
+    } finally {
+      setReviewLoading(false);
+    }
+  }, [reviewFilter, reviewSearch]);
+
   useEffect(() => {
     void fetchSummary();
   }, [fetchSummary]);
@@ -441,8 +529,12 @@ export default function AlumniRegisteredList() {
     void fetchRecords();
   }, [fetchRecords]);
 
+  useEffect(() => {
+    void fetchReviewAccounts();
+  }, [fetchReviewAccounts]);
+
   const refreshAll = async () => {
-    await Promise.all([fetchSummary(), fetchRecords()]);
+    await Promise.all([fetchSummary(), fetchRecords(), fetchReviewAccounts()]);
   };
 
   const resetFilters = () => {
@@ -654,6 +746,67 @@ export default function AlumniRegisteredList() {
     } finally {
       setActionKey('');
     }
+  };
+
+  const reviewAccountAction = async (account: ReviewAccount, decision: 'approve' | 'reject', reason = '') => {
+    setActionKey(`${decision}-account-${account.account_id}`);
+    try {
+      const response = await fetch(`${API_ENDPOINTS.ALUMNI_REGISTRY}?action=${decision}_account`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graduate_account_id: account.account_id,
+          rejection_reason: reason,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || data.success === false) {
+        throw new Error(data.error || `Unable to ${decision} alumni account`);
+      }
+
+      setViewAccount(null);
+      setRejectAccount(null);
+      setRejectReason('');
+      await refreshAll();
+      setMsgBox({
+        isOpen: true,
+        type: 'success',
+        message: data.message || (decision === 'approve' ? 'Account approved.' : 'Account rejected.'),
+      });
+    } catch (error) {
+      setMsgBox({
+        isOpen: true,
+        type: 'error',
+        message: error instanceof Error ? error.message : `Unable to ${decision} alumni account`,
+      });
+    } finally {
+      setActionKey('');
+    }
+  };
+
+  const confirmApproveAccount = (account: ReviewAccount) => {
+    setMsgBox({
+      isOpen: true,
+      type: 'confirm',
+      title: 'Approve Alumni Account',
+      message: `Approve ${account.full_name} for Graduate Portal access?`,
+      confirmText: 'Approve',
+      onConfirm: () => {
+        void reviewAccountAction(account, 'approve');
+      },
+    });
+  };
+
+  const openRejectAccount = (account: ReviewAccount) => {
+    setRejectAccount(account);
+    setRejectReason('');
+  };
+
+  const submitRejectAccount = (event: FormEvent) => {
+    event.preventDefault();
+    if (!rejectAccount) return;
+    void reviewAccountAction(rejectAccount, 'reject', rejectReason);
   };
 
   const previewImport = async (workbook: XLSX.WorkBook, sheetName: string, fileName: string) => {
@@ -960,6 +1113,22 @@ export default function AlumniRegisteredList() {
         </div>
       </div>
 
+      <AccountReviewPanel
+        accounts={reviewAccounts}
+        loading={reviewLoading}
+        summary={summary}
+        summaryLoading={summaryLoading}
+        filter={reviewFilter}
+        search={reviewSearch}
+        actionKey={actionKey}
+        onFilterChange={setReviewFilter}
+        onSearchChange={setReviewSearch}
+        onRefresh={fetchReviewAccounts}
+        onView={setViewAccount}
+        onApprove={confirmApproveAccount}
+        onReject={openRejectAccount}
+      />
+
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {courseCodeOrder.map((code) => (
           <div key={code} className="rounded-lg border bg-white px-4 py-3 shadow-sm">
@@ -1206,6 +1375,27 @@ export default function AlumniRegisteredList() {
         />
       )}
 
+      {viewAccount && (
+        <AccountDetailModal
+          account={viewAccount}
+          actionKey={actionKey}
+          onClose={() => setViewAccount(null)}
+          onApprove={confirmApproveAccount}
+          onReject={openRejectAccount}
+        />
+      )}
+
+      {rejectAccount && (
+        <RejectAccountModal
+          account={rejectAccount}
+          reason={rejectReason}
+          saving={actionKey === `reject-account-${rejectAccount.account_id}`}
+          onReasonChange={setRejectReason}
+          onClose={() => setRejectAccount(null)}
+          onSubmit={submitRejectAccount}
+        />
+      )}
+
       {editForm && (
         <EditModal
           form={editForm}
@@ -1275,6 +1465,315 @@ export default function AlumniRegisteredList() {
       />
     </div>
   );
+}
+
+function AccountReviewPanel({
+  accounts,
+  loading,
+  summary,
+  summaryLoading,
+  filter,
+  search,
+  actionKey,
+  onFilterChange,
+  onSearchChange,
+  onRefresh,
+  onView,
+  onApprove,
+  onReject,
+}: {
+  accounts: ReviewAccount[];
+  loading: boolean;
+  summary: RegistrySummary;
+  summaryLoading: boolean;
+  filter: AccountReviewFilter;
+  search: string;
+  actionKey: string;
+  onFilterChange: (filter: AccountReviewFilter) => void;
+  onSearchChange: (search: string) => void;
+  onRefresh: () => void | Promise<void>;
+  onView: (account: ReviewAccount) => void;
+  onApprove: (account: ReviewAccount) => void;
+  onReject: (account: ReviewAccount) => void;
+}) {
+  return (
+    <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+      <div className="flex flex-col gap-3 border-b bg-gray-50 px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <ShieldCheck className="h-5 w-5 text-blue-700" />
+            <h2 className="text-lg font-bold text-[#1b2a4a]">Alumni Verification</h2>
+          </div>
+          <p className="mt-1 text-sm text-gray-500">Review Graduate Portal accounts before alumni access is granted.</p>
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <input
+              value={search}
+              onChange={(event) => onSearchChange(event.target.value)}
+              className="w-full rounded-lg border bg-white px-10 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 sm:w-72"
+              placeholder="Search pending accounts"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => void onRefresh()}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-white"
+          >
+            <RefreshCcw className="h-4 w-4" />
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      <div className="border-b px-4 py-3">
+        <nav aria-label="Alumni account verification filters" className="flex flex-wrap gap-2">
+          {accountReviewTabs.map((tab) => {
+            const active = filter === tab.value;
+            return (
+              <button
+                key={tab.value}
+                type="button"
+                onClick={() => onFilterChange(tab.value)}
+                className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold transition ${
+                  active
+                    ? 'border-blue-700 bg-blue-700 text-white shadow-sm'
+                    : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+              >
+                {tab.value === 'pending' && <Clock3 className="h-4 w-4" />}
+                {tab.value === 'approved' && <CheckCircle2 className="h-4 w-4" />}
+                {tab.value === 'rejected' && <AlertTriangle className="h-4 w-4" />}
+                <span>{tab.label}</span>
+                <span className={`rounded-full px-2 py-0.5 text-xs ${active ? 'bg-white/15 text-white' : 'bg-gray-100 text-gray-600'}`}>
+                  {summaryLoading ? '...' : summary[tab.countKey]}
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[920px] text-sm">
+          <thead className="border-b bg-gray-50">
+            <tr>
+              <th className="px-4 py-3 text-left font-semibold text-gray-600">Graduate</th>
+              <th className="px-4 py-3 text-left font-semibold text-gray-600">Program</th>
+              <th className="px-4 py-3 text-left font-semibold text-gray-600">Submitted</th>
+              <th className="px-4 py-3 text-left font-semibold text-gray-600">Registry Evidence</th>
+              <th className="px-4 py-3 text-left font-semibold text-gray-600">Status</th>
+              <th className="px-4 py-3 text-right font-semibold text-gray-600">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={6}><LoadingBlock label="Loading alumni account verification queue..." /></td></tr>
+            ) : accounts.length === 0 ? (
+              <tr><td colSpan={6}><EmptyBlock label="No alumni accounts match this verification filter." /></td></tr>
+            ) : (
+              accounts.map((account) => (
+                <tr key={account.account_id} className="border-b last:border-0">
+                  <td className="px-4 py-3">
+                    <p className="font-semibold text-[#1b2a4a]">{account.full_name || '-'}</p>
+                    <p className="mt-1 text-xs text-gray-500">{account.email}</p>
+                    <p className="mt-1 text-xs text-gray-500">Student ID: {account.student_id || '-'}</p>
+                  </td>
+                  <td className="px-4 py-3 text-gray-600">
+                    <p className="font-medium text-gray-800">{account.program_code || '-'}</p>
+                    <p className="mt-1 text-xs text-gray-500">Batch {account.year_graduated || '-'}</p>
+                  </td>
+                  <td className="px-4 py-3 text-gray-600">
+                    {formatDateTime(account.alumni_verification_submitted_at || account.survey_submitted_at)}
+                  </td>
+                  <td className="px-4 py-3 text-gray-600">
+                    {account.linked_registry_id ? (
+                      <>
+                        <p className="font-medium text-gray-800">{account.linked_registry_name}</p>
+                        <p className="mt-1 text-xs text-gray-500">
+                          {account.linked_registry_course_code || '-'} Batch {account.linked_registry_batch_year || '-'}
+                        </p>
+                        <p className="mt-1 text-xs text-gray-500">Registry: {account.linked_registry_status || '-'}</p>
+                      </>
+                    ) : (
+                      <span className="text-amber-700">No linked registry record</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <VerificationBadge status={account.alumni_verification_status} />
+                    {account.alumni_verification_reason && (
+                      <p className="mt-2 max-w-[220px] truncate text-xs text-gray-500" title={account.alumni_verification_reason}>
+                        {account.alumni_verification_reason}
+                      </p>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex justify-end gap-1">
+                      <IconButton title="View details" onClick={() => onView(account)} disabled={actionKey !== ''} className="text-blue-600 hover:bg-blue-50">
+                        <Search className="h-4 w-4" />
+                      </IconButton>
+                      <IconButton
+                        title="Approve account"
+                        onClick={() => onApprove(account)}
+                        disabled={actionKey !== '' || account.alumni_verification_status === 'approved'}
+                        className="text-emerald-600 hover:bg-emerald-50"
+                      >
+                        {actionKey === `approve-account-${account.account_id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCheck className="h-4 w-4" />}
+                      </IconButton>
+                      <IconButton
+                        title="Reject account"
+                        onClick={() => onReject(account)}
+                        disabled={actionKey !== '' || account.alumni_verification_status === 'rejected'}
+                        className="text-red-600 hover:bg-red-50"
+                      >
+                        {actionKey === `reject-account-${account.account_id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserX className="h-4 w-4" />}
+                      </IconButton>
+                    </div>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function AccountDetailModal({
+  account,
+  actionKey,
+  onClose,
+  onApprove,
+  onReject,
+}: {
+  account: ReviewAccount;
+  actionKey: string;
+  onClose: () => void;
+  onApprove: (account: ReviewAccount) => void;
+  onReject: (account: ReviewAccount) => void;
+}) {
+  const busy = actionKey !== '';
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
+      <div className="w-full max-w-3xl overflow-hidden rounded-lg bg-white shadow-2xl">
+        <ModalHeader title="Alumni Account Details" subtitle={account.full_name} onClose={onClose} />
+        <div className="grid gap-3 px-5 py-4 text-sm text-gray-700 sm:grid-cols-2">
+          <Info label="Verification Status" value={account.alumni_verification_status} />
+          <Info label="Portal Account Status" value={account.account_status} />
+          <Info label="Email" value={account.email} />
+          <Info label="Student ID" value={account.student_id || '-'} />
+          <Info label="Program" value={account.program_name || account.program_code || '-'} />
+          <Info label="Year Graduated" value={account.year_graduated || '-'} />
+          <Info label="Phone" value={account.phone || '-'} />
+          <Info label="Address" value={account.address || '-'} />
+          <Info label="Survey Submitted" value={formatDateTime(account.survey_submitted_at)} />
+          <Info label="Review Submitted" value={formatDateTime(account.alumni_verification_submitted_at)} />
+          <Info label="Reviewed By" value={account.reviewed_by_name || '-'} />
+          <Info label="Reviewed At" value={formatDateTime(account.alumni_verification_reviewed_at)} />
+          <Info label="Linked Registry" value={account.linked_registry_name || '-'} />
+          <Info
+            label="Registry Match"
+            value={account.linked_registry_id ? `${account.linked_registry_course_code || '-'} Batch ${account.linked_registry_batch_year || '-'}` : '-'}
+          />
+        </div>
+        {account.alumni_verification_reason && (
+          <div className="mx-5 mb-4 rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <p className="font-semibold">Rejection Reason</p>
+            <p className="mt-1 whitespace-pre-line">{account.alumni_verification_reason}</p>
+          </div>
+        )}
+        <div className="flex flex-col gap-3 border-t px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => onApprove(account)}
+              disabled={busy || account.alumni_verification_status === 'approved'}
+              className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+            >
+              {actionKey === `approve-account-${account.account_id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCheck className="h-4 w-4" />}
+              Approve
+            </button>
+            <button
+              type="button"
+              onClick={() => onReject(account)}
+              disabled={busy || account.alumni_verification_status === 'rejected'}
+              className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-100 disabled:opacity-50"
+            >
+              <UserX className="h-4 w-4" />
+              Reject
+            </button>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-lg border px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RejectAccountModal({
+  account,
+  reason,
+  saving,
+  onReasonChange,
+  onClose,
+  onSubmit,
+}: {
+  account: ReviewAccount;
+  reason: string;
+  saving: boolean;
+  onReasonChange: (reason: string) => void;
+  onClose: () => void;
+  onSubmit: (event: FormEvent) => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
+      <div className="w-full max-w-xl overflow-hidden rounded-lg bg-white shadow-2xl">
+        <ModalHeader title="Reject Alumni Account" subtitle={account.full_name} onClose={onClose} />
+        <form onSubmit={onSubmit} className="space-y-4 px-5 py-4">
+          <div className="rounded-lg border border-amber-100 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            Rejected accounts cannot access the Graduate Portal. The reason will be shown when the graduate tries to sign in.
+          </div>
+          <Field label="Rejection Reason">
+            <textarea
+              value={reason}
+              onChange={(event) => onReasonChange(event.target.value)}
+              rows={5}
+              maxLength={1000}
+              className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Optional reason for the graduate"
+            />
+          </Field>
+          <div className="flex justify-end gap-2 border-t pt-4">
+            <button type="button" onClick={onClose} disabled={saving} className="rounded-lg border px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60">Cancel</button>
+            <button type="submit" disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60">
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserX className="h-4 w-4" />}
+              Reject Account
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function VerificationBadge({ status }: { status?: VerificationStatus | string | null }) {
+  const normalized = (status || 'pending') as VerificationStatus;
+  const styles: Record<VerificationStatus, string> = {
+    pending: 'border-amber-200 bg-amber-50 text-amber-700',
+    approved: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+    rejected: 'border-red-200 bg-red-50 text-red-700',
+  };
+  const labels: Record<VerificationStatus, string> = {
+    pending: 'Pending Verification',
+    approved: 'Approved Alumni',
+    rejected: 'Rejected',
+  };
+  const value = ['pending', 'approved', 'rejected'].includes(normalized) ? normalized : 'pending';
+
+  return <span className={`inline-flex rounded-full border px-2 py-1 text-xs font-semibold ${styles[value]}`}>{labels[value]}</span>;
 }
 
 function SortableTh({
@@ -1413,8 +1912,16 @@ function DetailModal({
           <Info label="Date Imported" value={formatDateTime(record.created_at)} />
           <Info label="Source File" value={record.source_file || '-'} />
           <Info label="Linked Account" value={record.linked_email || '-'} />
+          <Info label="Portal Status" value={record.linked_account_status || '-'} />
+          <Info label="Verification Status" value={record.linked_verification_status || '-'} />
           <Info label="Linked Name" value={linkedName(record) || '-'} />
         </div>
+        {record.linked_verification_reason && (
+          <div className="mx-5 mb-4 rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <p className="font-semibold">Account Review Reason</p>
+            <p className="mt-1 whitespace-pre-line">{record.linked_verification_reason}</p>
+          </div>
+        )}
         <div className="flex flex-col gap-3 border-t px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap gap-1">
             <ActionButtons

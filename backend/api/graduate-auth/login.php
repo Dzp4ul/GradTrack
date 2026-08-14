@@ -24,7 +24,11 @@ $database = new Database();
 $db = $database->getConnection();
 
 try {
-    $query = "SELECT id, password_hash, status FROM graduate_accounts WHERE email = :email";
+    gradtrack_ensure_graduate_account_verification_schema($db);
+
+    $query = "SELECT id, password_hash, status, alumni_verification_status, alumni_verification_reason
+              FROM graduate_accounts
+              WHERE email = :email";
     $stmt = $db->prepare($query);
     $stmt->bindParam(':email', $email);
     $stmt->execute();
@@ -36,9 +40,10 @@ try {
         exit;
     }
 
-    if (($account['status'] ?? 'inactive') !== 'active') {
+    $accessError = gradtrack_graduate_account_access_error($account);
+    if ($accessError !== null) {
         http_response_code(403);
-        echo json_encode(['success' => false, 'error' => 'Account is inactive']);
+        echo json_encode(array_merge(['success' => false], $accessError));
         exit;
     }
 

@@ -45,6 +45,7 @@ $database = new Database();
 $db = $database->getConnection();
 
 try {
+    gradtrack_ensure_graduate_account_verification_schema($db);
     gradtrack_alumni_registry_ensure_schema($db);
     $db->beginTransaction();
 
@@ -123,8 +124,9 @@ try {
 
     $passwordHash = password_hash($password, PASSWORD_BCRYPT);
 
-    $createAccountQuery = "INSERT INTO graduate_accounts (graduate_id, email, password_hash, source_survey_response_id)
-                           VALUES (:graduate_id, :email, :password_hash, :source_response_id)";
+    $createAccountQuery = "INSERT INTO graduate_accounts
+                           (graduate_id, email, password_hash, status, alumni_verification_status, alumni_verification_submitted_at, source_survey_response_id)
+                           VALUES (:graduate_id, :email, :password_hash, 'pending_verification', 'pending', NOW(), :source_response_id)";
     $createAccountStmt = $db->prepare($createAccountQuery);
     $createAccountStmt->bindParam(':graduate_id', $graduateId);
     $createAccountStmt->bindParam(':email', $email);
@@ -144,18 +146,19 @@ try {
     $linkSurveyStmt->bindParam(':response_id', $responseId);
     $linkSurveyStmt->execute();
 
-    gradtrack_start_session_if_needed();
-    $_SESSION['graduate_account_id'] = $accountId;
-
     $db->commit();
-
-    $user = gradtrack_current_graduate_user($db);
 
     http_response_code(201);
     echo json_encode([
         'success' => true,
-        'message' => 'Graduate account created successfully',
-        'user' => $user
+        'message' => 'Your account is currently pending alumni verification. Please wait for the Alumni Admin to review and approve your account.',
+        'account_status' => 'pending_verification',
+        'alumni_verification_status' => 'pending',
+        'data' => [
+            'account_id' => $accountId,
+            'graduate_id' => $graduateId,
+            'email' => $email,
+        ],
     ]);
 } catch (Exception $e) {
     if ($db->inTransaction()) {

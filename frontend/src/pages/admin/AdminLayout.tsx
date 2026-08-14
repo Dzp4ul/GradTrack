@@ -52,7 +52,7 @@ const registrarNavItems: NavItem[] = [
 ];
 
 const alumniAdminNavItems: NavItem[] = [
-  { to: '/admin/alumni-registered-list', icon: Users, label: 'Alumni Registered List' },
+  { to: '/admin/alumni-registered-list', icon: Users, label: 'Alumni Verification' },
   { to: '/admin/forum-moderation', icon: MessageSquareMore, label: 'Forum Moderation', end: true },
   { to: '/admin/job-approvals', icon: Briefcase, label: 'Job Approval' },
 ];

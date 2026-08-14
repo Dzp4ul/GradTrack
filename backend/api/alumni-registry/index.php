@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../config/alumni_registry.php';
 
@@ -129,12 +130,88 @@ function alumni_registry_cast_record(array $row): array
     return $row;
 }
 
+function alumni_registry_clean_review_reason($value): ?string
+{
+    $reason = gradtrack_alumni_registry_clean_text($value, 1000);
+    return $reason !== '' ? $reason : null;
+}
+
+function alumni_registry_cast_account_review_row(array $row): array
+{
+    $fullName = trim((string) ($row['first_name'] ?? '') . ' ' . ((string) ($row['middle_name'] ?? '') !== '' ? (string) $row['middle_name'] . ' ' : '') . (string) ($row['last_name'] ?? ''));
+
+    return [
+        'account_id' => (int) $row['account_id'],
+        'graduate_id' => (int) $row['graduate_id'],
+        'email' => (string) ($row['email'] ?? ''),
+        'account_status' => (string) ($row['account_status'] ?? ''),
+        'alumni_verification_status' => (string) ($row['alumni_verification_status'] ?? 'pending'),
+        'alumni_verification_reason' => $row['alumni_verification_reason'],
+        'alumni_verification_submitted_at' => $row['alumni_verification_submitted_at'],
+        'alumni_verification_reviewed_at' => $row['alumni_verification_reviewed_at'],
+        'reviewed_by_name' => $row['reviewed_by_name'],
+        'full_name' => $fullName,
+        'student_id' => $row['student_id'],
+        'first_name' => $row['first_name'],
+        'middle_name' => $row['middle_name'],
+        'last_name' => $row['last_name'],
+        'phone' => $row['phone'],
+        'year_graduated' => $row['year_graduated'] !== null ? (int) $row['year_graduated'] : null,
+        'address' => $row['address'],
+        'program_id' => $row['program_id'] !== null ? (int) $row['program_id'] : null,
+        'program_name' => $row['program_name'],
+        'program_code' => $row['program_code'],
+        'source_survey_response_id' => $row['source_survey_response_id'] !== null ? (int) $row['source_survey_response_id'] : null,
+        'survey_submitted_at' => $row['survey_submitted_at'],
+        'linked_registry_id' => $row['linked_registry_id'] !== null ? (int) $row['linked_registry_id'] : null,
+        'linked_registry_name' => $row['linked_registry_name'],
+        'linked_registry_status' => $row['linked_registry_status'],
+        'linked_registry_course_code' => $row['linked_registry_course_code'],
+        'linked_registry_batch_year' => $row['linked_registry_batch_year'] !== null ? (int) $row['linked_registry_batch_year'] : null,
+    ];
+}
+
+function alumni_registry_account_review_select(): string
+{
+    return "SELECT ga.id AS account_id, ga.email, ga.status AS account_status,
+                   ga.alumni_verification_status, ga.alumni_verification_reason,
+                   ga.alumni_verification_submitted_at, ga.alumni_verification_reviewed_at,
+                   ga.source_survey_response_id,
+                   g.id AS graduate_id, g.student_id, g.first_name, g.middle_name, g.last_name,
+                   g.phone, g.year_graduated, g.address,
+                   p.id AS program_id, p.name AS program_name, p.code AS program_code,
+                   sr.submitted_at AS survey_submitted_at,
+                   ra.id AS linked_registry_id, ra.full_name AS linked_registry_name,
+                   ra.registration_status AS linked_registry_status,
+                   ra.course_code AS linked_registry_course_code,
+                   ra.batch_year AS linked_registry_batch_year,
+                   reviewer.full_name AS reviewed_by_name
+            FROM graduate_accounts ga
+            JOIN graduates g ON g.id = ga.graduate_id
+            LEFT JOIN programs p ON p.id = g.program_id
+            LEFT JOIN survey_responses sr ON sr.id = ga.source_survey_response_id
+            LEFT JOIN registered_alumni ra ON ra.linked_user_id = ga.id
+            LEFT JOIN admin_users reviewer ON reviewer.id = ga.alumni_verification_reviewed_by";
+}
+
+function alumni_registry_fetch_account_review(PDO $db, int $accountId): ?array
+{
+    $stmt = $db->prepare(alumni_registry_account_review_select() . ' WHERE ga.id = :account_id LIMIT 1');
+    $stmt->execute([':account_id' => $accountId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    return $row ? alumni_registry_cast_account_review_row($row) : null;
+}
+
 function alumni_registry_base_select(): string
 {
     return "SELECT ra.id, ra.full_name, ra.normalized_name, ra.course_id, ra.course_name, ra.course_code,
                    ra.batch_year, ra.registration_status, ra.linked_user_id, ra.source_file,
                    ra.import_batch_id, ra.created_at, ra.updated_at,
                    ga.email AS linked_email, ga.status AS linked_account_status,
+                   ga.alumni_verification_status AS linked_verification_status,
+                   ga.alumni_verification_reason AS linked_verification_reason,
+                   ga.alumni_verification_reviewed_at AS linked_verification_reviewed_at,
                    g.id AS linked_graduate_id, g.first_name AS linked_first_name,
                    g.middle_name AS linked_middle_name, g.last_name AS linked_last_name
             FROM registered_alumni ra
@@ -184,6 +261,14 @@ function alumni_registry_handle_summary(PDO $db): void
         FROM registered_alumni");
     $summary = $summaryStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
+    $accountSummaryStmt = $db->query("SELECT
+            COUNT(*) AS total_graduate_accounts,
+            SUM(CASE WHEN status = 'pending_verification' OR alumni_verification_status = 'pending' THEN 1 ELSE 0 END) AS pending_verification_accounts,
+            SUM(CASE WHEN status = 'active' AND alumni_verification_status = 'approved' THEN 1 ELSE 0 END) AS approved_verification_accounts,
+            SUM(CASE WHEN status = 'rejected' OR alumni_verification_status = 'rejected' THEN 1 ELSE 0 END) AS rejected_verification_accounts
+        FROM graduate_accounts");
+    $accountSummary = $accountSummaryStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
     $courseTotals = array_fill_keys(array_keys(gradtrack_alumni_registry_canonical_courses()), 0);
     $courseStmt = $db->query("SELECT course_code, COUNT(*) AS total
                               FROM registered_alumni
@@ -217,6 +302,10 @@ function alumni_registry_handle_summary(PDO $db): void
             'verified_alumni' => (int) ($summary['verified_alumni'] ?? 0),
             'answered_alumni' => (int) ($summary['answered_alumni'] ?? 0),
             'not_answered_alumni' => (int) ($summary['not_answered_alumni'] ?? 0),
+            'total_graduate_accounts' => (int) ($accountSummary['total_graduate_accounts'] ?? 0),
+            'pending_verification_accounts' => (int) ($accountSummary['pending_verification_accounts'] ?? 0),
+            'approved_verification_accounts' => (int) ($accountSummary['approved_verification_accounts'] ?? 0),
+            'rejected_verification_accounts' => (int) ($accountSummary['rejected_verification_accounts'] ?? 0),
             'course_totals' => $courseTotals,
         ],
         'filters' => [
@@ -224,6 +313,7 @@ function alumni_registry_handle_summary(PDO $db): void
             'course_codes' => array_keys(gradtrack_alumni_registry_canonical_courses()),
             'batch_years' => $batchYears,
             'statuses' => gradtrack_alumni_registry_statuses(),
+            'verification_statuses' => ['pending', 'approved', 'rejected'],
         ],
     ]);
 }
@@ -333,6 +423,188 @@ function alumni_registry_handle_accounts(PDO $db): void
     }
 
     echo json_encode(['success' => true, 'data' => $accounts]);
+}
+
+function alumni_registry_handle_pending_accounts(PDO $db): void
+{
+    $verificationStatus = strtolower(gradtrack_alumni_registry_clean_text($_GET['verification_status'] ?? 'pending', 20));
+    if (!in_array($verificationStatus, ['pending', 'approved', 'rejected', 'all'], true)) {
+        $verificationStatus = 'pending';
+    }
+
+    $params = [];
+    $where = [];
+
+    if ($verificationStatus === 'pending') {
+        $where[] = "(ga.status = 'pending_verification' OR ga.alumni_verification_status = 'pending')";
+    } elseif ($verificationStatus === 'approved') {
+        $where[] = "(ga.status = 'active' AND ga.alumni_verification_status = 'approved')";
+    } elseif ($verificationStatus === 'rejected') {
+        $where[] = "(ga.status = 'rejected' OR ga.alumni_verification_status = 'rejected')";
+    }
+
+    $search = gradtrack_alumni_registry_clean_text($_GET['search'] ?? '', 120);
+    if ($search !== '') {
+        $where[] = "(ga.email LIKE :search_email
+                     OR g.student_id LIKE :search_student
+                     OR g.first_name LIKE :search_first
+                     OR g.middle_name LIKE :search_middle
+                     OR g.last_name LIKE :search_last
+                     OR CONCAT(g.first_name, ' ', COALESCE(g.middle_name, ''), ' ', g.last_name) LIKE :search_full
+                     OR p.name LIKE :search_program
+                     OR p.code LIKE :search_code)";
+        $term = '%' . $search . '%';
+        $params[':search_email'] = $term;
+        $params[':search_student'] = $term;
+        $params[':search_first'] = $term;
+        $params[':search_middle'] = $term;
+        $params[':search_last'] = $term;
+        $params[':search_full'] = $term;
+        $params[':search_program'] = $term;
+        $params[':search_code'] = $term;
+    }
+
+    $whereClause = count($where) > 0 ? ' WHERE ' . implode(' AND ', $where) : '';
+    $limit = isset($_GET['limit']) ? min(100, max(5, (int) $_GET['limit'])) : 25;
+
+    $stmt = $db->prepare(alumni_registry_account_review_select() . "
+        {$whereClause}
+        ORDER BY
+            CASE
+                WHEN ga.status = 'pending_verification' OR ga.alumni_verification_status = 'pending' THEN 0
+                WHEN ga.status = 'rejected' OR ga.alumni_verification_status = 'rejected' THEN 1
+                ELSE 2
+            END,
+            COALESCE(ga.alumni_verification_submitted_at, ga.created_at) DESC,
+            ga.id DESC
+        LIMIT {$limit}");
+    $stmt->execute($params);
+
+    $accounts = array_map('alumni_registry_cast_account_review_row', $stmt->fetchAll(PDO::FETCH_ASSOC));
+    echo json_encode([
+        'success' => true,
+        'data' => $accounts,
+        'filter' => [
+            'verification_status' => $verificationStatus,
+            'limit' => $limit,
+        ],
+    ]);
+}
+
+function alumni_registry_verified_registry_for_account(PDO $db, int $accountId): ?array
+{
+    gradtrack_alumni_registry_sync_for_graduate_account($db, $accountId);
+
+    $stmt = $db->prepare("SELECT id, full_name, course_code, batch_year, registration_status
+                          FROM registered_alumni
+                          WHERE linked_user_id = :account_id
+                          LIMIT 1");
+    $stmt->execute([':account_id' => $accountId]);
+    $record = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$record) {
+        return null;
+    }
+
+    $update = $db->prepare("UPDATE registered_alumni
+                            SET registration_status = 'Verified'
+                            WHERE id = :id");
+    $update->execute([':id' => (int) $record['id']]);
+    $record['registration_status'] = 'Verified';
+
+    return $record;
+}
+
+function alumni_registry_unlink_registry_for_account(PDO $db, int $accountId): void
+{
+    $stmt = $db->prepare("UPDATE registered_alumni
+                          SET linked_user_id = NULL,
+                              registration_status = CASE
+                                  WHEN registration_status = 'Inactive' THEN 'Inactive'
+                                  ELSE 'Unclaimed'
+                              END
+                          WHERE linked_user_id = :account_id");
+    $stmt->execute([':account_id' => $accountId]);
+}
+
+function alumni_registry_handle_account_review(PDO $db, array $admin, string $decision): void
+{
+    $data = alumni_registry_request_data();
+    $accountId = isset($data['graduate_account_id']) ? (int) $data['graduate_account_id'] : (isset($data['account_id']) ? (int) $data['account_id'] : 0);
+    if ($accountId <= 0) {
+        alumni_registry_json_error(400, 'Graduate account ID is required');
+    }
+
+    $account = alumni_registry_fetch_account_review($db, $accountId);
+    if (!$account) {
+        alumni_registry_json_error(404, 'Graduate account not found');
+    }
+
+    $decision = strtolower($decision);
+    $isApproval = $decision === 'approve';
+    $reason = alumni_registry_clean_review_reason($data['rejection_reason'] ?? ($data['reason'] ?? null));
+
+    try {
+        $db->beginTransaction();
+
+        $registry = null;
+        if ($isApproval) {
+            $registry = alumni_registry_verified_registry_for_account($db, $accountId);
+            gradtrack_update_graduate_account_verification($db, $accountId, 'approved', (int) $admin['id']);
+        } else {
+            gradtrack_update_graduate_account_verification($db, $accountId, 'rejected', (int) $admin['id'], $reason);
+            alumni_registry_unlink_registry_for_account($db, $accountId);
+        }
+
+        $db->commit();
+
+        $action = $isApproval ? 'Approve' : 'Reject';
+        $details = $isApproval
+            ? "Approved graduate account {$accountId} for Graduate Portal access."
+            : "Rejected graduate account {$accountId} for Graduate Portal access.";
+
+        logAuditTrail(
+            $admin['id'],
+            $admin['full_name'] ?: $admin['email'],
+            $admin['role'],
+            $account['program_code'] ?? null,
+            $action,
+            'Alumni Account Verification',
+            $details,
+            $accountId,
+            [
+                'account_status' => $account['account_status'] ?? null,
+                'alumni_verification_status' => $account['alumni_verification_status'] ?? null,
+            ],
+            [
+                'account_status' => $isApproval ? 'active' : 'rejected',
+                'alumni_verification_status' => $isApproval ? 'approved' : 'rejected',
+                'rejection_reason' => !$isApproval ? $reason : null,
+            ],
+            [
+                'linked_registry_id' => $registry ? (int) $registry['id'] : ($account['linked_registry_id'] ?? null),
+            ]
+        );
+
+        echo json_encode([
+            'success' => true,
+            'message' => $isApproval
+                ? 'Graduate account approved. The alumni can now access the Graduate Portal.'
+                : 'Graduate account rejected. The alumni cannot access the Graduate Portal.',
+            'data' => [
+                'account_id' => $accountId,
+                'account_status' => $isApproval ? 'active' : 'rejected',
+                'alumni_verification_status' => $isApproval ? 'approved' : 'rejected',
+                'linked_registry_id' => $registry ? (int) $registry['id'] : ($account['linked_registry_id'] ?? null),
+            ],
+        ]);
+    } catch (Throwable $e) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+
+        throw $e;
+    }
 }
 
 function alumni_registry_handle_history(PDO $db): void
@@ -629,25 +901,52 @@ function alumni_registry_handle_update(PDO $db, array $admin): void
         alumni_registry_json_error(409, 'Another registry record already has the same normalized name, course, and batch');
     }
 
-    $stmt = $db->prepare("UPDATE registered_alumni
-                          SET full_name = :full_name,
-                              normalized_name = :normalized_name,
-                              course_id = :course_id,
-                              course_name = :course_name,
-                              course_code = :course_code,
-                              batch_year = :batch_year,
-                              registration_status = :registration_status
-                          WHERE id = :id");
-    $stmt->execute([
-        ':full_name' => $fullName,
-        ':normalized_name' => $normalizedName,
-        ':course_id' => $courseMatch['course_id'],
-        ':course_name' => $courseMatch['course_name'],
-        ':course_code' => $courseMatch['course_code'],
-        ':batch_year' => $batchYear,
-        ':registration_status' => $status,
-        ':id' => $id,
-    ]);
+    try {
+        $db->beginTransaction();
+
+        $stmt = $db->prepare("UPDATE registered_alumni
+                              SET full_name = :full_name,
+                                  normalized_name = :normalized_name,
+                                  course_id = :course_id,
+                                  course_name = :course_name,
+                                  course_code = :course_code,
+                                  batch_year = :batch_year,
+                                  registration_status = :registration_status
+                              WHERE id = :id");
+        $stmt->execute([
+            ':full_name' => $fullName,
+            ':normalized_name' => $normalizedName,
+            ':course_id' => $courseMatch['course_id'],
+            ':course_name' => $courseMatch['course_name'],
+            ':course_code' => $courseMatch['course_code'],
+            ':batch_year' => $batchYear,
+            ':registration_status' => $status,
+            ':id' => $id,
+        ]);
+
+        if (!empty($existing['linked_user_id'])) {
+            $accountId = (int) $existing['linked_user_id'];
+            if ($status === 'Verified') {
+                gradtrack_update_graduate_account_verification($db, $accountId, 'approved', (int) $admin['id']);
+            } elseif ($status === 'Inactive') {
+                gradtrack_update_graduate_account_verification(
+                    $db,
+                    $accountId,
+                    'rejected',
+                    (int) $admin['id'],
+                    'Marked inactive in the official alumni registry.'
+                );
+            }
+        }
+
+        $db->commit();
+    } catch (Throwable $e) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+
+        throw $e;
+    }
 
     logAuditTrail(
         $admin['id'],
@@ -696,15 +995,31 @@ function alumni_registry_handle_link(PDO $db, array $admin): void
     $strength = gradtrack_alumni_registry_match_strength($record, $account);
     $status = !empty($data['mark_verified']) ? 'Verified' : 'Registered';
 
-    $stmt = $db->prepare("UPDATE registered_alumni
-                          SET linked_user_id = :linked_user_id,
-                              registration_status = :registration_status
-                          WHERE id = :id");
-    $stmt->execute([
-        ':linked_user_id' => $accountId,
-        ':registration_status' => $status,
-        ':id' => $id,
-    ]);
+    try {
+        $db->beginTransaction();
+
+        $stmt = $db->prepare("UPDATE registered_alumni
+                              SET linked_user_id = :linked_user_id,
+                                  registration_status = :registration_status
+                              WHERE id = :id");
+        $stmt->execute([
+            ':linked_user_id' => $accountId,
+            ':registration_status' => $status,
+            ':id' => $id,
+        ]);
+
+        if ($status === 'Verified') {
+            gradtrack_update_graduate_account_verification($db, $accountId, 'approved', (int) $admin['id']);
+        }
+
+        $db->commit();
+    } catch (Throwable $e) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+
+        throw $e;
+    }
 
     logAuditTrail(
         $admin['id'],
@@ -719,6 +1034,7 @@ function alumni_registry_handle_link(PDO $db, array $admin): void
         [
             'linked_user_id' => $accountId,
             'registration_status' => $status,
+            'account_status' => $status === 'Verified' ? 'active' : $account['account_status'],
         ],
         ['match_strength' => $strength]
     );
@@ -740,8 +1056,30 @@ function alumni_registry_handle_unlink(PDO $db, array $admin): void
     }
 
     $nextStatus = $record['registration_status'] === 'Inactive' ? 'Inactive' : 'Unclaimed';
-    $stmt = $db->prepare('UPDATE registered_alumni SET linked_user_id = NULL, registration_status = :status WHERE id = :id');
-    $stmt->execute([':status' => $nextStatus, ':id' => $id]);
+    try {
+        $db->beginTransaction();
+
+        $stmt = $db->prepare('UPDATE registered_alumni SET linked_user_id = NULL, registration_status = :status WHERE id = :id');
+        $stmt->execute([':status' => $nextStatus, ':id' => $id]);
+
+        if (!empty($record['linked_user_id'])) {
+            gradtrack_update_graduate_account_verification(
+                $db,
+                (int) $record['linked_user_id'],
+                'pending',
+                null,
+                'Account unlinked from the official alumni registry and requires alumni verification review.'
+            );
+        }
+
+        $db->commit();
+    } catch (Throwable $e) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+
+        throw $e;
+    }
 
     logAuditTrail(
         $admin['id'],
@@ -753,7 +1091,10 @@ function alumni_registry_handle_unlink(PDO $db, array $admin): void
         "Unlinked alumni record with ID {$id}.",
         $id,
         ['registration_status' => $record['registration_status'] ?? null],
-        ['registration_status' => $nextStatus]
+        [
+            'registration_status' => $nextStatus,
+            'linked_account_status' => !empty($record['linked_user_id']) ? 'pending_verification' : null,
+        ]
     );
 
     echo json_encode(['success' => true, 'message' => 'Registry record unlinked successfully']);
@@ -768,8 +1109,35 @@ function alumni_registry_handle_status(PDO $db, array $admin, string $status, st
         alumni_registry_json_error(404, 'Alumni registry record not found');
     }
 
-    $stmt = $db->prepare('UPDATE registered_alumni SET registration_status = :status WHERE id = :id');
-    $stmt->execute([':status' => $status, ':id' => $id]);
+    try {
+        $db->beginTransaction();
+
+        $stmt = $db->prepare('UPDATE registered_alumni SET registration_status = :status WHERE id = :id');
+        $stmt->execute([':status' => $status, ':id' => $id]);
+
+        if (!empty($record['linked_user_id'])) {
+            $accountId = (int) $record['linked_user_id'];
+            if ($status === 'Verified') {
+                gradtrack_update_graduate_account_verification($db, $accountId, 'approved', (int) $admin['id']);
+            } elseif ($status === 'Inactive') {
+                gradtrack_update_graduate_account_verification(
+                    $db,
+                    $accountId,
+                    'rejected',
+                    (int) $admin['id'],
+                    'Marked inactive in the official alumni registry.'
+                );
+            }
+        }
+
+        $db->commit();
+    } catch (Throwable $e) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+
+        throw $e;
+    }
 
     logAuditTrail(
         $admin['id'],
@@ -781,7 +1149,12 @@ function alumni_registry_handle_status(PDO $db, array $admin, string $status, st
         $action . " alumni record with ID {$id}.",
         $id,
         ['registration_status' => $record['registration_status'] ?? null],
-        ['registration_status' => $status]
+        [
+            'registration_status' => $status,
+            'linked_account_status' => $status === 'Verified'
+                ? 'active'
+                : ($status === 'Inactive' ? 'rejected' : ($record['linked_account_status'] ?? null)),
+        ]
     );
 
     echo json_encode(['success' => true, 'message' => "Registry record marked as {$status}"]);
@@ -796,8 +1169,30 @@ function alumni_registry_handle_delete(PDO $db, array $admin): void
         alumni_registry_json_error(404, 'Alumni registry record not found');
     }
 
-    $stmt = $db->prepare('DELETE FROM registered_alumni WHERE id = :id');
-    $stmt->execute([':id' => $id]);
+    try {
+        $db->beginTransaction();
+
+        if (!empty($record['linked_user_id'])) {
+            gradtrack_update_graduate_account_verification(
+                $db,
+                (int) $record['linked_user_id'],
+                'pending',
+                null,
+                'Official alumni registry record was deleted and the account requires alumni verification review.'
+            );
+        }
+
+        $stmt = $db->prepare('DELETE FROM registered_alumni WHERE id = :id');
+        $stmt->execute([':id' => $id]);
+
+        $db->commit();
+    } catch (Throwable $e) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+
+        throw $e;
+    }
 
     logAuditTrail(
         $admin['id'],
@@ -818,6 +1213,7 @@ $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
 
 try {
+    gradtrack_ensure_graduate_account_verification_schema($db);
     gradtrack_alumni_registry_ensure_schema($db);
     $admin = gradtrack_alumni_registry_require_admin($db);
     $action = gradtrack_alumni_registry_clean_text($_GET['action'] ?? '', 40);
@@ -833,6 +1229,10 @@ try {
         }
         if ($action === 'accounts') {
             alumni_registry_handle_accounts($db);
+            exit;
+        }
+        if ($action === 'pending_accounts') {
+            alumni_registry_handle_pending_accounts($db);
             exit;
         }
         if ($action === 'history') {
@@ -868,6 +1268,14 @@ try {
         }
         if ($action === 'link') {
             alumni_registry_handle_link($db, $admin);
+            exit;
+        }
+        if ($action === 'approve_account') {
+            alumni_registry_handle_account_review($db, $admin, 'approve');
+            exit;
+        }
+        if ($action === 'reject_account') {
+            alumni_registry_handle_account_review($db, $admin, 'reject');
             exit;
         }
         if ($action === 'unlink') {

@@ -56,6 +56,9 @@ export default function GraduateSignIn() {
       });
       setTimeout(() => navigate('/graduate/portal'), 900);
     } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to sign in right now.';
+      const isPending = message.toLowerCase().includes('pending alumni verification');
+      const isRejected = message.toLowerCase().includes('rejected');
       setShowPassword(false);
       if (emailInputRef.current) {
         emailInputRef.current.value = '';
@@ -65,9 +68,9 @@ export default function GraduateSignIn() {
       }
       setMsgBox({
         isOpen: true,
-        type: 'error',
-        title: 'Sign In Failed',
-        message: error instanceof Error ? error.message : 'Unable to sign in right now.',
+        type: isPending ? 'info' : 'error',
+        title: isPending ? 'Pending Alumni Verification' : isRejected ? 'Account Rejected' : 'Sign In Failed',
+        message,
       });
     } finally {
       setLoading(false);

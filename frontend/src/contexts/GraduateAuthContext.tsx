@@ -5,6 +5,10 @@ export interface GraduateUser {
   account_id: number;
   graduate_id: number;
   email: string;
+  account_status?: string;
+  alumni_verification_status?: 'pending' | 'approved' | 'rejected';
+  alumni_verification_submitted_at?: string | null;
+  alumni_verification_reviewed_at?: string | null;
   full_name: string;
   first_name: string;
   middle_name?: string | null;

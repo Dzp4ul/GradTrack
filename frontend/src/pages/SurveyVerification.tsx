@@ -264,13 +264,13 @@ function SurveyVerification() {
       setMsgBox({
         isOpen: true,
         type: 'success',
-        title: 'Account Created',
-        message: 'Your GradTrack account was created successfully. Redirecting to the Graduate Portal...',
+        title: 'Pending Alumni Verification',
+        message: result.message || 'Your account is currently pending alumni verification. Please wait for the Alumni Admin to review and approve your account.',
       });
 
       setTimeout(() => {
-        window.location.href = '/graduate/portal';
-      }, 1200);
+        window.location.href = '/graduate/signin';
+      }, 1800);
     } catch (error) {
       setMsgBox({
         isOpen: true,
@@ -465,7 +465,7 @@ function SurveyVerification() {
             </p>
           )}
           <p className="text-gray-600 text-center mb-6 text-sm">
-            You already answered this survey. Set your password to activate your Graduate Portal account.
+            You already answered this survey. Set your password to submit your Graduate Portal account for Alumni Admin verification.
           </p>
 
           <div className="bg-blue-50 rounded-lg p-4 mb-6 flex items-start space-x-3">

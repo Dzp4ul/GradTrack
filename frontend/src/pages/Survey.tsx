@@ -1193,13 +1193,13 @@ function Survey() {
       setMsgBox({
         isOpen: true,
         type: 'success',
-        title: 'Account Created',
-        message: 'Your GradTrack account was created successfully. Redirecting to the Graduate Portal for community discussions and job opportunities...',
+        title: 'Pending Alumni Verification',
+        message: result.message || 'Your account is currently pending alumni verification. Please wait for the Alumni Admin to review and approve your account.',
       });
 
       setTimeout(() => {
-        window.location.href = '/graduate/portal';
-      }, 1200);
+        window.location.href = '/graduate/signin';
+      }, 1800);
     } catch (error) {
       setMsgBox({
         isOpen: true,
@@ -2415,7 +2415,7 @@ function Survey() {
             <div className="bg-blue-50 border-b border-blue-100 px-4 py-5 sm:px-6">
               <h3 className="text-lg font-bold text-blue-900 sm:text-xl">Your survey has been submitted successfully.</h3>
               <p className="text-sm text-gray-600 mt-1">
-                Create a GradTrack account now to unlock the Community Forum and job opportunities using the information you already provided.
+                Create a GradTrack account now and submit it for Alumni Admin verification using the information you already provided.
               </p>
             </div>
 
@@ -2463,7 +2463,7 @@ function Survey() {
                         isOpen: true,
                         type: 'success',
                         title: 'Survey Submitted',
-                        message: 'Your response was saved. You can create an account later from the Graduate Portal to access the Community Forum and job opportunities.',
+                        message: 'Your response was saved. You can create an account later, then wait for Alumni Admin verification before accessing the Graduate Portal.',
                       });
                       finishSurveyFlow(true);
                     }}
@@ -2490,7 +2490,7 @@ function Survey() {
             ) : (
               <div className="p-4 space-y-4 sm:p-6">
                 <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-gray-700">
-                  Set your password to activate your Graduate Portal account and start accessing the Community Forum and job opportunities.
+                  Set your password to submit your Graduate Portal account for Alumni Admin verification.
                 </div>
 
                 <div className="grid sm:grid-cols-2 gap-4 text-sm">
