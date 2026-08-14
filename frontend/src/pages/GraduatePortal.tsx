@@ -4,7 +4,6 @@ import { useSearchParams } from 'react-router-dom';
 import {
   Briefcase,
   Building2,
-  Calendar,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -3429,8 +3428,7 @@ export default function GraduatePortal() {
                             <div className="mt-5 grid gap-3 text-sm text-slate-600 sm:grid-cols-2">
                               <MetaRow icon={MapPin} label="Location" value={job.location || 'Not specified'} />
                               <MetaRow icon={Building2} label="Industry" value={job.industry || 'Not specified'} />
-                              <MetaRow icon={Calendar} label="Deadline" value={job.application_deadline || 'Open until filled'} />
-                              <MetaRow icon={Briefcase} label="Program Fit" value={job.course_program_fit || job.poster_program_code || job.poster_program_name || 'Open to eligible graduates'} />
+                              <MetaRow className="sm:col-span-2" icon={Briefcase} label="Program Fit" value={job.course_program_fit || job.poster_program_code || job.poster_program_name || 'Open to eligible graduates'} />
                             </div>
 
                             <div className="mt-5 rounded-[24px] border border-slate-100 bg-slate-50 p-4 text-sm">
@@ -4426,16 +4424,18 @@ function SummaryPill({
 }
 
 function MetaRow({
+  className = '',
   icon: Icon,
   label,
   value,
 }: {
+  className?: string;
   icon: LucideIcon;
   label: string;
   value: string;
 }) {
   return (
-    <div className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3">
+    <div className={`flex items-start gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 ${className}`}>
       <Icon className="mt-0.5 h-4 w-4 text-slate-400" />
       <div>
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p>
