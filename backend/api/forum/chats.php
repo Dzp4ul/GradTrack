@@ -60,6 +60,7 @@ function gradtrack_forum_chats_validate_participants(PDO $db, array $participant
     $stmt = $db->prepare("SELECT g.id AS graduate_id,
                                  TRIM(CONCAT(COALESCE(g.first_name, ''), ' ', COALESCE(g.last_name, ''))) AS full_name,
                                  p.code AS program_code,
+                                 g.year_graduated,
                                  gpi.file_path AS profile_image_path
                           FROM graduate_accounts ga
                           JOIN graduates g ON g.id = ga.graduate_id
@@ -77,6 +78,7 @@ function gradtrack_forum_chats_validate_participants(PDO $db, array $participant
             'graduate_id' => $graduateId,
             'full_name' => trim((string) ($row['full_name'] ?? '')) ?: 'Graduate',
             'program_code' => $row['program_code'] ?? null,
+            'year_graduated' => $row['year_graduated'] !== null ? (int) $row['year_graduated'] : null,
             'profile_image_path' => $row['profile_image_path'] ?? null,
         ];
     }
@@ -89,6 +91,7 @@ function gradtrack_forum_chats_directory(PDO $db, int $currentGraduateId): array
     $stmt = $db->prepare("SELECT g.id AS graduate_id,
                                  TRIM(CONCAT(COALESCE(g.first_name, ''), ' ', COALESCE(g.last_name, ''))) AS full_name,
                                  p.code AS program_code,
+                                 g.year_graduated,
                                  gpi.file_path AS profile_image_path
                           FROM graduate_accounts ga
                           JOIN graduates g ON g.id = ga.graduate_id
@@ -105,6 +108,7 @@ function gradtrack_forum_chats_directory(PDO $db, int $currentGraduateId): array
             'graduate_id' => (int) $row['graduate_id'],
             'full_name' => trim((string) ($row['full_name'] ?? '')) ?: 'Graduate',
             'program_code' => $row['program_code'] ?? null,
+            'year_graduated' => $row['year_graduated'] !== null ? (int) $row['year_graduated'] : null,
             'profile_image_path' => $row['profile_image_path'] ?? null,
         ];
     }
@@ -124,6 +128,7 @@ function gradtrack_forum_chats_participants_by_room(PDO $db, array $roomIds): ar
                                  g.id AS graduate_id,
                                  TRIM(CONCAT(COALESCE(g.first_name, ''), ' ', COALESCE(g.last_name, ''))) AS full_name,
                                  p.code AS program_code,
+                                 g.year_graduated,
                                  gpi.file_path AS profile_image_path,
                                  gp.last_active_at
                           FROM forum_chat_members fcm
@@ -147,6 +152,7 @@ function gradtrack_forum_chats_participants_by_room(PDO $db, array $roomIds): ar
             'graduate_id' => (int) $row['graduate_id'],
             'full_name' => trim((string) ($row['full_name'] ?? '')) ?: 'Graduate',
             'program_code' => $row['program_code'] ?? null,
+            'year_graduated' => $row['year_graduated'] !== null ? (int) $row['year_graduated'] : null,
             'profile_image_path' => $row['profile_image_path'] ?? null,
             'last_active_at' => $row['last_active_at'] ?? null,
             'is_online' => false,

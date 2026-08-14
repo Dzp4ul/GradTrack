@@ -13,14 +13,14 @@
   body {
     min-width: 320px;
     min-height: 100%;
-    overflow-x: hidden;
+    overflow-x: clip;
     background: #f9fafb;
   }
 
   #root {
     min-height: 100vh;
     width: 100%;
-    overflow-x: hidden;
+    overflow-x: clip;
   }
 
   input,
@@ -229,8 +229,18 @@ html.dark .bg-slate-50,
 html.dark .bg-\[\#f4f6fb\],
 html.dark .bg-\[\#fafbff\],
 html.dark .bg-\[\#f5f7fb\],
+html.dark .bg-\[\#f8fafc\],
+html.dark .bg-\[\#fcfcfe\],
 html.dark .hover\:bg-\[\#edf1f8\]:hover {
   background-color: var(--surface-alt) !important;
+}
+
+html.dark .bg-white\/70 {
+  background-color: rgb(30 41 59 / 0.78) !important;
+}
+
+html.dark .hover\:bg-white:hover {
+  background-color: var(--surface-hover) !important;
 }
 
 html.dark .bg-gray-100,

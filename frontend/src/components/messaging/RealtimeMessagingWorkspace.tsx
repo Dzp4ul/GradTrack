@@ -741,10 +741,33 @@ function MessageComposer({
   onRetryAttachment: () => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  const showEmojiButton = draft.length === 0;
   const canSend = !disabled
     && selectedAttachment?.status !== 'uploading'
     && (draft.trim().length > 0 || !!selectedAttachment);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const adjustHeight = () => {
+      const styles = window.getComputedStyle(textarea);
+      const lineHeight = Number.parseFloat(styles.lineHeight) || 20;
+      const paddingY = (Number.parseFloat(styles.paddingTop) || 0) + (Number.parseFloat(styles.paddingBottom) || 0);
+      const borderY = (Number.parseFloat(styles.borderTopWidth) || 0) + (Number.parseFloat(styles.borderBottomWidth) || 0);
+      const maxHeight = (lineHeight * 10) + paddingY + borderY;
+
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.min(textarea.scrollHeight, maxHeight)}px`;
+      textarea.style.overflowY = textarea.scrollHeight > maxHeight ? 'auto' : 'hidden';
+    };
+
+    adjustHeight();
+    window.addEventListener('resize', adjustHeight);
+    return () => window.removeEventListener('resize', adjustHeight);
+  }, [draft]);
 
   const selectFile = (file?: File) => {
     if (!file) return;
@@ -778,16 +801,18 @@ function MessageComposer({
       )}
 
       <div className="flex items-end gap-2">
-        <button
-          type="button"
-          onClick={() => onDraftChange(`${draft}🙂`)}
-          disabled={disabled}
-          className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-          aria-label="Insert emoji"
-          title="Emoji"
-        >
-          <Smile className="h-5 w-5" />
-        </button>
+        {showEmojiButton && (
+          <button
+            type="button"
+            onClick={() => onDraftChange(`${draft}🙂`)}
+            disabled={disabled}
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-500 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+            aria-label="Insert emoji"
+            title="Emoji"
+          >
+            <Smile className="h-5 w-5" />
+          </button>
+        )}
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
@@ -809,6 +834,7 @@ function MessageComposer({
           }}
         />
         <textarea
+          ref={textareaRef}
           value={draft}
           disabled={disabled}
           onChange={(event) => onDraftChange(event.target.value)}
@@ -816,7 +842,7 @@ function MessageComposer({
           rows={1}
           maxLength={5000}
           placeholder="Type a message"
-          className="max-h-32 min-h-11 flex-1 resize-none rounded-lg border border-slate-200 bg-[#f8fafc] px-4 py-3 text-sm outline-none transition focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+          className="max-h-[14.25rem] min-h-11 flex-1 resize-none rounded-lg border border-slate-200 bg-[#f8fafc] px-4 py-3 text-sm leading-5 outline-none transition focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
           aria-label="Message"
         />
         <button
@@ -881,10 +907,37 @@ function NewConversationModal({
   onStartConversation: (graduateId: number) => void;
 }) {
   const query = search.trim().toLowerCase();
+  const [programFilter, setProgramFilter] = useState('all');
+  const [batchFilter, setBatchFilter] = useState('all');
+  const programOptions = useMemo(() => (
+    Array.from(new Set(directory.map((participant) => participant.program_code?.trim()).filter(Boolean) as string[]))
+      .sort((first, second) => first.localeCompare(second))
+  ), [directory]);
+  const batchOptions = useMemo(() => (
+    Array.from(new Set(
+      directory
+        .map((participant) => participant.year_graduated)
+        .filter((year): year is number => typeof year === 'number' && Number.isFinite(year)),
+    )).sort((first, second) => second - first)
+  ), [directory]);
   const filtered = useMemo(() => {
-    if (!query) return directory;
-    return directory.filter((participant) => [participant.full_name, participant.program_code].join(' ').toLowerCase().includes(query));
-  }, [directory, query]);
+    return directory.filter((participant) => {
+      const participantProgram = participant.program_code?.trim() || '';
+      const participantBatch = participant.year_graduated ? String(participant.year_graduated) : '';
+      const matchesProgram = programFilter === 'all' || participantProgram === programFilter;
+      const matchesBatch = batchFilter === 'all' || participantBatch === batchFilter;
+      if (!matchesProgram || !matchesBatch) return false;
+      if (!query) return true;
+
+      return [participant.full_name, participantProgram, participantBatch ? `Batch ${participantBatch}` : ''].join(' ').toLowerCase().includes(query);
+    });
+  }, [batchFilter, directory, programFilter, query]);
+
+  useEffect(() => {
+    if (!open) return;
+    setProgramFilter('all');
+    setBatchFilter('all');
+  }, [open]);
 
   if (!open) return null;
 
@@ -912,12 +965,38 @@ function NewConversationModal({
               aria-label="Search graduates"
             />
           </label>
+
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">Program</span>
+              <select value={programFilter} onChange={(event) => setProgramFilter(event.target.value)} className="h-11 w-full rounded-lg border border-slate-200 bg-[#f8fafc] px-3 text-sm outline-none transition focus:border-blue-500">
+                <option value="all">All Programs</option>
+                {programOptions.map((program) => (
+                  <option key={program} value={program}>
+                    {program}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">Batch</span>
+              <select value={batchFilter} onChange={(event) => setBatchFilter(event.target.value)} className="h-11 w-full rounded-lg border border-slate-200 bg-[#f8fafc] px-3 text-sm outline-none transition focus:border-blue-500">
+                <option value="all">All Batches</option>
+                {batchOptions.map((year) => (
+                  <option key={year} value={String(year)}>
+                    Batch {year}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           {filtered.length === 0 ? (
             <div className="rounded-lg border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">
-              No graduates match your search.
+              No graduates match your filters.
             </div>
           ) : (
             <div className="space-y-2">
@@ -932,7 +1011,9 @@ function NewConversationModal({
                   <Avatar src={participant.profile_image_path} label={participant.full_name} size="sm" resolveAssetUrl={resolveAssetUrl} />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-bold text-slate-900">{participant.full_name}</p>
-                    <p className="truncate text-xs text-slate-500">{participant.program_code || 'Graduate'}</p>
+                    <p className="truncate text-xs text-slate-500">
+                      {participant.program_code || 'Graduate'}{participant.year_graduated ? ` - Batch ${participant.year_graduated}` : ''}
+                    </p>
                   </div>
                   {creating && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
                 </button>

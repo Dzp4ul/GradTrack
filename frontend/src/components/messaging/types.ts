@@ -2,6 +2,7 @@ export interface MessagingParticipant {
   graduate_id: number;
   full_name: string;
   program_code?: string | null;
+  year_graduated?: number | null;
   profile_image_path?: string | null;
   last_active_at?: string | null;
   is_online?: boolean;

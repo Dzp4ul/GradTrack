@@ -1,4 +1,5 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   Briefcase,
@@ -21,7 +22,6 @@ import {
   Pencil,
   Plus,
   Search,
-  Send,
   Trash2,
   User,
   Users,
@@ -33,7 +33,11 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import type { Socket } from 'socket.io-client';
 import { API_BASE_URL, API_ENDPOINTS } from '../config/api';
-import RealtimeMessagingWorkspace from '../components/messaging/RealtimeMessagingWorkspace';
+import RealtimeMessagingWorkspace, {
+  ImagePreviewModal as ChatImagePreviewModal,
+  MessageComposer,
+  MessageList,
+} from '../components/messaging/RealtimeMessagingWorkspace';
 import type {
   MessageAttachment,
   MessagePagination,
@@ -214,6 +218,11 @@ interface MessageBoxState {
 }
 
 const portalTabs: PortalTab[] = ['dashboard', 'community_forum', 'messages', 'group_chats', 'jobs', 'job_posting', 'my_profile'];
+const graduatePortalLayoutStyle = {
+  '--graduate-portal-header-height': '4rem',
+  '--graduate-portal-sticky-gap': '1rem',
+} as CSSProperties;
+
 const forumCategoryFallback = [
   'Career Advice',
   'Work Experience',
@@ -678,11 +687,15 @@ export default function GraduatePortal() {
   const [chatTypingUsers, setChatTypingUsers] = useState<Record<number, Record<number, { name: string; expiresAt: number }>>>({});
   const [chatNewMessageAvailable, setChatNewMessageAvailable] = useState(false);
   const [chatMobileConversationOpen, setChatMobileConversationOpen] = useState(false);
+  const [forumChatWindowOpen, setForumChatWindowOpen] = useState(false);
+  const [chatPreviewAttachment, setChatPreviewAttachment] = useState<MessageAttachment | null>(null);
   const [chatModalOpen, setChatModalOpen] = useState(false);
   const [chatModalMode, setChatModalMode] = useState<'direct' | 'group'>('direct');
   const [chatModalName, setChatModalName] = useState('');
   const [chatModalSelectedIds, setChatModalSelectedIds] = useState<number[]>([]);
   const [chatModalSearch, setChatModalSearch] = useState('');
+  const [chatModalProgramFilter, setChatModalProgramFilter] = useState('all');
+  const [chatModalBatchFilter, setChatModalBatchFilter] = useState('all');
   const [chatCreating, setChatCreating] = useState(false);
 
   const [msgBox, setMsgBox] = useState<MessageBoxState>({
@@ -761,11 +774,29 @@ export default function GraduatePortal() {
   const groupRooms = useMemo(() => rooms.filter((room) => room.is_group), [rooms]);
   const filteredRooms = rooms.filter(matchesChatSearch);
 
+  const chatModalProgramOptions = useMemo(() => (
+    Array.from(new Set(directory.map((participant) => participant.program_code?.trim()).filter(Boolean) as string[]))
+      .sort((first, second) => first.localeCompare(second))
+  ), [directory]);
+
+  const chatModalBatchOptions = useMemo(() => (
+    Array.from(new Set(
+      directory
+        .map((participant) => participant.year_graduated)
+        .filter((year): year is number => typeof year === 'number' && Number.isFinite(year)),
+    )).sort((first, second) => second - first)
+  ), [directory]);
+
   const filteredDirectory = directory.filter((participant) => {
     const query = chatModalSearch.trim().toLowerCase();
+    const participantProgram = participant.program_code?.trim() || '';
+    const participantBatch = participant.year_graduated ? String(participant.year_graduated) : '';
+    const matchesProgram = chatModalProgramFilter === 'all' || participantProgram === chatModalProgramFilter;
+    const matchesBatch = chatModalBatchFilter === 'all' || participantBatch === chatModalBatchFilter;
+    if (!matchesProgram || !matchesBatch) return false;
     if (!query) return true;
 
-    return [participant.full_name, participant.program_code || ''].join(' ').toLowerCase().includes(query);
+    return [participant.full_name, participantProgram, participantBatch ? `Batch ${participantBatch}` : ''].join(' ').toLowerCase().includes(query);
   });
 
   const pendingForumPostsCount = myForumPosts.filter((post) => post.status === 'pending').length;
@@ -1156,12 +1187,12 @@ export default function GraduatePortal() {
 
       const blockingKeysByTab: Record<PortalTab, string[]> = {
         dashboard: tasks.map((task) => task.key),
-        community_forum: ['forum', 'my_forum', 'activity'],
+        community_forum: ['forum', 'my_forum'],
         messages: ['chats'],
         group_chats: ['chats'],
         jobs: ['jobs', 'rating'],
         job_posting: ['my_jobs', 'rating'],
-        my_profile: ['rating'],
+        my_profile: ['rating', 'activity'],
       };
 
       const blockingKeys = new Set(silent ? tasks.map((task) => task.key) : blockingKeysByTab[tab]);
@@ -2032,7 +2063,14 @@ export default function GraduatePortal() {
     setChatModalName('');
     setChatModalSelectedIds([]);
     setChatModalSearch('');
+    setChatModalProgramFilter('all');
+    setChatModalBatchFilter('all');
     setChatModalOpen(true);
+  };
+
+  const openForumChatWindow = (roomId: number) => {
+    setSelectedRoomId(roomId);
+    setForumChatWindowOpen(true);
   };
 
   const createDirectChat = async (graduateId: number) => {
@@ -2769,9 +2807,18 @@ export default function GraduatePortal() {
   };
 
   const ActiveNavIcon = activeNavItem?.icon || MessageSquare;
+  const selectedForumChatRoom = selectedRoomId
+    ? (activeRoom?.id === selectedRoomId ? activeRoom : rooms.find((room) => room.id === selectedRoomId) || null)
+    : null;
+  const selectedForumChatReady = !!activeRoom && activeRoom.id === selectedRoomId;
+  const selectedForumChatTypingNames = selectedRoomId
+    ? Object.values(chatTypingUsers[selectedRoomId] || {})
+        .filter((typing) => typing.expiresAt > Date.now())
+        .map((typing) => typing.name)
+    : [];
 
   return (
-    <div className="min-h-screen bg-[#f4f6fb] text-slate-900">
+    <div className="min-h-screen overflow-x-clip bg-[#f4f6fb] text-slate-900" style={graduatePortalLayoutStyle}>
       <header className="sticky top-0 z-50 border-b border-gray-200 bg-white shadow-sm">
         <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-4 px-4 py-2 sm:px-6">
           <button
@@ -2926,7 +2973,7 @@ export default function GraduatePortal() {
         )}
       </header>
 
-      <main className="mx-auto max-w-screen-2xl px-3 py-4 pb-10 sm:px-6 sm:py-6">
+      <main className="relative z-0 mx-auto max-w-screen-2xl px-3 py-4 pb-10 sm:px-6 sm:py-6">
         <section className="mb-5 flex flex-col gap-4 border-b border-slate-200 pb-5 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-start gap-3">
             <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-700 text-white shadow-sm">
@@ -3030,8 +3077,8 @@ export default function GraduatePortal() {
                     </div>
                   </div>
 
-                  <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
-                    <div className="space-y-5">
+                  <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px] xl:grid-cols-[minmax(0,1fr)_380px]">
+                    <div className="min-w-0 space-y-5">
                       <div className="rounded-[32px] border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
                         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_160px_160px]">
                           <label className="relative block">
@@ -3131,8 +3178,8 @@ export default function GraduatePortal() {
                       )}
                     </div>
 
-                    <div className="space-y-5">
-                      <div className="rounded-[32px] border border-slate-200 bg-white p-5 shadow-sm xl:sticky xl:top-24">
+                    <div className="min-w-0 space-y-5">
+                      <aside className="rounded-[32px] border border-slate-200 bg-white p-5 shadow-sm lg:sticky lg:top-[calc(var(--graduate-portal-header-height)_+_var(--graduate-portal-sticky-gap))] lg:z-10 lg:max-h-[calc(100vh_-_var(--graduate-portal-header-height)_-_2rem)] lg:overflow-y-auto lg:overscroll-contain">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <div>
                             <h2 className="text-xl font-bold text-slate-900">Chats</h2>
@@ -3154,7 +3201,7 @@ export default function GraduatePortal() {
                             <input value={chatSearch} onChange={(event) => setChatSearch(event.target.value)} placeholder="Search chats" className="w-full rounded-2xl border border-slate-200 bg-white px-10 py-2.5 text-sm outline-none transition focus:border-blue-500" />
                           </label>
 
-                          <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
+                          <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1 lg:max-h-[calc(100vh_-_var(--graduate-portal-header-height)_-_14rem)]">
                             {filteredRooms.length === 0 ? (
                               <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-500">
                                 No chat rooms yet. Start a direct message or create a group chat.
@@ -3164,7 +3211,7 @@ export default function GraduatePortal() {
                                 const active = selectedRoomId === room.id;
 
                                 return (
-                                  <button key={room.id} type="button" onClick={() => setSelectedRoomId(room.id)} className={`flex w-full items-start gap-3 rounded-2xl border px-3 py-3 text-left transition ${active ? 'border-blue-200 bg-blue-50' : 'border-transparent bg-white hover:border-slate-200 hover:bg-slate-50'}`}>
+                                  <button key={room.id} type="button" onClick={() => openForumChatWindow(room.id)} className={`flex w-full items-start gap-3 rounded-2xl border px-3 py-3 text-left transition ${active && forumChatWindowOpen ? 'border-blue-200 bg-blue-50' : 'border-transparent bg-white hover:border-slate-200 hover:bg-slate-50'}`}>
                                     <Avatar src={resolveAssetUrl(getRoomOtherParticipants(room, currentGraduateId)[0]?.profile_image_path || room.participants[0]?.profile_image_path)} label={getRoomLabel(room, currentGraduateId)} size="sm" />
                                     <div className="min-w-0 flex-1">
                                       <div className="flex items-start justify-between gap-3">
@@ -3180,93 +3227,7 @@ export default function GraduatePortal() {
                             )}
                           </div>
                         </div>
-
-                        <div className="mt-5 overflow-hidden rounded-[28px] border border-slate-200">
-                          <div className="border-b border-slate-100 bg-white px-4 py-4">
-                            {activeRoom ? (
-                              <div className="flex items-center gap-3">
-                                <Avatar src={resolveAssetUrl(getRoomOtherParticipants(activeRoom, currentGraduateId)[0]?.profile_image_path || activeRoom.participants[0]?.profile_image_path)} label={getRoomLabel(activeRoom, currentGraduateId)} size="md" />
-                                <div className="min-w-0">
-                                  <p className="truncate font-semibold text-slate-900">{getRoomLabel(activeRoom, currentGraduateId)}</p>
-                                  <p className="truncate text-xs text-slate-500">{getRoomSubtitle(activeRoom, currentGraduateId)}</p>
-                                </div>
-                              </div>
-                            ) : (
-                              <div>
-                                <p className="font-semibold text-slate-900">Select a chat</p>
-                                <p className="text-xs text-slate-500">Your messages will appear here.</p>
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="h-[320px] bg-[#fcfcfe]">
-                            {roomLoading ? (
-                              <div className="flex h-full items-center justify-center text-sm text-slate-500">
-                                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                Loading conversation...
-                              </div>
-                            ) : activeRoom ? (
-                              <div className="flex h-full flex-col">
-                                <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
-                                  {roomMessages.length === 0 ? (
-                                    <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-500">
-                                      No messages yet. Say hello and start the conversation.
-                                    </div>
-                                  ) : (
-                                    roomMessages.map((message) => (
-                                      <div key={message.id} className={`flex ${message.is_mine ? 'justify-end' : 'justify-start'}`}>
-                                        <div className={`max-w-[82%] rounded-3xl px-4 py-3 text-sm shadow-sm ${message.is_mine ? 'bg-blue-700 text-white' : 'border border-slate-200 bg-white text-slate-800'}`}>
-                                          {!message.is_mine && <p className="mb-1 text-xs font-semibold text-slate-500">{message.sender_name}</p>}
-                                          <p className="whitespace-pre-line leading-6">{message.message}</p>
-                                          <p className={`mt-2 text-[11px] ${message.is_mine ? 'text-blue-100' : 'text-slate-400'}`}>{formatRelativeTime(message.created_at)}</p>
-                                        </div>
-                                      </div>
-                                    ))
-                                  )}
-                                  <div ref={chatEndRef} />
-                                </div>
-
-                                <form onSubmit={handleSendMessage} className="border-t border-slate-100 bg-white p-3">
-                                  <div className="flex items-end gap-2">
-                                    <textarea value={chatMessageDraft} onChange={(event) => handleChatDraftInput(event.target.value)} rows={2} placeholder="Type a message..." className="min-h-[52px] flex-1 resize-none rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-500" />
-                                    <button type="submit" disabled={!chatMessageDraft.trim()} className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-blue-700 text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60" aria-label="Send message">
-                                      <Send className="h-4 w-4" />
-                                    </button>
-                                  </div>
-                                </form>
-                              </div>
-                            ) : (
-                              <div className="flex h-full items-center justify-center px-6 text-center text-sm text-slate-500">
-                                Pick a room from your chats list to read and send messages.
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="mt-5 rounded-lg border border-slate-200 bg-white p-4">
-                          <div className="flex items-center justify-between gap-3">
-                            <div>
-                              <h3 className="text-sm font-bold text-slate-900">Activity Logs</h3>
-                              <p className="text-xs text-slate-500">Your recent reactions and comments.</p>
-                            </div>
-                          </div>
-
-                          {activityLogs.length === 0 ? (
-                            <p className="mt-4 rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-500">
-                              No forum activity yet.
-                            </p>
-                          ) : (
-                            <div className="mt-4 space-y-3">
-                              {activityLogs.map((activity) => (
-                                <div key={activity.id} className="rounded-lg bg-slate-50 px-3 py-2">
-                                  <p className="text-sm font-medium text-slate-700">{formatActivityLabel(activity)}</p>
-                                  <p className="mt-1 text-xs text-slate-400">{formatRelativeTime(activity.created_at)}</p>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
+                      </aside>
                     </div>
                   </div>
                 </section>
@@ -3625,11 +3586,69 @@ export default function GraduatePortal() {
                       </div>
                     </div>
                   </form>
+
+                  <ActivityLogsCard activityLogs={activityLogs} />
                 </section>
               )}
             </>
           )}
       </main>
+
+      {activeTab === 'community_forum' && forumChatWindowOpen && selectedRoomId && (
+        <div className="fixed bottom-4 left-4 right-4 z-40 flex h-[32rem] max-h-[calc(100vh_-_7rem)] flex-col overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-2xl sm:left-auto sm:w-96">
+          <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-3">
+            {selectedForumChatRoom ? (
+              <div className="flex min-w-0 items-center gap-3">
+                <Avatar src={resolveAssetUrl(getRoomOtherParticipants(selectedForumChatRoom, currentGraduateId)[0]?.profile_image_path || selectedForumChatRoom.participants[0]?.profile_image_path)} label={getRoomLabel(selectedForumChatRoom, currentGraduateId)} size="md" />
+                <div className="min-w-0">
+                  <p className="truncate font-semibold text-slate-900">{getRoomLabel(selectedForumChatRoom, currentGraduateId)}</p>
+                  <p className="truncate text-xs text-slate-500">{getRoomSubtitle(selectedForumChatRoom, currentGraduateId)}</p>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <p className="font-semibold text-slate-900">Loading chat</p>
+                <p className="text-xs text-slate-500">Opening conversation...</p>
+              </div>
+            )}
+            <button type="button" onClick={() => { setForumChatWindowOpen(false); removeChatAttachment(); }} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100" aria-label="Close chat window">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="min-h-0 flex flex-1 flex-col">
+            <MessageList
+              room={selectedForumChatReady ? activeRoom : null}
+              messages={selectedForumChatReady ? roomMessages : []}
+              loading={roomLoading || !selectedForumChatReady}
+              loadingOlder={olderMessagesLoading}
+              hasMoreOlder={!!messagePagination?.has_more_older}
+              typingNames={selectedForumChatTypingNames}
+              newMessageAvailable={chatNewMessageAvailable}
+              resolveAssetUrl={resolveAssetUrl}
+              onRetryMessage={handleRetryMessage}
+              onLoadOlder={loadOlderRoomMessages}
+              onNearBottomChange={handleChatNearBottomChange}
+              onScrollToNewest={handleScrollToNewest}
+              onImageOpen={setChatPreviewAttachment}
+            />
+            <MessageComposer
+              draft={chatMessageDraft}
+              disabled={!selectedForumChatReady || roomLoading}
+              selectedAttachment={chatSelectedAttachment}
+              onDraftChange={handleChatDraftInput}
+              onSend={handleSendMessage}
+              onAttachmentSelected={handleChatAttachmentSelected}
+              onRemoveAttachment={removeChatAttachment}
+              onRetryAttachment={handleRetryAttachment}
+            />
+          </div>
+        </div>
+      )}
+
+      {chatPreviewAttachment && (
+        <ChatImagePreviewModal attachment={chatPreviewAttachment} resolveAssetUrl={resolveAssetUrl} onClose={() => setChatPreviewAttachment(null)} />
+      )}
 
       {forumComposerOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-6">
@@ -3981,10 +4000,36 @@ export default function GraduatePortal() {
                 <input value={chatModalSearch} onChange={(event) => setChatModalSearch(event.target.value)} placeholder="Search graduates" className="w-full rounded-2xl border border-slate-200 bg-[#fafbff] px-11 py-3 text-sm outline-none transition focus:border-blue-500" />
               </label>
 
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">Program</span>
+                  <select value={chatModalProgramFilter} onChange={(event) => setChatModalProgramFilter(event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-[#fafbff] px-4 py-3 text-sm outline-none transition focus:border-blue-500">
+                    <option value="all">All Programs</option>
+                    {chatModalProgramOptions.map((program) => (
+                      <option key={program} value={program}>
+                        {program}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="block">
+                  <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">Batch</span>
+                  <select value={chatModalBatchFilter} onChange={(event) => setChatModalBatchFilter(event.target.value)} className="w-full rounded-2xl border border-slate-200 bg-[#fafbff] px-4 py-3 text-sm outline-none transition focus:border-blue-500">
+                    <option value="all">All Batches</option>
+                    {chatModalBatchOptions.map((year) => (
+                      <option key={year} value={String(year)}>
+                        Batch {year}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
               <div className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
                 {filteredDirectory.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">
-                    No graduates match your search.
+                    No graduates match your filters.
                   </div>
                 ) : (
                   filteredDirectory.map((participant) => {
@@ -4011,7 +4056,9 @@ export default function GraduatePortal() {
                         <Avatar src={resolveAssetUrl(participant.profile_image_path)} label={participant.full_name} size="sm" />
                         <div className="min-w-0">
                           <p className="truncate font-semibold text-slate-900">{participant.full_name}</p>
-                          <p className="text-xs text-slate-500">{participant.program_code || 'Graduate'}</p>
+                          <p className="text-xs text-slate-500">
+                            {participant.program_code || 'Graduate'}{participant.year_graduated ? ` - Batch ${participant.year_graduated}` : ''}
+                          </p>
                         </div>
                       </label>
                     );
@@ -4171,6 +4218,32 @@ function StatusRow({
     <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
       <span className="text-slate-600">{label}</span>
       <span className={`font-semibold ${positive ? 'text-emerald-700' : 'text-amber-700'}`}>{value}</span>
+    </div>
+  );
+}
+
+function ActivityLogsCard({ activityLogs }: { activityLogs: ForumActivityLog[] }) {
+  return (
+    <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+      <div>
+        <h3 className="text-lg font-bold text-slate-900">Activity Logs</h3>
+        <p className="mt-1 text-sm text-slate-500">Your recent reactions and comments.</p>
+      </div>
+
+      {activityLogs.length === 0 ? (
+        <p className="mt-5 rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-500">
+          No forum activity yet.
+        </p>
+      ) : (
+        <div className="mt-5 space-y-3">
+          {activityLogs.map((activity) => (
+            <div key={activity.id} className="rounded-lg bg-slate-50 px-3 py-2">
+              <p className="text-sm font-medium text-slate-700">{formatActivityLabel(activity)}</p>
+              <p className="mt-1 text-xs text-slate-400">{formatRelativeTime(activity.created_at)}</p>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
