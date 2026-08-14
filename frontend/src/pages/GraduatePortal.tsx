@@ -265,6 +265,39 @@ function parseDate(value?: string | null) {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function isSameDay(first: Date, second: Date) {
+  return first.getFullYear() === second.getFullYear()
+    && first.getMonth() === second.getMonth()
+    && first.getDate() === second.getDate();
+}
+
+function formatShortTime(value?: string | null) {
+  const parsed = parseDate(value);
+  if (!parsed) return '';
+
+  return parsed.toLocaleTimeString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+function formatConversationTime(value?: string | null) {
+  const parsed = parseDate(value);
+  if (!parsed) return '';
+
+  const today = new Date();
+  const yesterday = new Date();
+
+  if (isSameDay(parsed, today)) return formatShortTime(value);
+  yesterday.setDate(today.getDate() - 1);
+  if (isSameDay(parsed, yesterday)) return 'Yesterday';
+
+  return parsed.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
 function formatDateTime(value?: string | null) {
   const parsed = parseDate(value);
   if (!parsed) return 'Unknown date';
@@ -541,6 +574,21 @@ function getRoomSubtitle(room: ChatRoom, currentGraduateId: number) {
 
   const other = getRoomOtherParticipants(room, currentGraduateId)[0];
   return other?.program_code || 'Graduate';
+}
+
+function getChatPresenceLabel(participant?: ChatParticipant | null) {
+  if (!participant) return 'Offline';
+  if (participant.is_online) return 'Online';
+
+  const lastActive = parseDate(participant.last_active_at);
+  if (!lastActive) return 'Offline';
+
+  return `Last active ${formatConversationTime(participant.last_active_at)}`;
+}
+
+function getForumChatHeaderSubtitle(room: ChatRoom, currentGraduateId: number) {
+  if (room.is_group) return getRoomSubtitle(room, currentGraduateId);
+  return getChatPresenceLabel(getRoomOtherParticipants(room, currentGraduateId)[0]);
 }
 
 function getPortalHeading(tab: PortalTab) {
@@ -2816,6 +2864,9 @@ export default function GraduatePortal() {
         .filter((typing) => typing.expiresAt > Date.now())
         .map((typing) => typing.name)
     : [];
+  const selectedForumChatRecipient = selectedForumChatRoom
+    ? getRoomOtherParticipants(selectedForumChatRoom, currentGraduateId)[0] || selectedForumChatRoom.participants[0] || null
+    : null;
 
   return (
     <div className="min-h-screen overflow-x-clip bg-[#f4f6fb] text-slate-900" style={graduatePortalLayoutStyle}>
@@ -3599,10 +3650,15 @@ export default function GraduatePortal() {
           <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-3">
             {selectedForumChatRoom ? (
               <div className="flex min-w-0 items-center gap-3">
-                <Avatar src={resolveAssetUrl(getRoomOtherParticipants(selectedForumChatRoom, currentGraduateId)[0]?.profile_image_path || selectedForumChatRoom.participants[0]?.profile_image_path)} label={getRoomLabel(selectedForumChatRoom, currentGraduateId)} size="md" />
+                <div className="relative shrink-0">
+                  <Avatar src={resolveAssetUrl(selectedForumChatRecipient?.profile_image_path)} label={getRoomLabel(selectedForumChatRoom, currentGraduateId)} size="md" />
+                  {!selectedForumChatRoom.is_group && selectedForumChatRecipient?.is_online && (
+                    <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-emerald-500" />
+                  )}
+                </div>
                 <div className="min-w-0">
                   <p className="truncate font-semibold text-slate-900">{getRoomLabel(selectedForumChatRoom, currentGraduateId)}</p>
-                  <p className="truncate text-xs text-slate-500">{getRoomSubtitle(selectedForumChatRoom, currentGraduateId)}</p>
+                  <p className="truncate text-xs text-slate-500">{getForumChatHeaderSubtitle(selectedForumChatRoom, currentGraduateId)}</p>
                 </div>
               </div>
             ) : (
