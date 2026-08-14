@@ -33,10 +33,19 @@ const typeStyles: Record<string, string> = {
   announcement: 'bg-cyan-50 text-cyan-700 border-cyan-200',
   approval: 'bg-amber-50 text-amber-700 border-amber-200',
   forum: 'bg-blue-50 text-blue-700 border-blue-200',
+  forum_comment: 'bg-blue-50 text-blue-700 border-blue-200',
+  post_reaction: 'bg-rose-50 text-rose-700 border-rose-200',
   graduate: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  job_opportunity: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   response: 'bg-violet-50 text-violet-700 border-violet-200',
   survey: 'bg-rose-50 text-rose-700 border-rose-200',
   user: 'bg-slate-50 text-slate-700 border-slate-200',
+};
+
+const typeLabels: Record<string, string> = {
+  forum_comment: 'Forum Comment',
+  post_reaction: 'Post Reaction',
+  job_opportunity: 'New Job',
 };
 
 function formatRelativeTime(value: string | null) {
@@ -62,6 +71,10 @@ function formatRelativeTime(value: string | null) {
     day: 'numeric',
     year: new Date(timestamp).getFullYear() === new Date().getFullYear() ? undefined : 'numeric',
   });
+}
+
+function formatNotificationType(type: string) {
+  return typeLabels[type] || type.replace(/[_-]+/g, ' ');
 }
 
 export default function NotificationBell({ audience, colorScheme = 'light', className = '' }: NotificationBellProps) {
@@ -318,7 +331,7 @@ export default function NotificationBell({ audience, colorScheme = 'light', clas
                     <span className="flex items-center gap-2">
                       <span className="truncate text-sm font-semibold text-gray-900">{notification.title}</span>
                       <span className={`rounded-md border px-1.5 py-0.5 text-[10px] font-semibold capitalize ${style}`}>
-                        {notification.type}
+                        {formatNotificationType(notification.type)}
                       </span>
                     </span>
                     <span className="mt-1 block text-sm leading-5 text-gray-600">{notification.message}</span>

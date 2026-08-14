@@ -241,6 +241,11 @@ function getPortalTab(rawValue: string | null): PortalTab {
   return 'community_forum';
 }
 
+function parsePositiveIntParam(rawValue: string | null) {
+  const value = Number(rawValue);
+  return Number.isInteger(value) && value > 0 ? value : 0;
+}
+
 function resolveAssetUrl(path?: string | null) {
   if (!path) return '';
   if (/^(https?:|blob:|data:)/i.test(path)) return path;
@@ -699,6 +704,7 @@ export default function GraduatePortal() {
   const [selectedPostOpen, setSelectedPostOpen] = useState(false);
   const [selectedPostLoading, setSelectedPostLoading] = useState(false);
   const [selectedPost, setSelectedPost] = useState<ForumPost | null>(null);
+  const [highlightedCommentId, setHighlightedCommentId] = useState<number | null>(null);
   const [mediaViewer, setMediaViewer] = useState<{ post: ForumPost; mediaIndex: number } | null>(null);
   const [mediaViewerZoom, setMediaViewerZoom] = useState(1);
   const [mediaViewerComments, setMediaViewerComments] = useState<ForumComment[]>([]);
@@ -716,6 +722,7 @@ export default function GraduatePortal() {
   const [jobs, setJobs] = useState<JobPost[]>([]);
   const [myPostedJobs, setMyPostedJobs] = useState<JobPost[]>([]);
   const [jobSearch, setJobSearch] = useState('');
+  const [highlightedJobId, setHighlightedJobId] = useState<number | null>(null);
   const [showJobPostForm, setShowJobPostForm] = useState(false);
   const [jobSubmitting, setJobSubmitting] = useState(false);
   const [myJobForm, setMyJobForm] = useState<JobForm>(() => createDefaultJobForm(user));
@@ -771,6 +778,10 @@ export default function GraduatePortal() {
   const loadMissedRoomMessagesRef = useRef<(roomId: number) => Promise<void>>(async () => undefined);
   const markVisibleMessagesAsReadRef = useRef<(roomId?: number, messages?: ChatMessage[]) => Promise<void>>(async () => undefined);
   const bootStartedRef = useRef(false);
+  const routePostTargetRef = useRef('');
+  const routeJobTargetRef = useRef('');
+  const commentRefs = useRef<Record<number, HTMLElement | null>>({});
+  const jobCardRefs = useRef<Record<number, HTMLElement | null>>({});
 
   const currentGraduateId = user?.graduate_id ?? 0;
   const currentProfileImageUrl = resolveAssetUrl(user?.profile_image_path);
@@ -1268,6 +1279,18 @@ export default function GraduatePortal() {
     [loadActivityLogs, loadChats, loadForumFeed, loadJobs, loadMyForumPosts, loadMyJobs, loadRatingSummary, notify],
   );
 
+  const closePostDetail = useCallback(() => {
+    setSelectedPostOpen(false);
+    setHighlightedCommentId(null);
+
+    const nextParams = new URLSearchParams(searchParams);
+    if (nextParams.has('post_id') || nextParams.has('comment_id')) {
+      nextParams.delete('post_id');
+      nextParams.delete('comment_id');
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
   const loadPostDetail = useCallback(
     async (postId: number) => {
       setSelectedPostLoading(true);
@@ -1301,6 +1324,71 @@ export default function GraduatePortal() {
   useEffect(() => {
     setActiveTab(getPortalTab(searchParams.get('tab')));
   }, [searchParams]);
+
+  useEffect(() => {
+    const postId = parsePositiveIntParam(searchParams.get('post_id'));
+    if (postId <= 0) {
+      routePostTargetRef.current = '';
+      return;
+    }
+
+    const commentId = parsePositiveIntParam(searchParams.get('comment_id'));
+    const routeKey = `${postId}:${commentId || 0}`;
+    if (routePostTargetRef.current === routeKey) {
+      return;
+    }
+
+    routePostTargetRef.current = routeKey;
+    setActiveTab('community_forum');
+    setForumSearch('');
+    setForumCategory('all');
+    setHighlightedCommentId(commentId || null);
+    void loadPostDetail(postId);
+  }, [loadPostDetail, searchParams]);
+
+  useEffect(() => {
+    const jobId = parsePositiveIntParam(searchParams.get('job_id'));
+    if (jobId <= 0) {
+      routeJobTargetRef.current = '';
+      return;
+    }
+
+    const routeKey = String(jobId);
+    if (routeJobTargetRef.current !== routeKey) {
+      routeJobTargetRef.current = routeKey;
+      setActiveTab('jobs');
+      setJobSearch('');
+    }
+
+    if (activeTab !== 'jobs' || jobs.length === 0 || !jobs.some((job) => job.id === jobId)) {
+      return;
+    }
+
+    setHighlightedJobId(jobId);
+    const scrollTimer = window.setTimeout(() => {
+      jobCardRefs.current[jobId]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 120);
+    const clearTimer = window.setTimeout(() => {
+      setHighlightedJobId((current) => (current === jobId ? null : current));
+    }, 4500);
+
+    return () => {
+      window.clearTimeout(scrollTimer);
+      window.clearTimeout(clearTimer);
+    };
+  }, [activeTab, jobs, searchParams]);
+
+  useEffect(() => {
+    if (!selectedPostOpen || !highlightedCommentId || postComments.length === 0) {
+      return;
+    }
+
+    const scrollTimer = window.setTimeout(() => {
+      commentRefs.current[highlightedCommentId]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 120);
+
+    return () => window.clearTimeout(scrollTimer);
+  }, [highlightedCommentId, postComments, selectedPostOpen]);
 
   useEffect(() => {
     const scopedRooms =
@@ -3317,7 +3405,15 @@ export default function GraduatePortal() {
                         const applicationLink = normalizeApplicationLink(job.application_link);
 
                         return (
-                          <article key={job.id} className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+                          <article
+                            key={job.id}
+                            ref={(element) => { jobCardRefs.current[job.id] = element; }}
+                            className={`rounded-[32px] border p-6 shadow-sm transition ${
+                              highlightedJobId === job.id
+                                ? 'border-emerald-300 bg-emerald-50/40 ring-2 ring-emerald-200'
+                                : 'border-slate-200 bg-white'
+                            }`}
+                          >
                             <div className="flex flex-wrap items-start justify-between gap-3">
                               <div>
                                 <h3 className="text-xl font-bold text-slate-900">{job.title}</h3>
@@ -3887,7 +3983,7 @@ export default function GraduatePortal() {
                   </p>
                 )}
               </div>
-              <button type="button" onClick={() => setSelectedPostOpen(false)} className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100" aria-label="Close post details">
+              <button type="button" onClick={closePostDetail} className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100" aria-label="Close post details">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -3964,7 +4060,15 @@ export default function GraduatePortal() {
                       </div>
                     ) : (
                       postComments.map((comment) => (
-                        <article key={comment.id} className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-sm">
+                        <article
+                          key={comment.id}
+                          ref={(element) => { commentRefs.current[comment.id] = element; }}
+                          className={`rounded-[24px] border p-4 transition ${
+                            highlightedCommentId === comment.id
+                              ? 'border-blue-300 bg-blue-50 shadow-md'
+                              : 'border-slate-200 bg-white shadow-sm'
+                          }`}
+                        >
                           <div className="flex items-start gap-3">
                             <Avatar src={resolveAssetUrl(comment.commenter_profile_image_path)} label={comment.commenter_name} size="sm" />
                             <div className="min-w-0 flex-1">

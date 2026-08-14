@@ -359,53 +359,65 @@ function gradtrack_notifications_add_graduate(PDO $db, array &$notifications, ar
     }
 
     if (gradtrack_forum_table_exists($db, 'forum_posts')) {
-        $forumMineStmt = $db->prepare("SELECT id, title, status, updated_at, created_at
-                                       FROM forum_posts
-                                       WHERE graduate_id = :graduate_id
-                                       ORDER BY COALESCE(updated_at, created_at) DESC, id DESC
-                                       LIMIT 5");
-        $forumMineStmt->execute([':graduate_id' => $graduateId]);
+        $forumCommentStmt = $db->prepare("SELECT fc.id, fc.post_id, fc.comment, fc.created_at,
+                                                 fp.title,
+                                                 g.first_name, g.last_name
+                                          FROM forum_comments fc
+                                          JOIN forum_posts fp ON fp.id = fc.post_id
+                                          JOIN graduates g ON g.id = fc.graduate_id
+                                          WHERE fp.graduate_id = :owner_graduate_id
+                                            AND fc.graduate_id <> :actor_graduate_id
+                                            AND fp.status = 'approved'
+                                          ORDER BY fc.created_at DESC, fc.id DESC
+                                          LIMIT 10");
+        $forumCommentStmt->execute([
+            ':owner_graduate_id' => $graduateId,
+            ':actor_graduate_id' => $graduateId,
+        ]);
 
-        foreach ($forumMineStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $eventDate = $row['updated_at'] ?: $row['created_at'];
-            $status = (string) ($row['status'] ?? 'pending');
-            $message = $status === 'approved'
-                ? '"' . ($row['title'] ?? 'Your forum post') . '" is now visible in the Community Forum.'
-                : ($status === 'hidden'
-                    ? '"' . ($row['title'] ?? 'Your forum post') . '" was hidden by moderators.'
-                    : '"' . ($row['title'] ?? 'Your forum post') . '" is waiting for moderator review.');
-
+        foreach ($forumCommentStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $actorName = trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? ''));
+            $postTitle = (string) ($row['title'] ?: 'your forum post');
+            $snippet = gradtrack_notifications_snippet($row['comment'] ?? '', 90);
             gradtrack_notifications_add(
                 $notifications,
-                'forum-post-status:' . $row['id'] . ':' . $status . ':' . gradtrack_notifications_date_token($eventDate),
-                'forum',
-                'Forum post ' . $status,
-                $message,
-                $eventDate,
-                '/graduate/portal?tab=community_forum'
+                'forum-comment:' . $row['id'],
+                'forum_comment',
+                'Forum Comment',
+                ($actorName !== '' ? $actorName : 'A graduate') . ' commented on your post "' . $postTitle . '".'
+                    . ($snippet !== '' ? ' "' . $snippet . '"' : ''),
+                $row['created_at'],
+                '/graduate/portal?tab=community_forum&post_id=' . (int) $row['post_id'] . '&comment_id=' . (int) $row['id']
             );
         }
 
-        $forumFeedStmt = $db->query("SELECT fp.id, fp.title, fp.category, fp.updated_at, fp.created_at,
-                                            g.first_name, g.last_name
-                                     FROM forum_posts fp
-                                     JOIN graduates g ON g.id = fp.graduate_id
-                                     WHERE fp.status = 'approved'
-                                     ORDER BY COALESCE(fp.updated_at, fp.created_at) DESC, fp.id DESC
-                                     LIMIT 5");
+        $forumReactionStmt = $db->prepare("SELECT fpl.id, fpl.post_id, fpl.created_at,
+                                                  fp.title,
+                                                  g.first_name, g.last_name
+                                           FROM forum_post_likes fpl
+                                           JOIN forum_posts fp ON fp.id = fpl.post_id
+                                           JOIN graduates g ON g.id = fpl.graduate_id
+                                           WHERE fp.graduate_id = :owner_graduate_id
+                                             AND fpl.graduate_id <> :actor_graduate_id
+                                             AND fp.status = 'approved'
+                                           ORDER BY fpl.created_at DESC, fpl.id DESC
+                                           LIMIT 10");
+        $forumReactionStmt->execute([
+            ':owner_graduate_id' => $graduateId,
+            ':actor_graduate_id' => $graduateId,
+        ]);
 
-        foreach ($forumFeedStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $eventDate = $row['updated_at'] ?: $row['created_at'];
-            $authorName = trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? ''));
+        foreach ($forumReactionStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $actorName = trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? ''));
+            $postTitle = (string) ($row['title'] ?: 'your forum post');
             gradtrack_notifications_add(
                 $notifications,
-                'forum-approved-feed:' . $row['id'] . ':' . gradtrack_notifications_date_token($eventDate),
-                'forum',
-                'New forum discussion',
-                '"' . ($row['title'] ?? 'Community discussion') . '" in ' . ($row['category'] ?? 'General Discussion')
-                    . ' was posted by ' . ($authorName !== '' ? $authorName : 'a graduate') . '.',
-                $eventDate,
-                '/graduate/portal?tab=community_forum'
+                'forum-post-reaction:' . $row['id'],
+                'post_reaction',
+                'Post Reaction',
+                ($actorName !== '' ? $actorName : 'A graduate') . ' reacted to your post "' . $postTitle . '".',
+                $row['created_at'],
+                '/graduate/portal?tab=community_forum&post_id=' . (int) $row['post_id']
             );
         }
     }
@@ -430,24 +442,26 @@ function gradtrack_notifications_add_graduate(PDO $db, array &$notifications, ar
         );
     }
 
-    $approvedJobFeedStmt = $db->prepare("SELECT id, title, company, approval_reviewed_at, updated_at, created_at
+    $approvedJobFeedStmt = $db->prepare("SELECT id, title, company, approval_reviewed_at, created_at
                                         FROM job_posts
                                         WHERE approval_status = 'approved'
                                           AND COALESCE(is_active, 1) = 1
-                                        ORDER BY COALESCE(approval_reviewed_at, updated_at, created_at) DESC, id DESC
-                                        LIMIT 5");
-    $approvedJobFeedStmt->execute();
+                                          AND posted_by_account_id <> :account_id
+                                        ORDER BY COALESCE(approval_reviewed_at, created_at) DESC, id DESC
+                                        LIMIT 10");
+    $approvedJobFeedStmt->execute([':account_id' => $accountId]);
 
     foreach ($approvedJobFeedStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $eventDate = $row['approval_reviewed_at'] ?: ($row['updated_at'] ?: $row['created_at']);
+        $eventDate = $row['approval_reviewed_at'] ?: $row['created_at'];
+        $company = trim((string) ($row['company'] ?? ''));
         gradtrack_notifications_add(
             $notifications,
-            'job-approved-feed:' . $row['id'] . ':' . gradtrack_notifications_date_token($eventDate),
-            'approval',
-            'New job opportunity',
-            '"' . $row['title'] . '" at ' . $row['company'] . ' is now available in Browse Jobs.',
+            'job-opportunity:' . $row['id'] . ':' . gradtrack_notifications_date_token($eventDate),
+            'job_opportunity',
+            'New Job Opportunity',
+            '"' . $row['title'] . '"' . ($company !== '' ? ' at ' . $company : '') . ' is now available in Browse Jobs.',
             $eventDate,
-            '/graduate/portal?tab=jobs'
+            '/graduate/portal?tab=jobs&job_id=' . (int) $row['id']
         );
     }
 }
