@@ -10,7 +10,16 @@ function getSelectedSurveyId(PDO $db): ?int
 {
     if (array_key_exists('survey_id', $_GET)) {
         $surveyId = $_GET['survey_id'];
-        return is_scalar($surveyId) && (int)$surveyId > 0 ? (int)$surveyId : null;
+        if (!is_scalar($surveyId)) {
+            return null;
+        }
+
+        $surveyIdText = trim((string)$surveyId);
+        if (in_array(strtolower($surveyIdText), ['', 'none', 'all', 'null', 'undefined'], true)) {
+            return null;
+        }
+
+        return ctype_digit($surveyIdText) && (int)$surveyIdText > 0 ? (int)$surveyIdText : null;
     }
 
     $stmt = $db->query("

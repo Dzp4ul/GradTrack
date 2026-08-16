@@ -39,7 +39,7 @@ function getSelectedSurveyId(PDO $db): ?int
         }
 
         $surveyIdText = trim((string)$surveyId);
-        if ($surveyIdText === '' || strtolower($surveyIdText) === 'none' || strtolower($surveyIdText) === 'all') {
+        if (in_array(strtolower($surveyIdText), ['', 'none', 'all', 'null', 'undefined'], true)) {
             return null;
         }
 
@@ -202,7 +202,7 @@ function getOptionalQueryValue(array $names): ?string
         }
 
         $normalized = trim((string)$value);
-        if ($normalized === '' || strtolower($normalized) === 'all') {
+        if (in_array(strtolower($normalized), ['', 'all', 'null', 'undefined'], true)) {
             return null;
         }
 
@@ -986,10 +986,9 @@ function getLocationReportData(
 if (!defined('GRADTRACK_REPORTS_INDEX_NO_RUN')) {
 try {
     $reportType = isset($_GET['type']) ? $_GET['type'] : 'overview';
-    $filterYear = isset($_GET['year']) && $_GET['year'] !== 'all' ? $_GET['year'] : null;
-    $filterDepartment = isset($_GET['department']) && $_GET['department'] !== 'all'
-        ? strtoupper(trim((string)$_GET['department']))
-        : null;
+    $filterYear = getOptionalQueryValue(['year']);
+    $filterDepartmentParam = getOptionalQueryValue(['department']);
+    $filterDepartment = $filterDepartmentParam !== null ? strtoupper(trim($filterDepartmentParam)) : null;
     $selectedSurveyId = getSelectedSurveyId($db);
 
     $role = $_SESSION['role'] ?? '';

@@ -278,33 +278,42 @@ const areOverviewFiltersEqual = (a: OverviewFilters, b: OverviewFilters): boolea
   getOverviewFilterKey(a) === getOverviewFilterKey(b)
 );
 
+const isSpecificFilterValue = (value: unknown): value is string => {
+  if (value === null || value === undefined) {
+    return false;
+  }
+
+  const normalized = String(value).trim().toLowerCase();
+  return normalized !== '' && normalized !== 'all' && normalized !== 'null' && normalized !== 'undefined';
+};
+
 const appendOverviewFilterParams = (params: URLSearchParams, filters?: OverviewFilters) => {
   if (!filters) {
     return;
   }
 
-  if (filters.employmentStatus !== 'all') {
+  if (isSpecificFilterValue(filters.employmentStatus)) {
     params.set('employmentStatus', filters.employmentStatus);
   }
-  if (filters.programAlignment !== 'all') {
+  if (isSpecificFilterValue(filters.programAlignment)) {
     params.set('programAlignment', filters.programAlignment);
   }
-  if (filters.graduationYear !== 'all') {
+  if (isSpecificFilterValue(filters.graduationYear)) {
     params.set('graduationYear', filters.graduationYear);
   }
-  if (filters.programId !== 'all') {
+  if (isSpecificFilterValue(filters.programId)) {
     params.set('programId', filters.programId);
   }
-  if (filters.region !== 'all') {
+  if (isSpecificFilterValue(filters.region)) {
     params.set('region', filters.region);
   }
-  if (filters.province !== 'all') {
+  if (isSpecificFilterValue(filters.province)) {
     params.set('province', filters.province);
   }
-  if (filters.cityMunicipality !== 'all') {
+  if (isSpecificFilterValue(filters.cityMunicipality)) {
     params.set('cityMunicipality', filters.cityMunicipality);
   }
-  if (filters.barangay !== 'all') {
+  if (isSpecificFilterValue(filters.barangay)) {
     params.set('barangay', filters.barangay);
   }
 };
@@ -313,11 +322,10 @@ export default function Reports() {
   const initialParams = new URLSearchParams(window.location.search);
   const initialTabParam = initialParams.get('tab') as ReportTab | null;
   const initialSurveyParam = initialParams.get('survey_id');
+  const hasInitialSurveyParam = initialSurveyParam !== null;
   const initialStoredSurvey = localStorage.getItem(SELECTED_SURVEY_STORAGE_KEY);
   const initialSurveyId = parseSurveyId(initialSurveyParam ?? initialStoredSurvey);
-  const initialNoSurveySelection = initialSurveyParam !== null
-    ? parseSurveyId(initialSurveyParam) === null
-    : initialStoredSurvey === NO_SURVEY_SELECTION_VALUE;
+  const initialNoSurveySelection = hasInitialSurveyParam && parseSurveyId(initialSurveyParam) === null;
   const [tab, setTab] = useState<ReportTab>(
     initialTabParam && REPORT_TABS.includes(initialTabParam) ? initialTabParam : 'overview'
   );
@@ -351,6 +359,7 @@ export default function Reports() {
   const [aiConclusion, setAiConclusion] = useState<string>('');
   const [aiLoading, setAiLoading] = useState(false);
   const [surveyItems, setSurveyItems] = useState<SurveySummary[]>([]);
+  const [surveyItemsLoaded, setSurveyItemsLoaded] = useState(false);
   const [surveyLoading, setSurveyLoading] = useState(false);
   const [selectedSurveyId, setSelectedSurveyId] = useState<number | null>(initialSurveyId);
   const [noSurveySelectionExplicit, setNoSurveySelectionExplicit] = useState(initialNoSurveySelection);
@@ -358,6 +367,8 @@ export default function Reports() {
   const [surveyAnalyticsLoading, setSurveyAnalyticsLoading] = useState(false);
   const [showSurveyGraphs, setShowSurveyGraphs] = useState(false);
   const reportCacheRef = useRef<Record<string, unknown>>({});
+  const reportRequestSeqRef = useRef(0);
+  const overviewRequestSeqRef = useRef(0);
   const aiRequestSeqRef = useRef(0);
 
   const getReportCacheKey = (
@@ -436,6 +447,11 @@ export default function Reports() {
   };
 
   const fetchReport = (type: string, year: string = 'all', department: string = selectedDepartment) => {
+    if (!surveyItemsLoaded) {
+      setLoading(true);
+      return;
+    }
+
     const reportYear = type === 'overview' ? 'all' : year;
     const reportDepartment = type === 'overview' ? 'all' : department;
 
@@ -502,10 +518,15 @@ export default function Reports() {
 
     setLoading(true);
     const url = buildReportUrl(type, reportYear, reportDepartment, undefined, activeFilters);
+    const requestId = ++reportRequestSeqRef.current;
 
     fetch(url, { credentials: 'include' })
       .then((r) => r.json())
       .then((res) => {
+        if (requestId !== reportRequestSeqRef.current) {
+          return;
+        }
+
         if (res.success) {
           reportCacheRef.current[cacheKey] = res.data;
           applyReportDataByType(type, res.data);
@@ -516,7 +537,11 @@ export default function Reports() {
         }
       })
       .catch(() => {})
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (requestId === reportRequestSeqRef.current) {
+          setLoading(false);
+        }
+      });
   };
 
   const fetchSurveyItems = (loadAnalytics: boolean = false) => {
@@ -538,7 +563,8 @@ export default function Reports() {
             return;
           }
 
-          const surveyIdToLoad = noSurveySelectionExplicit ? null : getDefaultSurveyId(surveys);
+          const currentSurveyToPreserve = hasInitialSurveyParam || surveyItemsLoaded ? selectedSurveyId : null;
+          const surveyIdToLoad = noSurveySelectionExplicit ? null : getDefaultSurveyId(surveys, currentSurveyToPreserve);
           setSelectedSurveyId(surveyIdToLoad);
           if (surveyIdToLoad) {
             setNoSurveySelectionExplicit(false);
@@ -564,6 +590,7 @@ export default function Reports() {
         setSurveyAnalytics(null);
       })
       .finally(() => {
+        setSurveyItemsLoaded(true);
         if (loadAnalytics) {
           setSurveyLoading(false);
         }
@@ -681,8 +708,14 @@ export default function Reports() {
   };
 
   const fetchOverviewReports = async (filters: OverviewFilters = overviewFilters) => {
+    if (!surveyItemsLoaded) {
+      setLoading(true);
+      return;
+    }
+
     setLoading(true);
     setOverviewFilterError('');
+    const requestId = ++overviewRequestSeqRef.current;
 
     try {
       const [overviewResponse, programDataForOverview] = await Promise.all([
@@ -691,6 +724,10 @@ export default function Reports() {
       ]);
       const overviewResult = await overviewResponse.json();
 
+      if (requestId !== overviewRequestSeqRef.current) {
+        return;
+      }
+
       if (!overviewResult.success) {
         throw new Error(overviewResult.error || 'Failed to load overview report.');
       }
@@ -698,15 +735,25 @@ export default function Reports() {
       setOverview(overviewResult.data as Overview);
       setOverviewProgramData(programDataForOverview);
     } catch (error) {
+      if (requestId !== overviewRequestSeqRef.current) {
+        return;
+      }
+
       setOverview(null);
       setOverviewProgramData([]);
       setOverviewFilterError(error instanceof Error ? error.message : 'Failed to load overview report.');
     } finally {
-      setLoading(false);
+      if (requestId === overviewRequestSeqRef.current) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
+    if (!surveyItemsLoaded) {
+      return;
+    }
+
     reportCacheRef.current = {};
     fetchOverviewFilterOptions();
 
@@ -720,9 +767,14 @@ export default function Reports() {
         }
       })
       .catch(() => {});
-  }, [selectedSurveyId]);
+  }, [selectedSurveyId, surveyItemsLoaded]);
 
   useEffect(() => {
+    if (!surveyItemsLoaded) {
+      setLoading(true);
+      return;
+    }
+
     const typeMap: Record<string, string> = {
       overview: 'overview', program: 'by_program', year: 'by_year',
       employment: 'employment_status', salary: 'salary_distribution',
@@ -745,7 +797,7 @@ export default function Reports() {
     }
 
     fetchReport(typeMap[tab], selectedYear, selectedDepartment);
-  }, [tab, selectedYear, selectedDepartment, selectedSurveyId, overviewFilters, locationLevel]);
+  }, [tab, selectedYear, selectedDepartment, selectedSurveyId, overviewFilters, locationLevel, surveyItemsLoaded]);
 
   useEffect(() => {
     if (tab === 'surveys' && selectedSurveyId) {
@@ -1714,7 +1766,7 @@ export default function Reports() {
   ] as const;
 
   const renderAiAnalyticsSection = () => (
-    <div className="border-2 border-purple-200 rounded-xl p-6 bg-gradient-to-br from-purple-50 via-blue-50 to-white shadow-lg">
+    <div className="rounded-xl border-2 border-purple-200 bg-gradient-to-br from-purple-50 via-blue-50 to-slate-50 p-6 shadow-lg dark:border-purple-400/30 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800">
       <div className="flex items-start gap-4">
         <div className="p-3 bg-gradient-to-br from-purple-600 to-blue-600 rounded-lg shadow-md">
           <Sparkles className="w-6 h-6 text-white" />
@@ -1725,10 +1777,7 @@ export default function Reports() {
             <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-semibold rounded-full">Powered by AI</span>
           </div>
           {aiLoading ? (
-            <div className="flex items-center gap-3 py-8">
-              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-600" />
-              <span className="text-sm text-gray-600">Generating descriptive analytics...</span>
-            </div>
+            <AiAnalyticsSkeleton />
           ) : (
             <div className="space-y-5 text-sm text-gray-700 leading-relaxed">
               {[
@@ -1741,7 +1790,7 @@ export default function Reports() {
               ]
                 .filter((section) => section.content.trim() !== '')
                 .map((section, sectionIndex) => (
-                  <section key={section.title} className={sectionIndex > 0 ? 'border-t border-purple-100 pt-4' : ''}>
+                  <section key={section.title} className={sectionIndex > 0 ? 'border-t border-purple-100 pt-4 dark:border-purple-400/20' : ''}>
                     <h4 className="mb-2 text-sm font-bold text-[#1b2a4a]">{section.title}</h4>
                     <div className="space-y-3">
                       {section.content
@@ -2120,9 +2169,7 @@ export default function Reports() {
                 </div>
               )}
               {loading ? (
-                <div className="flex justify-center py-12">
-                  <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#1b2a4a]" />
-                </div>
+                <OverviewLoadingSkeleton />
               ) : overview ? (
                 <>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
@@ -2389,9 +2436,7 @@ export default function Reports() {
               )}
             </div>
           ) : loading ? (
-            <div className="flex justify-center py-12">
-              <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#1b2a4a]" />
-            </div>
+            <ReportTabLoadingSkeleton />
           ) : (
             <>
               {tab !== 'surveys' && (
@@ -2761,9 +2806,7 @@ export default function Reports() {
               {tab === 'surveys' && (
                 <div className="space-y-6">
                   {surveyLoading ? (
-                    <div className="flex justify-center py-12">
-                      <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#1b2a4a]" />
-                    </div>
+                    <SurveyAnalyticsLoadingSkeleton />
                   ) : surveyItems.length === 0 ? (
                     <div className="border rounded-xl p-8 text-center">
                       <h3 className="text-xl font-bold text-[#1b2a4a] mb-2">Survey Analytics</h3>
@@ -2794,9 +2837,7 @@ export default function Reports() {
                       </div>
 
                       {surveyAnalyticsLoading ? (
-                        <div className="flex justify-center py-12">
-                          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#1b2a4a]" />
-                        </div>
+                        <SurveyAnalyticsLoadingSkeleton />
                       ) : !selectedSurveyId ? (
                         <div className="text-center py-12 border rounded-xl bg-white">
                           <p className="font-semibold text-[#1b2a4a]">Select a survey to load saved analytics.</p>
@@ -2853,6 +2894,160 @@ export default function Reports() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function SkeletonBlock({ className = '', style }: { className?: string; style?: React.CSSProperties }) {
+  return <div className={`animate-pulse rounded-lg bg-gray-200 ${className}`} style={style} />;
+}
+
+function OverviewLoadingSkeleton() {
+  return (
+    <div className="space-y-6" aria-label="Loading report data">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        {Array.from({ length: 5 }).map((_, index) => (
+          <div key={index} className="rounded-xl border p-4">
+            <div className="mb-4 flex items-center gap-2">
+              <SkeletonBlock className="h-9 w-9" />
+              <SkeletonBlock className="h-3 w-28" />
+            </div>
+            <SkeletonBlock className="h-8 w-16" />
+            <SkeletonBlock className="mt-2 h-3 w-12" />
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, index) => (
+          <div key={index} className="rounded-xl border p-5">
+            <SkeletonBlock className="mb-4 h-4 w-36" />
+            <div className="flex h-64 items-center justify-center">
+              <SkeletonBlock className="h-36 w-36 rounded-full" />
+            </div>
+            <div className="mt-2 flex justify-center gap-4">
+              <SkeletonBlock className="h-3 w-24" />
+              <SkeletonBlock className="h-3 w-24" />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, index) => (
+          <div key={index} className="rounded-xl border p-5">
+            <SkeletonBlock className="mb-4 h-4 w-40" />
+            <div className="flex h-64 items-center justify-center">
+              <SkeletonBlock className="h-36 w-36 rounded-full" />
+            </div>
+            <div className="mt-2 flex flex-wrap justify-center gap-2">
+              {Array.from({ length: 5 }).map((__, chipIndex) => (
+                <SkeletonBlock key={chipIndex} className="h-3 w-12" />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <AiAnalyticsSkeleton framed />
+    </div>
+  );
+}
+
+function ReportTabLoadingSkeleton() {
+  return (
+    <div className="space-y-6" aria-label="Loading report tab">
+      <div className="rounded-xl border p-5">
+        <SkeletonBlock className="mb-5 h-4 w-44" />
+        <div className="flex h-72 items-end gap-3">
+          {Array.from({ length: 9 }).map((_, index) => (
+            <SkeletonBlock
+              key={index}
+              className="flex-1"
+              style={{
+                height: `${80 + ((index * 37) % 150)}px`,
+              } as React.CSSProperties}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-xl border p-4">
+        <div className="space-y-3">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <div key={index} className="grid grid-cols-5 gap-3">
+              <SkeletonBlock className="col-span-2 h-4" />
+              <SkeletonBlock className="h-4" />
+              <SkeletonBlock className="h-4" />
+              <SkeletonBlock className="h-4" />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <AiAnalyticsSkeleton framed />
+    </div>
+  );
+}
+
+function SurveyAnalyticsLoadingSkeleton() {
+  return (
+    <div className="space-y-6" aria-label="Loading survey analytics">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, index) => (
+          <div key={index} className="rounded-xl border p-5">
+            <div className="mb-4 flex items-center gap-3">
+              <SkeletonBlock className="h-9 w-9" />
+              <SkeletonBlock className="h-4 w-28" />
+            </div>
+            <SkeletonBlock className="h-9 w-20" />
+          </div>
+        ))}
+      </div>
+      <div className="rounded-xl border p-5">
+        <SkeletonBlock className="mb-5 h-5 w-56" />
+        <div className="space-y-3">
+          {Array.from({ length: 8 }).map((_, index) => (
+            <div key={index} className="grid grid-cols-7 gap-3">
+              <SkeletonBlock className="col-span-3 h-4" />
+              <SkeletonBlock className="col-span-2 h-4" />
+              <SkeletonBlock className="h-4" />
+              <SkeletonBlock className="h-4" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AiAnalyticsSkeleton({ framed = false }: { framed?: boolean }) {
+  const content = (
+    <div className="space-y-4" aria-label="Generating descriptive analytics">
+      <div className="flex items-center gap-3">
+        <div className="h-4 w-4 animate-spin rounded-full border-2 border-purple-300 border-b-purple-600" />
+        <span className="text-sm font-medium text-gray-600">Generating descriptive analytics...</span>
+      </div>
+      {Array.from({ length: 3 }).map((_, sectionIndex) => (
+        <div key={sectionIndex} className={sectionIndex > 0 ? 'border-t border-purple-100 pt-4 dark:border-purple-400/20' : ''}>
+          <SkeletonBlock className="mb-3 h-4 w-40" />
+          <div className="space-y-2">
+            <SkeletonBlock className="h-3 w-full" />
+            <SkeletonBlock className="h-3 w-11/12" />
+            <SkeletonBlock className="h-3 w-4/5" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  if (!framed) {
+    return content;
+  }
+
+  return (
+    <div className="rounded-xl border-2 border-purple-200 bg-gradient-to-br from-purple-50 via-blue-50 to-slate-50 p-6 shadow-lg dark:border-purple-400/30 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800">
+      {content}
     </div>
   );
 }
