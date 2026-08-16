@@ -14,6 +14,7 @@ import {
   X,
 } from 'lucide-react';
 import ThemeToggle from './ThemeToggle';
+import { useSystemSettings } from '../contexts/SystemSettingsContext';
 
 type PublicNavProps = {
   active?: 'about' | 'faq' | 'privacy';
@@ -22,6 +23,10 @@ type PublicNavProps = {
 export default function PublicNav({ active }: PublicNavProps) {
   const [open, setOpen] = useState(false);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const { getSetting, isEnabled, resolveAssetUrl } = useSystemSettings();
+  const surveyAvailable = isEnabled('survey_available', true);
+  const logo = resolveAssetUrl(getSetting('system_logo_path'), '/Gradtrack_small.png');
+  const systemShortName = getSetting('system_short_name', 'GradTrack');
 
   const navItems = [
     { to: '/', label: 'Home', icon: Home, active: !active },
@@ -35,13 +40,13 @@ export default function PublicNav({ active }: PublicNavProps) {
       <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-4 px-4 py-2 sm:px-6">
         <Link to="/" className="flex shrink-0 items-center gap-3" onClick={() => setOpen(false)}>
           <img
-            src="/Gradtrack_small.png"
-            alt="Norzagaray College"
+            src={logo}
+            alt={getSetting('institution_name', 'Norzagaray College')}
             className="h-9 w-9 flex-shrink-0 object-contain"
           />
           <div className="hidden sm:block">
-            <h1 className="text-base font-bold leading-tight text-gray-900">GradTrack</h1>
-            <p className="text-[11px] leading-tight text-gray-500">Graduate Tracer System</p>
+            <h1 className="text-base font-bold leading-tight text-gray-900">{systemShortName}</h1>
+            <p className="text-[11px] leading-tight text-gray-500">{getSetting('survey_title', 'Graduate Tracer System')}</p>
           </div>
         </Link>
 
@@ -66,13 +71,15 @@ export default function PublicNav({ active }: PublicNavProps) {
           <ThemeToggle compact />
 
           <div className="hidden items-center gap-3 md:flex">
-            <Link
-              to="/survey"
-              className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-600 shadow-sm transition hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900"
-            >
-              <ClipboardList className="h-4 w-4" />
-              Take Survey
-            </Link>
+            {surveyAvailable && (
+              <Link
+                to="/survey"
+                className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-600 shadow-sm transition hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900"
+              >
+                <ClipboardList className="h-4 w-4" />
+                Take Survey
+              </Link>
+            )}
 
             <div
               className="relative"
@@ -154,14 +161,16 @@ export default function PublicNav({ active }: PublicNavProps) {
                 {item.label}
               </Link>
             ))}
-            <Link
-              to="/survey"
-              onClick={() => setOpen(false)}
-              className="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-gray-100"
-            >
-              <ClipboardList className="h-5 w-5" />
-              Take Survey
-            </Link>
+            {surveyAvailable && (
+              <Link
+                to="/survey"
+                onClick={() => setOpen(false)}
+                className="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-gray-700 transition hover:bg-gray-100"
+              >
+                <ClipboardList className="h-5 w-5" />
+                Take Survey
+              </Link>
+            )}
             <Link
               to="/graduate/signin"
               onClick={() => setOpen(false)}

@@ -4,6 +4,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/forum.php';
 require_once __DIR__ . '/../config/audit_trail.php';
+require_once __DIR__ . '/../config/system_settings.php';
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 function gradtrack_forum_posts_request_data(): array
@@ -111,6 +112,10 @@ try {
         $moderator = gradtrack_forum_current_moderator($db);
         $viewerGraduateId = (int) ($graduateUser['graduate_id'] ?? 0);
 
+        if ($moderator === null) {
+            gradtrack_system_require_feature_enabled($db, 'community_forum', 'Community Forum');
+        }
+
         if ($postId > 0) {
             $stmt = $db->prepare(gradtrack_forum_posts_detail_query() . ' WHERE fp.id = :id LIMIT 1');
             $stmt->execute([
@@ -195,6 +200,7 @@ try {
 
     if ($method === 'POST') {
         $user = gradtrack_require_graduate_auth($db);
+        gradtrack_system_require_feature_enabled($db, 'community_forum', 'Community Forum');
         $data = gradtrack_forum_posts_request_data();
 
         $title = gradtrack_forum_clean_text($data['title'] ?? '');
@@ -266,6 +272,7 @@ try {
 
     if ($method === 'PUT') {
         $user = gradtrack_require_graduate_auth($db);
+        gradtrack_system_require_feature_enabled($db, 'community_forum', 'Community Forum');
         $data = gradtrack_forum_posts_request_data();
         $postId = isset($data['id']) ? (int) $data['id'] : 0;
 
@@ -353,6 +360,7 @@ try {
 
     if ($method === 'DELETE') {
         $user = gradtrack_require_graduate_auth($db);
+        gradtrack_system_require_feature_enabled($db, 'community_forum', 'Community Forum');
         $data = gradtrack_forum_posts_request_data();
         $postId = isset($_GET['id']) ? (int) $_GET['id'] : (isset($data['id']) ? (int) $data['id'] : 0);
 

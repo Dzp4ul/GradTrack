@@ -3,6 +3,9 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ShieldCheck, AlertCircle, Loader2, UserPlus, Eye, EyeOff } from 'lucide-react';
 import { API_ENDPOINTS, API_ROOT } from '../config/api';
 import MessageBox from '../components/MessageBox';
+import FeatureUnavailable from '../components/FeatureUnavailable';
+import { useSystemSettings } from '../contexts/SystemSettingsContext';
+import MaintenancePage from './MaintenancePage';
 
 interface Program {
   id: number;
@@ -71,6 +74,10 @@ function SurveyVerification() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const surveyId = searchParams.get('survey_id');
+  const { getSetting, isEnabled, isMaintenanceMode, resolveAssetUrl } = useSystemSettings();
+  const surveyAvailable = isEnabled('survey_available', true);
+  const pageBackground = resolveAssetUrl(getSetting('login_background_image_path'), '/520382375_1065446909052636_3412465913398569974_n.jpg');
+  const brandLogo = resolveAssetUrl(getSetting('login_logo_path'), '/Gradtrack_Logo2.png');
 
   const [verificationMethod, setVerificationMethod] = useState<VerificationMethod>('student_number');
   const [studentNumber, setStudentNumber] = useState('');
@@ -96,9 +103,14 @@ function SurveyVerification() {
   }>({ isOpen: false, type: 'info', message: '' });
 
   useEffect(() => {
+    if (isMaintenanceMode || !surveyAvailable) {
+      setLoadingPrograms(false);
+      return;
+    }
+
     fetchPrograms();
     fetchActiveSurvey();
-  }, []);
+  }, [isMaintenanceMode, surveyAvailable]);
 
   const fetchActiveSurvey = async () => {
     try {
@@ -431,6 +443,19 @@ function SurveyVerification() {
         : 'border-gray-300 bg-white text-gray-700 hover:border-blue-400 hover:text-blue-700'
     }`;
 
+  if (isMaintenanceMode) {
+    return <MaintenancePage />;
+  }
+
+  if (!surveyAvailable) {
+    return (
+      <FeatureUnavailable
+        title={getSetting('survey_title', 'Graduate Tracer Survey')}
+        message={getSetting('survey_availability_message', 'The Graduate Tracer Survey is currently unavailable. Please check back later.')}
+      />
+    );
+  }
+
   if (accountContext) {
     const accountDisplayName = [
       accountContext.prefill.first_name,
@@ -441,12 +466,12 @@ function SurveyVerification() {
     return (
       <div
         className="min-h-screen bg-cover bg-center bg-fixed relative flex flex-col items-center justify-center p-4 sm:p-6"
-        style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}
+        style={{ backgroundImage: `url(${pageBackground})` }}
       >
         <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80 pointer-events-none"></div>
 
         <div className="flex justify-center mb-6 relative z-10">
-          <img src="/Gradtrack_Logo2.png" alt="GradTrack Logo" className="h-20 object-contain" />
+          <img src={brandLogo} alt="GradTrack Logo" className="h-20 object-contain" />
         </div>
 
         <div className="w-full max-w-lg bg-white rounded-2xl shadow-xl p-5 border border-blue-100 relative z-10 sm:p-8">
@@ -610,12 +635,12 @@ function SurveyVerification() {
   return (
     <div
       className="min-h-screen bg-cover bg-center bg-fixed relative flex flex-col items-center justify-center p-4 sm:p-6"
-      style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}
+      style={{ backgroundImage: `url(${pageBackground})` }}
     >
       <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80 pointer-events-none"></div>
 
       <div className="flex justify-center mb-6 relative z-10">
-        <img src="/Gradtrack_Logo2.png" alt="GradTrack Logo" className="h-20 object-contain" />
+        <img src={brandLogo} alt="GradTrack Logo" className="h-20 object-contain" />
       </div>
 
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-5 border border-blue-100 relative z-10 sm:p-8">
@@ -626,7 +651,7 @@ function SurveyVerification() {
         </div>
 
         <h1 className="text-2xl font-bold text-blue-900 text-center mb-2">
-          Verify Your Identity
+          {getSetting('survey_title', 'Verify Your Identity')}
         </h1>
         {activeSurvey && (
           <p className="text-center text-sm text-gray-500 mb-2">
@@ -634,7 +659,7 @@ function SurveyVerification() {
           </p>
         )}
         <p className="text-gray-600 text-center mb-6 text-sm">
-          Please verify your identity to access the survey
+          {getSetting('survey_instructions', 'Please verify your identity to access the survey')}
         </p>
 
         <div className="bg-blue-50 rounded-lg p-4 mb-6 flex items-start space-x-3">

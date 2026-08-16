@@ -14,6 +14,7 @@ import {
   LogOut,
   ChevronDown,
   DatabaseBackup,
+  Settings2,
   User,
   History,
   Mail,
@@ -24,6 +25,7 @@ import { API_BASE_URL } from '../../config/api';
 import MessageBox from '../../components/MessageBox';
 import NotificationBell from '../../components/NotificationBell';
 import ThemeToggle from '../../components/ThemeToggle';
+import { useSystemSettings } from '../../contexts/SystemSettingsContext';
 
 type NavItem = {
   to: string;
@@ -44,6 +46,7 @@ const superAdminNavItems: NavItem[] = [
   { to: '/admin/auto-reminders', icon: Mail, label: 'Auto Email Reminders' },
   { to: '/admin/audit-trail', icon: History, label: 'Audit Trail' },
   { to: '/admin/backup-database', icon: DatabaseBackup, label: 'Backup Database' },
+  { to: '/admin/system-settings', icon: Settings2, label: 'System Settings' },
 ];
 
 const registrarNavItems: NavItem[] = [
@@ -94,6 +97,7 @@ export default function AdminLayout() {
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const { getSetting, resolveAssetUrl, isEnabled } = useSystemSettings();
   const [msgBox, setMsgBox] = useState<{
     isOpen: boolean;
     type: 'confirm';
@@ -125,6 +129,9 @@ export default function AdminLayout() {
     if (/^https?:\/\//i.test(path)) return path;
     return `${API_BASE_URL}/${path.replace(/^\/+/, '')}`;
   }, [user?.profile_image_path]);
+  const systemLogoUrl = resolveAssetUrl(getSetting('system_logo_path'), '/Gradtrack_small.png');
+  const systemShortName = getSetting('system_short_name', 'GradTrack');
+  const notificationsEnabled = isEnabled('feature_notifications_enabled', true);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -164,9 +171,9 @@ export default function AdminLayout() {
         <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-4 px-4 py-2 sm:px-6">
           {/* Logo & Brand */}
           <div className="flex items-center gap-3">
-            <img src="/Gradtrack_small.png" alt="GradTrack" className="h-9 w-9 object-contain" />
+            <img src={systemLogoUrl} alt={systemShortName} className="h-9 w-9 object-contain" />
             <div className="hidden sm:block">
-              <h1 className="text-base font-bold leading-tight text-gray-900">GradTrack</h1>
+              <h1 className="text-base font-bold leading-tight text-gray-900">{systemShortName}</h1>
               <p className="text-[11px] leading-tight text-gray-500">Admin Panel</p>
             </div>
           </div>
@@ -181,7 +188,7 @@ export default function AdminLayout() {
                 className={({ isActive }) =>
                   `flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all ${
                     isActive
-                      ? 'bg-blue-700 text-white shadow-sm'
+                      ? 'gt-bg-primary text-white shadow-sm'
                       : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
                   }`
                 }
@@ -195,7 +202,7 @@ export default function AdminLayout() {
           {/* Right Section */}
           <div className="flex items-center gap-3">
             <ThemeToggle compact />
-            <NotificationBell audience="admin" colorScheme="light" />
+            {notificationsEnabled && <NotificationBell audience="admin" colorScheme="light" />}
 
             {/* Profile dropdown */}
             <div className="relative" ref={profileMenuRef}>
@@ -281,7 +288,7 @@ export default function AdminLayout() {
                   onClick={() => setMobileNavOpen(false)}
                   className={({ isActive }) =>
                     `flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition ${
-                      isActive ? 'bg-blue-700 text-white' : 'text-gray-700 hover:bg-gray-100'
+                      isActive ? 'gt-bg-primary text-white' : 'text-gray-700 hover:bg-gray-100'
                     }`
                   }
                 >
@@ -304,7 +311,7 @@ export default function AdminLayout() {
               end={item.end}
               className={({ isActive }) =>
                 `shrink-0 rounded-2xl px-4 py-2 text-sm font-medium transition ${
-                  isActive ? 'bg-blue-700 text-white' : 'bg-gray-100 text-gray-700'
+                  isActive ? 'gt-bg-primary text-white' : 'bg-gray-100 text-gray-700'
                 }`
               }
             >

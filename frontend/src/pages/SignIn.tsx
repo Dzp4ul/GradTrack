@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLightOnlyTheme } from '../contexts/theme';
+import { useSystemSettings } from '../contexts/SystemSettingsContext';
 
 function SignIn() {
   useLightOnlyTheme();
@@ -13,7 +14,12 @@ function SignIn() {
   const [isLoading, setIsLoading] = useState(false);
   const passwordRef = useRef<HTMLInputElement>(null);
   const { login } = useAuth();
+  const { getSetting, resolveAssetUrl, primaryColor } = useSystemSettings();
   const navigate = useNavigate();
+  const loginBackground = resolveAssetUrl(getSetting('login_background_image_path'), '/520382375_1065446909052636_3412465913398569974_n.jpg');
+  const loginLogo = resolveAssetUrl(getSetting('login_logo_path'), '/GRADTRACK_LOGO1.png');
+  const systemLogo = resolveAssetUrl(getSetting('system_logo_path'), '/logo.png');
+  const institutionName = getSetting('institution_name', 'Norzagaray College');
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,16 +50,19 @@ function SignIn() {
   return (
     <div className="flex min-h-screen overflow-x-hidden">
       {/* Left Side - Fixed Branding */}
-      <div className="hidden md:flex md:w-1/2 bg-cover bg-center fixed top-0 left-0 h-screen items-center justify-center" style={{ backgroundImage: 'url(/520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
+      <div className="hidden md:flex md:w-1/2 bg-cover bg-center fixed top-0 left-0 h-screen items-center justify-center" style={{ backgroundImage: `url(${loginBackground})` }}>
         <div className="absolute inset-0 bg-gradient-to-br from-blue-900/85 via-blue-800/85 to-blue-900/85"></div>
         <div className="text-center px-12 relative z-10">
           <img
-            src="/logo.png"
-            alt="Norzagaray College"
+            src={systemLogo}
+            alt={institutionName}
             className="h-32 w-32 object-contain mx-auto mb-8"
           />
-          <h2 className="text-3xl font-bold text-white mb-4">Norzagaray College</h2>
-          <p className="text-blue-200 text-lg">Graduate Tracer System</p>
+          <h2 className="text-3xl font-bold text-white mb-4">{institutionName}</h2>
+          <p className="text-blue-200 text-lg">{getSetting('login_subtitle', 'Graduate Tracer System')}</p>
+          {getSetting('additional_login_text') && (
+            <p className="mt-4 text-sm leading-6 text-blue-100">{getSetting('additional_login_text')}</p>
+          )}
         </div>
       </div>
 
@@ -62,21 +71,21 @@ function SignIn() {
         <div className="w-full max-w-lg">
           <div className="md:hidden mb-8 text-center">
             <img
-              src="/logo.png"
-              alt="Norzagaray College"
+              src={systemLogo}
+              alt={institutionName}
               className="h-16 w-16 object-contain mx-auto"
             />
           </div>
 
           <div className="flex justify-center mb-6">
             <img
-              src="/GRADTRACK_LOGO1.png"
-              alt="GradTrack Logo"
+              src={loginLogo}
+              alt={`${getSetting('system_short_name', 'GradTrack')} Logo`}
               className="h-20 object-contain"
             />
           </div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-blue-900 text-center mb-2">Sign In</h1>
-          <p className="text-gray-500 text-center mb-8">Welcome back.</p>
+          <h1 className="text-2xl sm:text-3xl font-bold text-blue-900 text-center mb-2">{getSetting('login_page_title', 'Sign In')}</h1>
+          <p className="text-gray-500 text-center mb-8">{getSetting('login_welcome_message', 'Welcome back.')}</p>
 
           {error && (
             <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm mb-6">
@@ -132,6 +141,7 @@ function SignIn() {
               type="submit"
               disabled={isLoading}
               className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white py-3 rounded-lg font-semibold transition shadow-md hover:shadow-lg disabled:cursor-not-allowed"
+              style={isLoading ? undefined : { backgroundColor: primaryColor }}
             >
               {isLoading ? 'Signing in...' : 'Sign In'}
             </button>

@@ -2,10 +2,16 @@ import { Link } from 'react-router-dom';
 import { Briefcase, TrendingUp, Users, BarChart2, Bell, ShieldCheck } from 'lucide-react';
 import Footer from '../components/Footer';
 import PublicNav from '../components/PublicNav';
+import { useSystemSettings } from '../contexts/SystemSettingsContext';
 
 function HomePage() {
+  const { getSetting, isEnabled, resolveAssetUrl } = useSystemSettings();
+  const background = resolveAssetUrl(getSetting('login_background_image_path'), '/520382375_1065446909052636_3412465913398569974_n.jpg');
+  const heroLogo = resolveAssetUrl(getSetting('login_logo_path'), '/Gradtrack_Logo2.png');
+  const surveyAvailable = isEnabled('survey_available', true);
+
   return (
-    <div className="min-h-screen overflow-x-hidden bg-cover bg-center bg-fixed relative" style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
+    <div className="min-h-screen overflow-x-hidden bg-cover bg-center bg-fixed relative" style={{ backgroundImage: `url(${background})` }}>
       <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80 pointer-events-none"></div>
       <PublicNav />
 
@@ -17,7 +23,7 @@ function HomePage() {
               <div className="text-white space-y-6 sm:space-y-8">
                 <div className="inline-block">
                   <img
-                    src="/Gradtrack_Logo2.png"
+                    src={heroLogo}
                     alt="GradTrack Logo"
                     className="h-20 sm:h-24 object-contain mb-4 sm:mb-6"
                   />
@@ -26,13 +32,15 @@ function HomePage() {
                   Connecting Graduates to Their Future
                 </h2>
                 <p className="text-base sm:text-lg lg:text-xl text-blue-100 leading-relaxed">
-                  GradTrack empowers Norzagaray College to stay connected with alumni, track career progression, and ensure educational outcomes align with professional success.
+                  {getSetting('system_short_name', 'GradTrack')} empowers {getSetting('institution_name', 'Norzagaray College')} to stay connected with alumni, track career progression, and ensure educational outcomes align with professional success.
                 </p>
-                <div className="flex flex-col gap-3 sm:flex-row sm:gap-4">
-                  <Link to="/survey" className="w-full bg-yellow-500 hover:bg-yellow-600 text-blue-900 px-8 py-4 rounded-lg font-bold text-base sm:text-lg transition shadow-xl text-center sm:w-auto">
-                    Take Survey
-                  </Link>
-                </div>
+                {surveyAvailable && (
+                  <div className="flex flex-col gap-3 sm:flex-row sm:gap-4">
+                    <Link to="/survey" className="w-full bg-yellow-500 hover:bg-yellow-600 text-blue-900 px-8 py-4 rounded-lg font-bold text-base sm:text-lg transition shadow-xl text-center sm:w-auto">
+                      Take Survey
+                    </Link>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -43,9 +51,9 @@ function HomePage() {
         <section id="about" className="bg-white py-14 sm:py-20">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
             <div className="text-center mb-10 sm:mb-16">
-              <h2 className="text-3xl sm:text-4xl font-bold text-blue-900 mb-4">About GradTrack</h2>
+              <h2 className="text-3xl sm:text-4xl font-bold text-blue-900 mb-4">About {getSetting('system_short_name', 'GradTrack')}</h2>
               <p className="text-base sm:text-xl text-gray-600 max-w-3xl mx-auto">
-                GradTrack is Norzagaray College's official graduate tracking and survey management system built to monitor alumni outcomes, measure program effectiveness, and strengthen the bond between the college and its graduates.
+                {getSetting('system_description', "GradTrack is Norzagaray College's official graduate tracking and survey management system built to monitor alumni outcomes, measure program effectiveness, and strengthen the bond between the college and its graduates.")}
               </p>
             </div>
 

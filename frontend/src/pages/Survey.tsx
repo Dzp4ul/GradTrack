@@ -3,9 +3,12 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { ShieldCheck, ChevronRight, ChevronLeft, ClipboardList, Save, Eye, EyeOff, Users, Briefcase, RefreshCw } from 'lucide-react';
 import MessageBox from '../components/MessageBox';
 import SearchableSelect from '../components/SearchableSelect';
+import FeatureUnavailable from '../components/FeatureUnavailable';
 import { API_ENDPOINTS, API_ROOT } from '../config/api';
+import { useSystemSettings } from '../contexts/SystemSettingsContext';
 import { usePsgcAddress } from '../hooks/usePsgcAddress';
 import { PsgcAddressPayload } from '../services/psgc';
+import MaintenancePage from './MaintenancePage';
 
 interface Question {
   id?: number;
@@ -637,6 +640,10 @@ function Survey() {
   const surveyIdFromUrl = searchParams.get('survey_id');
   const hydratedDraftKeyRef = useRef<string | null>(null);
   const psgcAddress = usePsgcAddress();
+  const { getSetting, isEnabled, isMaintenanceMode, resolveAssetUrl } = useSystemSettings();
+  const surveyAvailable = isEnabled('survey_available', true);
+  const pageBackground = resolveAssetUrl(getSetting('login_background_image_path'), '/520382375_1065446909052636_3412465913398569974_n.jpg');
+  const brandLogo = resolveAssetUrl(getSetting('login_logo_path'), '/Gradtrack_Logo2.png');
   
   const [agreed, setAgreed] = useState(false);
   const [agreedCheckbox, setAgreedCheckbox] = useState(false);
@@ -662,8 +669,13 @@ function Survey() {
   const [accountSubmitting, setAccountSubmitting] = useState(false);
 
   useEffect(() => {
+    if (isMaintenanceMode || !surveyAvailable) {
+      setLoading(false);
+      return;
+    }
+
     validateTokenAndFetchSurvey();
-  }, []);
+  }, [isMaintenanceMode, surveyAvailable]);
 
   const validateTokenAndFetchSurvey = async () => {
     // Get persistent survey access so unfinished answers can be restored later.
@@ -1412,7 +1424,7 @@ function Survey() {
   // Loading state
   if (loading) {
     return (
-      <div className="min-h-screen bg-cover bg-center bg-fixed relative flex items-center justify-center" style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
+      <div className="min-h-screen bg-cover bg-center bg-fixed relative flex items-center justify-center" style={{ backgroundImage: `url(${pageBackground})` }}>
         <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80 pointer-events-none"></div>
         <div className="relative z-10">
           <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-white"></div>
@@ -1421,13 +1433,26 @@ function Survey() {
     );
   }
 
+  if (isMaintenanceMode) {
+    return <MaintenancePage />;
+  }
+
+  if (!surveyAvailable) {
+    return (
+      <FeatureUnavailable
+        title={getSetting('survey_title', 'Graduate Tracer Survey')}
+        message={getSetting('survey_availability_message', 'The Graduate Tracer Survey is currently unavailable. Please check back later.')}
+      />
+    );
+  }
+
   // No active survey
   if (!activeSurvey) {
     return (
-      <div className="min-h-screen bg-cover bg-center bg-fixed relative flex flex-col items-center justify-center p-4 sm:p-6" style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
+      <div className="min-h-screen bg-cover bg-center bg-fixed relative flex flex-col items-center justify-center p-4 sm:p-6" style={{ backgroundImage: `url(${pageBackground})` }}>
         <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80 pointer-events-none"></div>
         <div className="flex justify-center mb-6 relative z-10">
-          <img src="/Gradtrack_Logo2.png" alt="GradTrack Logo" className="h-20 object-contain" />
+          <img src={brandLogo} alt="GradTrack Logo" className="h-20 object-contain" />
         </div>
         <div className="w-full max-w-2xl bg-white rounded-2xl shadow-xl p-5 border border-blue-100 relative z-10 text-center sm:p-10">
           <ClipboardList className="w-16 h-16 text-gray-300 mx-auto mb-4" />
@@ -1444,11 +1469,11 @@ function Survey() {
   // ─── DATA PRIVACY CONSENT ───
   if (!agreed) {
     return (
-      <div className="min-h-screen bg-cover bg-center bg-fixed relative flex flex-col items-center justify-center p-4 sm:p-6" style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
+      <div className="min-h-screen bg-cover bg-center bg-fixed relative flex flex-col items-center justify-center p-4 sm:p-6" style={{ backgroundImage: `url(${pageBackground})` }}>
         <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80 pointer-events-none"></div>
         <div className="flex justify-center mb-6 relative z-10">
           <img
-            src="/Gradtrack_Logo2.png"
+            src={brandLogo}
             alt="GradTrack Logo"
             className="h-20 object-contain"
           />
@@ -1987,15 +2012,15 @@ function Survey() {
   );
 
   return (
-    <div className="min-h-screen bg-cover bg-center bg-fixed relative" style={{ backgroundImage: 'url(520382375_1065446909052636_3412465913398569974_n.jpg)' }}>
+    <div className="min-h-screen bg-cover bg-center bg-fixed relative" style={{ backgroundImage: `url(${pageBackground})` }}>
       <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80 pointer-events-none"></div>
       {/* Header */}
       <nav className="bg-blue-900/95 backdrop-blur-sm shadow-lg sticky top-0 z-50">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-3">
-              <img src="/logo.png" alt="Norzagaray College" className="h-10 w-10 object-contain" />
-              <h1 className="text-lg font-bold text-white">GradTrack Survey</h1>
+              <img src={resolveAssetUrl(getSetting('system_logo_path'), '/logo.png')} alt={getSetting('institution_name', 'Norzagaray College')} className="h-10 w-10 object-contain" />
+              <h1 className="text-lg font-bold text-white">{getSetting('system_short_name', 'GradTrack')} Survey</h1>
             </div>
             <div className="flex items-center gap-3">
               <Link to="/" className="text-white hover:text-yellow-400 font-medium transition text-sm">
@@ -2009,7 +2034,7 @@ function Survey() {
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10 relative">
         <div className="flex justify-center mb-6">
           <img
-            src="/Gradtrack_Logo2.png"
+            src={brandLogo}
             alt="GradTrack Logo"
             className="h-20 object-contain"
           />
@@ -2019,7 +2044,7 @@ function Survey() {
         <div className="bg-white rounded-2xl shadow-lg p-5 border border-gray-100 sm:p-8">
           <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start mb-4">
             <div>
-              <h2 className="text-xl font-bold text-blue-900 sm:text-2xl">{activeSurvey.title}</h2>
+              <h2 className="text-xl font-bold text-blue-900 sm:text-2xl">{activeSurvey.title || getSetting('survey_title', 'Graduate Tracer Survey')}</h2>
               {graduateName && (
                 <p className="text-green-600 font-medium mt-1">Welcome, {graduateName}!</p>
               )}
@@ -2413,7 +2438,7 @@ function Survey() {
         <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-blue-100 overflow-hidden">
             <div className="bg-blue-50 border-b border-blue-100 px-4 py-5 sm:px-6">
-              <h3 className="text-lg font-bold text-blue-900 sm:text-xl">Your survey has been submitted successfully.</h3>
+              <h3 className="text-lg font-bold text-blue-900 sm:text-xl">{getSetting('survey_completion_message', 'Your survey has been submitted successfully.')}</h3>
               <p className="text-sm text-gray-600 mt-1">
                 Create a GradTrack account now and submit it for Alumni Admin verification using the information you already provided.
               </p>
@@ -2463,7 +2488,7 @@ function Survey() {
                         isOpen: true,
                         type: 'success',
                         title: 'Survey Submitted',
-                        message: 'Your response was saved. You can create an account later, then wait for Alumni Admin verification before accessing the Graduate Portal.',
+                        message: getSetting('survey_completion_message', 'Your response was saved. You can create an account later, then wait for Alumni Admin verification before accessing the Graduate Portal.'),
                       });
                       finishSurveyFlow(true);
                     }}

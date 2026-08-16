@@ -58,6 +58,10 @@
 }
 
 :root {
+  --gradtrack-primary: #1d4ed8;
+  --gradtrack-primary-hover: #1e40af;
+  --gradtrack-accent: #f8c331;
+  --gradtrack-accent-hover: #eab308;
   --background: #f8fafc;
   --background-soft: #f1f5f9;
   --surface: #ffffff;
@@ -74,6 +78,30 @@
   --chart-axis: #475569;
   --chart-grid: #e2e8f0;
   --chart-tooltip: #ffffff;
+}
+
+.gt-bg-primary {
+  background-color: var(--gradtrack-primary) !important;
+}
+
+.gt-bg-primary:hover {
+  background-color: var(--gradtrack-primary-hover) !important;
+}
+
+.gt-text-primary {
+  color: var(--gradtrack-primary) !important;
+}
+
+.gt-border-primary {
+  border-color: var(--gradtrack-primary) !important;
+}
+
+.gt-bg-accent {
+  background-color: var(--gradtrack-accent) !important;
+}
+
+.gt-bg-accent:hover {
+  background-color: var(--gradtrack-accent-hover) !important;
 }
 
 html.dark {
@@ -530,6 +558,106 @@ html.dark .recharts-legend-item-text {
 
 html.dark .recharts-pie-label-text {
   fill: var(--text-secondary) !important;
+}
+
+.settings-save-modal-overlay {
+  animation: gradtrack-modal-fade-in 180ms ease-out both;
+}
+
+.settings-save-modal-overlay--closing {
+  animation: gradtrack-modal-fade-out 180ms ease-in both;
+}
+
+.settings-save-modal-card {
+  animation: gradtrack-modal-scale-in 190ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.settings-save-modal-card--closing {
+  animation: gradtrack-modal-scale-out 180ms ease-in both;
+}
+
+.settings-save-progress-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.settings-save-progress-shimmer::after {
+  position: absolute;
+  inset: 0;
+  content: '';
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.42), transparent);
+  transform: translateX(-100%);
+  animation: gradtrack-progress-shimmer 1.15s ease-in-out infinite;
+}
+
+.settings-save-success-icon {
+  animation: gradtrack-success-pop 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes gradtrack-modal-fade-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes gradtrack-modal-fade-out {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes gradtrack-modal-scale-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.35rem) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes gradtrack-modal-scale-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(0.25rem) scale(0.97);
+  }
+}
+
+@keyframes gradtrack-progress-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes gradtrack-success-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.72);
+  }
+
+  70% {
+    transform: scale(1.08);
+  }
+
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .typing-dots {

@@ -3,10 +3,13 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, LogIn } from 'lucide-react';
 import { useGraduateAuth } from '../contexts/GraduateAuthContext';
 import MessageBox from '../components/MessageBox';
+import { useSystemSettings } from '../contexts/SystemSettingsContext';
+import MaintenancePage from './MaintenancePage';
 
 export default function GraduateSignIn() {
   const navigate = useNavigate();
   const { login } = useGraduateAuth();
+  const { getSetting, isEnabled, isMaintenanceMode, resolveAssetUrl, primaryColor } = useSystemSettings();
 
   const emailInputRef = useRef<HTMLInputElement>(null);
   const passwordInputRef = useRef<HTMLInputElement>(null);
@@ -77,20 +80,28 @@ export default function GraduateSignIn() {
     }
   };
 
+  if (isMaintenanceMode) {
+    return <MaintenancePage />;
+  }
+
+  const loginBackground = resolveAssetUrl(getSetting('login_background_image_path'), '/520382375_1065446909052636_3412465913398569974_n.jpg');
+  const loginLogo = resolveAssetUrl(getSetting('login_logo_path'), '/GRADTRACK_LOGO1.png');
+  const surveyAvailable = isEnabled('survey_available', true);
+
   return (
     <div
       className="min-h-screen bg-cover bg-center bg-fixed relative flex items-center justify-center p-4 sm:p-6"
-      style={{ backgroundImage: 'url(/520382375_1065446909052636_3412465913398569974_n.jpg)' }}
+      style={{ backgroundImage: `url(${loginBackground})` }}
     >
       <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80"></div>
 
       <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-5 border border-blue-100 relative z-10 sm:p-8">
         <div className="flex justify-center mb-5">
-          <img src="/GRADTRACK_LOGO1.png" alt="GradTrack Logo" className="h-20 object-contain" />
+          <img src={loginLogo} alt={`${getSetting('system_short_name', 'GradTrack')} Logo`} className="h-20 object-contain" />
         </div>
 
         <h1 className="text-2xl font-bold text-blue-900 text-center">Graduate Portal</h1>
-        <p className="text-gray-600 text-center mt-1 mb-6">Sign in to access the Community Forum and job opportunities.</p>
+        <p className="text-gray-600 text-center mt-1 mb-6">{getSetting('login_welcome_message', 'Sign in to access the Community Forum and job opportunities.')}</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -137,20 +148,23 @@ export default function GraduateSignIn() {
             type="submit"
             disabled={loading}
             className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white py-2.5 rounded-lg font-semibold transition flex items-center justify-center gap-2"
+            style={loading ? undefined : { backgroundColor: primaryColor }}
           >
             <LogIn className="w-4 h-4" />
             {loading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
 
-        <div className="mt-6 text-center text-sm text-gray-600">
-          <p>
-            Completed the survey and want to register? You can create an account right after survey submission.
-          </p>
-          <Link to="/survey" className="inline-block mt-2 text-blue-600 hover:text-blue-700 font-medium">
-            Go to Survey
-          </Link>
-        </div>
+        {surveyAvailable && (
+          <div className="mt-6 text-center text-sm text-gray-600">
+            <p>
+              Completed the survey and want to register? You can create an account right after survey submission.
+            </p>
+            <Link to="/survey" className="inline-block mt-2 text-blue-600 hover:text-blue-700 font-medium">
+              Go to Survey
+            </Link>
+          </div>
+        )}
 
         <div className="mt-5 text-center">
           <Link to="/" className="text-sm text-gray-600 hover:text-blue-700">

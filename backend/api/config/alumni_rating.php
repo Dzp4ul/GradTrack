@@ -1,6 +1,7 @@
 <?php
 
 require_once __DIR__ . '/graduate_auth.php';
+require_once __DIR__ . '/system_settings.php';
 
 if (!function_exists('gradtrack_rating_non_empty')) {
     function gradtrack_rating_non_empty($value): bool
@@ -491,6 +492,21 @@ if (!function_exists('gradtrack_get_alumni_rating')) {
 if (!function_exists('gradtrack_require_feature_access')) {
     function gradtrack_require_feature_access(PDO $db, array $user, string $featureKey): array
     {
+        $systemFeatureMap = [
+            'job_posting' => ['key' => 'job_posting', 'label' => 'Job posting'],
+            'mentorship_request' => ['key' => 'job_support', 'label' => 'Mentorship request'],
+            'mentorship' => ['key' => 'job_support', 'label' => 'Mentorship'],
+            'mentor_registration' => ['key' => 'job_support', 'label' => 'Mentor registration'],
+        ];
+
+        if (isset($systemFeatureMap[$featureKey])) {
+            gradtrack_system_require_feature_enabled(
+                $db,
+                $systemFeatureMap[$featureKey]['key'],
+                $systemFeatureMap[$featureKey]['label']
+            );
+        }
+
         $rating = gradtrack_get_alumni_rating($db, $user);
         $permissions = $rating['permissions'] ?? [];
         $statusFlags = $rating['status_flags'] ?? [];

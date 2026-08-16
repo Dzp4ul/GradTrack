@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/audit_trail.php';
+require_once __DIR__ . '/../config/system_settings.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -24,6 +25,8 @@ $database = new Database();
 $db = $database->getConnection();
 
 try {
+    gradtrack_system_block_if_maintenance($db, 'graduate');
+
     gradtrack_ensure_graduate_account_verification_schema($db);
 
     $query = "SELECT id, password_hash, status, alumni_verification_status, alumni_verification_reason

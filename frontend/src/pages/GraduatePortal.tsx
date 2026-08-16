@@ -46,10 +46,12 @@ import type {
   SelectedAttachment,
 } from '../components/messaging/types';
 import MessageBox from '../components/MessageBox';
+import FeatureUnavailable from '../components/FeatureUnavailable';
 import NotificationBell from '../components/NotificationBell';
 import ThemeToggle from '../components/ThemeToggle';
 import { useGraduateAuth } from '../contexts/GraduateAuthContext';
 import type { GraduateUser } from '../contexts/GraduateAuthContext';
+import { useSystemSettings } from '../contexts/SystemSettingsContext';
 import { createRealtimeChatSocket, emitWithAck } from '../services/realtimeChat';
 import type { RealtimeChatStatus } from '../services/realtimeChat';
 
@@ -657,6 +659,7 @@ function formatActivityLabel(activity: ForumActivityLog) {
 
 export default function GraduatePortal() {
   const { user, logout, checkAuth } = useGraduateAuth();
+  const { getSetting, isEnabled, resolveAssetUrl: resolveSystemAssetUrl } = useSystemSettings();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [activeTab, setActiveTab] = useState<PortalTab>(() => getPortalTab(searchParams.get('tab')));
@@ -785,6 +788,13 @@ export default function GraduatePortal() {
   const currentGraduateId = user?.graduate_id ?? 0;
   const currentProfileImageUrl = resolveAssetUrl(user?.profile_image_path);
   const canPostJobs = !!ratingSummary?.permissions?.can_post_jobs;
+  const communityAvailable = isEnabled('community_available', true);
+  const jobsAvailable = isEnabled('feature_alumni_job_support_enabled', true);
+  const messagingAvailable = communityAvailable && isEnabled('feature_messaging_enabled', true);
+  const forumMediaEnabled = isEnabled('community_allow_media_uploads', true);
+  const notificationsEnabled = isEnabled('feature_notifications_enabled', true);
+  const systemLogoUrl = resolveSystemAssetUrl(getSetting('system_logo_path'), '/Gradtrack_small.png');
+  const systemShortName = getSetting('system_short_name', 'GradTrack');
   const pageHeading = getPortalHeading(activeTab);
 
   const filteredForumPosts = forumPosts.filter((post) => {
@@ -862,6 +872,34 @@ export default function GraduatePortal() {
   const hiddenForumPostsCount = myForumPosts.filter((post) => post.status === 'hidden').length;
   const directChatCount = directRooms.length;
   const groupChatCount = groupRooms.length;
+
+  const unavailableForTab = useCallback(
+    (tab: PortalTab) => {
+      if (tab === 'community_forum' && !communityAvailable) {
+        return {
+          title: 'Community Forum is currently unavailable.',
+          message: getSetting('community_default_announcement', 'This feature is currently unavailable.'),
+        };
+      }
+
+      if (['messages', 'group_chats'].includes(tab) && !messagingAvailable) {
+        return {
+          title: 'Messages are currently unavailable.',
+          message: 'This feature is currently unavailable.',
+        };
+      }
+
+      if (['jobs', 'job_posting'].includes(tab) && !jobsAvailable) {
+        return {
+          title: 'Alumni Job Support is currently unavailable.',
+          message: 'This feature is currently unavailable.',
+        };
+      }
+
+      return null;
+    },
+    [communityAvailable, getSetting, jobsAvailable, messagingAvailable],
+  );
 
   const notify = useCallback((type: MessageBoxState['type'], message: string, title?: string) => {
     setMsgBox({
@@ -1235,22 +1273,28 @@ export default function GraduatePortal() {
 
       const tasks = [
         { key: 'rating', label: 'rating summary', run: loadRatingSummary },
-        { key: 'forum', label: 'forum feed', run: loadForumFeed },
-        { key: 'my_forum', label: 'my forum posts', run: loadMyForumPosts },
-        { key: 'jobs', label: 'jobs', run: loadJobs },
-        { key: 'my_jobs', label: 'my job posts', run: loadMyJobs },
-        { key: 'chats', label: 'chats', run: loadChats },
-        { key: 'activity', label: 'activity logs', run: loadActivityLogs },
+        ...(communityAvailable ? [
+          { key: 'forum', label: 'forum feed', run: loadForumFeed },
+          { key: 'my_forum', label: 'my forum posts', run: loadMyForumPosts },
+          { key: 'activity', label: 'activity logs', run: loadActivityLogs },
+        ] : []),
+        ...(jobsAvailable ? [
+          { key: 'jobs', label: 'jobs', run: loadJobs },
+          { key: 'my_jobs', label: 'my job posts', run: loadMyJobs },
+        ] : []),
+        ...(messagingAvailable ? [
+          { key: 'chats', label: 'chats', run: loadChats },
+        ] : []),
       ];
 
       const blockingKeysByTab: Record<PortalTab, string[]> = {
         dashboard: tasks.map((task) => task.key),
-        community_forum: ['forum', 'my_forum'],
-        messages: ['chats'],
-        group_chats: ['chats'],
-        jobs: ['jobs', 'rating'],
-        job_posting: ['my_jobs', 'rating'],
-        my_profile: ['rating', 'activity'],
+        community_forum: communityAvailable ? ['forum', 'my_forum'] : [],
+        messages: messagingAvailable ? ['chats'] : [],
+        group_chats: messagingAvailable ? ['chats'] : [],
+        jobs: jobsAvailable ? ['jobs', 'rating'] : [],
+        job_posting: jobsAvailable ? ['my_jobs', 'rating'] : [],
+        my_profile: communityAvailable ? ['rating', 'activity'] : ['rating'],
       };
 
       const blockingKeys = new Set(silent ? tasks.map((task) => task.key) : blockingKeysByTab[tab]);
@@ -1275,7 +1319,7 @@ export default function GraduatePortal() {
         void Promise.allSettled(backgroundTasks.map((task) => task.run()));
       }
     },
-    [loadActivityLogs, loadChats, loadForumFeed, loadJobs, loadMyForumPosts, loadMyJobs, loadRatingSummary, notify],
+    [communityAvailable, jobsAvailable, loadActivityLogs, loadChats, loadForumFeed, loadJobs, loadMyForumPosts, loadMyJobs, loadRatingSummary, messagingAvailable, notify],
   );
 
   const closePostDetail = useCallback(() => {
@@ -1325,6 +1369,11 @@ export default function GraduatePortal() {
   }, [searchParams]);
 
   useEffect(() => {
+    if (!communityAvailable) {
+      routePostTargetRef.current = '';
+      return;
+    }
+
     const postId = parsePositiveIntParam(searchParams.get('post_id'));
     if (postId <= 0) {
       routePostTargetRef.current = '';
@@ -1343,9 +1392,14 @@ export default function GraduatePortal() {
     setForumCategory('all');
     setHighlightedCommentId(commentId || null);
     void loadPostDetail(postId);
-  }, [loadPostDetail, searchParams]);
+  }, [communityAvailable, loadPostDetail, searchParams]);
 
   useEffect(() => {
+    if (!jobsAvailable) {
+      routeJobTargetRef.current = '';
+      return;
+    }
+
     const jobId = parsePositiveIntParam(searchParams.get('job_id'));
     if (jobId <= 0) {
       routeJobTargetRef.current = '';
@@ -1375,7 +1429,7 @@ export default function GraduatePortal() {
       window.clearTimeout(scrollTimer);
       window.clearTimeout(clearTimer);
     };
-  }, [activeTab, jobs, searchParams]);
+  }, [activeTab, jobs, jobsAvailable, searchParams]);
 
   useEffect(() => {
     if (!selectedPostOpen || !highlightedCommentId || postComments.length === 0) {
@@ -1529,7 +1583,7 @@ export default function GraduatePortal() {
     roomMessagesRef.current = roomMessages;
   }, [roomMessages]);
 
-  const chatFeatureOpen = ['community_forum', 'messages', 'group_chats'].includes(activeTab);
+  const chatFeatureOpen = messagingAvailable && ['community_forum', 'messages', 'group_chats'].includes(activeTab);
 
   useEffect(() => {
     if (!currentGraduateId || !chatFeatureOpen) {
@@ -1818,6 +1872,11 @@ export default function GraduatePortal() {
   }, [mediaViewer]);
 
   const openForumComposer = (post?: ForumPost) => {
+    if (!communityAvailable) {
+      notify('info', 'This feature is currently unavailable.', 'Community Forum');
+      return;
+    }
+
     setManagePostsOpen(false);
     setSelectedPostOpen(false);
 
@@ -1844,6 +1903,11 @@ export default function GraduatePortal() {
   };
 
   const handleForumMediaSelection = (files: FileList | null) => {
+    if (!forumMediaEnabled) {
+      notify('info', 'Forum media uploads are currently unavailable.', 'Community Forum');
+      return;
+    }
+
     const selectedFiles = Array.from(files || []);
 
     if (selectedFiles.length === 0) {
@@ -1914,6 +1978,11 @@ export default function GraduatePortal() {
 
   const handleForumSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    if (!communityAvailable) {
+      notify('info', 'This feature is currently unavailable.', 'Community Forum');
+      return;
+    }
 
     const title = forumForm.title.trim();
     const content = forumForm.content.trim();
@@ -2027,6 +2096,11 @@ export default function GraduatePortal() {
   };
 
   const toggleLike = async (postId: number) => {
+    if (!communityAvailable) {
+      notify('info', 'This feature is currently unavailable.', 'Community Forum');
+      return;
+    }
+
     setForumActionKey(`like-${postId}`);
 
     try {
@@ -2057,6 +2131,11 @@ export default function GraduatePortal() {
 
   const handleCommentSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    if (!communityAvailable) {
+      notify('info', 'This feature is currently unavailable.', 'Community Forum');
+      return;
+    }
 
     if (!selectedPost) return;
 
@@ -2194,6 +2273,11 @@ export default function GraduatePortal() {
   };
 
   const openChatModal = (mode: 'direct' | 'group') => {
+    if (!messagingAvailable) {
+      notify('info', 'This feature is currently unavailable.', 'Messages');
+      return;
+    }
+
     setChatModalMode(mode);
     setChatModalName('');
     setChatModalSelectedIds([]);
@@ -2204,11 +2288,21 @@ export default function GraduatePortal() {
   };
 
   const openForumChatWindow = (roomId: number) => {
+    if (!messagingAvailable) {
+      notify('info', 'This feature is currently unavailable.', 'Messages');
+      return;
+    }
+
     setSelectedRoomId(roomId);
     setForumChatWindowOpen(true);
   };
 
   const createDirectChat = async (graduateId: number) => {
+    if (!messagingAvailable) {
+      notify('info', 'This feature is currently unavailable.', 'Messages');
+      return;
+    }
+
     setChatCreating(true);
 
     try {
@@ -2627,6 +2721,11 @@ export default function GraduatePortal() {
   }, [markVisibleMessagesAsRead]);
 
   const beginCreateJob = () => {
+    if (!jobsAvailable) {
+      notify('info', 'This feature is currently unavailable.', 'Job Posting');
+      return;
+    }
+
     resetJobForm();
     setShowJobPostForm(true);
   };
@@ -2637,6 +2736,11 @@ export default function GraduatePortal() {
   };
 
   const beginEditJob = async (id: number) => {
+    if (!jobsAvailable) {
+      notify('info', 'This feature is currently unavailable.', 'Job Posting');
+      return;
+    }
+
     try {
       const response = await authenticatedFetch(`${API_ENDPOINTS.JOBS.POSTS}?id=${id}`);
       const job = response.data as JobPost | undefined;
@@ -2672,6 +2776,11 @@ export default function GraduatePortal() {
 
   const handleJobSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    if (!jobsAvailable) {
+      notify('info', 'This feature is currently unavailable.', 'Job Posting');
+      return;
+    }
 
     if (!canPostJobs) {
       notify('warning', 'Job posting is locked until your employment status is set to employed.', 'Job Posting');
@@ -2966,9 +3075,9 @@ export default function GraduatePortal() {
             title="GradTrack Community"
             aria-label="Open GradTrack Community"
           >
-            <img src="/Gradtrack_small.png" alt="GradTrack" className="h-9 w-9 object-contain" />
+            <img src={systemLogoUrl} alt={systemShortName} className="h-9 w-9 object-contain" />
             <div className="hidden sm:block">
-              <p className="text-base font-bold leading-tight text-gray-900">GradTrack</p>
+              <p className="text-base font-bold leading-tight text-gray-900">{systemShortName}</p>
               <p className="text-[11px] leading-tight text-slate-500">Community</p>
             </div>
           </button>
@@ -3009,7 +3118,7 @@ export default function GraduatePortal() {
 
           <div className="flex shrink-0 items-center gap-3">
             <ThemeToggle compact />
-            <NotificationBell audience="graduate" />
+            {notificationsEnabled && <NotificationBell audience="graduate" />}
 
             <div className="relative min-w-0" ref={profileMenuRef}>
               <button
@@ -3195,7 +3304,11 @@ export default function GraduatePortal() {
                 </section>
               )}
 
-              {activeTab === 'community_forum' && (
+              {activeTab === 'community_forum' && unavailableForTab(activeTab) && (
+                <FeatureUnavailable compact {...unavailableForTab(activeTab)!} />
+              )}
+
+              {activeTab === 'community_forum' && !unavailableForTab(activeTab) && (
                 <section className="space-y-6">
                   <div className="rounded-[32px] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
@@ -3213,6 +3326,21 @@ export default function GraduatePortal() {
                         </button>
                       </div>
                     </div>
+                  </div>
+
+                  <div className="grid gap-4 lg:grid-cols-2">
+                    {getSetting('community_default_announcement') && (
+                      <div className="rounded-[24px] border border-blue-100 bg-blue-50 px-5 py-4">
+                        <p className="text-sm font-bold text-blue-900">Community Announcement</p>
+                        <p className="mt-2 whitespace-pre-line text-sm leading-6 text-blue-800">{getSetting('community_default_announcement')}</p>
+                      </div>
+                    )}
+                    {getSetting('community_guidelines') && (
+                      <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-sm">
+                        <p className="text-sm font-bold text-slate-900">Community Guidelines</p>
+                        <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-600">{getSetting('community_guidelines')}</p>
+                      </div>
+                    )}
                   </div>
 
                   <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px] xl:grid-cols-[minmax(0,1fr)_380px]">
@@ -3275,7 +3403,7 @@ export default function GraduatePortal() {
 
                               <div className="flex items-center gap-2">
                                 <span className="rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700">{post.category}</span>
-                                {post.graduate_id !== currentGraduateId && (
+                                {messagingAvailable && post.graduate_id !== currentGraduateId && (
                                   <button type="button" onClick={() => void createDirectChat(post.graduate_id)} className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
                                     Message
                                   </button>
@@ -3323,16 +3451,21 @@ export default function GraduatePortal() {
                             <h2 className="text-xl font-bold text-slate-900">Chats</h2>
                             <p className="text-sm text-slate-500">Direct and group conversations inside the forum.</p>
                           </div>
-                          <div className="flex gap-2">
-                            <button type="button" onClick={() => openChatModal('direct')} className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                              New Chat
-                            </button>
-                            <button type="button" onClick={() => openChatModal('group')} className="rounded-full bg-blue-700 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-800">
-                              Group Chat
-                            </button>
-                          </div>
+                          {messagingAvailable && (
+                            <div className="flex gap-2">
+                              <button type="button" onClick={() => openChatModal('direct')} className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                                New Chat
+                              </button>
+                              <button type="button" onClick={() => openChatModal('group')} className="rounded-full bg-blue-700 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-800">
+                                Group Chat
+                              </button>
+                            </div>
+                          )}
                         </div>
 
+                        {!messagingAvailable ? (
+                          <FeatureUnavailable compact title="Messages are currently unavailable." message="This feature is currently unavailable." />
+                        ) : (
                         <div className="mt-4 rounded-3xl bg-[#fafbff] p-3">
                           <label className="relative block">
                             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -3365,17 +3498,30 @@ export default function GraduatePortal() {
                             )}
                           </div>
                         </div>
+                        )}
                       </aside>
                     </div>
                   </div>
                 </section>
               )}
 
-              {activeTab === 'messages' && renderChatWorkspace('direct')}
+              {activeTab === 'messages' && (
+                unavailableForTab(activeTab)
+                  ? <FeatureUnavailable compact {...unavailableForTab(activeTab)!} />
+                  : renderChatWorkspace('direct')
+              )}
 
-              {activeTab === 'group_chats' && renderChatWorkspace('group')}
+              {activeTab === 'group_chats' && (
+                unavailableForTab(activeTab)
+                  ? <FeatureUnavailable compact {...unavailableForTab(activeTab)!} />
+                  : renderChatWorkspace('group')
+              )}
 
-              {activeTab === 'jobs' && (
+              {activeTab === 'jobs' && unavailableForTab(activeTab) && (
+                <FeatureUnavailable compact {...unavailableForTab(activeTab)!} />
+              )}
+
+              {activeTab === 'jobs' && !unavailableForTab(activeTab) && (
                 <section className="space-y-5">
                   <div className="rounded-[32px] border border-slate-200 bg-white p-5 shadow-sm">
                     <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -3456,7 +3602,11 @@ export default function GraduatePortal() {
                 </section>
               )}
 
-              {activeTab === 'job_posting' && (
+              {activeTab === 'job_posting' && unavailableForTab(activeTab) && (
+                <FeatureUnavailable compact {...unavailableForTab(activeTab)!} />
+              )}
+
+              {activeTab === 'job_posting' && !unavailableForTab(activeTab) && (
                 <section className="space-y-6">
                   {!showJobPostForm && (
                     <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
@@ -3831,50 +3981,58 @@ export default function GraduatePortal() {
               <textarea value={forumForm.content} onChange={(event) => setForumForm((current) => ({ ...current, content: event.target.value }))} rows={8} className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-500" />
             </Field>
 
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <input
-                ref={forumMediaInputRef}
-                type="file"
-                accept={forumMediaAccept}
-                multiple
-                className="hidden"
-                onChange={(event) => handleForumMediaSelection(event.target.files)}
-              />
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-slate-900">Post Media</p>
-                  <p className="text-xs text-slate-500">Up to 10 photos/videos. Images up to 5 MB, videos up to 50 MB.</p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button type="button" onClick={() => forumMediaInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100">
-                    <ImagePlus className="h-4 w-4" />
-                    {forumMediaFiles.length > 0 || forumForm.media.length > 0 ? 'Replace Media' : 'Add Media'}
-                  </button>
-                  {(forumMediaFiles.length > 0 || (forumForm.media.length > 0 && !forumForm.remove_media)) && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setForumMediaFiles([]);
-                        setForumForm((current) => ({ ...current, remove_media: current.media.length > 0 }));
-                        if (forumMediaInputRef.current) {
-                          forumMediaInputRef.current.value = '';
-                        }
-                      }}
-                      className="rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100"
-                    >
-                      Remove
+            {forumMediaEnabled ? (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                <input
+                  ref={forumMediaInputRef}
+                  type="file"
+                  accept={forumMediaAccept}
+                  multiple
+                  className="hidden"
+                  onChange={(event) => handleForumMediaSelection(event.target.files)}
+                />
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">Post Media</p>
+                    <p className="text-xs text-slate-500">Up to 10 photos/videos. Images up to 5 MB, videos up to 50 MB.</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={() => forumMediaInputRef.current?.click()} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100">
+                      <ImagePlus className="h-4 w-4" />
+                      {forumMediaFiles.length > 0 || forumForm.media.length > 0 ? 'Replace Media' : 'Add Media'}
                     </button>
-                  )}
+                    {(forumMediaFiles.length > 0 || (forumForm.media.length > 0 && !forumForm.remove_media)) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setForumMediaFiles([]);
+                          setForumForm((current) => ({ ...current, remove_media: current.media.length > 0 }));
+                          if (forumMediaInputRef.current) {
+                            forumMediaInputRef.current.value = '';
+                          }
+                        }}
+                        className="rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100"
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
                 </div>
+                {forumMediaFiles.length > 0 && (
+                  <SelectedMediaPreview files={forumMediaFiles} />
+                )}
+                {forumMediaFiles.length === 0 && forumForm.media.length > 0 && !forumForm.remove_media && (
+                  <StaticMediaPreview media={forumForm.media} />
+                )}
+                {forumForm.remove_media && <p className="mt-3 text-sm text-rose-600">The current attachments will be removed after saving.</p>}
               </div>
-              {forumMediaFiles.length > 0 && (
-                <SelectedMediaPreview files={forumMediaFiles} />
-              )}
-              {forumMediaFiles.length === 0 && forumForm.media.length > 0 && !forumForm.remove_media && (
-                <StaticMediaPreview media={forumForm.media} />
-              )}
-              {forumForm.remove_media && <p className="mt-3 text-sm text-rose-600">The current attachments will be removed after saving.</p>}
-            </div>
+            ) : (
+              <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+                <p className="text-sm font-semibold text-slate-900">Post Media</p>
+                <p className="mt-1 text-xs text-slate-500">Media uploads are currently unavailable.</p>
+                {forumForm.media.length > 0 && !forumForm.remove_media && <StaticMediaPreview media={forumForm.media} />}
+              </div>
+            )}
 
             <div className="flex flex-wrap gap-3">
               <button type="submit" disabled={forumSubmitting || aiModerating} className="inline-flex items-center gap-2 rounded-full bg-blue-700 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60">
@@ -4006,9 +4164,11 @@ export default function GraduatePortal() {
                     <div className="flex flex-wrap gap-2">
                       {selectedPost.graduate_id !== currentGraduateId && (
                         <>
-                          <button type="button" onClick={() => void createDirectChat(selectedPost.graduate_id)} className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                            Message Author
-                          </button>
+                          {messagingAvailable && (
+                            <button type="button" onClick={() => void createDirectChat(selectedPost.graduate_id)} className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                              Message Author
+                            </button>
+                          )}
                           <button type="button" onClick={() => openReportModal({ target_type: 'post', target_id: selectedPost.id, label: selectedPost.title })} className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-100">
                             <Flag className="h-3.5 w-3.5" />
                             Report
@@ -4079,9 +4239,11 @@ export default function GraduatePortal() {
                               <div className="mt-3 flex flex-wrap gap-2">
                                 {comment.graduate_id !== currentGraduateId && (
                                   <>
-                                    <button type="button" onClick={() => void createDirectChat(comment.graduate_id)} className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                                      Message
-                                    </button>
+                                    {messagingAvailable && (
+                                      <button type="button" onClick={() => void createDirectChat(comment.graduate_id)} className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                                        Message
+                                      </button>
+                                    )}
                                     <button type="button" onClick={() => openReportModal({ target_type: 'comment', target_id: comment.id, label: 'this comment' })} className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100">
                                       <Flag className="h-3.5 w-3.5" />
                                       Report

@@ -1,5 +1,7 @@
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { useSystemSettings } from '../contexts/SystemSettingsContext';
+import MaintenancePage from '../pages/MaintenancePage';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -8,8 +10,9 @@ interface ProtectedRouteProps {
 
 export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
   const { isAuthenticated, isLoading, user } = useAuth();
+  const { isMaintenanceMode, isLoading: settingsLoading } = useSystemSettings();
 
-  if (isLoading) {
+  if (isLoading || settingsLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="text-center">
@@ -36,6 +39,10 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
           ? '/admin/survey-status'
           : '/admin';
     return <Navigate to={fallbackPath} replace />;
+  }
+
+  if (isMaintenanceMode && user?.role !== 'super_admin') {
+    return <MaintenancePage />;
   }
 
   return <>{children}</>;

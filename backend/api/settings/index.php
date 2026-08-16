@@ -1,216 +1,162 @@
 <?php
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/system_settings.php';
+require_once __DIR__ . '/../config/audit_trail.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-if (!isset($_SESSION['user_id'])) {
-    http_response_code(401);
-    echo json_encode(["success" => false, "error" => "Authentication required"]);
-    exit;
-}
-
-if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'super_admin') {
-    http_response_code(403);
-    echo json_encode(["success" => false, "error" => "Only super admin can manage system settings"]);
-    exit;
-}
-
 $database = new Database();
 $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
+$scope = strtolower(trim((string) ($_GET['scope'] ?? $_GET['action'] ?? 'admin')));
 
-$defaultSettings = [
-    ['setting_key' => 'institution_name', 'setting_value' => 'Norzagaray College', 'setting_group' => 'institution'],
-    ['setting_key' => 'institution_address', 'setting_value' => 'Norzagaray, Bulacan', 'setting_group' => 'institution'],
-    ['setting_key' => 'site_name', 'setting_value' => 'GradTrack - Norzagaray College', 'setting_group' => 'institution'],
-    ['setting_key' => 'site_description', 'setting_value' => 'Graduate Tracer System', 'setting_group' => 'institution'],
-    ['setting_key' => 'contact_email', 'setting_value' => 'norzagaraycollege2007@gmail.com', 'setting_group' => 'institution'],
-    ['setting_key' => 'contact_phone', 'setting_value' => '', 'setting_group' => 'institution'],
-    ['setting_key' => 'academic_year', 'setting_value' => '2025-2026', 'setting_group' => 'academic'],
-    ['setting_key' => 'active_semester', 'setting_value' => '1st Semester', 'setting_group' => 'academic'],
-    ['setting_key' => 'current_tracer_batch', 'setting_value' => 'Batch 2025', 'setting_group' => 'academic'],
-    ['setting_key' => 'default_graduation_year', 'setting_value' => '2025', 'setting_group' => 'academic'],
-    ['setting_key' => 'survey_reminder_days', 'setting_value' => '3', 'setting_group' => 'surveys'],
-    ['setting_key' => 'survey_token_expiry_days', 'setting_value' => '60', 'setting_group' => 'surveys'],
-    ['setting_key' => 'allow_late_survey_responses', 'setting_value' => 'true', 'setting_group' => 'surveys'],
-    ['setting_key' => 'auto_close_inactive_surveys', 'setting_value' => 'false', 'setting_group' => 'surveys'],
-    ['setting_key' => 'enable_email_notifications', 'setting_value' => 'true', 'setting_group' => 'notifications'],
-    ['setting_key' => 'notify_admin_on_survey_response', 'setting_value' => 'true', 'setting_group' => 'notifications'],
-    ['setting_key' => 'reminder_sender_name', 'setting_value' => 'GradTrack Support', 'setting_group' => 'notifications'],
-    ['setting_key' => 'maintenance_mode', 'setting_value' => 'false', 'setting_group' => 'security'],
-    ['setting_key' => 'session_timeout_minutes', 'setting_value' => '60', 'setting_group' => 'security'],
-    ['setting_key' => 'minimum_password_length', 'setting_value' => '8', 'setting_group' => 'security'],
-    ['setting_key' => 'backup_reminder_days', 'setting_value' => '7', 'setting_group' => 'data'],
-    ['setting_key' => 'data_retention_years', 'setting_value' => '10', 'setting_group' => 'data'],
-    ['setting_key' => 'audit_log_retention_days', 'setting_value' => '365', 'setting_group' => 'data'],
-];
-
-function ensureSystemSettingsTable(PDO $db): void
+function gradtrack_settings_require_super_admin(): void
 {
-    $db->exec("
-        CREATE TABLE IF NOT EXISTS system_settings (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            setting_key VARCHAR(100) NOT NULL UNIQUE,
-            setting_value TEXT NULL,
-            setting_group VARCHAR(50) DEFAULT 'general',
-            updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-        )
-    ");
-}
-
-function settingsByKey(array $settings): array
-{
-    $byKey = [];
-    foreach ($settings as $setting) {
-        $byKey[$setting['setting_key']] = $setting;
+    if (!isset($_SESSION['user_id'])) {
+        http_response_code(401);
+        echo json_encode(['success' => false, 'error' => 'Authentication required']);
+        exit;
     }
-    return $byKey;
-}
 
-function seedDefaultSettings(PDO $db, array $defaultSettings): void
-{
-    $stmt = $db->prepare("
-        INSERT INTO system_settings (setting_key, setting_value, setting_group)
-        VALUES (:key, :value, :group)
-        ON DUPLICATE KEY UPDATE setting_key = setting_key
-    ");
-
-    foreach ($defaultSettings as $setting) {
-        $stmt->execute([
-            ':key' => $setting['setting_key'],
-            ':value' => $setting['setting_value'],
-            ':group' => $setting['setting_group'],
-        ]);
+    if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'super_admin') {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'Only super admin can manage system settings']);
+        exit;
     }
 }
 
-function loadSettings(PDO $db, array $defaultSettings): array
+function gradtrack_settings_request_payload(): array
 {
-    $stmt = $db->query("SELECT * FROM system_settings");
-    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    $rowsByKey = settingsByKey($rows);
-
-    $ordered = [];
-    foreach ($defaultSettings as $default) {
-        $key = $default['setting_key'];
-        $setting = $rowsByKey[$key] ?? $default;
-        $setting['setting_group'] = $default['setting_group'];
-        $ordered[] = $setting;
-        unset($rowsByKey[$key]);
+    $raw = file_get_contents('php://input');
+    if ($raw === false || trim($raw) === '') {
+        return [];
     }
 
-    foreach ($rowsByKey as $extraSetting) {
-        $ordered[] = $extraSetting;
-    }
-
-    return $ordered;
+    $decoded = json_decode($raw, true);
+    return is_array($decoded) ? $decoded : [];
 }
 
-function groupSettings(array $settings): array
+function gradtrack_settings_normalize_update_payload(array $payload): array
 {
-    $grouped = [];
-    foreach ($settings as $setting) {
-        $grouped[$setting['setting_group']][] = $setting;
-    }
-    return $grouped;
-}
+    $settings = $payload['settings'] ?? $payload;
 
-function normalizeSettingValue($value): string
-{
-    if (is_bool($value)) {
-        return $value ? 'true' : 'false';
+    if (!is_array($settings)) {
+        throw new InvalidArgumentException('Settings payload is required.');
     }
 
-    if ($value === null) {
-        return '';
+    $normalized = [];
+    foreach ($settings as $key => $value) {
+        if (is_array($value) && isset($value['setting_key'])) {
+            $normalized[] = $value;
+            continue;
+        }
+
+        $normalized[(string) $key] = $value;
     }
 
-    return trim((string) $value);
-}
-
-function validateKnownSetting(array $setting, array $defaultSettingsByKey): ?string
-{
-    $key = isset($setting['setting_key']) ? trim((string) $setting['setting_key']) : '';
-    if ($key === '') {
-        return 'Each setting must include a setting_key.';
-    }
-
-    if (!isset($defaultSettingsByKey[$key])) {
-        return "Unknown setting: $key";
-    }
-
-    return null;
+    return $normalized;
 }
 
 try {
-    ensureSystemSettingsTable($db);
-    seedDefaultSettings($db, $defaultSettings);
-    $defaultSettingsByKey = settingsByKey($defaultSettings);
+    if ($method === 'GET' && in_array($scope, ['public', 'display'], true)) {
+        echo json_encode(gradtrack_system_public_payload($db));
+        exit;
+    }
+
+    gradtrack_settings_require_super_admin();
 
     switch ($method) {
         case 'GET':
-            $settings = loadSettings($db, $defaultSettings);
+            $settings = gradtrack_load_system_settings($db);
             echo json_encode([
-                "success" => true,
-                "data" => $settings,
-                "grouped" => groupSettings($settings),
+                'success' => true,
+                'data' => $settings,
+                'settings' => gradtrack_system_settings_assoc($settings),
+                'grouped' => gradtrack_group_system_settings($settings),
             ]);
             break;
 
         case 'PUT':
-            $data = json_decode(file_get_contents("php://input"), true);
+            $payload = gradtrack_settings_request_payload();
+            $incomingSettings = gradtrack_settings_normalize_update_payload($payload);
+            $before = gradtrack_system_settings_assoc(gradtrack_load_system_settings($db));
+            $settings = gradtrack_save_system_settings($db, $incomingSettings, (int) $_SESSION['user_id']);
+            $after = gradtrack_system_settings_assoc($settings);
 
-            if (!isset($data['settings']) || !is_array($data['settings'])) {
+            logAuditTrail(
+                (int) $_SESSION['user_id'],
+                trim((string) ($_SESSION['full_name'] ?? $_SESSION['username'] ?? 'Super Admin')),
+                'super_admin',
+                null,
+                'Update',
+                'System Settings',
+                'Updated system customization settings.',
+                null,
+                $before,
+                $after
+            );
+
+            echo json_encode([
+                'success' => true,
+                'message' => 'System settings updated successfully.',
+                'data' => $settings,
+                'settings' => $after,
+                'grouped' => gradtrack_group_system_settings($settings),
+            ]);
+            break;
+
+        case 'POST':
+            $action = strtolower(trim((string) ($_GET['action'] ?? $_POST['action'] ?? '')));
+            if ($action !== 'upload') {
                 http_response_code(400);
-                echo json_encode(["success" => false, "error" => "Settings array is required"]);
+                echo json_encode(['success' => false, 'error' => 'Unsupported settings action.']);
                 break;
             }
 
-            foreach ($data['settings'] as $setting) {
-                $validationError = validateKnownSetting($setting, $defaultSettingsByKey);
-                if ($validationError !== null) {
-                    http_response_code(400);
-                    echo json_encode(["success" => false, "error" => $validationError]);
-                    exit;
-                }
+            $imageType = strtolower(trim((string) ($_POST['image_type'] ?? $_GET['image_type'] ?? '')));
+            $file = $_FILES['image'] ?? $_FILES['file'] ?? null;
+            if (!is_array($file)) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'error' => 'Image file is required.']);
+                break;
             }
 
-            $stmt = $db->prepare("
-                INSERT INTO system_settings (setting_key, setting_value, setting_group)
-                VALUES (:key, :value, :group)
-                ON DUPLICATE KEY UPDATE
-                    setting_value = VALUES(setting_value),
-                    setting_group = VALUES(setting_group)
-            ");
+            $upload = gradtrack_save_system_branding_upload($db, $imageType, $file, (int) $_SESSION['user_id']);
+            logAuditTrail(
+                (int) $_SESSION['user_id'],
+                trim((string) ($_SESSION['full_name'] ?? $_SESSION['username'] ?? 'Super Admin')),
+                'super_admin',
+                null,
+                'Update',
+                'System Settings',
+                'Uploaded a system branding image.',
+                $upload['setting_key'],
+                null,
+                ['setting_key' => $upload['setting_key']]
+            );
 
-            foreach ($data['settings'] as $setting) {
-                $key = trim((string) $setting['setting_key']);
-                $default = $defaultSettingsByKey[$key];
-
-                $stmt->execute([
-                    ':key' => $key,
-                    ':value' => normalizeSettingValue($setting['setting_value'] ?? ''),
-                    ':group' => $default['setting_group'],
-                ]);
-            }
-
-            $settings = loadSettings($db, $defaultSettings);
             echo json_encode([
-                "success" => true,
-                "message" => "Settings updated",
-                "data" => $settings,
-                "grouped" => groupSettings($settings),
+                'success' => true,
+                'message' => 'Branding image uploaded successfully.',
+                'setting_key' => $upload['setting_key'],
+                'file_path' => $upload['file_path'],
+                'data' => $upload['settings'],
+                'settings' => gradtrack_system_settings_assoc($upload['settings']),
+                'grouped' => gradtrack_group_system_settings($upload['settings']),
             ]);
             break;
 
         default:
             http_response_code(405);
-            echo json_encode(["success" => false, "error" => "Method not allowed"]);
+            echo json_encode(['success' => false, 'error' => 'Method not allowed']);
     }
-} catch (Exception $e) {
+} catch (InvalidArgumentException $e) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+} catch (Throwable $e) {
     http_response_code(500);
-    echo json_encode(["success" => false, "error" => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
 }

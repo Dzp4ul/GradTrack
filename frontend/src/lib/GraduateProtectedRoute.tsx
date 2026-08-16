@@ -1,10 +1,13 @@
 import { Navigate } from 'react-router-dom';
 import { useGraduateAuth } from '../contexts/GraduateAuthContext';
+import { useSystemSettings } from '../contexts/SystemSettingsContext';
+import MaintenancePage from '../pages/MaintenancePage';
 
 export function GraduateProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isLoading, isAuthenticated } = useGraduateAuth();
+  const { isMaintenanceMode, isLoading: settingsLoading } = useSystemSettings();
 
-  if (isLoading) {
+  if (isLoading || settingsLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-gray-50">
         <div className="text-center">
@@ -17,6 +20,10 @@ export function GraduateProtectedRoute({ children }: { children: React.ReactNode
 
   if (!isAuthenticated) {
     return <Navigate to="/graduate/signin" replace />;
+  }
+
+  if (isMaintenanceMode) {
+    return <MaintenancePage />;
   }
 
   return <>{children}</>;

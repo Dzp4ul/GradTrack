@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
+import type { ReactNode } from 'react';
 import HomePage from './pages/HomePage';
 import AboutPage from './pages/AboutPage';
 import FAQPage from './pages/FAQPage';
@@ -10,6 +11,7 @@ import SurveyVerification from './pages/SurveyVerification';
 import GraduateSignIn from './pages/GraduateSignIn';
 import GraduateForgotPassword from './pages/GraduateForgotPassword';
 import GraduatePortal from './pages/GraduatePortal';
+import MaintenancePage from './pages/MaintenancePage';
 import AdminLayout from './pages/admin/AdminLayout';
 import AdminProfile from './pages/admin/AdminProfile';
 import Dashboard from './pages/admin/Dashboard';
@@ -33,11 +35,30 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ProtectedRoute } from './lib/ProtectedRoute';
 import { GraduateAuthProvider } from './contexts/GraduateAuthContext';
 import { GraduateProtectedRoute } from './lib/GraduateProtectedRoute';
+import { useSystemSettings } from './contexts/SystemSettingsContext';
 
 const SUPER_ADMIN_ROLES = ['super_admin'];
 const ADMIN_ROLES = ['admin'];
 const ALUMNI_ADMIN_ROLES = ['alumni_admin'];
 const DEAN_ROLES = ['dean_cs', 'dean_coed', 'dean_hm'];
+
+function PublicPage({ children }: { children: ReactNode }) {
+  const { isMaintenanceMode, isLoading } = useSystemSettings();
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+        <div className="h-10 w-10 animate-spin rounded-full border-b-2 border-blue-600" />
+      </div>
+    );
+  }
+
+  if (isMaintenanceMode) {
+    return <MaintenancePage />;
+  }
+
+  return <>{children}</>;
+}
 
 function AdminHome() {
   const { user } = useAuth();
@@ -76,10 +97,11 @@ function App() {
     <AuthProvider>
       <GraduateAuthProvider>
         <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/about" element={<AboutPage />} />
-          <Route path="/faq" element={<FAQPage />} />
-          <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+          <Route path="/" element={<PublicPage><HomePage /></PublicPage>} />
+          <Route path="/about" element={<PublicPage><AboutPage /></PublicPage>} />
+          <Route path="/faq" element={<PublicPage><FAQPage /></PublicPage>} />
+          <Route path="/privacy-policy" element={<PublicPage><PrivacyPolicyPage /></PublicPage>} />
+          <Route path="/maintenance" element={<MaintenancePage />} />
           <Route path="/survey-verify" element={<SurveyVerification />} />
           <Route path="/survey" element={<Survey />} />
 
@@ -195,6 +217,10 @@ function App() {
             />
             <Route
               path="settings"
+              element={<Navigate to="/admin/system-settings" replace />}
+            />
+            <Route
+              path="system-settings"
               element={
                 <ProtectedRoute allowedRoles={SUPER_ADMIN_ROLES}>
                   <Settings />

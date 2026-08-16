@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../config/psgc_address.php';
+require_once __DIR__ . '/../config/system_settings.php';
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 use PHPMailer\PHPMailer\Exception as MailException;
@@ -392,6 +393,7 @@ $database = new Database();
 $conn = $database->getConnection();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        gradtrack_system_require_feature_enabled($conn, 'graduate_survey', 'Graduate Tracer Survey');
     $data = json_decode(file_get_contents("php://input"), true);
     
     $token = $data['token'] ?? null;

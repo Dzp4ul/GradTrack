@@ -140,6 +140,12 @@ interface SurveyAnalyticsData {
   report_tables?: SurveyReportTable[];
 }
 
+interface AiAnalyticsCacheEntry {
+  analysis: string;
+  summary: string;
+  conclusion: string;
+}
+
 interface SurveyQuestionTableRow {
   label: string;
   count: number;
@@ -367,6 +373,10 @@ export default function Reports() {
   const [surveyAnalyticsLoading, setSurveyAnalyticsLoading] = useState(false);
   const [showSurveyGraphs, setShowSurveyGraphs] = useState(false);
   const reportCacheRef = useRef<Record<string, unknown>>({});
+  const aiCacheRef = useRef<Record<string, AiAnalyticsCacheEntry>>({});
+  const surveyAnalyticsCacheRef = useRef<Record<string, SurveyAnalyticsData>>({});
+  const activeReportLoadKeyRef = useRef<string | null>(null);
+  const surveyAnalyticsRequestKeyRef = useRef<string | null>(null);
   const reportRequestSeqRef = useRef(0);
   const overviewRequestSeqRef = useRef(0);
   const aiRequestSeqRef = useRef(0);
@@ -378,6 +388,20 @@ export default function Reports() {
     filters?: OverviewFilters,
   ) => (
     [type, selectedSurveyId ?? 'none', year, department, filters ? getOverviewFilterKey(filters) : 'standard'].join('|')
+  );
+
+  const getOverviewBundleCacheKey = (filters: OverviewFilters) => (
+    getReportCacheKey('overview_bundle', 'all', 'all', filters)
+  );
+
+  const getAiCacheKey = (reportType: string, year: string, department: string) => {
+    const reportYear = reportType === 'overview' ? 'all' : year;
+    const reportDepartment = reportType === 'overview' ? 'all' : department;
+    return ['ai', getReportCacheKey(reportType, reportYear, reportDepartment, overviewFilters)].join('|');
+  };
+
+  const getSurveyAnalyticsCacheKey = (surveyId: number, surveyDepartment: string) => (
+    [surveyId, surveyDepartment].join('|')
   );
 
   const applyReportDataByType = (type: string, data: unknown) => {
@@ -506,6 +530,7 @@ export default function Reports() {
     const activeFilters = type === 'overview_filter_options' ? undefined : overviewFilters;
     const cacheKey = getReportCacheKey(type, reportYear, reportDepartment, activeFilters);
     const cachedData = reportCacheRef.current[cacheKey];
+    activeReportLoadKeyRef.current = cacheKey;
 
     if (cachedData !== undefined) {
       applyReportDataByType(type, cachedData);
@@ -523,12 +548,13 @@ export default function Reports() {
     fetch(url, { credentials: 'include' })
       .then((r) => r.json())
       .then((res) => {
-        if (requestId !== reportRequestSeqRef.current) {
-          return;
-        }
-
         if (res.success) {
           reportCacheRef.current[cacheKey] = res.data;
+
+          if (requestId !== reportRequestSeqRef.current || activeReportLoadKeyRef.current !== cacheKey) {
+            return;
+          }
+
           applyReportDataByType(type, res.data);
 
           if (type !== 'overview' && !LOCATION_REPORT_TYPES.has(type)) {
@@ -538,7 +564,7 @@ export default function Reports() {
       })
       .catch(() => {})
       .finally(() => {
-        if (requestId === reportRequestSeqRef.current) {
+        if (requestId === reportRequestSeqRef.current && activeReportLoadKeyRef.current === cacheKey) {
           setLoading(false);
         }
       });
@@ -597,10 +623,6 @@ export default function Reports() {
       });
   };
 
-  const fetchSurveyAnalyticsList = () => {
-    fetchSurveyItems(true);
-  };
-
   const getSurveyDepartmentOption = (departmentValue: string) => (
     SURVEY_DEPARTMENT_OPTIONS.find((option) => option.value === departmentValue) ?? SURVEY_DEPARTMENT_OPTIONS[0]
   );
@@ -610,6 +632,17 @@ export default function Reports() {
   );
 
   const fetchSurveyAnalytics = (surveyId: number, surveyDepartment: string = selectedSurveyDepartment) => {
+    const cacheKey = getSurveyAnalyticsCacheKey(surveyId, surveyDepartment);
+    const cachedAnalytics = surveyAnalyticsCacheRef.current[cacheKey];
+
+    surveyAnalyticsRequestKeyRef.current = cacheKey;
+
+    if (cachedAnalytics) {
+      setSurveyAnalytics(cachedAnalytics);
+      setSurveyAnalyticsLoading(false);
+      return;
+    }
+
     setSurveyAnalyticsLoading(true);
     const params = new URLSearchParams({ survey_id: surveyId.toString() });
     params.set('program', getSurveyProgramFilterParam(surveyDepartment));
@@ -618,13 +651,26 @@ export default function Reports() {
       .then((r) => r.json())
       .then((res) => {
         if (res.success) {
-          setSurveyAnalytics(res.data);
+          surveyAnalyticsCacheRef.current[cacheKey] = res.data;
+          if (surveyAnalyticsRequestKeyRef.current === cacheKey) {
+            setSurveyAnalytics(res.data);
+          }
         } else {
+          if (surveyAnalyticsRequestKeyRef.current === cacheKey) {
+            setSurveyAnalytics(null);
+          }
+        }
+      })
+      .catch(() => {
+        if (surveyAnalyticsRequestKeyRef.current === cacheKey) {
           setSurveyAnalytics(null);
         }
       })
-      .catch(() => setSurveyAnalytics(null))
-      .finally(() => setSurveyAnalyticsLoading(false));
+      .finally(() => {
+        if (surveyAnalyticsRequestKeyRef.current === cacheKey) {
+          setSurveyAnalyticsLoading(false);
+        }
+      });
   };
 
   const handleSelectedSurveyChange = (surveyId: number | null) => {
@@ -700,11 +746,20 @@ export default function Reports() {
   };
 
   const fetchOverviewProgramData = async (filters: OverviewFilters): Promise<ProgramReport[]> => {
+    const cacheKey = getReportCacheKey('by_program', 'all', 'all', filters);
+    const cachedData = reportCacheRef.current[cacheKey];
+
+    if (cachedData !== undefined) {
+      return cachedData as ProgramReport[];
+    }
+
     const response = await fetch(buildReportUrl('by_program', 'all', 'all', undefined, filters), {
       credentials: 'include',
     });
     const result = await response.json();
-    return result.success && Array.isArray(result.data) ? (result.data as ProgramReport[]) : [];
+    const data = result.success && Array.isArray(result.data) ? (result.data as ProgramReport[]) : [];
+    reportCacheRef.current[cacheKey] = data;
+    return data;
   };
 
   const fetchOverviewReports = async (filters: OverviewFilters = overviewFilters) => {
@@ -713,29 +768,56 @@ export default function Reports() {
       return;
     }
 
+    const overviewCacheKey = getReportCacheKey('overview', 'all', 'all', filters);
+    const overviewProgramCacheKey = getReportCacheKey('by_program', 'all', 'all', filters);
+    const overviewBundleCacheKey = getOverviewBundleCacheKey(filters);
+    const cachedOverview = reportCacheRef.current[overviewCacheKey] as Overview | undefined;
+    const cachedOverviewPrograms = reportCacheRef.current[overviewProgramCacheKey] as ProgramReport[] | undefined;
+
+    activeReportLoadKeyRef.current = overviewBundleCacheKey;
+
+    if (cachedOverview !== undefined && cachedOverviewPrograms !== undefined) {
+      setOverview(cachedOverview);
+      setOverviewProgramData(cachedOverviewPrograms);
+      setOverviewFilterError('');
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setOverviewFilterError('');
     const requestId = ++overviewRequestSeqRef.current;
 
     try {
-      const [overviewResponse, programDataForOverview] = await Promise.all([
-        fetch(buildReportUrl('overview', 'all', 'all', undefined, filters), { credentials: 'include' }),
+      const fetchOverviewData = async (): Promise<Overview> => {
+        if (cachedOverview !== undefined) {
+          return cachedOverview;
+        }
+
+        const overviewResponse = await fetch(buildReportUrl('overview', 'all', 'all', undefined, filters), { credentials: 'include' });
+        const overviewResult = await overviewResponse.json();
+
+        if (!overviewResult.success) {
+          throw new Error(overviewResult.error || 'Failed to load overview report.');
+        }
+
+        reportCacheRef.current[overviewCacheKey] = overviewResult.data;
+        return overviewResult.data as Overview;
+      };
+
+      const [overviewData, programDataForOverview] = await Promise.all([
+        fetchOverviewData(),
         fetchOverviewProgramData(filters),
       ]);
-      const overviewResult = await overviewResponse.json();
 
-      if (requestId !== overviewRequestSeqRef.current) {
+      if (requestId !== overviewRequestSeqRef.current || activeReportLoadKeyRef.current !== overviewBundleCacheKey) {
         return;
       }
 
-      if (!overviewResult.success) {
-        throw new Error(overviewResult.error || 'Failed to load overview report.');
-      }
-
-      setOverview(overviewResult.data as Overview);
+      setOverview(overviewData);
       setOverviewProgramData(programDataForOverview);
     } catch (error) {
-      if (requestId !== overviewRequestSeqRef.current) {
+      if (requestId !== overviewRequestSeqRef.current || activeReportLoadKeyRef.current !== overviewBundleCacheKey) {
         return;
       }
 
@@ -743,7 +825,7 @@ export default function Reports() {
       setOverviewProgramData([]);
       setOverviewFilterError(error instanceof Error ? error.message : 'Failed to load overview report.');
     } finally {
-      if (requestId === overviewRequestSeqRef.current) {
+      if (requestId === overviewRequestSeqRef.current && activeReportLoadKeyRef.current === overviewBundleCacheKey) {
         setLoading(false);
       }
     }
@@ -755,6 +837,7 @@ export default function Reports() {
     }
 
     reportCacheRef.current = {};
+    aiCacheRef.current = {};
     fetchOverviewFilterOptions();
 
     // Fetch year data first to populate the filter
@@ -781,8 +864,8 @@ export default function Reports() {
     };
 
     if (tab === 'surveys') {
+      activeReportLoadKeyRef.current = 'surveys';
       setLoading(false);
-      fetchSurveyAnalyticsList();
       return;
     }
 
@@ -816,7 +899,6 @@ export default function Reports() {
   const handleApplyOverviewFilters = () => {
     const nextFilters = { ...overviewFilterDraft };
     setOverviewFilterError('');
-    reportCacheRef.current = {};
 
     if (areOverviewFiltersEqual(nextFilters, overviewFilters)) {
       if (tab === 'overview') {
@@ -832,7 +914,6 @@ export default function Reports() {
     const resetFilters = { ...DEFAULT_OVERVIEW_FILTERS };
     setOverviewFilterDraft(resetFilters);
     setOverviewFilterError('');
-    reportCacheRef.current = {};
 
     if (areOverviewFiltersEqual(resetFilters, overviewFilters)) {
       if (tab === 'overview') {
@@ -884,6 +965,16 @@ export default function Reports() {
     const params = new URLSearchParams({ type: reportType });
     const effectiveDepartment = reportType === 'overview' ? 'all' : department;
     const requestId = ++aiRequestSeqRef.current;
+    const aiCacheKey = getAiCacheKey(reportType, year, effectiveDepartment);
+    const cachedAi = aiCacheRef.current[aiCacheKey];
+
+    if (cachedAi) {
+      setAiAnalysis(cachedAi.analysis);
+      setAiSummary(cachedAi.summary);
+      setAiConclusion(cachedAi.conclusion);
+      setAiLoading(false);
+      return;
+    }
 
     setAiLoading(true);
     if (year !== 'all') {
@@ -908,15 +999,26 @@ export default function Reports() {
     })
       .then((r) => r.json())
       .then((res) => {
-        if (requestId !== aiRequestSeqRef.current) {
-          return;
-        }
-
         if (res.success && res.data && (res.data.ai_analysis || res.data.ai_summary || res.data.ai_conclusion)) {
-          setAiAnalysis(String(res.data.ai_analysis || ''));
-          setAiSummary(String(res.data.ai_summary || ''));
-          setAiConclusion(String(res.data.ai_conclusion || ''));
+          const nextAi = {
+            analysis: String(res.data.ai_analysis || ''),
+            summary: String(res.data.ai_summary || ''),
+            conclusion: String(res.data.ai_conclusion || ''),
+          };
+          aiCacheRef.current[aiCacheKey] = nextAi;
+
+          if (requestId !== aiRequestSeqRef.current) {
+            return;
+          }
+
+          setAiAnalysis(nextAi.analysis);
+          setAiSummary(nextAi.summary);
+          setAiConclusion(nextAi.conclusion);
         } else {
+          if (requestId !== aiRequestSeqRef.current) {
+            return;
+          }
+
           setAiAnalysis('AI analysis temporarily unavailable.');
           setAiSummary('');
           setAiConclusion('');

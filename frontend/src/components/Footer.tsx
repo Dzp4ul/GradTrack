@@ -1,6 +1,15 @@
 import { Link } from 'react-router-dom';
+import { useSystemSettings } from '../contexts/SystemSettingsContext';
 
 export default function Footer() {
+  const { getSetting, isEnabled, resolveAssetUrl } = useSystemSettings();
+  const logo = resolveAssetUrl(getSetting('system_logo_path'), '/Gradtrack_small.png');
+  const systemShortName = getSetting('system_short_name', 'GradTrack');
+  const contactEmail = getSetting('contact_email', 'norzagaraycollege2007@gmail.com');
+  const contactNumber = getSetting('contact_number');
+  const address = getSetting('institution_address', 'Norzagaray, Bulacan');
+  const surveyAvailable = isEnabled('survey_available', true);
+
   return (
     <footer className="border-t border-gray-200 bg-white">
       <div className="mx-auto max-w-screen-2xl px-4 py-12 sm:px-6 lg:px-8">
@@ -8,14 +17,14 @@ export default function Footer() {
           {/* Brand */}
           <div className="min-w-0">
             <div className="flex items-center gap-3">
-              <img src="/Gradtrack_small.png" alt="GradTrack" className="h-10 w-10 object-contain" />
+              <img src={logo} alt={systemShortName} className="h-10 w-10 object-contain" />
               <div>
-                <h3 className="text-lg font-bold text-gray-900">GradTrack</h3>
-                <p className="text-xs text-gray-500">Graduate Tracer System</p>
+                <h3 className="text-lg font-bold text-gray-900">{systemShortName}</h3>
+                <p className="text-xs text-gray-500">{getSetting('survey_title', 'Graduate Tracer System')}</p>
               </div>
             </div>
             <p className="mt-4 text-sm leading-relaxed text-gray-600">
-              Empowering graduates and strengthening connections for a brighter future.
+              {getSetting('footer_text', 'Empowering graduates and strengthening connections for a brighter future.')}
             </p>
           </div>
 
@@ -33,11 +42,13 @@ export default function Footer() {
                   FAQs
                 </Link>
               </li>
-              <li>
-                <Link to="/survey" className="text-sm text-gray-600 transition hover:text-blue-700">
-                  Take Survey
-                </Link>
-              </li>
+              {surveyAvailable && (
+                <li>
+                  <Link to="/survey" className="text-sm text-gray-600 transition hover:text-blue-700">
+                    Take Survey
+                  </Link>
+                </li>
+              )}
             </ul>
           </div>
 
@@ -48,14 +59,21 @@ export default function Footer() {
               <li>
                 <span className="font-semibold text-gray-800">Email:</span>
                 <br />
-                <a href="mailto:norzagaraycollege2007@gmail.com" className="text-blue-700 hover:underline">
-                  norzagaraycollege2007@gmail.com
+                <a href={`mailto:${contactEmail}`} className="text-blue-700 hover:underline">
+                  {contactEmail}
                 </a>
               </li>
+              {contactNumber && (
+                <li>
+                  <span className="font-semibold text-gray-800">Phone:</span>
+                  <br />
+                  {contactNumber}
+                </li>
+              )}
               <li>
                 <span className="font-semibold text-gray-800">Location:</span>
                 <br />
-                Norzagaray, Bulacan
+                {address}
               </li>
               <li>
                 <span className="font-semibold text-gray-800">Hours:</span>
@@ -89,8 +107,8 @@ export default function Footer() {
         </div>
 
         <div className="mt-10 border-t border-gray-100 pt-6 text-center">
-          <p className="text-sm text-gray-500">&copy; 2026 Norzagaray College. All rights reserved.</p>
-          <p className="mt-1 text-xs text-gray-400">Empowering graduates, strengthening connections</p>
+          <p className="text-sm text-gray-500">{getSetting('copyright_text', '2026 Norzagaray College. All rights reserved.')}</p>
+          <p className="mt-1 text-xs text-gray-400">{getSetting('footer_text', 'Empowering graduates, strengthening connections')}</p>
         </div>
       </div>
     </footer>
