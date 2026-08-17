@@ -10,7 +10,7 @@ function gradtrack_chat_attachments_json_error(int $statusCode, string $message)
     echo json_encode(['success' => false, 'error' => $message]);
     exit;
 }
-
+    
 function gradtrack_chat_attachments_secure_path(string $relativePath): string
 {
     $base = realpath(__DIR__ . '/../../');

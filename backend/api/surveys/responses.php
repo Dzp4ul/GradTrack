@@ -128,8 +128,8 @@ function survey_response_frontend_url(): string
             }
 
             $historicalKeys = [
-                $firstResponseKey + ((int) ($question['sort_order'] ?? 0) - $firstSortOrder),
                 (int) $question['id'] - $idOffset,
+                $firstResponseKey + ((int) ($question['sort_order'] ?? 0) - $firstSortOrder),
             ];
 
             foreach ($historicalKeys as $historicalKey) {

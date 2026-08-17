@@ -253,10 +253,14 @@ interface GraduateSurveyProfile {
     is_employed?: boolean | null;
     summary?: {
       employment_status?: string | null;
+      employment_type?: string | null;
       current_job_title?: string | null;
       company?: string | null;
       industry?: string | null;
       location?: string | null;
+      start_date?: string | null;
+      job_related_to_program?: string | null;
+      skills_used?: string | null;
     };
     fields?: GraduateProfileField[];
   };
@@ -445,7 +449,15 @@ function getBatchLabel(year?: number | null) {
 }
 
 function buildProfileLocation(user?: GraduateUser | null, survey?: GraduateSurveyProfile | null) {
-  return survey?.work?.summary?.location || user?.address || '';
+  return user?.address || survey?.work?.summary?.location || '';
+}
+
+function getGraduateFullName(user?: GraduateUser | null) {
+  return [
+    user?.first_name,
+    user?.middle_name,
+    user?.last_name,
+  ].filter((part) => hasDisplayValue(part)).join(' ') || user?.full_name || 'Graduate User';
 }
 
 function getPortalNavOpenWidth(label: string) {
@@ -920,10 +932,7 @@ export default function GraduatePortal() {
   const profileImageUrl = profileImagePreview || resolveAssetUrl(profileUser?.profile_image_path) || currentProfileImageUrl;
   const currentCoverImageUrl = resolveAssetUrl(profileUser?.cover_image_path);
   const profileCoverImageUrl = coverRemoveRequested ? '' : (coverImagePreview || currentCoverImageUrl);
-  const profileLocation = buildProfileLocation(profileUser, profileSurvey);
   const profileJobTitle = profileSurvey?.work?.summary?.current_job_title || '';
-  const profileCompany = profileSurvey?.work?.summary?.company || '';
-  const profileEmploymentStatus = profileSurvey?.work?.summary?.employment_status || '';
   const canPostJobs = !!ratingSummary?.permissions?.can_post_jobs;
   const communityAvailable = isEnabled('community_available', true);
   const jobsAvailable = isEnabled('feature_alumni_job_support_enabled', true);
@@ -4062,9 +4071,6 @@ export default function GraduatePortal() {
                     coverImageUrl={profileCoverImageUrl}
                     defaultLogoUrl={systemLogoUrl}
                     jobTitle={profileJobTitle}
-                    company={profileCompany}
-                    location={profileLocation}
-                    employmentStatus={profileEmploymentStatus}
                     saving={profileSaving}
                     onEdit={() => openProfileEditor('basic')}
                     onChangeProfilePhoto={() => profileImageInputRef.current?.click()}
@@ -4695,9 +4701,6 @@ function ProfileHeader({
   coverImageUrl,
   defaultLogoUrl,
   jobTitle,
-  company,
-  location,
-  employmentStatus,
   saving,
   onEdit,
   onChangeProfilePhoto,
@@ -4709,9 +4712,6 @@ function ProfileHeader({
   coverImageUrl: string;
   defaultLogoUrl: string;
   jobTitle: string;
-  company: string;
-  location: string;
-  employmentStatus: string;
   saving: boolean;
   onEdit: () => void;
   onChangeProfilePhoto: () => void;
@@ -4720,12 +4720,14 @@ function ProfileHeader({
 }) {
   const program = user?.program_name || user?.program_code || 'Graduate';
   const batch = getBatchLabel(user?.year_graduated);
+  const fullName = getGraduateFullName(user);
+  const summaryLine = [batch, jobTitle].filter(hasDisplayValue).join(' - ');
 
   return (
-    <div className="overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-sm">
+    <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
       <div className="relative h-56 bg-[#081733] sm:h-64 lg:h-72">
         {coverImageUrl ? (
-          <img src={coverImageUrl} alt={`${user?.full_name || 'Graduate'} cover`} className="h-full w-full object-cover" />
+          <img src={coverImageUrl} alt={`${fullName} cover`} className="h-full w-full object-cover" />
         ) : (
           <div className="absolute inset-0 overflow-hidden bg-[#081733]">
             <div className="absolute inset-x-0 top-0 h-16 bg-[#0e3475]" />
@@ -4756,56 +4758,26 @@ function ProfileHeader({
       </div>
 
       <div className="px-5 pb-6 sm:px-7">
-        <div className="-mt-14 flex flex-col gap-4 sm:-mt-16 lg:flex-row lg:items-end lg:justify-between">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
-            <div className="relative flex h-32 w-32 shrink-0 items-center justify-center rounded-full border-4 border-white bg-white shadow-lg">
-              <Avatar src={profileImageUrl} label={user?.full_name} size="xl" />
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+            <div className="relative -mt-14 flex h-32 w-32 shrink-0 items-center justify-center rounded-full border-4 border-white bg-white shadow-lg sm:-mt-16">
+              <Avatar src={profileImageUrl} label={fullName} size="xl" />
               <button type="button" onClick={onChangeProfilePhoto} disabled={saving} className="absolute bottom-2 right-2 inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60" aria-label="Change profile photo">
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
               </button>
             </div>
 
-            <div className="min-w-0 pt-1 sm:pb-2">
-              <h2 className="text-2xl font-bold text-slate-950 sm:text-3xl">{user?.full_name || 'Graduate User'}</h2>
-              <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 font-semibold text-blue-700">
-                  <GraduationCap className="h-4 w-4" />
-                  {program}
-                </span>
-                {batch && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 font-semibold text-amber-700">
-                    <CalendarDays className="h-4 w-4" />
-                    {batch}
-                  </span>
-                )}
-                {employmentStatus && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 font-semibold text-emerald-700">
-                    <CheckCircle2 className="h-4 w-4" />
-                    {employmentStatus}
-                  </span>
-                )}
-              </div>
-
-              <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-600">
-                {jobTitle && (
+            <div className="min-w-0 pt-0 sm:pt-5">
+              <h2 className="break-words text-3xl font-bold leading-tight text-slate-950 sm:text-4xl">{fullName}</h2>
+              <p className="mt-2 max-w-3xl text-base font-semibold leading-6 text-slate-700">{program}</p>
+              {summaryLine && (
+                <p className="mt-2 flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-600">
                   <span className="inline-flex items-center gap-1.5">
-                    <Briefcase className="h-4 w-4 text-slate-400" />
-                    {jobTitle}
+                    <CalendarDays className="h-4 w-4 text-amber-500" />
+                    {summaryLine}
                   </span>
-                )}
-                {company && (
-                  <span className="inline-flex items-center gap-1.5">
-                    <Building2 className="h-4 w-4 text-slate-400" />
-                    {company}
-                  </span>
-                )}
-                {location && (
-                  <span className="inline-flex items-center gap-1.5">
-                    <MapPin className="h-4 w-4 text-slate-400" />
-                    {location}
-                  </span>
-                )}
-              </div>
+                </p>
+              )}
             </div>
           </div>
 
@@ -4927,7 +4899,6 @@ function ProfileSectionContent({
       graduateStudyFields={graduateStudyFields}
       trainings={trainings}
       posts={posts}
-      activityLogs={activityLogs}
       profileImageUrl={profileImageUrl}
       forumActionKey={forumActionKey}
       onEdit={onEdit}
@@ -4948,7 +4919,6 @@ function ProfileOverview({
   graduateStudyFields,
   trainings,
   posts,
-  activityLogs,
   profileImageUrl,
   forumActionKey,
   onEdit,
@@ -4965,7 +4935,6 @@ function ProfileOverview({
   graduateStudyFields: GraduateProfileField[];
   trainings: GraduateTrainingEntry[];
   posts: ForumPost[];
-  activityLogs: ForumActivityLog[];
   profileImageUrl: string;
   forumActionKey: string;
   onEdit: (section?: ProfileEditSection) => void;
@@ -4976,19 +4945,15 @@ function ProfileOverview({
   onDeletePost: (post: ForumPost) => void;
 }) {
   return (
-    <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
       <aside className="space-y-6">
-        <ProfileAboutCard user={user} onEdit={() => onEdit('basic')} />
+        <ProfileAboutCard user={user} survey={survey} onEdit={() => onEdit('basic')} />
         <ProfileEducationCard user={user} fields={educationFields} graduateStudyFields={graduateStudyFields} compact onEdit={() => onEdit('education')} />
-        <ProfileWorkCard survey={survey} fields={workFields} compact onEdit={() => onEdit('employment')} />
+        <ProfileTrainingsSection trainings={trainings.slice(0, 2)} compact onEdit={() => onEdit('trainings')} />
       </aside>
 
       <div className="space-y-6">
-        <div className="grid gap-4 md:grid-cols-3">
-          <ProfileStatCard icon={MessageSquare} label="Posts" value={posts.length} />
-          <ProfileStatCard icon={Award} label="Trainings" value={trainings.length} />
-          <ProfileStatCard icon={Clock3} label="Activities" value={activityLogs.length} />
-        </div>
+        <ProfileWorkCard survey={survey} fields={workFields} compact onEdit={() => onEdit('employment')} />
 
         <ProfilePostsSection
           posts={posts}
@@ -5001,30 +4966,6 @@ function ProfileOverview({
           onEditPost={onEditPost}
           onDeletePost={onDeletePost}
         />
-
-        <ActivityLogsCard activityLogs={activityLogs.slice(0, 5)} />
-      </div>
-    </div>
-  );
-}
-
-function ProfileStatCard({
-  icon: Icon,
-  label,
-  value,
-}: {
-  icon: LucideIcon;
-  label: string;
-  value: number;
-}) {
-  return (
-    <div className="flex items-center gap-4 rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-sm">
-      <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
-        <Icon className="h-5 w-5" />
-      </span>
-      <div>
-        <p className="text-2xl font-bold text-slate-950">{value}</p>
-        <p className="text-sm font-semibold text-slate-500">{label}</p>
       </div>
     </div>
   );
@@ -5060,20 +5001,20 @@ function ProfileCardHeader({
 
 function ProfileAboutCard({
   user,
+  survey,
   onEdit,
 }: {
   user?: GraduateUser | null;
+  survey?: GraduateSurveyProfile | null;
   onEdit: () => void;
 }) {
   const rows = [
-    { icon: Contact, label: 'First Name', value: user?.first_name },
-    { icon: Contact, label: 'Middle Name', value: user?.middle_name },
-    { icon: Contact, label: 'Last Name', value: user?.last_name },
+    { icon: Contact, label: 'Full Name', value: getGraduateFullName(user) },
     { icon: Mail, label: 'Email Address', value: user?.email },
     { icon: Phone, label: 'Phone Number', value: user?.phone },
-    { icon: MapPin, label: 'Address', value: user?.address },
     { icon: GraduationCap, label: 'Program / Course', value: user?.program_name || user?.program_code },
     { icon: CalendarDays, label: 'Graduation Year', value: user?.year_graduated ? String(user.year_graduated) : '' },
+    { icon: MapPin, label: 'Location', value: buildProfileLocation(user, survey) },
   ].filter((row) => hasDisplayValue(row.value));
 
   return (
@@ -5118,11 +5059,23 @@ function ProfileWorkCard({
   survey?: GraduateSurveyProfile | null;
   fields: GraduateProfileField[];
   compact?: boolean;
-  onEdit: () => void;
+  onEdit?: () => void;
 }) {
-  const visibleFields = compact ? fields.slice(0, 6) : fields;
   const isEmployed = survey?.work?.is_employed;
-  const status = survey?.work?.summary?.employment_status || getProfileFieldValue(fields, 'currently_employed') || 'Employment not specified';
+  const summary = survey?.work?.summary;
+  const status = summary?.employment_status || getProfileFieldValue(fields, 'employment_status') || 'Employment not specified';
+  const jobTitle = summary?.current_job_title || getProfileFieldValue(fields, 'current_job_title');
+  const company = summary?.company || getProfileFieldValue(fields, 'company');
+  const detailRows = [
+    { icon: Briefcase, label: 'Employment Type', value: summary?.employment_type || getProfileFieldValue(fields, 'employment_type') },
+    { icon: CalendarDays, label: 'Start Date', value: summary?.start_date || getProfileFieldValue(fields, 'date_started') },
+    { icon: MapPin, label: 'Location', value: summary?.location || getProfileFieldValue(fields, 'company_location') },
+    { icon: GraduationCap, label: 'Job Relevance', value: summary?.job_related_to_program || getProfileFieldValue(fields, 'job_related_to_program') },
+    { icon: Award, label: 'Skills Used', value: summary?.skills_used || getProfileFieldValue(fields, 'skills_used') },
+  ].filter((row) => hasDisplayValue(row.value));
+  const visibleDetailRows = compact ? detailRows.slice(0, 4) : detailRows;
+  const hasRoleDetails = hasDisplayValue(jobTitle) || hasDisplayValue(company);
+  const missingWorkDetails = isEmployed === true && !hasRoleDetails;
   const statusClass = isEmployed === false
     ? 'bg-amber-50 text-amber-700'
     : isEmployed === true
@@ -5131,16 +5084,33 @@ function ProfileWorkCard({
 
   return (
     <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-      <ProfileCardHeader icon={Briefcase} title="Work Experience" actionLabel="View" onAction={onEdit} />
+      <ProfileCardHeader icon={Briefcase} title="Work Experience" actionLabel={onEdit ? 'View' : undefined} onAction={onEdit} />
       <div className={`mt-5 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold ${statusClass}`}>
         <CheckCircle2 className="h-4 w-4" />
         {status}
       </div>
 
-      {visibleFields.length === 0 ? (
+      {missingWorkDetails ? (
+        <div className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6">
+          <p className="text-sm font-semibold text-slate-700">Employment details not provided.</p>
+          <p className="mt-1 text-sm leading-6 text-slate-500">No valid job position or company has been saved for this profile.</p>
+        </div>
+      ) : hasRoleDetails ? (
+        <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-4">
+          <h4 className="text-lg font-bold text-slate-950">{jobTitle || 'Current Role'}</h4>
+          {company && <p className="mt-1 text-sm font-semibold text-slate-700">{company}</p>}
+          {visibleDetailRows.length > 0 && (
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {visibleDetailRows.map((row) => (
+                <ProfileInfoRow key={row.label} icon={row.icon} label={row.label} value={String(row.value)} />
+              ))}
+            </div>
+          )}
+        </div>
+      ) : fields.length === 0 ? (
         <ProfileEmptyState icon={Briefcase} message="No employment information available from submitted surveys." />
       ) : (
-        <ProfileFieldList fields={visibleFields} className="mt-5" />
+        <ProfileFieldList fields={compact ? fields.slice(0, 2) : fields} className="mt-5" />
       )}
     </section>
   );
@@ -5160,14 +5130,7 @@ function ProfileEducationSection({
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
       <ProfileEducationCard user={user} fields={fields} graduateStudyFields={graduateStudyFields} onEdit={onEdit} />
-      <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-        <ProfileCardHeader icon={BookOpen} title="Graduate Studies" />
-        {graduateStudyFields.length === 0 ? (
-          <ProfileEmptyState icon={BookOpen} message="No further education information available." />
-        ) : (
-          <ProfileFieldList fields={graduateStudyFields} className="mt-5" />
-        )}
-      </section>
+      <ProfileGraduateStudiesCard fields={graduateStudyFields} />
     </div>
   );
 }
@@ -5187,9 +5150,6 @@ function ProfileEducationCard({
 }) {
   const degree = getProfileFieldValue(fields, 'degree_program') || user?.program_name || user?.program_code || '';
   const year = getProfileFieldValue(fields, 'year_graduated') || (user?.year_graduated ? String(user.year_graduated) : '');
-  const batch = user?.year_graduated ? getBatchLabel(user.year_graduated) : (year ? `Batch ${year}` : '');
-  const extraFields = fields.filter((field) => !['degree_program', 'year_graduated'].includes(field.key));
-  const visibleExtraFields = compact ? extraFields.slice(0, 3) : extraFields;
 
   return (
     <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
@@ -5197,18 +5157,52 @@ function ProfileEducationCard({
       <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-4">
         <p className="font-bold text-slate-950">Norzagaray College</p>
         {degree && <p className="mt-1 text-sm text-slate-700">{degree}</p>}
-        <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-blue-700">
-          {year && <span className="rounded-full bg-white px-3 py-1">Class of {year}</span>}
-          {batch && <span className="rounded-full bg-white px-3 py-1">{batch}</span>}
-        </div>
+        {year && <p className="mt-3 text-sm font-semibold text-blue-700">Graduated: {year}</p>}
       </div>
 
-      {visibleExtraFields.length > 0 && <ProfileFieldList fields={visibleExtraFields} className="mt-5" />}
       {compact && graduateStudyFields.length > 0 && (
         <div className="mt-5 border-t border-slate-100 pt-4">
-          <p className="text-sm font-bold text-slate-900">Graduate Studies</p>
-          <ProfileFieldList fields={graduateStudyFields.slice(0, 2)} className="mt-3" />
+          <GraduateStudiesSummary fields={graduateStudyFields} />
         </div>
+      )}
+    </section>
+  );
+}
+
+function GraduateStudiesSummary({ fields }: { fields: GraduateProfileField[] }) {
+  const program = getProfileFieldValue(fields, 'graduate_program');
+  const institution = getProfileFieldValue(fields, 'college_university');
+  const earnedUnits = getProfileFieldValue(fields, 'earned_units');
+  const hasFurtherStudies = hasDisplayValue(program) || hasDisplayValue(institution);
+
+  if (!hasFurtherStudies) {
+    return null;
+  }
+
+  return (
+    <div>
+      <p className="text-sm font-bold text-slate-900">Further Studies</p>
+      <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+        {institution && <p className="font-semibold text-slate-900">{institution}</p>}
+        {program && <p className="mt-1 text-sm text-slate-700">{program}</p>}
+        {earnedUnits && earnedUnits !== '0' && <p className="mt-2 text-xs font-semibold text-slate-500">Earned units: {earnedUnits}</p>}
+      </div>
+    </div>
+  );
+}
+
+function ProfileGraduateStudiesCard({ fields }: { fields: GraduateProfileField[] }) {
+  const hasFurtherStudies = hasDisplayValue(getProfileFieldValue(fields, 'graduate_program')) || hasDisplayValue(getProfileFieldValue(fields, 'college_university'));
+
+  return (
+    <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+      <ProfileCardHeader icon={BookOpen} title="Further Studies" />
+      {hasFurtherStudies ? (
+        <div className="mt-5">
+          <GraduateStudiesSummary fields={fields} />
+        </div>
+      ) : (
+        <ProfileEmptyState icon={BookOpen} message="No further education information available." />
       )}
     </section>
   );
@@ -5216,27 +5210,26 @@ function ProfileEducationCard({
 
 function ProfileTrainingsSection({
   trainings,
+  compact,
   onEdit,
 }: {
   trainings: GraduateTrainingEntry[];
-  onEdit: () => void;
+  compact?: boolean;
+  onEdit?: () => void;
 }) {
   return (
     <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-      <ProfileCardHeader icon={Award} title="Trainings & Seminars" actionLabel="View" onAction={onEdit} />
+      <ProfileCardHeader icon={Award} title="Trainings & Seminars" actionLabel={onEdit ? 'View' : undefined} onAction={onEdit} />
       {trainings.length === 0 ? (
         <ProfileEmptyState icon={Award} message="No trainings or seminars added yet." />
       ) : (
-        <div className="mt-5 grid gap-4 lg:grid-cols-2">
+        <div className={`mt-5 grid gap-4 ${compact ? '' : 'lg:grid-cols-2'}`}>
           {trainings.map((training) => (
             <article key={training.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <h4 className="font-bold text-slate-950">{training.title || 'Training / Seminar'}</h4>
               <div className="mt-3 space-y-2 text-sm text-slate-600">
                 {training.organizer && <ProfileMiniLine icon={Building2} value={training.organizer} />}
                 {training.date && <ProfileMiniLine icon={CalendarDays} value={training.date} />}
-                {training.duration && <ProfileMiniLine icon={Clock3} value={training.duration} />}
-                {training.location && <ProfileMiniLine icon={MapPin} value={training.location} />}
-                {training.certificate && <ProfileMiniLine icon={Award} value={training.certificate} />}
               </div>
               {training.description && <p className="mt-3 whitespace-pre-line text-sm leading-6 text-slate-700">{training.description}</p>}
             </article>
@@ -5277,7 +5270,7 @@ function ProfilePostsSection({
           <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
             <MessageSquare className="h-5 w-5" />
           </span>
-          <h3 className="text-lg font-bold text-slate-950">Posts</h3>
+          <h3 className="text-lg font-bold text-slate-950">Community Forum Posts</h3>
         </div>
       </div>
 
@@ -5585,18 +5578,15 @@ function ProfileEditModal({
 
             {activeSection === 'employment' && (
               <div className="space-y-5">
+                <ProfileWorkCard survey={survey} fields={workFields} />
                 <SurveySourceCard survey={survey} />
-                {workFields.length === 0 ? (
-                  <ProfileEmptyState icon={Briefcase} message="No employment information available from submitted surveys." />
-                ) : (
-                  <ProfileFieldList fields={workFields} />
-                )}
               </div>
             )}
 
             {activeSection === 'education' && (
               <div className="space-y-5">
                 <ProfileEducationCard user={user} fields={educationFields} graduateStudyFields={graduateStudyFields} onEdit={() => onSectionChange('education')} />
+                <ProfileGraduateStudiesCard fields={graduateStudyFields} />
               </div>
             )}
 

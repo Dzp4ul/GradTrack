@@ -217,6 +217,9 @@ function gradtrack_profile_is_meaningful_answer($value): bool
         'no seminars',
         'no training attended',
         'no trainings attended',
+        'not provided',
+        'not specified',
+        '0000 00 00',
     ], true);
 }
 
@@ -234,6 +237,38 @@ function gradtrack_profile_collect_question_keys(array $decodedResponses): array
     return array_values($keys);
 }
 
+function gradtrack_profile_allows_historical_fallback(array $questions, array $decodedResponses): bool
+{
+    $questionIdSet = [];
+    foreach ($questions as $question) {
+        $questionId = (string) ($question['id'] ?? '');
+        if ($questionId !== '' && ctype_digit($questionId)) {
+            $questionIdSet[$questionId] = true;
+        }
+    }
+
+    $numericResponseKeys = [];
+    $exactQuestionKeyHits = 0;
+    foreach (array_keys($decodedResponses) as $responseKey) {
+        $responseKeyString = (string) $responseKey;
+        if (!ctype_digit($responseKeyString)) {
+            continue;
+        }
+
+        $numericResponseKeys[$responseKeyString] = true;
+        if (isset($questionIdSet[$responseKeyString])) {
+            $exactQuestionKeyHits++;
+        }
+    }
+
+    $numericKeyCount = count($numericResponseKeys);
+    if ($numericKeyCount === 0) {
+        return false;
+    }
+
+    return ($exactQuestionKeyHits / $numericKeyCount) < 0.5;
+}
+
 function gradtrack_profile_build_question_key_map(array $questions, array $decodedResponses): array
 {
     $map = [];
@@ -245,7 +280,7 @@ function gradtrack_profile_build_question_key_map(array $questions, array $decod
     }
 
     $responseKeys = gradtrack_profile_collect_question_keys($decodedResponses);
-    if (empty($map) || empty($responseKeys)) {
+    if (empty($map) || empty($responseKeys) || !gradtrack_profile_allows_historical_fallback($questions, $decodedResponses)) {
         return $map;
     }
 
@@ -270,8 +305,8 @@ function gradtrack_profile_build_question_key_map(array $questions, array $decod
         }
 
         $historicalKeys = [
-            $firstResponseKey + ((int) ($question['sort_order'] ?? 0) - $firstSortOrder),
             (int) $question['id'] - $idOffset,
+            $firstResponseKey + ((int) ($question['sort_order'] ?? 0) - $firstSortOrder),
         ];
 
         foreach ($historicalKeys as $historicalKey) {
@@ -368,9 +403,170 @@ function gradtrack_profile_field_from_question(
     return null;
 }
 
+function gradtrack_profile_make_field(string $key, string $label, $value, ?int $questionId = null, ?string $questionText = null): ?array
+{
+    if (!gradtrack_profile_is_meaningful_answer($value)) {
+        return null;
+    }
+
+    $field = [
+        'key' => $key,
+        'label' => $label,
+        'value' => gradtrack_profile_answer_text($value),
+    ];
+
+    if ($questionId !== null && $questionId > 0) {
+        $field['question_id'] = $questionId;
+    }
+
+    if ($questionText !== null && trim($questionText) !== '') {
+        $field['question_text'] = $questionText;
+    }
+
+    return $field;
+}
+
 function gradtrack_profile_compact_fields(array $fields): array
 {
     return array_values(array_filter($fields, static fn($field) => is_array($field) && trim((string) ($field['value'] ?? '')) !== ''));
+}
+
+function gradtrack_profile_field_value(?array $field): ?string
+{
+    if (!$field || !gradtrack_profile_is_meaningful_answer($field['value'] ?? null)) {
+        return null;
+    }
+
+    return trim((string) $field['value']);
+}
+
+function gradtrack_profile_is_self_employed_value($value): bool
+{
+    $text = gradtrack_profile_normalize_label(gradtrack_profile_answer_text($value));
+    return strpos($text, 'self employed') !== false || strpos($text, 'freelance') !== false;
+}
+
+function gradtrack_profile_is_unemployed_value($value): bool
+{
+    $text = gradtrack_profile_normalize_label(gradtrack_profile_answer_text($value));
+    return $text === 'unemployed'
+        || $text === 'not employed'
+        || strpos($text, 'not yet employed') !== false;
+}
+
+function gradtrack_profile_is_employed_status_value($value): bool
+{
+    $text = gradtrack_profile_normalize_label(gradtrack_profile_answer_text($value));
+    return $text === 'employed'
+        || $text === 'currently employed'
+        || $text === 'regular permanent'
+        || $text === 'temporary'
+        || $text === 'contractual'
+        || $text === 'casual'
+        || gradtrack_profile_is_self_employed_value($value);
+}
+
+function gradtrack_profile_is_generic_employment_type($value): bool
+{
+    $text = gradtrack_profile_normalize_label(gradtrack_profile_answer_text($value));
+    return in_array($text, [
+        'yes',
+        'no',
+        'employed',
+        'currently employed',
+        'unemployed',
+        'not employed',
+    ], true);
+}
+
+function gradtrack_profile_valid_job_title($value): ?string
+{
+    if (!gradtrack_profile_is_meaningful_answer($value)) {
+        return null;
+    }
+
+    $text = trim(gradtrack_profile_answer_text($value));
+    $normalized = gradtrack_profile_normalize_label($text);
+    $invalidTitles = [
+        'yes',
+        'no',
+        'employed',
+        'currently employed',
+        'unemployed',
+        'not employed',
+        'regular permanent',
+        'temporary',
+        'communication problem solving and teamwork skills',
+        'communication skills',
+        'critical thinking',
+        'career growth opportunities',
+        'work environment',
+        'career advancement',
+        'professional growth',
+        'family concern',
+        'no job opportunity',
+        'salaries and benefits',
+        'career challenge',
+        'better salary',
+    ];
+
+    if (in_array($normalized, $invalidTitles, true)) {
+        return null;
+    }
+
+    if (strpos($normalized, ' skills') !== false || strpos($normalized, 'reason') !== false) {
+        return null;
+    }
+
+    return $text;
+}
+
+function gradtrack_profile_database_employment(PDO $db, int $graduateId): ?array
+{
+    $stmt = $db->prepare('SELECT company_name, job_title, industry, employment_status, is_aligned, date_hired
+                          FROM employment
+                          WHERE graduate_id = :graduate_id
+                          ORDER BY updated_at DESC, id DESC
+                          LIMIT 1');
+    $stmt->execute([':graduate_id' => $graduateId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    return $row ?: null;
+}
+
+function gradtrack_profile_database_text(?array $row, string $key): ?string
+{
+    if (!$row || !array_key_exists($key, $row)) {
+        return null;
+    }
+
+    return gradtrack_profile_is_meaningful_answer($row[$key]) ? trim((string) $row[$key]) : null;
+}
+
+function gradtrack_profile_database_date(?array $row, string $key): ?string
+{
+    $value = gradtrack_profile_database_text($row, $key);
+    if ($value === null || $value === '0000-00-00') {
+        return null;
+    }
+
+    return $value;
+}
+
+function gradtrack_profile_alignment_label(?string $value): ?string
+{
+    $normalized = gradtrack_profile_normalize_label($value);
+    if ($normalized === 'aligned') {
+        return 'Related to Degree';
+    }
+    if ($normalized === 'partially aligned') {
+        return 'Partially Related to Degree';
+    }
+    if ($normalized === 'not aligned') {
+        return 'Not Related to Degree';
+    }
+
+    return null;
 }
 
 function gradtrack_profile_is_yes($value): bool
@@ -487,69 +683,96 @@ function gradtrack_profile_survey_data(PDO $db, array $user): ?array
     $questions = $questionStmt->fetchAll(PDO::FETCH_ASSOC);
     $questionKeyMap = gradtrack_profile_build_question_key_map($questions, $decodedResponses);
 
-    $employedQuestion = gradtrack_profile_find_question($questions, ['Employment'], ['presently employed']);
-    $employedAnswer = $employedQuestion ? gradtrack_profile_answer_for_question($decodedResponses, $questionKeyMap, $employedQuestion) : null;
+    $employmentRow = gradtrack_profile_database_employment($db, (int) $user['graduate_id']);
+    $currentlyEmployedField = gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'currently_employed', 'Currently Employed', ['Employment'], [['presently employed'], ['are you employed']]);
+    $employmentTypeField = gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'employment_type', 'Employment Type', ['Employment'], [['present employment status'], ['employment status']]);
+    $occupationField = gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'current_job_title', 'Current Job Title / Position', ['Employment'], [['present occupation'], ['current position'], ['current job title'], ['position designation']]);
+    $companyField = gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'company', 'Company / Organization', ['Employment'], [['company organization'], ['organization name'], ['company name']]);
+    $industryField = gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'industry', 'Industry / Line of Business', ['Employment'], [['major line of business'], ['industry sector'], ['industry']]);
+    $locationField = gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'company_location', 'Work Location', ['Employment'], [['company address'], ['place of work'], ['work location'], ['location']]);
+    $dateStartedField = gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'date_started', 'Date Started', ['Employment'], [['date started'], ['start date']]);
+    $jobRelevanceField = gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'job_related_to_program', 'Job Relevance', ['Employment'], [['first job related'], ['current job related'], ['job related to your course'], ['related to the course']]);
+    $selfEmployedSkillsField = gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'self_employed_skills', 'Skills Used', ['Employment'], [['self employed'], ['skills acquired']]);
+    $competenciesField = gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'skills_used', 'Skills Used', ['Employment'], [['competencies were useful']]);
+    $unemploymentReasonsField = gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'unemployment_reasons', 'Reason Not Yet Employed', ['Employment'], [['reason', 'not yet employed']]);
+
     $isEmployed = null;
-    if ($employedAnswer !== null && gradtrack_profile_answer_text($employedAnswer) !== '') {
-        if (gradtrack_profile_is_yes($employedAnswer)) {
+    $currentlyEmployedValue = gradtrack_profile_field_value($currentlyEmployedField);
+    $employmentTypeValue = gradtrack_profile_field_value($employmentTypeField);
+
+    if ($currentlyEmployedValue !== null) {
+        if (gradtrack_profile_is_yes($currentlyEmployedValue) || gradtrack_profile_is_employed_status_value($currentlyEmployedValue)) {
             $isEmployed = true;
-        } elseif (gradtrack_profile_is_no($employedAnswer)) {
+        } elseif (gradtrack_profile_is_no($currentlyEmployedValue) || gradtrack_profile_is_unemployed_value($currentlyEmployedValue)) {
             $isEmployed = false;
         }
     }
 
-    $workFields = gradtrack_profile_compact_fields([
-        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'currently_employed', 'Currently Employed', ['Employment'], [['presently employed'], ['are you employed']]),
-        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'employment_type', 'Employment Type', ['Employment'], [['present employment status'], ['employment status']]),
-        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'current_job_title', 'Current Job Title / Position', ['Employment'], [['present occupation'], ['current position'], ['current job title'], ['position designation']]),
-        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'company', 'Company / Organization', ['Employment'], [['company organization'], ['organization name'], ['company name']]),
-        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'industry', 'Industry / Line of Business', ['Employment'], [['major line of business'], ['industry sector'], ['industry']]),
-        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'company_location', 'Work Location', ['Employment'], [['company address'], ['place of work'], ['work location'], ['location']]),
-        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'date_started', 'Date Started', ['Employment'], [['date started'], ['start date']]),
-        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'job_level', 'Job Level / Position', ['Employment'], [['job level']]),
-        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'monthly_income_range', 'Monthly Income Range', ['Employment'], [['gross monthly earning'], ['monthly salary'], ['monthly income']]),
-        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'job_related_to_program', 'Job Related to Program', ['Employment'], [['first job related'], ['current job related'], ['job related to your course'], ['related to the course']]),
-        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'self_employed_skills', 'Skills Applied in Self-Employment', ['Employment'], [['self employed'], ['skills acquired']]),
-        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'first_job', 'First Job After College', ['Employment'], [['first job after college']]),
-        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'reason_staying', 'Reason for Staying on the Job', ['Employment'], [['reason', 'staying on the job']]),
-        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'reason_changing', 'Reason for Changing Job', ['Employment'], [['reason', 'changing job']]),
-        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'first_job_duration', 'Length of Stay in First Job', ['Employment'], [['stay in your first job']]),
-        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'find_first_job', 'How First Job Was Found', ['Employment'], [['find your first job']]),
-        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'time_to_first_job', 'Time to Land First Job', ['Employment'], [['land your first job']]),
-        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'curriculum_relevant', 'Curriculum Relevant to First Job', ['Employment'], [['curriculum relevant']]),
-        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'useful_competencies', 'Useful Competencies', ['Employment'], [['competencies were useful']]),
-        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'unemployment_reasons', 'Reason Not Yet Employed', ['Employment'], [['reason', 'not yet employed']]),
-    ]);
-
-    if ($isEmployed === null) {
-        foreach ($workFields as $field) {
-            if (in_array($field['key'], ['employment_type', 'current_job_title', 'company', 'industry'], true)) {
-                $isEmployed = true;
-                break;
-            }
+    if ($isEmployed === null && $employmentTypeValue !== null) {
+        if (gradtrack_profile_is_unemployed_value($employmentTypeValue)) {
+            $isEmployed = false;
+        } elseif (gradtrack_profile_is_employed_status_value($employmentTypeValue)) {
+            $isEmployed = true;
         }
     }
 
-    $workByKey = [];
-    foreach ($workFields as $field) {
-        $workByKey[$field['key']] = $field['value'];
+    $databaseEmploymentStatus = gradtrack_profile_database_text($employmentRow, 'employment_status');
+    if ($isEmployed === null && $databaseEmploymentStatus !== null) {
+        if (gradtrack_profile_is_unemployed_value($databaseEmploymentStatus)) {
+            $isEmployed = false;
+        } elseif (gradtrack_profile_is_employed_status_value($databaseEmploymentStatus)) {
+            $isEmployed = true;
+        }
     }
+
+    $employmentStatusText = null;
+    if ($isEmployed === true) {
+        $employmentStatusText = 'Currently Employed';
+    } elseif ($isEmployed === false) {
+        $employmentStatusText = 'Not Employed';
+    } elseif ($currentlyEmployedValue !== null) {
+        $employmentStatusText = $currentlyEmployedValue;
+    }
+
+    if ($employmentTypeValue !== null && gradtrack_profile_is_generic_employment_type($employmentTypeValue)) {
+        $employmentTypeValue = null;
+    }
+
+    $databaseJobTitle = gradtrack_profile_valid_job_title(gradtrack_profile_database_text($employmentRow, 'job_title'));
+    $surveyJobTitle = gradtrack_profile_valid_job_title(gradtrack_profile_field_value($occupationField));
+    $currentJobTitle = $isEmployed === false ? null : ($databaseJobTitle ?: $surveyJobTitle);
+    $company = $isEmployed === false ? null : (gradtrack_profile_database_text($employmentRow, 'company_name') ?: gradtrack_profile_field_value($companyField));
+    $industry = $isEmployed === false ? null : (gradtrack_profile_database_text($employmentRow, 'industry') ?: gradtrack_profile_field_value($industryField));
+    $location = $isEmployed === false ? null : gradtrack_profile_field_value($locationField);
+    $startDate = $isEmployed === false ? null : (gradtrack_profile_database_date($employmentRow, 'date_hired') ?: gradtrack_profile_field_value($dateStartedField));
+    $jobRelevance = $isEmployed === false ? null : (gradtrack_profile_field_value($jobRelevanceField) ?: gradtrack_profile_alignment_label(gradtrack_profile_database_text($employmentRow, 'is_aligned')));
+    $skillsUsed = $isEmployed === false ? null : gradtrack_profile_field_value($competenciesField);
+    if ($skillsUsed === null && $isEmployed === true && (gradtrack_profile_is_self_employed_value($employmentTypeValue) || gradtrack_profile_is_self_employed_value($currentJobTitle))) {
+        $skillsUsed = gradtrack_profile_field_value($selfEmployedSkillsField);
+    }
+
+    $workFields = gradtrack_profile_compact_fields([
+        gradtrack_profile_make_field('employment_status', 'Employment Status', $employmentStatusText),
+        gradtrack_profile_make_field('current_job_title', 'Job Position', $currentJobTitle),
+        gradtrack_profile_make_field('company', 'Company / Organization', $company),
+        gradtrack_profile_make_field('employment_type', 'Employment Type', $employmentTypeValue),
+        gradtrack_profile_make_field('date_started', 'Start Date', $startDate),
+        gradtrack_profile_make_field('company_location', 'Location', $location),
+        gradtrack_profile_make_field('job_related_to_program', 'Job Relevance', $jobRelevance),
+        gradtrack_profile_make_field('industry', 'Industry', $industry),
+        gradtrack_profile_make_field('skills_used', 'Skills Used', $skillsUsed),
+        $isEmployed === false ? gradtrack_profile_make_field('unemployment_reasons', 'Reason Not Yet Employed', gradtrack_profile_field_value($unemploymentReasonsField)) : null,
+    ]);
 
     $educationFields = gradtrack_profile_compact_fields([
         gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'degree_program', 'Degree / Program', ['Educational'], [['degree program']]),
         gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'year_graduated', 'Graduation Year', ['Educational'], [['year graduated']]),
-        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'honors_awards', 'Honors / Awards', ['Educational'], [['honors'], ['awards received']]),
-        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'examination_name', 'Professional Examination', ['Educational'], [['name of examination']]),
-        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'examination_date', 'Date Taken', ['Educational'], [['date taken']]),
-        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'examination_rating', 'Rating', ['Educational'], [['rating']]),
-        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'course_reasons', 'Reason for Taking the Course', ['Educational'], [['reason', 'taking the course'], ['reason', 'pursuing the degree']]),
     ]);
 
     $graduateStudyFields = gradtrack_profile_compact_fields([
         gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'graduate_program', 'Graduate Program', ['Graduate Studies'], [['name of graduate program'], ['graduate program']]),
-        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'earned_units', 'Earned Units', ['Graduate Studies'], [['earned units']]),
         gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'college_university', 'College / University', ['Graduate Studies'], [['college university'], ['college'], ['university']]),
-        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'advance_study_reason', 'Reason for Advance Studies', ['Graduate Studies'], [['pursue advance studies'], ['made you pursue']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'earned_units', 'Earned Units', ['Graduate Studies'], [['earned units']]),
     ]);
 
     return [
@@ -562,11 +785,15 @@ function gradtrack_profile_survey_data(PDO $db, array $user): ?array
         'work' => [
             'is_employed' => $isEmployed,
             'summary' => [
-                'employment_status' => $isEmployed === false ? 'Not employed' : ($workByKey['employment_type'] ?? ($isEmployed === true ? 'Employed' : null)),
-                'current_job_title' => $isEmployed === false ? null : ($workByKey['current_job_title'] ?? null),
-                'company' => $isEmployed === false ? null : ($workByKey['company'] ?? null),
-                'industry' => $workByKey['industry'] ?? null,
-                'location' => $workByKey['company_location'] ?? null,
+                'employment_status' => $employmentStatusText,
+                'employment_type' => $employmentTypeValue,
+                'current_job_title' => $currentJobTitle,
+                'company' => $company,
+                'industry' => $industry,
+                'location' => $location,
+                'start_date' => $startDate,
+                'job_related_to_program' => $jobRelevance,
+                'skills_used' => $skillsUsed,
             ],
             'fields' => $workFields,
         ],
