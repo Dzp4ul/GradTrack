@@ -13,6 +13,16 @@ function gradtrack_profile_upload_relative_path(int $accountId, string $fileName
     return 'uploads/profile-images/' . $accountId . '/' . $fileName;
 }
 
+function gradtrack_cover_upload_root(): string
+{
+    return realpath(__DIR__ . '/../../') . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'profile-covers';
+}
+
+function gradtrack_cover_upload_relative_path(int $accountId, string $fileName): string
+{
+    return 'uploads/profile-covers/' . $accountId . '/' . $fileName;
+}
+
 function gradtrack_profile_create_dir(string $dir): void
 {
     if (!is_dir($dir)) {
@@ -31,6 +41,543 @@ function gradtrack_profile_abs_path_from_rel(string $relativePath): string
     return realpath(__DIR__ . '/../../') . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativePath);
 }
 
+function gradtrack_profile_delete_file(?string $relativePath): void
+{
+    if (!$relativePath) {
+        return;
+    }
+
+    $absOld = gradtrack_profile_abs_path_from_rel($relativePath);
+    if (is_file($absOld)) {
+        @unlink($absOld);
+    }
+}
+
+function gradtrack_profile_validate_image_upload(array $file, string $label): array
+{
+    if ((int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+        throw new RuntimeException($label . ' upload failed');
+    }
+
+    $maxSizeBytes = 5 * 1024 * 1024;
+    $fileSize = (int) ($file['size'] ?? 0);
+    if ($fileSize <= 0 || $fileSize > $maxSizeBytes) {
+        throw new RuntimeException($label . ' must be between 1 byte and 5 MB');
+    }
+
+    $tmpPath = (string) $file['tmp_name'];
+    $finfo = new finfo(FILEINFO_MIME_TYPE);
+    $mimeType = $finfo->file($tmpPath) ?: 'application/octet-stream';
+    $allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (!in_array($mimeType, $allowedMimes, true)) {
+        throw new RuntimeException('Unsupported image type. Allowed: JPG, PNG, WEBP, GIF');
+    }
+
+    return [
+        'tmp_path' => $tmpPath,
+        'mime_type' => $mimeType,
+        'file_size' => $fileSize,
+        'original_name' => (string) ($file['name'] ?? $label),
+    ];
+}
+
+function gradtrack_profile_save_image(PDO $db, int $accountId, array $file, string $kind): void
+{
+    $isCover = $kind === 'cover';
+    $label = $isCover ? 'Cover photo' : 'Profile image';
+    $validated = gradtrack_profile_validate_image_upload($file, $label);
+
+    $existingSql = $isCover
+        ? 'SELECT file_path FROM graduate_cover_images WHERE graduate_account_id = :account_id LIMIT 1'
+        : 'SELECT file_path FROM graduate_profile_images WHERE graduate_account_id = :account_id LIMIT 1';
+    $existingStmt = $db->prepare($existingSql);
+    $existingStmt->bindParam(':account_id', $accountId);
+    $existingStmt->execute();
+    $existingPath = $existingStmt->fetch(PDO::FETCH_ASSOC)['file_path'] ?? null;
+
+    $uploadRoot = $isCover ? gradtrack_cover_upload_root() : gradtrack_profile_upload_root();
+    $accountDir = $uploadRoot . DIRECTORY_SEPARATOR . $accountId;
+    gradtrack_profile_create_dir($accountDir);
+
+    $safeOriginalName = gradtrack_profile_sanitize_filename($validated['original_name']);
+    $extension = pathinfo($safeOriginalName, PATHINFO_EXTENSION);
+    $storedPrefix = $isCover ? 'cover_' : 'profile_';
+    $storedName = uniqid($storedPrefix, true) . ($extension ? ('.' . strtolower($extension)) : '');
+    $destinationPath = $accountDir . DIRECTORY_SEPARATOR . $storedName;
+
+    if (!move_uploaded_file($validated['tmp_path'], $destinationPath)) {
+        throw new RuntimeException('Failed to save uploaded ' . strtolower($label));
+    }
+
+    $relativePath = $isCover
+        ? gradtrack_cover_upload_relative_path($accountId, $storedName)
+        : gradtrack_profile_upload_relative_path($accountId, $storedName);
+
+    $upsertSql = $isCover
+        ? "INSERT INTO graduate_cover_images
+           (graduate_account_id, file_path, original_file_name, mime_type, file_size_bytes)
+           VALUES (:account_id, :file_path, :original_file_name, :mime_type, :file_size_bytes)
+           ON DUPLICATE KEY UPDATE
+              file_path = VALUES(file_path),
+              original_file_name = VALUES(original_file_name),
+              mime_type = VALUES(mime_type),
+              file_size_bytes = VALUES(file_size_bytes)"
+        : "INSERT INTO graduate_profile_images
+           (graduate_account_id, file_path, original_file_name, mime_type, file_size_bytes)
+           VALUES (:account_id, :file_path, :original_file_name, :mime_type, :file_size_bytes)
+           ON DUPLICATE KEY UPDATE
+              file_path = VALUES(file_path),
+              original_file_name = VALUES(original_file_name),
+              mime_type = VALUES(mime_type),
+              file_size_bytes = VALUES(file_size_bytes)";
+
+    $upsertStmt = $db->prepare($upsertSql);
+    $upsertStmt->execute([
+        ':account_id' => $accountId,
+        ':file_path' => $relativePath,
+        ':original_file_name' => $validated['original_name'],
+        ':mime_type' => $validated['mime_type'],
+        ':file_size_bytes' => $validated['file_size'],
+    ]);
+
+    gradtrack_profile_delete_file($existingPath);
+}
+
+function gradtrack_profile_remove_cover_image(PDO $db, int $accountId): void
+{
+    $existingStmt = $db->prepare('SELECT file_path FROM graduate_cover_images WHERE graduate_account_id = :account_id LIMIT 1');
+    $existingStmt->execute([':account_id' => $accountId]);
+    $existingPath = $existingStmt->fetch(PDO::FETCH_ASSOC)['file_path'] ?? null;
+
+    $deleteStmt = $db->prepare('DELETE FROM graduate_cover_images WHERE graduate_account_id = :account_id');
+    $deleteStmt->execute([':account_id' => $accountId]);
+
+    gradtrack_profile_delete_file($existingPath);
+}
+
+function gradtrack_profile_normalize_label($value): string
+{
+    $text = strtolower(trim((string) ($value ?? '')));
+    $text = preg_replace('/[^a-z0-9]+/', ' ', $text);
+    return trim((string) $text);
+}
+
+function gradtrack_profile_answer_text($value): string
+{
+    if (is_array($value)) {
+        $parts = [];
+        foreach ($value as $item) {
+            $text = gradtrack_profile_answer_text($item);
+            if ($text !== '') {
+                $parts[] = $text;
+            }
+        }
+        return trim(implode(', ', $parts));
+    }
+
+    return trim((string) ($value ?? ''));
+}
+
+function gradtrack_profile_answer_values($value): array
+{
+    if (is_array($value)) {
+        $values = [];
+        foreach ($value as $item) {
+            foreach (gradtrack_profile_answer_values($item) as $nested) {
+                $values[] = $nested;
+            }
+        }
+        return array_values(array_filter($values, static fn($item) => trim((string) $item) !== ''));
+    }
+
+    $text = trim((string) ($value ?? ''));
+    if ($text === '') {
+        return [];
+    }
+
+    $lines = preg_split('/\r\n|\r|\n/', $text) ?: [$text];
+    return array_values(array_filter(array_map('trim', $lines), static fn($item) => $item !== ''));
+}
+
+function gradtrack_profile_is_meaningful_answer($value): bool
+{
+    $text = gradtrack_profile_normalize_label(gradtrack_profile_answer_text($value));
+    if ($text === '') {
+        return false;
+    }
+
+    return !in_array($text, [
+        'n a',
+        'na',
+        'none',
+        'not applicable',
+        'no training',
+        'no trainings',
+        'no seminar',
+        'no seminars',
+        'no training attended',
+        'no trainings attended',
+    ], true);
+}
+
+function gradtrack_profile_collect_question_keys(array $decodedResponses): array
+{
+    $keys = [];
+    foreach (array_keys($decodedResponses) as $key) {
+        $stringKey = (string) $key;
+        if ($stringKey !== '' && ctype_digit($stringKey)) {
+            $keys[(int) $stringKey] = (int) $stringKey;
+        }
+    }
+
+    sort($keys, SORT_NUMERIC);
+    return array_values($keys);
+}
+
+function gradtrack_profile_build_question_key_map(array $questions, array $decodedResponses): array
+{
+    $map = [];
+    foreach ($questions as $question) {
+        $questionId = (string) ($question['id'] ?? '');
+        if ($questionId !== '' && ctype_digit($questionId)) {
+            $map[$questionId] = [$questionId];
+        }
+    }
+
+    $responseKeys = gradtrack_profile_collect_question_keys($decodedResponses);
+    if (empty($map) || empty($responseKeys)) {
+        return $map;
+    }
+
+    usort($questions, static function ($a, $b) {
+        return ((int) ($a['sort_order'] ?? 0)) <=> ((int) ($b['sort_order'] ?? 0));
+    });
+
+    $firstQuestion = $questions[0] ?? null;
+    if ($firstQuestion === null || !isset($firstQuestion['id'])) {
+        return $map;
+    }
+
+    $firstQuestionId = (int) $firstQuestion['id'];
+    $firstSortOrder = (int) ($firstQuestion['sort_order'] ?? 0);
+    $firstResponseKey = (int) min($responseKeys);
+    $idOffset = $firstQuestionId - $firstResponseKey;
+
+    foreach ($questions as $question) {
+        $questionId = (string) ($question['id'] ?? '');
+        if ($questionId === '' || !isset($map[$questionId])) {
+            continue;
+        }
+
+        $historicalKeys = [
+            $firstResponseKey + ((int) ($question['sort_order'] ?? 0) - $firstSortOrder),
+            (int) $question['id'] - $idOffset,
+        ];
+
+        foreach ($historicalKeys as $historicalKey) {
+            if ($historicalKey <= 0) {
+                continue;
+            }
+
+            $historicalKeyString = (string) $historicalKey;
+            if (!in_array($historicalKeyString, $map[$questionId], true)) {
+                $map[$questionId][] = $historicalKeyString;
+            }
+        }
+    }
+
+    return $map;
+}
+
+function gradtrack_profile_answer_for_question(array $decodedResponses, array $questionKeyMap, array $question)
+{
+    $questionId = (string) ($question['id'] ?? '');
+    $keys = $questionKeyMap[$questionId] ?? [$questionId];
+
+    foreach ($keys as $key) {
+        if (array_key_exists($key, $decodedResponses)) {
+            return $decodedResponses[$key];
+        }
+    }
+
+    return null;
+}
+
+function gradtrack_profile_question_matches(array $question, array $sectionNeedles, array $textNeedles): bool
+{
+    $section = gradtrack_profile_normalize_label($question['section'] ?? '');
+    $text = gradtrack_profile_normalize_label($question['question_text'] ?? '');
+
+    foreach ($sectionNeedles as $needle) {
+        $normalized = gradtrack_profile_normalize_label($needle);
+        if ($normalized !== '' && strpos($section, $normalized) === false) {
+            return false;
+        }
+    }
+
+    foreach ($textNeedles as $needle) {
+        $normalized = gradtrack_profile_normalize_label($needle);
+        if ($normalized !== '' && strpos($text, $normalized) === false) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function gradtrack_profile_find_question(array $questions, array $sectionNeedles, array $textNeedles): ?array
+{
+    foreach ($questions as $question) {
+        if (gradtrack_profile_question_matches($question, $sectionNeedles, $textNeedles)) {
+            return $question;
+        }
+    }
+
+    return null;
+}
+
+function gradtrack_profile_field_from_question(
+    array $questions,
+    array $decodedResponses,
+    array $questionKeyMap,
+    string $key,
+    string $label,
+    array $sectionNeedles,
+    array $textNeedleGroups
+): ?array {
+    foreach ($textNeedleGroups as $textNeedles) {
+        $question = gradtrack_profile_find_question($questions, $sectionNeedles, $textNeedles);
+        if (!$question) {
+            continue;
+        }
+
+        $answer = gradtrack_profile_answer_for_question($decodedResponses, $questionKeyMap, $question);
+        if (!gradtrack_profile_is_meaningful_answer($answer)) {
+            continue;
+        }
+
+        return [
+            'key' => $key,
+            'label' => $label,
+            'value' => gradtrack_profile_answer_text($answer),
+            'question_id' => (int) ($question['id'] ?? 0),
+            'question_text' => (string) ($question['question_text'] ?? $label),
+        ];
+    }
+
+    return null;
+}
+
+function gradtrack_profile_compact_fields(array $fields): array
+{
+    return array_values(array_filter($fields, static fn($field) => is_array($field) && trim((string) ($field['value'] ?? '')) !== ''));
+}
+
+function gradtrack_profile_is_yes($value): bool
+{
+    $text = gradtrack_profile_normalize_label(gradtrack_profile_answer_text($value));
+    return $text === 'yes' || strpos($text, 'yes ') === 0 || strpos($text, ' yes') !== false;
+}
+
+function gradtrack_profile_is_no($value): bool
+{
+    $text = gradtrack_profile_normalize_label(gradtrack_profile_answer_text($value));
+    return $text === 'no' || strpos($text, 'no ') === 0 || strpos($text, ' not ') !== false;
+}
+
+function gradtrack_profile_build_training_entries(array $questions, array $decodedResponses, array $questionKeyMap): array
+{
+    $titleQuestion = gradtrack_profile_find_question($questions, ['Trainings'], ['title']);
+    $durationQuestion = gradtrack_profile_find_question($questions, ['Trainings'], ['duration']);
+    $institutionQuestion = gradtrack_profile_find_question($questions, ['Trainings'], ['institution']);
+    $dateQuestion = gradtrack_profile_find_question($questions, ['Trainings'], ['date']);
+    $locationQuestion = gradtrack_profile_find_question($questions, ['Trainings'], ['location']);
+    $descriptionQuestion = gradtrack_profile_find_question($questions, ['Trainings'], ['description']);
+    $certificateQuestion = gradtrack_profile_find_question($questions, ['Trainings'], ['certificate']);
+
+    $answers = [
+        'title' => $titleQuestion ? gradtrack_profile_answer_values(gradtrack_profile_answer_for_question($decodedResponses, $questionKeyMap, $titleQuestion)) : [],
+        'duration' => $durationQuestion ? gradtrack_profile_answer_values(gradtrack_profile_answer_for_question($decodedResponses, $questionKeyMap, $durationQuestion)) : [],
+        'organizer' => $institutionQuestion ? gradtrack_profile_answer_values(gradtrack_profile_answer_for_question($decodedResponses, $questionKeyMap, $institutionQuestion)) : [],
+        'date' => $dateQuestion ? gradtrack_profile_answer_values(gradtrack_profile_answer_for_question($decodedResponses, $questionKeyMap, $dateQuestion)) : [],
+        'location' => $locationQuestion ? gradtrack_profile_answer_values(gradtrack_profile_answer_for_question($decodedResponses, $questionKeyMap, $locationQuestion)) : [],
+        'description' => $descriptionQuestion ? gradtrack_profile_answer_values(gradtrack_profile_answer_for_question($decodedResponses, $questionKeyMap, $descriptionQuestion)) : [],
+        'certificate' => $certificateQuestion ? gradtrack_profile_answer_values(gradtrack_profile_answer_for_question($decodedResponses, $questionKeyMap, $certificateQuestion)) : [],
+    ];
+
+    $count = max(array_map('count', $answers) ?: [0]);
+    $entries = [];
+
+    for ($index = 0; $index < $count; $index++) {
+        $entry = [];
+        foreach ($answers as $key => $values) {
+            $value = trim((string) ($values[$index] ?? ($index === 0 ? ($values[0] ?? '') : '')));
+            if ($value !== '' && gradtrack_profile_is_meaningful_answer($value)) {
+                $entry[$key] = $value;
+            }
+        }
+
+        if (!empty($entry)) {
+            $entry['id'] = $index + 1;
+            $entries[] = $entry;
+        }
+    }
+
+    return $entries;
+}
+
+function gradtrack_profile_latest_survey(PDO $db, int $graduateId, int $accountId): ?array
+{
+    $accountStmt = $db->prepare('SELECT source_survey_response_id FROM graduate_accounts WHERE id = :account_id LIMIT 1');
+    $accountStmt->execute([':account_id' => $accountId]);
+    $sourceResponseId = (int) ($accountStmt->fetch(PDO::FETCH_ASSOC)['source_survey_response_id'] ?? 0);
+
+    if ($sourceResponseId > 0) {
+        $sourceStmt = $db->prepare("SELECT sr.*, s.title AS survey_title
+                                    FROM survey_responses sr
+                                    LEFT JOIN surveys s ON s.id = sr.survey_id
+                                    WHERE sr.id = :response_id
+                                      AND (sr.graduate_id = :graduate_id OR sr.graduate_account_id = :account_id)
+                                      AND sr.submitted_at IS NOT NULL
+                                    LIMIT 1");
+        $sourceStmt->execute([
+            ':response_id' => $sourceResponseId,
+            ':graduate_id' => $graduateId,
+            ':account_id' => $accountId,
+        ]);
+        $source = $sourceStmt->fetch(PDO::FETCH_ASSOC);
+        if ($source) {
+            return $source;
+        }
+    }
+
+    $stmt = $db->prepare("SELECT sr.*, s.title AS survey_title
+                          FROM survey_responses sr
+                          LEFT JOIN surveys s ON s.id = sr.survey_id
+                          WHERE (sr.graduate_id = :graduate_id OR sr.graduate_account_id = :account_id)
+                            AND sr.submitted_at IS NOT NULL
+                          ORDER BY sr.submitted_at DESC, sr.id DESC
+                          LIMIT 1");
+    $stmt->execute([
+        ':graduate_id' => $graduateId,
+        ':account_id' => $accountId,
+    ]);
+
+    $response = $stmt->fetch(PDO::FETCH_ASSOC);
+    return $response ?: null;
+}
+
+function gradtrack_profile_survey_data(PDO $db, array $user): ?array
+{
+    $response = gradtrack_profile_latest_survey($db, (int) $user['graduate_id'], (int) $user['account_id']);
+    if (!$response) {
+        return null;
+    }
+
+    $decodedResponses = json_decode((string) ($response['responses'] ?? '{}'), true);
+    if (!is_array($decodedResponses)) {
+        $decodedResponses = [];
+    }
+
+    $questionStmt = $db->prepare('SELECT id, section, question_text, question_type, sort_order
+                                  FROM survey_questions
+                                  WHERE survey_id = :survey_id
+                                  ORDER BY sort_order ASC, id ASC');
+    $questionStmt->execute([':survey_id' => (int) $response['survey_id']]);
+    $questions = $questionStmt->fetchAll(PDO::FETCH_ASSOC);
+    $questionKeyMap = gradtrack_profile_build_question_key_map($questions, $decodedResponses);
+
+    $employedQuestion = gradtrack_profile_find_question($questions, ['Employment'], ['presently employed']);
+    $employedAnswer = $employedQuestion ? gradtrack_profile_answer_for_question($decodedResponses, $questionKeyMap, $employedQuestion) : null;
+    $isEmployed = null;
+    if ($employedAnswer !== null && gradtrack_profile_answer_text($employedAnswer) !== '') {
+        if (gradtrack_profile_is_yes($employedAnswer)) {
+            $isEmployed = true;
+        } elseif (gradtrack_profile_is_no($employedAnswer)) {
+            $isEmployed = false;
+        }
+    }
+
+    $workFields = gradtrack_profile_compact_fields([
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'currently_employed', 'Currently Employed', ['Employment'], [['presently employed'], ['are you employed']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'employment_type', 'Employment Type', ['Employment'], [['present employment status'], ['employment status']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'current_job_title', 'Current Job Title / Position', ['Employment'], [['present occupation'], ['current position'], ['current job title'], ['position designation']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'company', 'Company / Organization', ['Employment'], [['company organization'], ['organization name'], ['company name']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'industry', 'Industry / Line of Business', ['Employment'], [['major line of business'], ['industry sector'], ['industry']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'company_location', 'Work Location', ['Employment'], [['company address'], ['place of work'], ['work location'], ['location']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'date_started', 'Date Started', ['Employment'], [['date started'], ['start date']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'job_level', 'Job Level / Position', ['Employment'], [['job level']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'monthly_income_range', 'Monthly Income Range', ['Employment'], [['gross monthly earning'], ['monthly salary'], ['monthly income']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'job_related_to_program', 'Job Related to Program', ['Employment'], [['first job related'], ['current job related'], ['job related to your course'], ['related to the course']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'self_employed_skills', 'Skills Applied in Self-Employment', ['Employment'], [['self employed'], ['skills acquired']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'first_job', 'First Job After College', ['Employment'], [['first job after college']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'reason_staying', 'Reason for Staying on the Job', ['Employment'], [['reason', 'staying on the job']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'reason_changing', 'Reason for Changing Job', ['Employment'], [['reason', 'changing job']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'first_job_duration', 'Length of Stay in First Job', ['Employment'], [['stay in your first job']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'find_first_job', 'How First Job Was Found', ['Employment'], [['find your first job']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'time_to_first_job', 'Time to Land First Job', ['Employment'], [['land your first job']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'curriculum_relevant', 'Curriculum Relevant to First Job', ['Employment'], [['curriculum relevant']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'useful_competencies', 'Useful Competencies', ['Employment'], [['competencies were useful']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'unemployment_reasons', 'Reason Not Yet Employed', ['Employment'], [['reason', 'not yet employed']]),
+    ]);
+
+    if ($isEmployed === null) {
+        foreach ($workFields as $field) {
+            if (in_array($field['key'], ['employment_type', 'current_job_title', 'company', 'industry'], true)) {
+                $isEmployed = true;
+                break;
+            }
+        }
+    }
+
+    $workByKey = [];
+    foreach ($workFields as $field) {
+        $workByKey[$field['key']] = $field['value'];
+    }
+
+    $educationFields = gradtrack_profile_compact_fields([
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'degree_program', 'Degree / Program', ['Educational'], [['degree program']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'year_graduated', 'Graduation Year', ['Educational'], [['year graduated']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'honors_awards', 'Honors / Awards', ['Educational'], [['honors'], ['awards received']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'examination_name', 'Professional Examination', ['Educational'], [['name of examination']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'examination_date', 'Date Taken', ['Educational'], [['date taken']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'examination_rating', 'Rating', ['Educational'], [['rating']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'course_reasons', 'Reason for Taking the Course', ['Educational'], [['reason', 'taking the course'], ['reason', 'pursuing the degree']]),
+    ]);
+
+    $graduateStudyFields = gradtrack_profile_compact_fields([
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'graduate_program', 'Graduate Program', ['Graduate Studies'], [['name of graduate program'], ['graduate program']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'earned_units', 'Earned Units', ['Graduate Studies'], [['earned units']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'college_university', 'College / University', ['Graduate Studies'], [['college university'], ['college'], ['university']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'advance_study_reason', 'Reason for Advance Studies', ['Graduate Studies'], [['pursue advance studies'], ['made you pursue']]),
+    ]);
+
+    return [
+        'response' => [
+            'id' => (int) $response['id'],
+            'survey_id' => (int) $response['survey_id'],
+            'survey_title' => $response['survey_title'] ?? 'Graduate Tracer Survey',
+            'submitted_at' => $response['submitted_at'],
+        ],
+        'work' => [
+            'is_employed' => $isEmployed,
+            'summary' => [
+                'employment_status' => $isEmployed === false ? 'Not employed' : ($workByKey['employment_type'] ?? ($isEmployed === true ? 'Employed' : null)),
+                'current_job_title' => $isEmployed === false ? null : ($workByKey['current_job_title'] ?? null),
+                'company' => $isEmployed === false ? null : ($workByKey['company'] ?? null),
+                'industry' => $workByKey['industry'] ?? null,
+                'location' => $workByKey['company_location'] ?? null,
+            ],
+            'fields' => $workFields,
+        ],
+        'education' => [
+            'fields' => $educationFields,
+            'graduate_studies' => $graduateStudyFields,
+        ],
+        'trainings' => gradtrack_profile_build_training_entries($questions, $decodedResponses, $questionKeyMap),
+    ];
+}
+
 $database = new Database();
 $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
@@ -41,10 +588,13 @@ try {
     $graduateId = (int) $user['graduate_id'];
 
     if ($method === 'GET') {
+        $currentUser = gradtrack_current_graduate_user($db);
+
         echo json_encode([
             'success' => true,
             'data' => [
-                'user' => gradtrack_current_graduate_user($db),
+                'user' => $currentUser,
+                'survey_profile' => $currentUser ? gradtrack_profile_survey_data($db, $currentUser) : null,
             ],
         ]);
         exit;
@@ -140,76 +690,29 @@ try {
         }
 
         if (isset($_FILES['profile_image']) && (int) ($_FILES['profile_image']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
-            $file = $_FILES['profile_image'];
-            if ((int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-                throw new RuntimeException('Profile image upload failed');
-            }
+            gradtrack_profile_save_image($db, $accountId, $_FILES['profile_image'], 'profile');
+        }
 
-            $maxSizeBytes = 5 * 1024 * 1024;
-            $fileSize = (int) ($file['size'] ?? 0);
-            if ($fileSize <= 0 || $fileSize > $maxSizeBytes) {
-                throw new RuntimeException('Profile image must be between 1 byte and 5 MB');
-            }
+        $removeCover = isset($_POST['remove_cover_image'])
+            && in_array(strtolower((string) $_POST['remove_cover_image']), ['1', 'true', 'yes'], true);
 
-            $tmpPath = (string) $file['tmp_name'];
-            $finfo = new finfo(FILEINFO_MIME_TYPE);
-            $mimeType = $finfo->file($tmpPath) ?: 'application/octet-stream';
-            $allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-            if (!in_array($mimeType, $allowedMimes, true)) {
-                throw new RuntimeException('Unsupported image type. Allowed: JPG, PNG, WEBP, GIF');
-            }
+        if ($removeCover) {
+            gradtrack_profile_remove_cover_image($db, $accountId);
+        }
 
-            $existingStmt = $db->prepare('SELECT file_path FROM graduate_profile_images WHERE graduate_account_id = :account_id LIMIT 1');
-            $existingStmt->bindParam(':account_id', $accountId);
-            $existingStmt->execute();
-            $existingPath = $existingStmt->fetch(PDO::FETCH_ASSOC)['file_path'] ?? null;
-
-            $uploadRoot = gradtrack_profile_upload_root();
-            $accountDir = $uploadRoot . DIRECTORY_SEPARATOR . $accountId;
-            gradtrack_profile_create_dir($accountDir);
-
-            $originalName = (string) ($file['name'] ?? 'profile');
-            $safeOriginalName = gradtrack_profile_sanitize_filename($originalName);
-            $extension = pathinfo($safeOriginalName, PATHINFO_EXTENSION);
-            $storedName = uniqid('profile_', true) . ($extension ? ('.' . strtolower($extension)) : '');
-            $destinationPath = $accountDir . DIRECTORY_SEPARATOR . $storedName;
-
-            if (!move_uploaded_file($tmpPath, $destinationPath)) {
-                throw new RuntimeException('Failed to save uploaded profile image');
-            }
-
-            $relativePath = gradtrack_profile_upload_relative_path($accountId, $storedName);
-
-            $upsertStmt = $db->prepare('INSERT INTO graduate_profile_images
-                                        (graduate_account_id, file_path, original_file_name, mime_type, file_size_bytes)
-                                        VALUES (:account_id, :file_path, :original_file_name, :mime_type, :file_size_bytes)
-                                        ON DUPLICATE KEY UPDATE
-                                            file_path = VALUES(file_path),
-                                            original_file_name = VALUES(original_file_name),
-                                            mime_type = VALUES(mime_type),
-                                            file_size_bytes = VALUES(file_size_bytes)');
-            $upsertStmt->bindParam(':account_id', $accountId);
-            $upsertStmt->bindParam(':file_path', $relativePath);
-            $upsertStmt->bindParam(':original_file_name', $originalName);
-            $upsertStmt->bindParam(':mime_type', $mimeType);
-            $upsertStmt->bindParam(':file_size_bytes', $fileSize);
-            $upsertStmt->execute();
-
-            if ($existingPath) {
-                $absOld = gradtrack_profile_abs_path_from_rel($existingPath);
-                if (is_file($absOld)) {
-                    @unlink($absOld);
-                }
-            }
+        if (!$removeCover && isset($_FILES['cover_image']) && (int) ($_FILES['cover_image']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+            gradtrack_profile_save_image($db, $accountId, $_FILES['cover_image'], 'cover');
         }
 
         $db->commit();
 
+        $currentUser = gradtrack_current_graduate_user($db);
         echo json_encode([
             'success' => true,
             'message' => 'Profile updated successfully',
             'data' => [
-                'user' => gradtrack_current_graduate_user($db),
+                'user' => $currentUser,
+                'survey_profile' => $currentUser ? gradtrack_profile_survey_data($db, $currentUser) : null,
             ],
         ]);
         exit;

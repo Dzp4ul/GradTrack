@@ -21,6 +21,7 @@ export interface GraduateUser {
   program_name?: string | null;
   program_code?: string | null;
   profile_image_path?: string | null;
+  cover_image_path?: string | null;
   role: 'graduate';
 }
 

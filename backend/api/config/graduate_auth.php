@@ -185,12 +185,29 @@ if (!function_exists('gradtrack_ensure_graduate_profile_image_table')) {
     }
 }
 
+if (!function_exists('gradtrack_ensure_graduate_cover_image_table')) {
+    function gradtrack_ensure_graduate_cover_image_table(PDO $db): void
+    {
+        $db->exec("CREATE TABLE IF NOT EXISTS graduate_cover_images (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            graduate_account_id INT NOT NULL UNIQUE,
+            file_path VARCHAR(255) NOT NULL,
+            original_file_name VARCHAR(255) NULL,
+            mime_type VARCHAR(120) NULL,
+            file_size_bytes INT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            CONSTRAINT fk_cover_image_account FOREIGN KEY (graduate_account_id) REFERENCES graduate_accounts(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    }
+}
+
 if (!function_exists('gradtrack_current_graduate_user')) {
     function gradtrack_current_graduate_user(PDO $db): ?array
     {
         gradtrack_start_session_if_needed();
         gradtrack_ensure_graduate_account_verification_schema($db);
         gradtrack_ensure_graduate_profile_image_table($db);
+        gradtrack_ensure_graduate_cover_image_table($db);
 
         if (!isset($_SESSION['graduate_account_id'])) {
             return null;
@@ -223,6 +240,11 @@ if (!function_exists('gradtrack_current_graduate_user')) {
         $profileImageStmt->execute();
         $profileImagePath = $profileImageStmt->fetch(PDO::FETCH_ASSOC)['file_path'] ?? null;
 
+        $coverImageStmt = $db->prepare('SELECT file_path FROM graduate_cover_images WHERE graduate_account_id = :account_id LIMIT 1');
+        $coverImageStmt->bindParam(':account_id', $accountId);
+        $coverImageStmt->execute();
+        $coverImagePath = $coverImageStmt->fetch(PDO::FETCH_ASSOC)['file_path'] ?? null;
+
         return [
             'account_id' => (int) $user['account_id'],
             'graduate_id' => (int) $user['graduate_id'],
@@ -243,6 +265,7 @@ if (!function_exists('gradtrack_current_graduate_user')) {
             'program_name' => $user['program_name'],
             'program_code' => $user['program_code'],
             'profile_image_path' => $profileImagePath,
+            'cover_image_path' => $coverImagePath,
             'role' => 'graduate'
         ];
     }

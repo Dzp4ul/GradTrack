@@ -1,26 +1,38 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties } from 'react';
+import type { CSSProperties, Dispatch, SetStateAction } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
+  Award,
   Briefcase,
+  BookOpen,
   Building2,
+  CalendarDays,
+  Camera,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  CheckCircle2,
+  Clock3,
+  Contact,
+  FileText,
   Flag,
+  GraduationCap,
   Heart,
   Home,
   ImagePlus,
   Loader2,
   LogOut,
+  Mail,
   MapPin,
   Maximize2,
   Menu,
   MessageCircle,
   MessageSquare,
   Pencil,
+  Phone,
   Plus,
   Search,
+  ShieldCheck,
   Trash2,
   User,
   Users,
@@ -208,6 +220,58 @@ interface ProfileFormState {
   confirm_password: string;
 }
 
+type ProfileSectionTab = 'overview' | 'work' | 'education' | 'trainings' | 'posts' | 'activity';
+type ProfileEditSection = 'basic' | 'employment' | 'education' | 'trainings' | 'photo' | 'cover' | 'security';
+
+interface GraduateProfileField {
+  key: string;
+  label: string;
+  value: string;
+  question_id?: number;
+  question_text?: string;
+}
+
+interface GraduateTrainingEntry {
+  id: number;
+  title?: string;
+  organizer?: string;
+  date?: string;
+  duration?: string;
+  location?: string;
+  description?: string;
+  certificate?: string;
+}
+
+interface GraduateSurveyProfile {
+  response?: {
+    id: number;
+    survey_id: number;
+    survey_title?: string | null;
+    submitted_at?: string | null;
+  };
+  work?: {
+    is_employed?: boolean | null;
+    summary?: {
+      employment_status?: string | null;
+      current_job_title?: string | null;
+      company?: string | null;
+      industry?: string | null;
+      location?: string | null;
+    };
+    fields?: GraduateProfileField[];
+  };
+  education?: {
+    fields?: GraduateProfileField[];
+    graduate_studies?: GraduateProfileField[];
+  };
+  trainings?: GraduateTrainingEntry[];
+}
+
+interface GraduateProfilePayload {
+  user?: GraduateUser | null;
+  survey_profile?: GraduateSurveyProfile | null;
+}
+
 interface MessageBoxState {
   isOpen: boolean;
   type: 'success' | 'error' | 'warning' | 'info' | 'confirm';
@@ -234,6 +298,24 @@ const forumCategoryFallback = [
 const passwordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
 const passwordRequirementMessage =
   'Password must be at least 8 characters and include uppercase, lowercase, number, and symbol.';
+const profileImageAccept = 'image/png,image/jpeg,image/webp,image/gif';
+const profileSectionTabs: Array<{ key: ProfileSectionTab; label: string; icon: LucideIcon }> = [
+  { key: 'overview', label: 'Overview', icon: User },
+  { key: 'work', label: 'Work', icon: Briefcase },
+  { key: 'education', label: 'Education', icon: GraduationCap },
+  { key: 'trainings', label: 'Trainings & Seminars', icon: Award },
+  { key: 'posts', label: 'Posts', icon: MessageSquare },
+  { key: 'activity', label: 'Activity', icon: Clock3 },
+];
+const profileEditSections: Array<{ key: ProfileEditSection; label: string; icon: LucideIcon }> = [
+  { key: 'basic', label: 'Basic Profile', icon: Contact },
+  { key: 'employment', label: 'Employment', icon: Briefcase },
+  { key: 'education', label: 'Education', icon: GraduationCap },
+  { key: 'trainings', label: 'Trainings', icon: Award },
+  { key: 'photo', label: 'Profile Photo', icon: Camera },
+  { key: 'cover', label: 'Cover Photo', icon: ImagePlus },
+  { key: 'security', label: 'Security', icon: ShieldCheck },
+];
 
 function getPortalTab(rawValue: string | null): PortalTab {
   if (rawValue && portalTabs.includes(rawValue as PortalTab)) {
@@ -344,6 +426,38 @@ function previewText(value: string, maxLength = 220) {
   const clean = value.trim();
   if (clean.length <= maxLength) return clean;
   return `${clean.slice(0, maxLength).trimEnd()}...`;
+}
+
+function hasDisplayValue(value?: string | number | null) {
+  return String(value ?? '').trim() !== '';
+}
+
+function getProfileField(fields: GraduateProfileField[] | undefined, key: string) {
+  return fields?.find((field) => field.key === key && hasDisplayValue(field.value));
+}
+
+function getProfileFieldValue(fields: GraduateProfileField[] | undefined, key: string) {
+  return getProfileField(fields, key)?.value || '';
+}
+
+function getBatchLabel(year?: number | null) {
+  return year ? `Batch ${year}` : '';
+}
+
+function buildProfileLocation(user?: GraduateUser | null, survey?: GraduateSurveyProfile | null) {
+  return survey?.work?.summary?.location || user?.address || '';
+}
+
+function getPortalNavOpenWidth(label: string) {
+  if (label.length >= 15) return '11.25rem';
+  if (label.length >= 11) return '10rem';
+  return '8.75rem';
+}
+
+function getPortalNavLabelWidth(label: string) {
+  if (label.length >= 15) return '8.25rem';
+  if (label.length >= 11) return '7rem';
+  return '5.75rem';
 }
 
 const forumMediaAccept = 'image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm,video/ogg,video/quicktime';
@@ -666,9 +780,18 @@ export default function GraduatePortal() {
   const [loading, setLoading] = useState(true);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-  const [profileIsEditing, setProfileIsEditing] = useState(false);
+  const [profileDetails, setProfileDetails] = useState<GraduateProfilePayload | null>(null);
+  const [profileDetailsLoaded, setProfileDetailsLoaded] = useState(false);
+  const [profileDetailsLoading, setProfileDetailsLoading] = useState(false);
+  const [profileSection, setProfileSection] = useState<ProfileSectionTab>('overview');
+  const [profileEditOpen, setProfileEditOpen] = useState(false);
+  const [profileEditSection, setProfileEditSection] = useState<ProfileEditSection>('basic');
+  const [profileSaving, setProfileSaving] = useState(false);
   const [profileImageFile, setProfileImageFile] = useState<File | null>(null);
   const [profileImagePreview, setProfileImagePreview] = useState('');
+  const [coverImageFile, setCoverImageFile] = useState<File | null>(null);
+  const [coverImagePreview, setCoverImagePreview] = useState('');
+  const [coverRemoveRequested, setCoverRemoveRequested] = useState(false);
   const [profileForm, setProfileForm] = useState<ProfileFormState>({
     first_name: '',
     middle_name: '',
@@ -763,6 +886,7 @@ export default function GraduatePortal() {
 
   const profileMenuRef = useRef<HTMLDivElement | null>(null);
   const profileImageInputRef = useRef<HTMLInputElement | null>(null);
+  const coverImageInputRef = useRef<HTMLInputElement | null>(null);
   const forumMediaInputRef = useRef<HTMLInputElement | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
   const chatSocketRef = useRef<Socket | null>(null);
@@ -785,8 +909,21 @@ export default function GraduatePortal() {
   const commentRefs = useRef<Record<number, HTMLElement | null>>({});
   const jobCardRefs = useRef<Record<number, HTMLElement | null>>({});
 
+  const profileUser = profileDetails?.user || user;
+  const profileSurvey = profileDetails?.survey_profile || null;
+  const profileWorkFields = profileSurvey?.work?.fields || [];
+  const profileEducationFields = profileSurvey?.education?.fields || [];
+  const profileGraduateStudyFields = profileSurvey?.education?.graduate_studies || [];
+  const profileTrainings = profileSurvey?.trainings || [];
   const currentGraduateId = user?.graduate_id ?? 0;
   const currentProfileImageUrl = resolveAssetUrl(user?.profile_image_path);
+  const profileImageUrl = profileImagePreview || resolveAssetUrl(profileUser?.profile_image_path) || currentProfileImageUrl;
+  const currentCoverImageUrl = resolveAssetUrl(profileUser?.cover_image_path);
+  const profileCoverImageUrl = coverRemoveRequested ? '' : (coverImagePreview || currentCoverImageUrl);
+  const profileLocation = buildProfileLocation(profileUser, profileSurvey);
+  const profileJobTitle = profileSurvey?.work?.summary?.current_job_title || '';
+  const profileCompany = profileSurvey?.work?.summary?.company || '';
+  const profileEmploymentStatus = profileSurvey?.work?.summary?.employment_status || '';
   const canPostJobs = !!ratingSummary?.permissions?.can_post_jobs;
   const communityAvailable = isEnabled('community_available', true);
   const jobsAvailable = isEnabled('feature_alumni_job_support_enabled', true);
@@ -1013,6 +1150,18 @@ export default function GraduatePortal() {
   const loadActivityLogs = useCallback(async () => {
     const response = await authenticatedFetch(`${API_ENDPOINTS.FORUM.ACTIVITY}?limit=12`);
     setActivityLogs(Array.isArray(response.data) ? (response.data as ForumActivityLog[]) : []);
+  }, [authenticatedFetch]);
+
+  const loadGraduateProfile = useCallback(async () => {
+    setProfileDetailsLoading(true);
+
+    try {
+      const response = await authenticatedFetch(API_ENDPOINTS.GRADUATE_PROFILE);
+      setProfileDetails((response.data as GraduateProfilePayload | undefined) || null);
+      setProfileDetailsLoaded(true);
+    } finally {
+      setProfileDetailsLoading(false);
+    }
   }, [authenticatedFetch]);
 
   const loadForumComments = useCallback(
@@ -1369,6 +1518,16 @@ export default function GraduatePortal() {
   }, [searchParams]);
 
   useEffect(() => {
+    if (activeTab !== 'my_profile' || profileDetailsLoaded || profileDetailsLoading) {
+      return;
+    }
+
+    void loadGraduateProfile().catch((error) => {
+      notify('warning', error instanceof Error ? error.message : 'Unable to load profile details', 'My Profile');
+    });
+  }, [activeTab, loadGraduateProfile, notify, profileDetailsLoaded, profileDetailsLoading]);
+
+  useEffect(() => {
     if (!communityAvailable) {
       routePostTargetRef.current = '';
       return;
@@ -1473,23 +1632,29 @@ export default function GraduatePortal() {
 
   useEffect(() => {
     setProfileForm({
-      first_name: user?.first_name || '',
-      middle_name: user?.middle_name || '',
-      last_name: user?.last_name || '',
-      email: user?.email || '',
-      phone: user?.phone || '',
-      address: user?.address || '',
+      first_name: profileUser?.first_name || '',
+      middle_name: profileUser?.middle_name || '',
+      last_name: profileUser?.last_name || '',
+      email: profileUser?.email || '',
+      phone: profileUser?.phone || '',
+      address: profileUser?.address || '',
       current_password: '',
       password: '',
       confirm_password: '',
     });
-  }, [user]);
+  }, [profileUser?.address, profileUser?.email, profileUser?.first_name, profileUser?.last_name, profileUser?.middle_name, profileUser?.phone]);
 
   useEffect(() => {
     if (!profileImageFile) {
-      setProfileImagePreview(currentProfileImageUrl);
+      setProfileImagePreview(resolveAssetUrl(profileUser?.profile_image_path));
     }
-  }, [currentProfileImageUrl, profileImageFile]);
+  }, [profileImageFile, profileUser?.profile_image_path]);
+
+  useEffect(() => {
+    if (!coverImageFile && !coverRemoveRequested) {
+      setCoverImagePreview(resolveAssetUrl(profileUser?.cover_image_path));
+    }
+  }, [coverImageFile, coverRemoveRequested, profileUser?.cover_image_path]);
 
   useEffect(() => {
     setMyJobForm((current) => {
@@ -2876,27 +3041,157 @@ export default function GraduatePortal() {
     });
   };
 
-  const cancelProfileEditing = () => {
-    setProfileIsEditing(false);
+  const resetProfileEditorFiles = () => {
     setProfileImageFile(null);
-    setProfileImagePreview(currentProfileImageUrl);
+    setProfileImagePreview(resolveAssetUrl(profileUser?.profile_image_path));
+    setCoverImageFile(null);
+    setCoverImagePreview(resolveAssetUrl(profileUser?.cover_image_path));
+    setCoverRemoveRequested(false);
+    if (profileImageInputRef.current) {
+      profileImageInputRef.current.value = '';
+    }
+    if (coverImageInputRef.current) {
+      coverImageInputRef.current.value = '';
+    }
+  };
+
+  const openProfileEditor = (section: ProfileEditSection = 'basic') => {
+    setProfileEditSection(section);
+    setProfileEditOpen(true);
+  };
+
+  const cancelProfileEditing = () => {
+    setProfileEditOpen(false);
+    resetProfileEditorFiles();
     setProfileForm({
-      first_name: user?.first_name || '',
-      middle_name: user?.middle_name || '',
-      last_name: user?.last_name || '',
-      email: user?.email || '',
-      phone: user?.phone || '',
-      address: user?.address || '',
+      first_name: profileUser?.first_name || '',
+      middle_name: profileUser?.middle_name || '',
+      last_name: profileUser?.last_name || '',
+      email: profileUser?.email || '',
+      phone: profileUser?.phone || '',
+      address: profileUser?.address || '',
       current_password: '',
       password: '',
       confirm_password: '',
     });
   };
 
+  const submitProfileUpdate = async ({
+    profileFile = profileImageFile,
+    coverFile = coverImageFile,
+    removeCover = coverRemoveRequested,
+    includePassword = false,
+    closeEditor = false,
+  }: {
+    profileFile?: File | null;
+    coverFile?: File | null;
+    removeCover?: boolean;
+    includePassword?: boolean;
+    closeEditor?: boolean;
+  } = {}) => {
+    const formData = new FormData();
+    formData.append('first_name', profileForm.first_name.trim());
+    formData.append('middle_name', profileForm.middle_name.trim());
+    formData.append('last_name', profileForm.last_name.trim());
+    formData.append('email', profileForm.email.trim());
+    formData.append('phone', profileForm.phone.trim());
+    formData.append('address', profileForm.address.trim());
+
+    if (includePassword && profileForm.password.trim() !== '') {
+      formData.append('current_password', profileForm.current_password);
+      formData.append('password', profileForm.password);
+    }
+
+    if (profileFile) {
+      formData.append('profile_image', profileFile);
+    }
+
+    if (removeCover) {
+      formData.append('remove_cover_image', '1');
+    } else if (coverFile) {
+      formData.append('cover_image', coverFile);
+    }
+
+    setProfileSaving(true);
+
+    try {
+      const response = await authenticatedFetch(API_ENDPOINTS.GRADUATE_PROFILE, {
+        method: 'POST',
+        body: formData,
+      });
+      const nextProfile = (response.data as GraduateProfilePayload | undefined) || null;
+      setProfileDetails(nextProfile);
+      setProfileDetailsLoaded(true);
+      await checkAuth();
+      setProfileImageFile(null);
+      setCoverImageFile(null);
+      setCoverRemoveRequested(false);
+      setProfileImagePreview(resolveAssetUrl(nextProfile?.user?.profile_image_path));
+      setCoverImagePreview(resolveAssetUrl(nextProfile?.user?.cover_image_path));
+      setProfileForm((current) => ({
+        ...current,
+        current_password: '',
+        password: '',
+        confirm_password: '',
+      }));
+      if (profileImageInputRef.current) {
+        profileImageInputRef.current.value = '';
+      }
+      if (coverImageInputRef.current) {
+        coverImageInputRef.current.value = '';
+      }
+      if (closeEditor) {
+        setProfileEditOpen(false);
+      }
+      notify('success', 'Profile updated successfully.', 'My Profile');
+    } catch (error) {
+      setProfileImageFile(null);
+      setCoverImageFile(null);
+      setCoverRemoveRequested(false);
+      setProfileImagePreview(resolveAssetUrl(profileUser?.profile_image_path));
+      setCoverImagePreview(resolveAssetUrl(profileUser?.cover_image_path));
+      notify('error', error instanceof Error ? error.message : 'Unable to update profile', 'My Profile');
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
+  const handleProfileAssetSelection = (file: File | null, kind: 'profile' | 'cover') => {
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      notify('warning', 'Only JPG, PNG, WEBP, or GIF images are supported.', 'My Profile');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      notify('warning', 'Profile images can be up to 5 MB.', 'My Profile');
+      return;
+    }
+
+    const previewUrl = URL.createObjectURL(file);
+    if (kind === 'profile') {
+      setProfileImageFile(file);
+      setProfileImagePreview(previewUrl);
+      void submitProfileUpdate({ profileFile: file, coverFile: null, removeCover: false });
+      return;
+    }
+
+    setCoverImageFile(file);
+    setCoverImagePreview(previewUrl);
+    setCoverRemoveRequested(false);
+    void submitProfileUpdate({ profileFile: null, coverFile: file, removeCover: false });
+  };
+
+  const handleRemoveCoverImage = () => {
+    setCoverRemoveRequested(true);
+    setCoverImageFile(null);
+    setCoverImagePreview('');
+    void submitProfileUpdate({ profileFile: null, coverFile: null, removeCover: true });
+  };
+
   const handleProfileSave = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-
-    if (!profileIsEditing) return;
 
     const changingPassword = profileForm.password.trim() !== '' || profileForm.confirm_password.trim() !== '';
 
@@ -2915,42 +3210,7 @@ export default function GraduatePortal() {
       return;
     }
 
-    const formData = new FormData();
-    formData.append('first_name', profileForm.first_name.trim());
-    formData.append('middle_name', profileForm.middle_name.trim());
-    formData.append('last_name', profileForm.last_name.trim());
-    formData.append('email', profileForm.email.trim());
-    formData.append('phone', profileForm.phone.trim());
-    formData.append('address', profileForm.address.trim());
-
-    if (changingPassword) {
-      formData.append('current_password', profileForm.current_password);
-      formData.append('password', profileForm.password);
-    }
-
-    if (profileImageFile) {
-      formData.append('profile_image', profileImageFile);
-    }
-
-    try {
-      await authenticatedFetch(API_ENDPOINTS.GRADUATE_PROFILE, {
-        method: 'POST',
-        body: formData,
-      });
-
-      await checkAuth();
-      setProfileImageFile(null);
-      setProfileIsEditing(false);
-      setProfileForm((current) => ({
-        ...current,
-        current_password: '',
-        password: '',
-        confirm_password: '',
-      }));
-      notify('success', 'Profile updated successfully.', 'My Profile');
-    } catch (error) {
-      notify('error', error instanceof Error ? error.message : 'Unable to update profile', 'My Profile');
-    }
+    await submitProfileUpdate({ includePassword: changingPassword, closeEditor: true });
   };
 
   const handleLogout = () => {
@@ -2981,11 +3241,7 @@ export default function GraduatePortal() {
   const primaryNavItems = navItems.filter((item) => item.key !== 'my_profile');
   const activeNavItem = navItems.find((item) => item.key === activeTab);
 
-  const profileInputClass = `w-full rounded-2xl border px-4 py-3 text-sm outline-none transition ${
-    profileIsEditing
-      ? 'border-slate-300 bg-white focus:border-blue-500'
-      : 'border-slate-200 bg-slate-50 text-slate-500'
-  }`;
+  const profileInputClass = 'w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500';
 
   const renderChatWorkspace = (mode: 'direct' | 'group') => {
     const isGroupMode = mode === 'group';
@@ -3067,11 +3323,11 @@ export default function GraduatePortal() {
   return (
     <div className="min-h-screen overflow-x-clip bg-[#f4f6fb] text-slate-900" style={graduatePortalLayoutStyle}>
       <header className="sticky top-0 z-50 border-b border-gray-200 bg-white shadow-sm">
-        <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-4 px-4 py-2 sm:px-6">
+        <div className="mx-auto grid max-w-screen-2xl grid-cols-[auto_minmax(0,1fr)] items-center gap-3 px-4 py-2 sm:px-6 xl:grid-cols-[minmax(180px,1fr)_auto_minmax(340px,1fr)] xl:gap-5">
           <button
             type="button"
             onClick={() => selectTab('dashboard')}
-            className="flex shrink-0 items-center gap-3 text-left"
+            className="flex shrink-0 items-center gap-3 justify-self-start text-left"
             title="GradTrack Community"
             aria-label="Open GradTrack Community"
           >
@@ -3082,43 +3338,50 @@ export default function GraduatePortal() {
             </div>
           </button>
 
-          <nav className="hidden items-center gap-0.5 lg:flex" aria-label="Graduate portal navigation">
+          <nav className="hidden h-12 w-[40rem] items-center justify-center gap-6 justify-self-center rounded-2xl px-3 2xl:w-[44rem] 2xl:gap-8 xl:flex" aria-label="Graduate portal navigation">
             {primaryNavItems.map((item) => {
               const isActive = activeTab === item.key;
+              const itemStyle = {
+                '--graduate-nav-open-width': getPortalNavOpenWidth(item.label),
+                '--graduate-nav-label-width': getPortalNavLabelWidth(item.label),
+              } as CSSProperties;
 
               return (
                 <button
                   key={item.key}
                   type="button"
                   onClick={() => selectTab(item.key)}
-                  title={item.label}
                   aria-label={item.label}
-                  className={`relative flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all ${
+                  style={itemStyle}
+                  className={`group relative inline-flex h-11 w-11 shrink-0 items-center justify-start rounded-full border text-sm font-semibold transition-[width,background-color,border-color,color,box-shadow] duration-[250ms] ease-out hover:w-[var(--graduate-nav-open-width)] focus-visible:w-[var(--graduate-nav-open-width)] ${
                     isActive
-                      ? 'bg-blue-700 text-white shadow-sm'
-                      : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                      ? 'border-blue-200 bg-blue-50 text-blue-700 shadow-sm ring-1 ring-blue-100 hover:border-blue-200 hover:bg-blue-100'
+                      : 'border-transparent text-gray-600 hover:border-blue-100 hover:bg-blue-50 hover:text-blue-700 dark:text-slate-300 dark:hover:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-blue-200'
                   }`}
                 >
-                  <item.icon className="h-4 w-4" />
-                  <span className="hidden xl:inline">{item.label}</span>
-                  <span className="xl:hidden">{item.shortLabel}</span>
-                  {typeof item.badge === 'number' && item.badge > 0 && (
-                    <span
-                      className={`absolute -right-1 -top-1 min-w-5 rounded-full px-1.5 py-0.5 text-center text-[10px] font-bold leading-none ${
-                        isActive ? 'bg-[#f8c331] text-blue-950' : 'bg-rose-500 text-white'
-                      }`}
-                    >
-                      {item.badge > 99 ? '99+' : item.badge}
-                    </span>
-                  )}
+                  <span className="relative flex h-11 w-11 shrink-0 items-center justify-center">
+                    <item.icon className="h-5 w-5" />
+                    {typeof item.badge === 'number' && item.badge > 0 && (
+                      <span
+                        className={`absolute right-0 top-0 flex min-h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-center text-[10px] font-bold leading-none shadow-sm ring-2 ring-white dark:ring-slate-900 ${
+                          isActive ? 'bg-[#f8c331] text-blue-950' : 'bg-rose-500 text-white'
+                        }`}
+                      >
+                        {item.badge > 99 ? '99+' : item.badge}
+                      </span>
+                    )}
+                  </span>
+                  <span className="min-w-0 max-w-0 -translate-x-1 overflow-hidden whitespace-nowrap pr-0 text-sm opacity-0 transition-[max-width,opacity,transform,padding] duration-[250ms] ease-out group-hover:max-w-[var(--graduate-nav-label-width)] group-hover:translate-x-0 group-hover:pr-4 group-hover:opacity-100 group-focus-visible:max-w-[var(--graduate-nav-label-width)] group-focus-visible:translate-x-0 group-focus-visible:pr-4 group-focus-visible:opacity-100">
+                    {item.label}
+                  </span>
                 </button>
               );
             })}
           </nav>
 
-          <div className="flex shrink-0 items-center gap-3">
+          <div className="flex min-w-0 shrink-0 items-center justify-end gap-2 justify-self-end sm:gap-3">
             <ThemeToggle compact />
-            {notificationsEnabled && <NotificationBell audience="graduate" />}
+            {notificationsEnabled && <NotificationBell audience="graduate" expandLabel />}
 
             <div className="relative min-w-0" ref={profileMenuRef}>
               <button
@@ -3131,7 +3394,7 @@ export default function GraduatePortal() {
                 aria-expanded={profileMenuOpen}
               >
                 <Avatar src={profileImagePreview || currentProfileImageUrl} label={user?.full_name} size="sm" />
-                <div className="hidden min-w-0 flex-1 text-left md:block">
+                <div className="hidden min-w-0 flex-1 text-left 2xl:block">
                   <p className="max-w-[150px] truncate text-sm font-semibold text-gray-800">{user?.full_name || 'Graduate User'}</p>
                   <p className="max-w-[150px] truncate text-xs text-gray-500">{user?.program_code || 'Graduate'}</p>
                 </div>
@@ -3176,7 +3439,7 @@ export default function GraduatePortal() {
             <button
               type="button"
               onClick={() => setMobileNavOpen((current) => !current)}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-full text-gray-500 transition hover:bg-gray-100 lg:hidden"
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full text-gray-500 transition hover:bg-gray-100 xl:hidden"
               aria-label="Toggle mobile navigation"
               aria-expanded={mobileNavOpen}
             >
@@ -3186,7 +3449,7 @@ export default function GraduatePortal() {
         </div>
 
         {mobileNavOpen && (
-          <div className="border-t border-gray-200 lg:hidden">
+          <div className="border-t border-gray-200 xl:hidden">
             <div className="grid gap-1 px-4 py-3">
               {navItems.map((item) => {
                 const isActive = activeTab === item.key;
@@ -3778,111 +4041,62 @@ export default function GraduatePortal() {
 
               {activeTab === 'my_profile' && (
                 <section className="space-y-6">
-                  <div className="flex flex-wrap items-center justify-between gap-4">
-                    <div>
-                      <h2 className="text-2xl font-bold text-slate-900">My Profile</h2>
-                      <p className="text-sm text-slate-500">Manage your graduate account information and password.</p>
-                    </div>
-                    {!profileIsEditing ? (
-                      <button type="button" onClick={() => setProfileIsEditing(true)} className="inline-flex items-center gap-2 rounded-full bg-blue-700 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-800">
-                        <Pencil className="h-4 w-4" />
-                        Edit Profile
-                      </button>
-                    ) : (
-                      <button type="button" onClick={cancelProfileEditing} className="rounded-full border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-                        Cancel Editing
-                      </button>
-                    )}
-                  </div>
+                  <input
+                    ref={profileImageInputRef}
+                    type="file"
+                    accept={profileImageAccept}
+                    className="hidden"
+                    onChange={(event) => handleProfileAssetSelection(event.target.files?.[0] || null, 'profile')}
+                  />
+                  <input
+                    ref={coverImageInputRef}
+                    type="file"
+                    accept={profileImageAccept}
+                    className="hidden"
+                    onChange={(event) => handleProfileAssetSelection(event.target.files?.[0] || null, 'cover')}
+                  />
 
-                  <form onSubmit={handleProfileSave} className="space-y-5">
-                    <div className="grid gap-5 xl:grid-cols-[320px_minmax(0,1fr)]">
-                      <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
-                        <div className="flex flex-col items-center text-center">
-                          <Avatar src={profileImagePreview || currentProfileImageUrl} label={user?.full_name} size="xl" />
-                          <h3 className="mt-4 text-xl font-bold text-slate-900">{user?.full_name || 'Graduate User'}</h3>
-                          <p className="text-sm text-slate-500">{user?.program_name || user?.program_code || 'Graduate'}</p>
-                          <p className="mt-1 text-xs text-slate-400">Class of {user?.year_graduated || 'N/A'}</p>
-                        </div>
+                  <ProfileHeader
+                    user={profileUser}
+                    profileImageUrl={profileImageUrl}
+                    coverImageUrl={profileCoverImageUrl}
+                    defaultLogoUrl={systemLogoUrl}
+                    jobTitle={profileJobTitle}
+                    company={profileCompany}
+                    location={profileLocation}
+                    employmentStatus={profileEmploymentStatus}
+                    saving={profileSaving}
+                    onEdit={() => openProfileEditor('basic')}
+                    onChangeProfilePhoto={() => profileImageInputRef.current?.click()}
+                    onChangeCoverPhoto={() => coverImageInputRef.current?.click()}
+                    onRemoveCoverPhoto={handleRemoveCoverImage}
+                  />
 
-                        <input
-                          ref={profileImageInputRef}
-                          type="file"
-                          accept="image/png,image/jpeg,image/webp,image/gif"
-                          className="hidden"
-                          onChange={(event) => {
-                            const file = event.target.files?.[0] || null;
-                            if (!file) {
-                              setProfileImageFile(null);
-                              setProfileImagePreview(currentProfileImageUrl);
-                              return;
-                            }
+                  <ProfileNavigation activeTab={profileSection} onChange={setProfileSection} />
 
-                            setProfileImageFile(file);
-                            setProfileImagePreview(URL.createObjectURL(file));
-                          }}
-                        />
-
-                        <button type="button" onClick={() => profileIsEditing && profileImageInputRef.current?.click()} disabled={!profileIsEditing} className="mt-5 w-full rounded-full border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60">
-                          {profileImageFile ? 'Change Selected Photo' : 'Upload Profile Photo'}
-                        </button>
-                        <p className="mt-2 text-center text-xs text-slate-400">PNG, JPG, WEBP, or GIF up to 5 MB</p>
-                      </div>
-
-                      <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
-                        <div className="grid gap-4 md:grid-cols-3">
-                          <Field label="First Name">
-                            <input value={profileForm.first_name} readOnly={!profileIsEditing} onChange={(event) => setProfileForm((current) => ({ ...current, first_name: event.target.value }))} className={profileInputClass} />
-                          </Field>
-                          <Field label="Middle Name">
-                            <input value={profileForm.middle_name} readOnly={!profileIsEditing} onChange={(event) => setProfileForm((current) => ({ ...current, middle_name: event.target.value }))} className={profileInputClass} />
-                          </Field>
-                          <Field label="Last Name">
-                            <input value={profileForm.last_name} readOnly={!profileIsEditing} onChange={(event) => setProfileForm((current) => ({ ...current, last_name: event.target.value }))} className={profileInputClass} />
-                          </Field>
-                        </div>
-
-                        <div className="mt-4 grid gap-4 md:grid-cols-2">
-                          <Field label="Email Address">
-                            <input type="email" value={profileForm.email} readOnly={!profileIsEditing} onChange={(event) => setProfileForm((current) => ({ ...current, email: event.target.value }))} className={profileInputClass} />
-                          </Field>
-                          <Field label="Phone Number">
-                            <input value={profileForm.phone} readOnly={!profileIsEditing} onChange={(event) => setProfileForm((current) => ({ ...current, phone: event.target.value }))} className={profileInputClass} />
-                          </Field>
-                        </div>
-
-                        <div className="mt-4">
-                          <Field label="Address">
-                            <textarea value={profileForm.address} readOnly={!profileIsEditing} onChange={(event) => setProfileForm((current) => ({ ...current, address: event.target.value }))} rows={4} className={profileInputClass} />
-                          </Field>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
-                      <h3 className="text-lg font-bold text-slate-900">Password Settings</h3>
-                      <p className="mt-1 text-sm text-slate-500">Leave these blank if you are not changing your password.</p>
-
-                      <div className="mt-5 grid gap-4 md:grid-cols-3">
-                        <ProfilePasswordInput label="Current Password" value={profileForm.current_password} readOnly={!profileIsEditing} inputClassName={profileInputClass} onChange={(value) => setProfileForm((current) => ({ ...current, current_password: value }))} />
-                        <ProfilePasswordInput label="New Password" value={profileForm.password} readOnly={!profileIsEditing} inputClassName={profileInputClass} onChange={(value) => setProfileForm((current) => ({ ...current, password: value }))} />
-                        <ProfilePasswordInput label="Confirm Password" value={profileForm.confirm_password} readOnly={!profileIsEditing} inputClassName={profileInputClass} onChange={(value) => setProfileForm((current) => ({ ...current, confirm_password: value }))} />
-                      </div>
-
-                      <div className="mt-6 flex flex-wrap gap-3">
-                        <button type="submit" disabled={!profileIsEditing} className="rounded-full bg-blue-700 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60">
-                          Save Changes
-                        </button>
-                        {profileIsEditing && (
-                          <button type="button" onClick={cancelProfileEditing} className="rounded-full border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
-                            Reset
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </form>
-
-                  <ActivityLogsCard activityLogs={activityLogs} />
+                  {profileDetailsLoading && !profileDetailsLoaded ? (
+                    <ProfileSkeleton />
+                  ) : (
+                    <ProfileSectionContent
+                      activeTab={profileSection}
+                      user={profileUser}
+                      survey={profileSurvey}
+                      workFields={profileWorkFields}
+                      educationFields={profileEducationFields}
+                      graduateStudyFields={profileGraduateStudyFields}
+                      trainings={profileTrainings}
+                      posts={myForumPosts}
+                      activityLogs={activityLogs}
+                      profileImageUrl={profileImageUrl}
+                      forumActionKey={forumActionKey}
+                      onEdit={openProfileEditor}
+                      onOpenPost={(post) => void loadPostDetail(post.id)}
+                      onOpenMedia={openMediaViewer}
+                      onToggleLike={(postId) => void toggleLike(postId)}
+                      onEditPost={openForumComposer}
+                      onDeletePost={handleForumDelete}
+                    />
+                  )}
                 </section>
               )}
             </>
@@ -4124,6 +4338,30 @@ export default function GraduatePortal() {
           onZoomReset={() => setMediaViewerZoom(1)}
           onCommentDraftChange={setMediaViewerCommentDraft}
           onCommentSubmit={handleMediaViewerCommentSubmit}
+        />
+      )}
+
+      {profileEditOpen && (
+        <ProfileEditModal
+          activeSection={profileEditSection}
+          user={profileUser}
+          survey={profileSurvey}
+          workFields={profileWorkFields}
+          educationFields={profileEducationFields}
+          graduateStudyFields={profileGraduateStudyFields}
+          trainings={profileTrainings}
+          form={profileForm}
+          inputClassName={profileInputClass}
+          profileImageUrl={profileImageUrl}
+          coverImageUrl={profileCoverImageUrl}
+          saving={profileSaving}
+          onSectionChange={setProfileEditSection}
+          onFormChange={setProfileForm}
+          onSubmit={handleProfileSave}
+          onClose={cancelProfileEditing}
+          onChangeProfilePhoto={() => profileImageInputRef.current?.click()}
+          onChangeCoverPhoto={() => coverImageInputRef.current?.click()}
+          onRemoveCoverPhoto={handleRemoveCoverImage}
         />
       )}
 
@@ -4447,6 +4685,985 @@ export default function GraduatePortal() {
         confirmText={msgBox.confirmText}
         cancelText={msgBox.cancelText}
       />
+    </div>
+  );
+}
+
+function ProfileHeader({
+  user,
+  profileImageUrl,
+  coverImageUrl,
+  defaultLogoUrl,
+  jobTitle,
+  company,
+  location,
+  employmentStatus,
+  saving,
+  onEdit,
+  onChangeProfilePhoto,
+  onChangeCoverPhoto,
+  onRemoveCoverPhoto,
+}: {
+  user?: GraduateUser | null;
+  profileImageUrl: string;
+  coverImageUrl: string;
+  defaultLogoUrl: string;
+  jobTitle: string;
+  company: string;
+  location: string;
+  employmentStatus: string;
+  saving: boolean;
+  onEdit: () => void;
+  onChangeProfilePhoto: () => void;
+  onChangeCoverPhoto: () => void;
+  onRemoveCoverPhoto: () => void;
+}) {
+  const program = user?.program_name || user?.program_code || 'Graduate';
+  const batch = getBatchLabel(user?.year_graduated);
+
+  return (
+    <div className="overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-sm">
+      <div className="relative h-56 bg-[#081733] sm:h-64 lg:h-72">
+        {coverImageUrl ? (
+          <img src={coverImageUrl} alt={`${user?.full_name || 'Graduate'} cover`} className="h-full w-full object-cover" />
+        ) : (
+          <div className="absolute inset-0 overflow-hidden bg-[#081733]">
+            <div className="absolute inset-x-0 top-0 h-16 bg-[#0e3475]" />
+            <div className="absolute left-0 top-0 h-full w-2/3 bg-[#102f63]" style={{ clipPath: 'polygon(0 0, 82% 0, 54% 100%, 0% 100%)' }} />
+            <div className="absolute bottom-0 left-0 right-0 h-2 bg-[#f8c331]" />
+            <div className="absolute bottom-8 left-6 flex items-center gap-3 text-white/85">
+              <img src={defaultLogoUrl} alt="GradTrack" className="h-12 w-12 rounded-lg bg-white/90 p-1 object-contain" />
+              <div>
+                <p className="text-sm font-bold uppercase tracking-wide text-[#f8c331]">GradTrack Alumni</p>
+                <p className="text-xs text-white/70">Norzagaray College</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <div className="absolute right-4 top-4 flex flex-wrap justify-end gap-2">
+          <button type="button" onClick={onChangeCoverPhoto} disabled={saving} className="inline-flex items-center gap-2 rounded-full bg-white/95 px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60">
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+            Change Cover
+          </button>
+          {coverImageUrl && (
+            <button type="button" onClick={onRemoveCoverPhoto} disabled={saving} className="inline-flex items-center gap-2 rounded-full bg-slate-950/70 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-950 disabled:cursor-not-allowed disabled:opacity-60">
+              <Trash2 className="h-4 w-4" />
+              Remove
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="px-5 pb-6 sm:px-7">
+        <div className="-mt-14 flex flex-col gap-4 sm:-mt-16 lg:flex-row lg:items-end lg:justify-between">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+            <div className="relative flex h-32 w-32 shrink-0 items-center justify-center rounded-full border-4 border-white bg-white shadow-lg">
+              <Avatar src={profileImageUrl} label={user?.full_name} size="xl" />
+              <button type="button" onClick={onChangeProfilePhoto} disabled={saving} className="absolute bottom-2 right-2 inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60" aria-label="Change profile photo">
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+              </button>
+            </div>
+
+            <div className="min-w-0 pt-1 sm:pb-2">
+              <h2 className="text-2xl font-bold text-slate-950 sm:text-3xl">{user?.full_name || 'Graduate User'}</h2>
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 font-semibold text-blue-700">
+                  <GraduationCap className="h-4 w-4" />
+                  {program}
+                </span>
+                {batch && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1 font-semibold text-amber-700">
+                    <CalendarDays className="h-4 w-4" />
+                    {batch}
+                  </span>
+                )}
+                {employmentStatus && (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1 font-semibold text-emerald-700">
+                    <CheckCircle2 className="h-4 w-4" />
+                    {employmentStatus}
+                  </span>
+                )}
+              </div>
+
+              <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-600">
+                {jobTitle && (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Briefcase className="h-4 w-4 text-slate-400" />
+                    {jobTitle}
+                  </span>
+                )}
+                {company && (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Building2 className="h-4 w-4 text-slate-400" />
+                    {company}
+                  </span>
+                )}
+                {location && (
+                  <span className="inline-flex items-center gap-1.5">
+                    <MapPin className="h-4 w-4 text-slate-400" />
+                    {location}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <button type="button" onClick={onEdit} className="inline-flex items-center justify-center gap-2 rounded-full bg-blue-700 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-800">
+            <Pencil className="h-4 w-4" />
+            Edit Profile
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProfileNavigation({
+  activeTab,
+  onChange,
+}: {
+  activeTab: ProfileSectionTab;
+  onChange: (tab: ProfileSectionTab) => void;
+}) {
+  return (
+    <div className="overflow-x-auto rounded-[28px] border border-slate-200 bg-white px-3 py-2 shadow-sm">
+      <div className="flex min-w-max gap-1">
+        {profileSectionTabs.map((tab) => {
+          const isActive = activeTab === tab.key;
+          return (
+            <button
+              key={tab.key}
+              type="button"
+              onClick={() => onChange(tab.key)}
+              className={`inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold transition ${
+                isActive ? 'bg-blue-700 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
+              }`}
+            >
+              <tab.icon className="h-4 w-4" />
+              {tab.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ProfileSectionContent({
+  activeTab,
+  user,
+  survey,
+  workFields,
+  educationFields,
+  graduateStudyFields,
+  trainings,
+  posts,
+  activityLogs,
+  profileImageUrl,
+  forumActionKey,
+  onEdit,
+  onOpenPost,
+  onOpenMedia,
+  onToggleLike,
+  onEditPost,
+  onDeletePost,
+}: {
+  activeTab: ProfileSectionTab;
+  user?: GraduateUser | null;
+  survey?: GraduateSurveyProfile | null;
+  workFields: GraduateProfileField[];
+  educationFields: GraduateProfileField[];
+  graduateStudyFields: GraduateProfileField[];
+  trainings: GraduateTrainingEntry[];
+  posts: ForumPost[];
+  activityLogs: ForumActivityLog[];
+  profileImageUrl: string;
+  forumActionKey: string;
+  onEdit: (section?: ProfileEditSection) => void;
+  onOpenPost: (post: ForumPost) => void;
+  onOpenMedia: (post: ForumPost, mediaIndex?: number) => void;
+  onToggleLike: (postId: number) => void;
+  onEditPost: (post?: ForumPost) => void;
+  onDeletePost: (post: ForumPost) => void;
+}) {
+  if (activeTab === 'work') {
+    return <ProfileWorkSection survey={survey} fields={workFields} onEdit={() => onEdit('employment')} />;
+  }
+
+  if (activeTab === 'education') {
+    return <ProfileEducationSection user={user} fields={educationFields} graduateStudyFields={graduateStudyFields} onEdit={() => onEdit('education')} />;
+  }
+
+  if (activeTab === 'trainings') {
+    return <ProfileTrainingsSection trainings={trainings} onEdit={() => onEdit('trainings')} />;
+  }
+
+  if (activeTab === 'posts') {
+    return (
+      <ProfilePostsSection
+        posts={posts}
+        profileImageUrl={profileImageUrl}
+        forumActionKey={forumActionKey}
+        onOpenPost={onOpenPost}
+        onOpenMedia={onOpenMedia}
+        onToggleLike={onToggleLike}
+        onEditPost={onEditPost}
+        onDeletePost={onDeletePost}
+      />
+    );
+  }
+
+  if (activeTab === 'activity') {
+    return <ActivityLogsCard activityLogs={activityLogs} />;
+  }
+
+  return (
+    <ProfileOverview
+      user={user}
+      survey={survey}
+      workFields={workFields}
+      educationFields={educationFields}
+      graduateStudyFields={graduateStudyFields}
+      trainings={trainings}
+      posts={posts}
+      activityLogs={activityLogs}
+      profileImageUrl={profileImageUrl}
+      forumActionKey={forumActionKey}
+      onEdit={onEdit}
+      onOpenPost={onOpenPost}
+      onOpenMedia={onOpenMedia}
+      onToggleLike={onToggleLike}
+      onEditPost={onEditPost}
+      onDeletePost={onDeletePost}
+    />
+  );
+}
+
+function ProfileOverview({
+  user,
+  survey,
+  workFields,
+  educationFields,
+  graduateStudyFields,
+  trainings,
+  posts,
+  activityLogs,
+  profileImageUrl,
+  forumActionKey,
+  onEdit,
+  onOpenPost,
+  onOpenMedia,
+  onToggleLike,
+  onEditPost,
+  onDeletePost,
+}: {
+  user?: GraduateUser | null;
+  survey?: GraduateSurveyProfile | null;
+  workFields: GraduateProfileField[];
+  educationFields: GraduateProfileField[];
+  graduateStudyFields: GraduateProfileField[];
+  trainings: GraduateTrainingEntry[];
+  posts: ForumPost[];
+  activityLogs: ForumActivityLog[];
+  profileImageUrl: string;
+  forumActionKey: string;
+  onEdit: (section?: ProfileEditSection) => void;
+  onOpenPost: (post: ForumPost) => void;
+  onOpenMedia: (post: ForumPost, mediaIndex?: number) => void;
+  onToggleLike: (postId: number) => void;
+  onEditPost: (post?: ForumPost) => void;
+  onDeletePost: (post: ForumPost) => void;
+}) {
+  return (
+    <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
+      <aside className="space-y-6">
+        <ProfileAboutCard user={user} onEdit={() => onEdit('basic')} />
+        <ProfileEducationCard user={user} fields={educationFields} graduateStudyFields={graduateStudyFields} compact onEdit={() => onEdit('education')} />
+        <ProfileWorkCard survey={survey} fields={workFields} compact onEdit={() => onEdit('employment')} />
+      </aside>
+
+      <div className="space-y-6">
+        <div className="grid gap-4 md:grid-cols-3">
+          <ProfileStatCard icon={MessageSquare} label="Posts" value={posts.length} />
+          <ProfileStatCard icon={Award} label="Trainings" value={trainings.length} />
+          <ProfileStatCard icon={Clock3} label="Activities" value={activityLogs.length} />
+        </div>
+
+        <ProfilePostsSection
+          posts={posts}
+          profileImageUrl={profileImageUrl}
+          forumActionKey={forumActionKey}
+          limit={3}
+          onOpenPost={onOpenPost}
+          onOpenMedia={onOpenMedia}
+          onToggleLike={onToggleLike}
+          onEditPost={onEditPost}
+          onDeletePost={onDeletePost}
+        />
+
+        <ActivityLogsCard activityLogs={activityLogs.slice(0, 5)} />
+      </div>
+    </div>
+  );
+}
+
+function ProfileStatCard({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: number;
+}) {
+  return (
+    <div className="flex items-center gap-4 rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-sm">
+      <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
+        <Icon className="h-5 w-5" />
+      </span>
+      <div>
+        <p className="text-2xl font-bold text-slate-950">{value}</p>
+        <p className="text-sm font-semibold text-slate-500">{label}</p>
+      </div>
+    </div>
+  );
+}
+
+function ProfileCardHeader({
+  icon: Icon,
+  title,
+  actionLabel,
+  onAction,
+}: {
+  icon: LucideIcon;
+  title: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4">
+      <div className="flex items-center gap-3">
+        <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
+          <Icon className="h-5 w-5" />
+        </span>
+        <h3 className="text-lg font-bold text-slate-950">{title}</h3>
+      </div>
+      {actionLabel && onAction && (
+        <button type="button" onClick={onAction} className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50">
+          {actionLabel}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ProfileAboutCard({
+  user,
+  onEdit,
+}: {
+  user?: GraduateUser | null;
+  onEdit: () => void;
+}) {
+  const rows = [
+    { icon: Contact, label: 'First Name', value: user?.first_name },
+    { icon: Contact, label: 'Middle Name', value: user?.middle_name },
+    { icon: Contact, label: 'Last Name', value: user?.last_name },
+    { icon: Mail, label: 'Email Address', value: user?.email },
+    { icon: Phone, label: 'Phone Number', value: user?.phone },
+    { icon: MapPin, label: 'Address', value: user?.address },
+    { icon: GraduationCap, label: 'Program / Course', value: user?.program_name || user?.program_code },
+    { icon: CalendarDays, label: 'Graduation Year', value: user?.year_graduated ? String(user.year_graduated) : '' },
+  ].filter((row) => hasDisplayValue(row.value));
+
+  return (
+    <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+      <ProfileCardHeader icon={Contact} title="About" actionLabel="Edit" onAction={onEdit} />
+      {rows.length === 0 ? (
+        <ProfileEmptyState icon={FileText} message="No personal information available." />
+      ) : (
+        <div className="mt-5 space-y-3">
+          {rows.map((row) => (
+            <ProfileInfoRow key={row.label} icon={row.icon} label={row.label} value={String(row.value)} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ProfileWorkSection({
+  survey,
+  fields,
+  onEdit,
+}: {
+  survey?: GraduateSurveyProfile | null;
+  fields: GraduateProfileField[];
+  onEdit: () => void;
+}) {
+  return (
+    <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
+      <ProfileWorkCard survey={survey} fields={fields} onEdit={onEdit} />
+      <SurveySourceCard survey={survey} />
+    </div>
+  );
+}
+
+function ProfileWorkCard({
+  survey,
+  fields,
+  compact,
+  onEdit,
+}: {
+  survey?: GraduateSurveyProfile | null;
+  fields: GraduateProfileField[];
+  compact?: boolean;
+  onEdit: () => void;
+}) {
+  const visibleFields = compact ? fields.slice(0, 6) : fields;
+  const isEmployed = survey?.work?.is_employed;
+  const status = survey?.work?.summary?.employment_status || getProfileFieldValue(fields, 'currently_employed') || 'Employment not specified';
+  const statusClass = isEmployed === false
+    ? 'bg-amber-50 text-amber-700'
+    : isEmployed === true
+      ? 'bg-emerald-50 text-emerald-700'
+      : 'bg-slate-100 text-slate-600';
+
+  return (
+    <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+      <ProfileCardHeader icon={Briefcase} title="Work Experience" actionLabel="View" onAction={onEdit} />
+      <div className={`mt-5 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold ${statusClass}`}>
+        <CheckCircle2 className="h-4 w-4" />
+        {status}
+      </div>
+
+      {visibleFields.length === 0 ? (
+        <ProfileEmptyState icon={Briefcase} message="No employment information available from submitted surveys." />
+      ) : (
+        <ProfileFieldList fields={visibleFields} className="mt-5" />
+      )}
+    </section>
+  );
+}
+
+function ProfileEducationSection({
+  user,
+  fields,
+  graduateStudyFields,
+  onEdit,
+}: {
+  user?: GraduateUser | null;
+  fields: GraduateProfileField[];
+  graduateStudyFields: GraduateProfileField[];
+  onEdit: () => void;
+}) {
+  return (
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <ProfileEducationCard user={user} fields={fields} graduateStudyFields={graduateStudyFields} onEdit={onEdit} />
+      <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+        <ProfileCardHeader icon={BookOpen} title="Graduate Studies" />
+        {graduateStudyFields.length === 0 ? (
+          <ProfileEmptyState icon={BookOpen} message="No further education information available." />
+        ) : (
+          <ProfileFieldList fields={graduateStudyFields} className="mt-5" />
+        )}
+      </section>
+    </div>
+  );
+}
+
+function ProfileEducationCard({
+  user,
+  fields,
+  graduateStudyFields,
+  compact,
+  onEdit,
+}: {
+  user?: GraduateUser | null;
+  fields: GraduateProfileField[];
+  graduateStudyFields: GraduateProfileField[];
+  compact?: boolean;
+  onEdit: () => void;
+}) {
+  const degree = getProfileFieldValue(fields, 'degree_program') || user?.program_name || user?.program_code || '';
+  const year = getProfileFieldValue(fields, 'year_graduated') || (user?.year_graduated ? String(user.year_graduated) : '');
+  const batch = user?.year_graduated ? getBatchLabel(user.year_graduated) : (year ? `Batch ${year}` : '');
+  const extraFields = fields.filter((field) => !['degree_program', 'year_graduated'].includes(field.key));
+  const visibleExtraFields = compact ? extraFields.slice(0, 3) : extraFields;
+
+  return (
+    <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+      <ProfileCardHeader icon={GraduationCap} title="Education" actionLabel="View" onAction={onEdit} />
+      <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-4">
+        <p className="font-bold text-slate-950">Norzagaray College</p>
+        {degree && <p className="mt-1 text-sm text-slate-700">{degree}</p>}
+        <div className="mt-3 flex flex-wrap gap-2 text-xs font-semibold text-blue-700">
+          {year && <span className="rounded-full bg-white px-3 py-1">Class of {year}</span>}
+          {batch && <span className="rounded-full bg-white px-3 py-1">{batch}</span>}
+        </div>
+      </div>
+
+      {visibleExtraFields.length > 0 && <ProfileFieldList fields={visibleExtraFields} className="mt-5" />}
+      {compact && graduateStudyFields.length > 0 && (
+        <div className="mt-5 border-t border-slate-100 pt-4">
+          <p className="text-sm font-bold text-slate-900">Graduate Studies</p>
+          <ProfileFieldList fields={graduateStudyFields.slice(0, 2)} className="mt-3" />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ProfileTrainingsSection({
+  trainings,
+  onEdit,
+}: {
+  trainings: GraduateTrainingEntry[];
+  onEdit: () => void;
+}) {
+  return (
+    <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+      <ProfileCardHeader icon={Award} title="Trainings & Seminars" actionLabel="View" onAction={onEdit} />
+      {trainings.length === 0 ? (
+        <ProfileEmptyState icon={Award} message="No trainings or seminars added yet." />
+      ) : (
+        <div className="mt-5 grid gap-4 lg:grid-cols-2">
+          {trainings.map((training) => (
+            <article key={training.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <h4 className="font-bold text-slate-950">{training.title || 'Training / Seminar'}</h4>
+              <div className="mt-3 space-y-2 text-sm text-slate-600">
+                {training.organizer && <ProfileMiniLine icon={Building2} value={training.organizer} />}
+                {training.date && <ProfileMiniLine icon={CalendarDays} value={training.date} />}
+                {training.duration && <ProfileMiniLine icon={Clock3} value={training.duration} />}
+                {training.location && <ProfileMiniLine icon={MapPin} value={training.location} />}
+                {training.certificate && <ProfileMiniLine icon={Award} value={training.certificate} />}
+              </div>
+              {training.description && <p className="mt-3 whitespace-pre-line text-sm leading-6 text-slate-700">{training.description}</p>}
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ProfilePostsSection({
+  posts,
+  profileImageUrl,
+  forumActionKey,
+  limit,
+  onOpenPost,
+  onOpenMedia,
+  onToggleLike,
+  onEditPost,
+  onDeletePost,
+}: {
+  posts: ForumPost[];
+  profileImageUrl: string;
+  forumActionKey: string;
+  limit?: number;
+  onOpenPost: (post: ForumPost) => void;
+  onOpenMedia: (post: ForumPost, mediaIndex?: number) => void;
+  onToggleLike: (postId: number) => void;
+  onEditPost: (post?: ForumPost) => void;
+  onDeletePost: (post: ForumPost) => void;
+}) {
+  const visiblePosts = typeof limit === 'number' ? posts.slice(0, limit) : posts;
+
+  return (
+    <section className="space-y-4">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <span className="inline-flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-50 text-blue-700">
+            <MessageSquare className="h-5 w-5" />
+          </span>
+          <h3 className="text-lg font-bold text-slate-950">Posts</h3>
+        </div>
+      </div>
+
+      {visiblePosts.length === 0 ? (
+        <div className="rounded-[28px] border border-dashed border-slate-300 bg-white px-6 py-10 text-center">
+          <FileText className="mx-auto h-8 w-8 text-slate-300" />
+          <p className="mt-3 text-sm font-semibold text-slate-500">No community forum posts yet.</p>
+        </div>
+      ) : (
+        visiblePosts.map((post) => (
+          <ProfilePostCard
+            key={post.id}
+            post={post}
+            profileImageUrl={profileImageUrl}
+            actionKey={forumActionKey}
+            onOpenPost={onOpenPost}
+            onOpenMedia={onOpenMedia}
+            onToggleLike={onToggleLike}
+            onEditPost={onEditPost}
+            onDeletePost={onDeletePost}
+          />
+        ))
+      )}
+    </section>
+  );
+}
+
+function ProfilePostCard({
+  post,
+  profileImageUrl,
+  actionKey,
+  onOpenPost,
+  onOpenMedia,
+  onToggleLike,
+  onEditPost,
+  onDeletePost,
+}: {
+  post: ForumPost;
+  profileImageUrl: string;
+  actionKey: string;
+  onOpenPost: (post: ForumPost) => void;
+  onOpenMedia: (post: ForumPost, mediaIndex?: number) => void;
+  onToggleLike: (postId: number) => void;
+  onEditPost: (post?: ForumPost) => void;
+  onDeletePost: (post: ForumPost) => void;
+}) {
+  return (
+    <article className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <button type="button" onClick={() => onOpenPost(post)} className="flex min-w-0 items-center gap-3 text-left">
+          <Avatar src={resolveAssetUrl(post.author_profile_image_path) || profileImageUrl} label={post.author_name} size="md" />
+          <div className="min-w-0">
+            <p className="font-semibold text-slate-950">{post.author_name}</p>
+            <p className="truncate text-xs text-slate-500">
+              {post.author_program_code || post.author_program_name || 'Graduate'} - {formatRelativeTime(post.created_at)}
+            </p>
+          </div>
+        </button>
+        <span className={`rounded-full border px-3 py-1 text-[11px] font-semibold ${forumStatusClass(post.status)}`}>{post.status.toUpperCase()}</span>
+      </div>
+
+      <button type="button" onClick={() => onOpenPost(post)} className="mt-4 block w-full text-left">
+        <h4 className="text-lg font-bold text-slate-950">{post.title}</h4>
+        <p className="mt-2 whitespace-pre-line text-sm leading-7 text-slate-700">{previewText(post.content, 360)}</p>
+      </button>
+
+      <ForumMediaGrid post={post} compact onOpen={(index) => onOpenMedia(post, index)} />
+
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+        <div className="flex flex-wrap items-center gap-4">
+          <button type="button" onClick={() => onToggleLike(post.id)} disabled={actionKey === `like-${post.id}`} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 transition hover:text-rose-500 disabled:opacity-60">
+            <Heart className={`h-5 w-5 ${post.is_liked ? 'fill-current text-rose-500' : 'text-slate-500'}`} />
+            {post.like_count}
+          </button>
+          <button type="button" onClick={() => onOpenPost(post)} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-600 transition hover:text-blue-700">
+            <MessageCircle className="h-5 w-5 text-slate-500" />
+            {post.comment_count}
+          </button>
+          <span className="text-xs text-slate-400">Posted {formatDateTime(post.created_at)}</span>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => onEditPost(post)} className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50">
+            <Pencil className="h-3.5 w-3.5" />
+            Edit
+          </button>
+          <button type="button" onClick={() => onDeletePost(post)} disabled={actionKey === `delete-${post.id}`} className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 disabled:opacity-60">
+            <Trash2 className="h-3.5 w-3.5" />
+            Delete
+          </button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function SurveySourceCard({ survey }: { survey?: GraduateSurveyProfile | null }) {
+  const response = survey?.response;
+  return (
+    <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+      <ProfileCardHeader icon={FileText} title="Survey Source" />
+      {response ? (
+        <div className="mt-5 space-y-3">
+          <ProfileInfoRow icon={FileText} label="Survey" value={response.survey_title || 'Graduate Tracer Survey'} />
+          <ProfileInfoRow icon={CalendarDays} label="Submitted" value={formatDateTime(response.submitted_at)} />
+        </div>
+      ) : (
+        <ProfileEmptyState icon={FileText} message="No submitted Graduate Tracer Survey found." />
+      )}
+    </section>
+  );
+}
+
+function ProfileInfoRow({
+  icon: Icon,
+  label,
+  value,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-start gap-3">
+      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+      <div className="min-w-0">
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p>
+        <p className="mt-0.5 break-words text-sm font-medium text-slate-700">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+function ProfileMiniLine({
+  icon: Icon,
+  value,
+}: {
+  icon: LucideIcon;
+  value: string;
+}) {
+  return (
+    <p className="flex items-center gap-2">
+      <Icon className="h-4 w-4 shrink-0 text-slate-400" />
+      <span>{value}</span>
+    </p>
+  );
+}
+
+function ProfileFieldList({
+  fields,
+  className = '',
+}: {
+  fields: GraduateProfileField[];
+  className?: string;
+}) {
+  return (
+    <div className={`grid gap-3 ${className}`}>
+      {fields.map((field) => (
+        <div key={`${field.key}-${field.question_id || field.label}`} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{field.label}</p>
+          <p className="mt-1 whitespace-pre-line text-sm font-semibold leading-6 text-slate-700">{field.value}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ProfileEmptyState({
+  icon: Icon,
+  message,
+}: {
+  icon: LucideIcon;
+  message: string;
+}) {
+  return (
+    <div className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center">
+      <Icon className="mx-auto h-7 w-7 text-slate-300" />
+      <p className="mt-3 text-sm font-semibold text-slate-500">{message}</p>
+    </div>
+  );
+}
+
+function ProfileSkeleton() {
+  return (
+    <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
+      {[0, 1, 2].map((item) => (
+        <div key={item} className="h-64 animate-pulse rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="h-10 w-40 rounded-full bg-slate-100" />
+          <div className="mt-6 space-y-3">
+            <div className="h-14 rounded-2xl bg-slate-100" />
+            <div className="h-14 rounded-2xl bg-slate-100" />
+            <div className="h-14 rounded-2xl bg-slate-100" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ProfileEditModal({
+  activeSection,
+  user,
+  survey,
+  workFields,
+  educationFields,
+  graduateStudyFields,
+  trainings,
+  form,
+  inputClassName,
+  profileImageUrl,
+  coverImageUrl,
+  saving,
+  onSectionChange,
+  onFormChange,
+  onSubmit,
+  onClose,
+  onChangeProfilePhoto,
+  onChangeCoverPhoto,
+  onRemoveCoverPhoto,
+}: {
+  activeSection: ProfileEditSection;
+  user?: GraduateUser | null;
+  survey?: GraduateSurveyProfile | null;
+  workFields: GraduateProfileField[];
+  educationFields: GraduateProfileField[];
+  graduateStudyFields: GraduateProfileField[];
+  trainings: GraduateTrainingEntry[];
+  form: ProfileFormState;
+  inputClassName: string;
+  profileImageUrl: string;
+  coverImageUrl: string;
+  saving: boolean;
+  onSectionChange: (section: ProfileEditSection) => void;
+  onFormChange: Dispatch<SetStateAction<ProfileFormState>>;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onClose: () => void;
+  onChangeProfilePhoto: () => void;
+  onChangeCoverPhoto: () => void;
+  onRemoveCoverPhoto: () => void;
+}) {
+  const canSubmit = activeSection === 'basic' || activeSection === 'security';
+
+  return (
+    <div className="fixed inset-0 z-[65] flex items-center justify-center bg-slate-950/60 px-4 py-6">
+      <form onSubmit={onSubmit} className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
+          <div>
+            <h2 className="text-2xl font-bold text-slate-950">Edit Profile</h2>
+            <p className="text-sm text-slate-500">{user?.full_name || 'Graduate User'}</p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100" aria-label="Close profile editor">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="grid min-h-0 flex-1 overflow-hidden lg:grid-cols-[260px_minmax(0,1fr)]">
+          <aside className="border-b border-slate-100 bg-slate-50 p-4 lg:border-b-0 lg:border-r">
+            <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-1">
+              {profileEditSections.map((section) => {
+                const active = activeSection === section.key;
+                const SectionIcon = section.icon;
+                return (
+                  <button
+                    key={section.key}
+                    type="button"
+                    onClick={() => onSectionChange(section.key)}
+                    className={`flex items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-semibold transition ${
+                      active ? 'bg-blue-700 text-white shadow-sm' : 'text-slate-600 hover:bg-white hover:text-slate-950'
+                    }`}
+                  >
+                    <SectionIcon className="h-4 w-4" />
+                    {section.label}
+                  </button>
+                );
+              })}
+            </div>
+          </aside>
+
+          <div className="min-h-0 overflow-y-auto px-6 py-5">
+            {activeSection === 'basic' && (
+              <div className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-3">
+                  <Field label="First Name" required>
+                    <input value={form.first_name} onChange={(event) => onFormChange((current) => ({ ...current, first_name: event.target.value }))} className={inputClassName} />
+                  </Field>
+                  <Field label="Middle Name">
+                    <input value={form.middle_name} onChange={(event) => onFormChange((current) => ({ ...current, middle_name: event.target.value }))} className={inputClassName} />
+                  </Field>
+                  <Field label="Last Name" required>
+                    <input value={form.last_name} onChange={(event) => onFormChange((current) => ({ ...current, last_name: event.target.value }))} className={inputClassName} />
+                  </Field>
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Field label="Email Address" required>
+                    <input type="email" value={form.email} onChange={(event) => onFormChange((current) => ({ ...current, email: event.target.value }))} className={inputClassName} />
+                  </Field>
+                  <Field label="Phone Number">
+                    <input value={form.phone} onChange={(event) => onFormChange((current) => ({ ...current, phone: event.target.value }))} className={inputClassName} />
+                  </Field>
+                </div>
+                <Field label="Address">
+                  <textarea value={form.address} onChange={(event) => onFormChange((current) => ({ ...current, address: event.target.value }))} rows={4} className={inputClassName} />
+                </Field>
+              </div>
+            )}
+
+            {activeSection === 'employment' && (
+              <div className="space-y-5">
+                <SurveySourceCard survey={survey} />
+                {workFields.length === 0 ? (
+                  <ProfileEmptyState icon={Briefcase} message="No employment information available from submitted surveys." />
+                ) : (
+                  <ProfileFieldList fields={workFields} />
+                )}
+              </div>
+            )}
+
+            {activeSection === 'education' && (
+              <div className="space-y-5">
+                <ProfileEducationCard user={user} fields={educationFields} graduateStudyFields={graduateStudyFields} onEdit={() => onSectionChange('education')} />
+              </div>
+            )}
+
+            {activeSection === 'trainings' && (
+              <ProfileTrainingsSection trainings={trainings} onEdit={() => onSectionChange('trainings')} />
+            )}
+
+            {activeSection === 'photo' && (
+              <div className="flex flex-col items-center rounded-[28px] border border-slate-200 bg-slate-50 px-6 py-8 text-center">
+                <Avatar src={profileImageUrl} label={user?.full_name} size="xl" />
+                <h3 className="mt-4 text-lg font-bold text-slate-950">Profile Photo</h3>
+                <button type="button" onClick={onChangeProfilePhoto} disabled={saving} className="mt-5 inline-flex items-center gap-2 rounded-full bg-blue-700 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60">
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+                  Upload Photo
+                </button>
+              </div>
+            )}
+
+            {activeSection === 'cover' && (
+              <div className="rounded-[28px] border border-slate-200 bg-slate-50 p-5">
+                <div className="aspect-[3/1] overflow-hidden rounded-2xl bg-[#081733]">
+                  {coverImageUrl ? (
+                    <img src={coverImageUrl} alt="Profile cover preview" className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-sm font-semibold text-white/70">Default GradTrack cover</div>
+                  )}
+                </div>
+                <div className="mt-5 flex flex-wrap gap-3">
+                  <button type="button" onClick={onChangeCoverPhoto} disabled={saving} className="inline-flex items-center gap-2 rounded-full bg-blue-700 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60">
+                    {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
+                    Change Cover
+                  </button>
+                  {coverImageUrl && (
+                    <button type="button" onClick={onRemoveCoverPhoto} disabled={saving} className="inline-flex items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-5 py-3 text-sm font-semibold text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60">
+                      <Trash2 className="h-4 w-4" />
+                      Remove Cover
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {activeSection === 'security' && (
+              <div className="rounded-[28px] border border-slate-200 bg-slate-50 p-5">
+                <ProfileCardHeader icon={ShieldCheck} title="Password / Security" />
+                <div className="mt-5 grid gap-4 md:grid-cols-3">
+                  <ProfilePasswordInput label="Current Password" value={form.current_password} readOnly={false} inputClassName={inputClassName} onChange={(value) => onFormChange((current) => ({ ...current, current_password: value }))} />
+                  <ProfilePasswordInput label="New Password" value={form.password} readOnly={false} inputClassName={inputClassName} onChange={(value) => onFormChange((current) => ({ ...current, password: value }))} />
+                  <ProfilePasswordInput label="Confirm Password" value={form.confirm_password} readOnly={false} inputClassName={inputClassName} onChange={(value) => onFormChange((current) => ({ ...current, confirm_password: value }))} />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap justify-end gap-3 border-t border-slate-100 px-6 py-4">
+          <button type="button" onClick={onClose} className="rounded-full border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            {canSubmit ? 'Cancel' : 'Done'}
+          </button>
+          {canSubmit && (
+            <button type="submit" disabled={saving} className="inline-flex items-center gap-2 rounded-full bg-blue-700 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60">
+              {saving && <Loader2 className="h-4 w-4 animate-spin" />}
+              Save Changes
+            </button>
+          )}
+        </div>
+      </form>
     </div>
   );
 }

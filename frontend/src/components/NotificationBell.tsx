@@ -27,6 +27,7 @@ interface NotificationBellProps {
   audience: 'admin' | 'graduate';
   colorScheme?: 'light' | 'dark';
   className?: string;
+  expandLabel?: boolean;
 }
 
 const typeStyles: Record<string, string> = {
@@ -77,7 +78,7 @@ function formatNotificationType(type: string) {
   return typeLabels[type] || type.replace(/[_-]+/g, ' ');
 }
 
-export default function NotificationBell({ audience, colorScheme = 'light', className = '' }: NotificationBellProps) {
+export default function NotificationBell({ audience, colorScheme = 'light', className = '', expandLabel = false }: NotificationBellProps) {
   const navigate = useNavigate();
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const streamRef = useRef<EventSource | null>(null);
@@ -248,9 +249,12 @@ export default function NotificationBell({ audience, colorScheme = 'light', clas
 
   const buttonClass =
     colorScheme === 'dark'
-      ? 'text-white hover:bg-white/10 focus:ring-white/40'
-      : 'text-gray-600 hover:bg-gray-100 focus:ring-blue-500/30';
+      ? 'border-transparent text-white hover:border-white/10 hover:bg-white/10 focus:ring-white/40'
+      : 'border-transparent text-gray-600 hover:border-gray-200 hover:bg-gray-100 hover:text-gray-900 focus:ring-blue-500/30 dark:text-slate-300 dark:hover:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-white';
   const unreadLabel = unreadCount > 9 ? '9+' : String(unreadCount);
+  const expandedButtonClass = expandLabel
+    ? 'w-11 justify-start hover:w-40 focus-visible:w-40'
+    : 'w-11 justify-start';
 
   return (
     <div className={`relative ${className}`} ref={wrapperRef}>
@@ -260,25 +264,32 @@ export default function NotificationBell({ audience, colorScheme = 'light', clas
           setOpen((current) => !current);
           void fetchNotifications(true);
         }}
-        className={`relative flex h-10 w-10 items-center justify-center rounded-lg transition-colors focus:outline-none focus:ring-2 ${buttonClass}`}
+        className={`group relative flex h-11 items-center overflow-hidden rounded-full border transition-[width,background-color,border-color,color,box-shadow] duration-[250ms] ease-out focus:outline-none focus:ring-2 ${buttonClass} ${open ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-slate-700 dark:bg-slate-800 dark:text-blue-200' : ''} ${expandedButtonClass}`}
         aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ''}`}
         aria-haspopup="dialog"
         aria-expanded={open}
       >
-        <Bell className="h-5 w-5" />
-        {unreadCount > 0 && (
-          <span className="absolute right-1 top-1 flex min-h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white">
-            {unreadLabel}
+        <span className="relative flex h-11 w-11 shrink-0 items-center justify-center">
+          <Bell className="h-5 w-5" />
+          {unreadCount > 0 && (
+            <span className="absolute right-0 top-0 flex min-h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold leading-none text-white shadow-sm ring-2 ring-white dark:ring-slate-900">
+              {unreadLabel}
+            </span>
+          )}
+        </span>
+        {expandLabel && (
+          <span className="min-w-0 max-w-0 -translate-x-1 overflow-hidden whitespace-nowrap pr-0 text-sm font-semibold opacity-0 transition-[max-width,opacity,transform,padding] duration-[250ms] ease-out group-hover:max-w-24 group-hover:translate-x-0 group-hover:pr-4 group-hover:opacity-100 group-focus-visible:max-w-24 group-focus-visible:translate-x-0 group-focus-visible:pr-4 group-focus-visible:opacity-100">
+            Notifications
           </span>
         )}
       </button>
 
       {open && (
-        <div className="absolute right-0 z-50 mt-2 w-80 max-w-[calc(100vw-1rem)] overflow-hidden rounded-lg border border-gray-200 bg-white text-gray-900 shadow-xl">
-          <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+        <div className="absolute right-0 z-50 mt-2 w-80 max-w-[calc(100vw-1rem)] overflow-hidden rounded-lg border border-gray-200 bg-white text-gray-900 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
+          <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-slate-800">
             <div>
-              <p className="text-sm font-semibold text-gray-900">Notifications</p>
-              <p className="text-xs text-gray-500">
+              <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">Notifications</p>
+              <p className="text-xs text-gray-500 dark:text-slate-400">
                 {unreadCount > 0 ? `${unreadCount} unread` : 'All caught up'}
               </p>
             </div>
@@ -286,7 +297,7 @@ export default function NotificationBell({ audience, colorScheme = 'light', clas
               type="button"
               onClick={markAllRead}
               disabled={markingAll || unreadCount === 0}
-              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-blue-700 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:text-gray-400 disabled:hover:bg-transparent"
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-blue-700 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:text-gray-400 disabled:hover:bg-transparent dark:text-blue-300 dark:hover:bg-blue-950/50 dark:disabled:text-slate-600"
             >
               {markingAll ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCheck className="h-3.5 w-3.5" />}
               Mark read
@@ -295,7 +306,7 @@ export default function NotificationBell({ audience, colorScheme = 'light', clas
 
           <div className="max-h-[420px] overflow-y-auto">
             {loading && (
-              <div className="flex items-center justify-center gap-2 px-4 py-8 text-sm text-gray-500">
+              <div className="flex items-center justify-center gap-2 px-4 py-8 text-sm text-gray-500 dark:text-slate-400">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Loading notifications...
               </div>
@@ -309,8 +320,8 @@ export default function NotificationBell({ audience, colorScheme = 'light', clas
 
             {!loading && !error && notifications.length === 0 && (
               <div className="px-4 py-8 text-center">
-                <p className="text-sm font-semibold text-gray-800">No notifications yet</p>
-                <p className="mt-1 text-xs text-gray-500">New activity will appear here.</p>
+                <p className="text-sm font-semibold text-gray-800 dark:text-slate-100">No notifications yet</p>
+                <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">New activity will appear here.</p>
               </div>
             )}
 
@@ -322,20 +333,20 @@ export default function NotificationBell({ audience, colorScheme = 'light', clas
                   type="button"
                   key={notification.key}
                   onClick={() => handleNotificationClick(notification)}
-                  className={`flex w-full gap-3 border-b border-gray-100 px-4 py-3 text-left transition last:border-b-0 hover:bg-gray-50 ${
-                    notification.read ? 'bg-white' : 'bg-yellow-50/60'
+                  className={`flex w-full gap-3 border-b border-gray-100 px-4 py-3 text-left transition last:border-b-0 hover:bg-gray-50 dark:border-slate-800 dark:hover:bg-slate-800/70 ${
+                    notification.read ? 'bg-white dark:bg-slate-900' : 'bg-yellow-50/60 dark:bg-amber-950/20'
                   }`}
                 >
                   <span className={`mt-0.5 h-2.5 w-2.5 flex-shrink-0 rounded-full ${notification.read ? 'bg-gray-300' : 'bg-red-500'}`} />
                   <span className="min-w-0 flex-1">
                     <span className="flex items-center gap-2">
-                      <span className="truncate text-sm font-semibold text-gray-900">{notification.title}</span>
+                      <span className="truncate text-sm font-semibold text-gray-900 dark:text-slate-100">{notification.title}</span>
                       <span className={`rounded-md border px-1.5 py-0.5 text-[10px] font-semibold capitalize ${style}`}>
                         {formatNotificationType(notification.type)}
                       </span>
                     </span>
-                    <span className="mt-1 block text-sm leading-5 text-gray-600">{notification.message}</span>
-                    <span className="mt-2 block text-xs text-gray-400">{formatRelativeTime(notification.created_at)}</span>
+                    <span className="mt-1 block text-sm leading-5 text-gray-600 dark:text-slate-300">{notification.message}</span>
+                    <span className="mt-2 block text-xs text-gray-400 dark:text-slate-500">{formatRelativeTime(notification.created_at)}</span>
                   </span>
                 </button>
               );
