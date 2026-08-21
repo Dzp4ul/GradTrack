@@ -25,6 +25,7 @@ import { API_BASE_URL } from '../../config/api';
 import MessageBox from '../../components/MessageBox';
 import NotificationBell from '../../components/NotificationBell';
 import ThemeToggle from '../../components/ThemeToggle';
+import GradTrackGenAIAssistant from '../../components/GradTrackGenAIAssistant';
 import { useSystemSettings } from '../../contexts/SystemSettingsContext';
 
 type NavItem = {
@@ -335,6 +336,7 @@ export default function AdminLayout() {
         message={msgBox.message}
         confirmText={msgBox.confirmText}
       />
+      <GradTrackGenAIAssistant />
     </div>
   );
 }

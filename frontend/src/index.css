@@ -683,6 +683,382 @@ html.dark .recharts-pie-label-text {
   animation-delay: 0.3s;
 }
 
+.gt-ai-chat-panel {
+  animation: gradtrack-ai-panel-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.gt-ai-floating-button {
+  transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+}
+
+.gt-ai-floating-button:hover {
+  border-color: rgb(37 99 235 / 0.35);
+  box-shadow: 0 24px 55px rgb(15 23 42 / 0.22);
+  transform: translateY(-4px);
+}
+
+.gt-ai-floating-button--new::after {
+  position: absolute;
+  inset: -0.38rem;
+  border: 2px solid rgb(16 185 129 / 0.5);
+  border-radius: 9999px;
+  content: '';
+  animation: gradtrack-ai-pulse 1.4s ease-out infinite;
+}
+
+.gt-ai-mascot {
+  position: relative;
+  width: 3.9rem;
+  height: 4.25rem;
+  transform-origin: 50% 80%;
+  animation: gradtrack-ai-float 3.4s ease-in-out infinite;
+}
+
+.gt-ai-mascot--compact {
+  width: 2.45rem;
+  height: 2.7rem;
+  animation-duration: 4s;
+}
+
+.gt-ai-cap {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  z-index: 4;
+  width: 2.7rem;
+  height: 1.1rem;
+  transform: translateX(-50%) rotate(-5deg);
+}
+
+.gt-ai-mascot--compact .gt-ai-cap {
+  width: 1.7rem;
+  height: 0.75rem;
+}
+
+.gt-ai-cap__top {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 2.45rem;
+  height: 0.7rem;
+  background: #1b2a4a;
+  clip-path: polygon(50% 0, 100% 42%, 50% 86%, 0 42%);
+  transform: translateX(-50%);
+  box-shadow: 0 0.18rem 0.4rem rgb(15 23 42 / 0.18);
+}
+
+.gt-ai-mascot--compact .gt-ai-cap__top {
+  width: 1.62rem;
+  height: 0.48rem;
+}
+
+.gt-ai-cap__base {
+  position: absolute;
+  left: 50%;
+  top: 0.54rem;
+  width: 1.32rem;
+  height: 0.38rem;
+  border-radius: 0.18rem;
+  background: #2563eb;
+  transform: translateX(-50%);
+}
+
+.gt-ai-mascot--compact .gt-ai-cap__base {
+  top: 0.36rem;
+  width: 0.88rem;
+  height: 0.25rem;
+}
+
+.gt-ai-cap__tassel {
+  position: absolute;
+  right: 0.33rem;
+  top: 0.42rem;
+  width: 0.12rem;
+  height: 0.72rem;
+  border-radius: 9999px;
+  background: #f8c331;
+  transform-origin: top center;
+  animation: gradtrack-ai-tassel 3.4s ease-in-out infinite;
+}
+
+.gt-ai-mascot--compact .gt-ai-cap__tassel {
+  right: 0.18rem;
+  top: 0.28rem;
+  width: 0.08rem;
+  height: 0.46rem;
+}
+
+.gt-ai-head {
+  position: absolute;
+  left: 50%;
+  top: 0.78rem;
+  z-index: 3;
+  display: flex;
+  width: 3rem;
+  height: 2.12rem;
+  align-items: center;
+  justify-content: center;
+  border: 0.14rem solid #dbeafe;
+  border-radius: 1rem;
+  background: linear-gradient(180deg, #ffffff, #eef6ff);
+  box-shadow: inset 0 -0.28rem 0 rgb(191 219 254 / 0.35), 0 0.35rem 0.8rem rgb(37 99 235 / 0.18);
+  transform: translateX(-50%);
+}
+
+.gt-ai-mascot--compact .gt-ai-head {
+  top: 0.5rem;
+  width: 1.88rem;
+  height: 1.34rem;
+  border-width: 0.09rem;
+  border-radius: 0.65rem;
+}
+
+.gt-ai-face {
+  position: relative;
+  width: 2.22rem;
+  height: 1.24rem;
+  overflow: hidden;
+  border-radius: 0.58rem;
+  background: #0f172a;
+  box-shadow: inset 0 0 0.5rem rgb(59 130 246 / 0.35);
+}
+
+.gt-ai-mascot--compact .gt-ai-face {
+  width: 1.38rem;
+  height: 0.78rem;
+  border-radius: 0.38rem;
+}
+
+.gt-ai-eye {
+  position: absolute;
+  top: 0.36rem;
+  width: 0.32rem;
+  height: 0.32rem;
+  border-radius: 9999px;
+  background: #67e8f9;
+  box-shadow: 0 0 0.35rem #38bdf8;
+  animation: gradtrack-ai-blink 4.8s infinite;
+}
+
+.gt-ai-mascot--compact .gt-ai-eye {
+  top: 0.22rem;
+  width: 0.2rem;
+  height: 0.2rem;
+}
+
+.gt-ai-eye--left {
+  left: 0.55rem;
+}
+
+.gt-ai-eye--right {
+  right: 0.55rem;
+}
+
+.gt-ai-mascot--compact .gt-ai-eye--left {
+  left: 0.34rem;
+}
+
+.gt-ai-mascot--compact .gt-ai-eye--right {
+  right: 0.34rem;
+}
+
+.gt-ai-smile {
+  position: absolute;
+  left: 50%;
+  bottom: 0.28rem;
+  width: 0.76rem;
+  height: 0.32rem;
+  border-bottom: 0.12rem solid #67e8f9;
+  border-radius: 0 0 9999px 9999px;
+  transform: translateX(-50%);
+}
+
+.gt-ai-mascot--compact .gt-ai-smile {
+  bottom: 0.17rem;
+  width: 0.48rem;
+  height: 0.2rem;
+  border-bottom-width: 0.08rem;
+}
+
+.gt-ai-body {
+  position: absolute;
+  left: 50%;
+  bottom: 0.12rem;
+  z-index: 2;
+  display: flex;
+  width: 2.42rem;
+  height: 1.42rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.18rem;
+  border: 0.12rem solid #bfdbfe;
+  border-radius: 0.78rem 0.78rem 0.95rem 0.95rem;
+  background: linear-gradient(180deg, #ffffff, #e0f2fe);
+  transform: translateX(-50%);
+}
+
+.gt-ai-mascot--compact .gt-ai-body {
+  bottom: 0.07rem;
+  width: 1.52rem;
+  height: 0.88rem;
+  border-width: 0.08rem;
+  border-radius: 0.5rem;
+}
+
+.gt-ai-mascot--compact .gt-ai-body svg {
+  width: 0.74rem;
+  height: 0.74rem;
+}
+
+.gt-ai-body__dot {
+  width: 0.32rem;
+  height: 0.32rem;
+  border-radius: 9999px;
+  background: #22c55e;
+  box-shadow: 0 0 0.35rem rgb(34 197 94 / 0.65);
+}
+
+.gt-ai-mascot--compact .gt-ai-body__dot {
+  width: 0.2rem;
+  height: 0.2rem;
+}
+
+.gt-ai-arms {
+  position: absolute;
+  left: 50%;
+  top: 2.38rem;
+  z-index: 1;
+  width: 3.66rem;
+  height: 1.15rem;
+  transform: translateX(-50%);
+}
+
+.gt-ai-mascot--compact .gt-ai-arms {
+  top: 1.5rem;
+  width: 2.3rem;
+  height: 0.72rem;
+}
+
+.gt-ai-arm {
+  position: absolute;
+  top: 0.05rem;
+  width: 0.4rem;
+  height: 1rem;
+  border-radius: 9999px;
+  background: #bfdbfe;
+}
+
+.gt-ai-mascot--compact .gt-ai-arm {
+  width: 0.25rem;
+  height: 0.62rem;
+}
+
+.gt-ai-arm--left {
+  left: 0;
+  transform: rotate(18deg);
+}
+
+.gt-ai-arm--right {
+  right: 0;
+  transform: rotate(-18deg);
+  transform-origin: top center;
+}
+
+.gt-ai-floating-button:hover .gt-ai-arm--right {
+  animation: gradtrack-ai-wave 0.8s ease-in-out 1;
+}
+
+.gt-ai-mascot--thinking .gt-ai-eye {
+  animation: gradtrack-ai-scan 0.9s ease-in-out infinite;
+}
+
+@keyframes gradtrack-ai-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.8rem) scale(0.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes gradtrack-ai-float {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-1deg);
+  }
+
+  50% {
+    transform: translateY(-0.28rem) rotate(1deg);
+  }
+}
+
+@keyframes gradtrack-ai-blink {
+  0%,
+  45%,
+  49%,
+  100% {
+    transform: scaleY(1);
+  }
+
+  47% {
+    transform: scaleY(0.12);
+  }
+}
+
+@keyframes gradtrack-ai-scan {
+  0%,
+  100% {
+    opacity: 0.65;
+    transform: translateX(-0.08rem) scaleY(1);
+  }
+
+  50% {
+    opacity: 1;
+    transform: translateX(0.08rem) scaleY(1.15);
+  }
+}
+
+@keyframes gradtrack-ai-wave {
+  0%,
+  100% {
+    transform: rotate(-18deg);
+  }
+
+  35% {
+    transform: rotate(-58deg);
+  }
+
+  70% {
+    transform: rotate(-30deg);
+  }
+}
+
+@keyframes gradtrack-ai-tassel {
+  0%,
+  100% {
+    transform: rotate(4deg);
+  }
+
+  50% {
+    transform: rotate(-9deg);
+  }
+}
+
+@keyframes gradtrack-ai-pulse {
+  from {
+    opacity: 0.8;
+    transform: scale(0.95);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(1.2);
+  }
+}
+
 @keyframes gradtrack-typing-dot {
   0%,
   80%,
@@ -694,6 +1070,24 @@ html.dark .recharts-pie-label-text {
   40% {
     transform: translateY(-0.18rem);
     opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gt-ai-chat-panel,
+  .gt-ai-floating-button,
+  .gt-ai-floating-button--new::after,
+  .gt-ai-mascot,
+  .gt-ai-cap__tassel,
+  .gt-ai-eye,
+  .gt-ai-floating-button:hover .gt-ai-arm--right,
+  .gt-ai-mascot--thinking .gt-ai-eye {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .gt-ai-floating-button:hover {
+    transform: none;
   }
 }
 

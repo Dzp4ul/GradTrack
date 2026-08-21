@@ -36,6 +36,7 @@ export const API_ENDPOINTS = {
   SURVEY_ANALYTICS: `${API_ROOT}/surveys/analytics.php`,
   DASHBOARD: `${API_ROOT}/dashboard/stats.php`,
   REPORTS: `${API_ROOT}/reports/index.php`,
+  GENAI_ASSISTANT: `${API_ROOT}/genai/assistant.php`,
   ANNOUNCEMENTS: `${API_ROOT}/announcements/index.php`,
   NOTIFICATIONS: `${API_ROOT}/notifications/index.php`,
   SETTINGS: `${API_ROOT}/settings/index.php`,
