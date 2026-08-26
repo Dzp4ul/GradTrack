@@ -1,0 +1,73 @@
+<mxfile host="app.diagrams.net" agent="Codex">
+  <diagram id="gradtrack-ipo-framework" name="IPO Conceptual Framework">
+    <mxGraphModel dx="1488" dy="782" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="850" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="input-box" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;fillColor=#ffffff;strokeColor=#111827;strokeWidth=2;shadow=0;" value="" vertex="1">
+          <mxGeometry height="420" width="300" x="50" y="145" as="geometry" />
+        </mxCell>
+        <mxCell id="process-box" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;fillColor=#ffffff;strokeColor=#111827;strokeWidth=2;shadow=0;" value="" vertex="1">
+          <mxGeometry height="420" width="300" x="400" y="145" as="geometry" />
+        </mxCell>
+        <mxCell id="output-box" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;fillColor=#ffffff;strokeColor=#111827;strokeWidth=2;shadow=0;" value="" vertex="1">
+          <mxGeometry height="420" width="300" x="750" y="145" as="geometry" />
+        </mxCell>
+        <mxCell id="input-heading" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=17;fontStyle=1;fontFamily=Arial;fontColor=#111827;" value="INPUT" vertex="1">
+          <mxGeometry height="28" width="260" x="70" y="163" as="geometry" />
+        </mxCell>
+        <mxCell id="process-heading" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=17;fontStyle=1;fontFamily=Arial;fontColor=#111827;" value="PROCESS" vertex="1">
+          <mxGeometry height="28" width="260" x="420" y="163" as="geometry" />
+        </mxCell>
+        <mxCell id="output-heading" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=17;fontStyle=1;fontFamily=Arial;fontColor=#111827;" value="OUTPUT" vertex="1">
+          <mxGeometry height="28" width="260" x="770" y="163" as="geometry" />
+        </mxCell>
+        <mxCell id="input-body" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=13;fontFamily=Arial;fontColor=#111827;spacingLeft=4;spacingRight=4;spacingTop=0;" value="• Registrar graduate records&lt;div&gt;&lt;br&gt;• Graduate identity, account, profile, and verification data&lt;/div&gt;&lt;div&gt;&lt;br&gt;• Tracer survey responses: personal, education, training, employment, address&lt;/div&gt;&lt;div&gt;&lt;br&gt;• Alumni registry imports and account review decisions&lt;/div&gt;&lt;div&gt;&lt;br&gt;• Forum posts, comments, reactions, reports, and chat messages&lt;/div&gt;&lt;div&gt;&lt;br&gt;• Job post details and application links&lt;/div&gt;&lt;div&gt;&lt;br&gt;• Admin users, settings, reminders, and report filters&lt;/div&gt;" vertex="1">
+          <mxGeometry height="330" width="248" x="76" y="205" as="geometry" />
+        </mxCell>
+        <mxCell id="process-body" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=13;fontFamily=Arial;fontColor=#111827;spacingLeft=4;spacingRight=4;spacingTop=0;" value="• Role-based authentication, sessions, and feature access control&lt;div&gt;&lt;br&gt;• Registrar graduate record management&lt;/div&gt;&lt;div&gt;&lt;br&gt;• Graduate verification, survey tokens, validation, and response storage&lt;/div&gt;&lt;div&gt;&lt;br&gt;• Graduate account registration and alumni verification&lt;/div&gt;&lt;div&gt;&lt;br&gt;• Forum moderation, activity logging, reactions, and realtime messaging&lt;/div&gt;&lt;div&gt;&lt;br&gt;• Job-post eligibility checking, submission, link validation, and approval&lt;/div&gt;&lt;div&gt;&lt;br&gt;• Analytics, reports, exports, reminders, audit trail, backup, and GenAI explanation&lt;/div&gt;" vertex="1">
+          <mxGeometry height="330" width="248" x="426" y="205" as="geometry" />
+        </mxCell>
+        <mxCell id="output-body" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;rounded=0;fontSize=13;fontFamily=Arial;fontColor=#111827;spacingLeft=4;spacingRight=4;spacingTop=0;" value="• Graduate portal account statuses&lt;div&gt;&lt;br&gt;• Graduate profiles with work, education, training, posts, and activity&lt;/div&gt;&lt;div&gt;&lt;br&gt;• Stored tracer responses and participation status lists&lt;/div&gt;&lt;div&gt;&lt;br&gt;• Employment, alignment, salary, location, program, and cohort statistics&lt;/div&gt;&lt;div&gt;&lt;br&gt;• Dashboards, charts, report tables, descriptive analytics, and GenAI explanations&lt;/div&gt;&lt;div&gt;&lt;br&gt;• PDF/Excel reports, CSV registry exports, and database backups&lt;/div&gt;&lt;div&gt;&lt;br&gt;• Approved jobs, moderated forum interactions, conversations, and notifications&lt;/div&gt;" vertex="1">
+          <mxGeometry height="330" width="248" x="776" y="205" as="geometry" />
+        </mxCell>
+        <mxCell id="arrow-input-process" edge="1" parent="1" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#374151;fillColor=#374151;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="350" y="355" as="sourcePoint" />
+            <mxPoint x="400" y="355" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="arrow-process-output" edge="1" parent="1" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#374151;fillColor=#374151;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="700" y="355" as="sourcePoint" />
+            <mxPoint x="750" y="355" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="feedback-box" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;fillColor=#f8fafc;strokeColor=#111827;strokeWidth=2;shadow=0;" value="" vertex="1">
+          <mxGeometry height="55" width="900" x="100" y="625" as="geometry" />
+        </mxCell>
+        <mxCell id="feedback-heading" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=30;fontStyle=1;fontFamily=Arial;fontColor=#111827;" value="FEEDBACK" vertex="1">
+          <mxGeometry height="34" width="320" x="390" y="635" as="geometry" />
+        </mxCell>
+        <mxCell id="feedback-to-input" edge="1" parent="1" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#374151;fillColor=#374151;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="200" y="625" as="sourcePoint" />
+            <mxPoint x="200" y="565" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="feedback-to-process" edge="1" parent="1" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#374151;fillColor=#374151;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="550" y="625" as="sourcePoint" />
+            <mxPoint x="550" y="565" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="feedback-to-output" edge="1" parent="1" style="endArrow=block;html=1;rounded=0;strokeWidth=2;strokeColor=#374151;fillColor=#374151;" value="">
+          <mxGeometry height="50" relative="1" width="50" as="geometry">
+            <mxPoint x="900" y="625" as="sourcePoint" />
+            <mxPoint x="900" y="565" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

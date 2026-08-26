@@ -115,6 +115,14 @@ function App() {
               </GraduateProtectedRoute>
             }
           />
+          <Route
+            path="/graduate/community/profile/:graduateId"
+            element={
+              <GraduateProtectedRoute>
+                <GraduatePortal />
+              </GraduateProtectedRoute>
+            }
+          />
 
           {/* Admin Sign In - Separate route for admin only */}
           <Route path="/admin/signin" element={<SignIn />} />

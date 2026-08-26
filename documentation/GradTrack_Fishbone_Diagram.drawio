@@ -1,0 +1,218 @@
+<mxfile host="app.diagrams.net" modified="2026-08-24T00:00:00.000Z" agent="Codex" version="24.7.17" type="device">
+  <diagram id="gradtrack-fishbone-diagram" name="GradTrack Fishbone Diagram">
+    <mxGraphModel dx="1600" dy="1000" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="title" value="Fishbone Diagram: GradTrack Problem Analysis" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=22;fontStyle=1;fontColor=#111111;" vertex="1" parent="1">
+          <mxGeometry x="455" y="25" width="690" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="GradTrack: A Web-Based Graduate Tracer System with Alumni Job Support System for Norzagaray College" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#333333;" vertex="1" parent="1">
+          <mxGeometry x="365" y="65" width="870" height="30" as="geometry" />
+        </mxCell>
+
+        <mxCell id="effectBox" value="&lt;b&gt;Inefficient Graduate Tracking and Limited Alumni Career Support&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111111;strokeWidth=2;fontColor=#111111;fontSize=16;fontStyle=0;align=center;verticalAlign=middle;spacing=14;" vertex="1" parent="1">
+          <mxGeometry x="1230" y="440" width="320" height="160" as="geometry" />
+        </mxCell>
+
+        <mxCell id="mainSpine" value="" style="endArrow=block;endFill=1;html=1;rounded=0;strokeColor=#222222;strokeWidth=2.5;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="145" y="520" as="sourcePoint" />
+            <mxPoint x="1230" y="520" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="methodsBox" value="&lt;b&gt;METHODS&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111111;strokeWidth=1.5;fontColor=#111111;fontSize=14;fontStyle=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="340" y="120" width="205" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="peopleBox" value="&lt;b&gt;PEOPLE&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111111;strokeWidth=1.5;fontColor=#111111;fontSize=14;fontStyle=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="835" y="120" width="205" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="environmentBox" value="&lt;b&gt;ENVIRONMENT&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111111;strokeWidth=1.5;fontColor=#111111;fontSize=14;fontStyle=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="305" y="855" width="230" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="technologyBox" value="&lt;b&gt;MACHINE / TECHNOLOGY&lt;/b&gt;" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111111;strokeWidth=1.5;fontColor=#111111;fontSize=14;fontStyle=1;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="820" y="855" width="280" height="50" as="geometry" />
+        </mxCell>
+
+        <mxCell id="methodsBranch" value="" style="endArrow=none;html=1;rounded=0;strokeColor=#222222;strokeWidth=2;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="440" y="170" as="sourcePoint" />
+            <mxPoint x="620" y="520" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="peopleBranch" value="" style="endArrow=none;html=1;rounded=0;strokeColor=#222222;strokeWidth=2;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="940" y="170" as="sourcePoint" />
+            <mxPoint x="780" y="520" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="environmentBranch" value="" style="endArrow=none;html=1;rounded=0;strokeColor=#222222;strokeWidth=2;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="445" y="855" as="sourcePoint" />
+            <mxPoint x="620" y="520" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="technologyBranch" value="" style="endArrow=none;html=1;rounded=0;strokeColor=#222222;strokeWidth=2;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="945" y="855" as="sourcePoint" />
+            <mxPoint x="780" y="520" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="methodCause1" value="Manual Collection of Graduate Information" style="text;html=1;strokeColor=none;fillColor=none;align=right;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#111111;" vertex="1" parent="1">
+          <mxGeometry x="70" y="205" width="310" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="methodCause2" value="Reliance on Traditional Survey Methods" style="text;html=1;strokeColor=none;fillColor=none;align=right;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#111111;" vertex="1" parent="1">
+          <mxGeometry x="70" y="260" width="310" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="methodCause3" value="Slow Updating of Graduate Records" style="text;html=1;strokeColor=none;fillColor=none;align=right;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#111111;" vertex="1" parent="1">
+          <mxGeometry x="70" y="315" width="310" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="methodCause4" value="Lack of Automated Tracer Study Reports" style="text;html=1;strokeColor=none;fillColor=none;align=right;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#111111;" vertex="1" parent="1">
+          <mxGeometry x="70" y="370" width="310" height="32" as="geometry" />
+        </mxCell>
+
+        <mxCell id="methodCauseLine1" value="" style="endArrow=none;html=1;rounded=0;strokeColor=#333333;strokeWidth=1.5;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="380" y="221" as="sourcePoint" />
+            <mxPoint x="472" y="235" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="methodCauseLine2" value="" style="endArrow=none;html=1;rounded=0;strokeColor=#333333;strokeWidth=1.5;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="380" y="276" as="sourcePoint" />
+            <mxPoint x="501" y="290" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="methodCauseLine3" value="" style="endArrow=none;html=1;rounded=0;strokeColor=#333333;strokeWidth=1.5;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="380" y="331" as="sourcePoint" />
+            <mxPoint x="529" y="345" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="methodCauseLine4" value="" style="endArrow=none;html=1;rounded=0;strokeColor=#333333;strokeWidth=1.5;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="380" y="386" as="sourcePoint" />
+            <mxPoint x="558" y="400" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="peopleCause1" value="Low Graduate Survey Participation" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#111111;" vertex="1" parent="1">
+          <mxGeometry x="1020" y="205" width="330" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="peopleCause2" value="Difficulty Contacting Graduates" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#111111;" vertex="1" parent="1">
+          <mxGeometry x="1020" y="260" width="330" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="peopleCause3" value="Delayed Alumni Account Verification" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#111111;" vertex="1" parent="1">
+          <mxGeometry x="1020" y="315" width="330" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="peopleCause4" value="Limited Communication Between Alumni and College" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#111111;" vertex="1" parent="1">
+          <mxGeometry x="1020" y="370" width="330" height="32" as="geometry" />
+        </mxCell>
+
+        <mxCell id="peopleCauseLine1" value="" style="endArrow=none;html=1;rounded=0;strokeColor=#333333;strokeWidth=1.5;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="913" y="230" as="sourcePoint" />
+            <mxPoint x="1020" y="221" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="peopleCauseLine2" value="" style="endArrow=none;html=1;rounded=0;strokeColor=#333333;strokeWidth=1.5;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="889" y="290" as="sourcePoint" />
+            <mxPoint x="1020" y="276" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="peopleCauseLine3" value="" style="endArrow=none;html=1;rounded=0;strokeColor=#333333;strokeWidth=1.5;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="865" y="350" as="sourcePoint" />
+            <mxPoint x="1020" y="331" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="peopleCauseLine4" value="" style="endArrow=none;html=1;rounded=0;strokeColor=#333333;strokeWidth=1.5;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="840" y="410" as="sourcePoint" />
+            <mxPoint x="1020" y="386" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="environmentCause1" value="Graduate Records Stored in Different Sources" style="text;html=1;strokeColor=none;fillColor=none;align=right;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#111111;" vertex="1" parent="1">
+          <mxGeometry x="70" y="625" width="330" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="environmentCause2" value="Limited Access to Updated Alumni Information" style="text;html=1;strokeColor=none;fillColor=none;align=right;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#111111;" vertex="1" parent="1">
+          <mxGeometry x="70" y="680" width="330" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="environmentCause3" value="Difficulty Reaching Graduates After Graduation" style="text;html=1;strokeColor=none;fillColor=none;align=right;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#111111;" vertex="1" parent="1">
+          <mxGeometry x="70" y="735" width="330" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="environmentCause4" value="Lack of a Central Online Alumni Community" style="text;html=1;strokeColor=none;fillColor=none;align=right;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#111111;" vertex="1" parent="1">
+          <mxGeometry x="70" y="790" width="330" height="32" as="geometry" />
+        </mxCell>
+
+        <mxCell id="environmentCauseLine1" value="" style="endArrow=none;html=1;rounded=0;strokeColor=#333333;strokeWidth=1.5;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="400" y="641" as="sourcePoint" />
+            <mxPoint x="558" y="640" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="environmentCauseLine2" value="" style="endArrow=none;html=1;rounded=0;strokeColor=#333333;strokeWidth=1.5;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="400" y="696" as="sourcePoint" />
+            <mxPoint x="529" y="695" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="environmentCauseLine3" value="" style="endArrow=none;html=1;rounded=0;strokeColor=#333333;strokeWidth=1.5;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="400" y="751" as="sourcePoint" />
+            <mxPoint x="501" y="750" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="environmentCauseLine4" value="" style="endArrow=none;html=1;rounded=0;strokeColor=#333333;strokeWidth=1.5;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="400" y="806" as="sourcePoint" />
+            <mxPoint x="472" y="805" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+
+        <mxCell id="technologyCause1" value="Lack of a Dedicated Graduate Tracer System" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#111111;" vertex="1" parent="1">
+          <mxGeometry x="1005" y="625" width="360" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="technologyCause2" value="Limited Automated Data Analytics" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#111111;" vertex="1" parent="1">
+          <mxGeometry x="1005" y="680" width="360" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="technologyCause3" value="No Integrated Alumni Job Support Platform" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#111111;" vertex="1" parent="1">
+          <mxGeometry x="1005" y="735" width="360" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="technologyCause4" value="No Centralized Digital Platform for Graduate Records" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontSize=12;fontColor=#111111;" vertex="1" parent="1">
+          <mxGeometry x="1005" y="790" width="390" height="32" as="geometry" />
+        </mxCell>
+
+        <mxCell id="technologyCauseLine1" value="" style="endArrow=none;html=1;rounded=0;strokeColor=#333333;strokeWidth=1.5;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="839" y="640" as="sourcePoint" />
+            <mxPoint x="1005" y="641" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="technologyCauseLine2" value="" style="endArrow=none;html=1;rounded=0;strokeColor=#333333;strokeWidth=1.5;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="866" y="695" as="sourcePoint" />
+            <mxPoint x="1005" y="696" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="technologyCauseLine3" value="" style="endArrow=none;html=1;rounded=0;strokeColor=#333333;strokeWidth=1.5;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="893" y="750" as="sourcePoint" />
+            <mxPoint x="1005" y="751" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="technologyCauseLine4" value="" style="endArrow=none;html=1;rounded=0;strokeColor=#333333;strokeWidth=1.5;" edge="1" parent="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="920" y="805" as="sourcePoint" />
+            <mxPoint x="1005" y="806" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

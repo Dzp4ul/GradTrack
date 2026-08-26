@@ -53,6 +53,75 @@ function gradtrack_profile_delete_file(?string $relativePath): void
     }
 }
 
+function gradtrack_profile_public_graduate_user(PDO $db, int $graduateId): ?array
+{
+    gradtrack_ensure_graduate_account_verification_schema($db);
+    gradtrack_ensure_graduate_profile_image_table($db);
+    gradtrack_ensure_graduate_cover_image_table($db);
+
+    $query = "SELECT ga.id AS account_id, ga.email, ga.status, ga.last_login_at,
+                     ga.alumni_verification_status, ga.alumni_verification_reason,
+                     ga.alumni_verification_reviewed_at, ga.alumni_verification_submitted_at,
+                     g.id AS graduate_id, g.student_id, g.first_name, g.middle_name, g.last_name,
+                     g.phone, g.year_graduated, g.address,
+                     p.id AS program_id, p.name AS program_name, p.code AS program_code,
+                     gpi.file_path AS profile_image_path,
+                     gci.file_path AS cover_image_path
+              FROM graduate_accounts ga
+              JOIN graduates g ON ga.graduate_id = g.id
+              LEFT JOIN programs p ON g.program_id = p.id
+              LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
+              LEFT JOIN graduate_cover_images gci ON gci.graduate_account_id = ga.id
+              WHERE g.id = :graduate_id
+                AND ga.status = 'active'
+                AND ga.alumni_verification_status = 'approved'
+              ORDER BY ga.id DESC
+              LIMIT 1";
+
+    $stmt = $db->prepare($query);
+    $stmt->execute([':graduate_id' => $graduateId]);
+    $user = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    if (!$user) {
+        return null;
+    }
+
+    return [
+        'account_id' => (int) $user['account_id'],
+        'graduate_id' => (int) $user['graduate_id'],
+        'email' => $user['email'],
+        'account_status' => $user['status'],
+        'alumni_verification_status' => $user['alumni_verification_status'],
+        'alumni_verification_submitted_at' => $user['alumni_verification_submitted_at'],
+        'alumni_verification_reviewed_at' => $user['alumni_verification_reviewed_at'],
+        'full_name' => trim(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? '')),
+        'first_name' => $user['first_name'],
+        'middle_name' => $user['middle_name'],
+        'last_name' => $user['last_name'],
+        'student_id' => $user['student_id'],
+        'phone' => $user['phone'],
+        'year_graduated' => $user['year_graduated'] !== null ? (int) $user['year_graduated'] : null,
+        'address' => $user['address'],
+        'program_id' => $user['program_id'] !== null ? (int) $user['program_id'] : null,
+        'program_name' => $user['program_name'],
+        'program_code' => $user['program_code'],
+        'profile_image_path' => $user['profile_image_path'] ?? null,
+        'cover_image_path' => $user['cover_image_path'] ?? null,
+        'role' => 'graduate',
+    ];
+}
+
+function gradtrack_profile_public_visibility(array $user): array
+{
+    $publicUser = $user;
+    $publicUser['email'] = '';
+    $publicUser['phone'] = null;
+    $publicUser['address'] = null;
+    $publicUser['student_id'] = null;
+
+    return $publicUser;
+}
+
 function gradtrack_profile_validate_image_upload(array $file, string $label): array
 {
     if ((int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
@@ -816,12 +885,30 @@ try {
 
     if ($method === 'GET') {
         $currentUser = gradtrack_current_graduate_user($db);
+        $targetGraduateId = isset($_GET['graduate_id']) ? (int) $_GET['graduate_id'] : $graduateId;
+
+        if ($targetGraduateId <= 0) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid graduate_id']);
+            exit;
+        }
+
+        $isSelf = $targetGraduateId === $graduateId;
+        $profileUser = $isSelf ? $currentUser : gradtrack_profile_public_graduate_user($db, $targetGraduateId);
+
+        if (!$profileUser) {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'error' => 'Graduate profile not found']);
+            exit;
+        }
 
         echo json_encode([
             'success' => true,
             'data' => [
-                'user' => $currentUser,
-                'survey_profile' => $currentUser ? gradtrack_profile_survey_data($db, $currentUser) : null,
+                'user' => $isSelf ? $profileUser : gradtrack_profile_public_visibility($profileUser),
+                'survey_profile' => gradtrack_profile_survey_data($db, $profileUser),
+                'is_self' => $isSelf,
+                'viewer_graduate_id' => $graduateId,
             ],
         ]);
         exit;

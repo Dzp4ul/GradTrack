@@ -1,0 +1,979 @@
+<mxfile host="app.diagrams.net" agent="Codex" pages="5">
+  <diagram id="super-admin-activity" name="Super Admin Activity Diagram">
+    <mxGraphModel dx="1414" dy="743" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="1680" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="sa_title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=18;fontStyle=1;fontColor=#111827;" value="Super Admin Activity Diagram" vertex="1">
+          <mxGeometry height="32" width="1100" x="50" y="24" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_user_lane" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1;" value="" vertex="1">
+          <mxGeometry height="1540" width="550" x="50" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_system_lane" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1;" value="" vertex="1">
+          <mxGeometry height="1540" width="550" x="600" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_user_header" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f3f4f6;strokeColor=#111827;strokeWidth=1;fontStyle=1;fontSize=14;fontColor=#111827;" value="SUPER ADMIN" vertex="1">
+          <mxGeometry height="42" width="550" x="50" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_system_header" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f3f4f6;strokeColor=#111827;strokeWidth=1;fontStyle=1;fontSize=14;fontColor=#111827;" value="SYSTEM" vertex="1">
+          <mxGeometry height="42" width="550" x="600" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_start" parent="1" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#000000;strokeColor=#000000;" value="" vertex="1">
+          <mxGeometry height="28" width="28" x="311" y="137" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_login" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Open Admin Sign In and Enter Super Admin Credentials" vertex="1">
+          <mxGeometry height="58" width="280" x="185" y="205" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_validate" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Validate Credentials, Active Status, Role, and Maintenance Rule" vertex="1">
+          <mxGeometry height="58" width="310" x="720" y="205" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_valid" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=6;" value="Valid Super Admin?" vertex="1">
+          <mxGeometry height="90" width="130" x="810" y="300" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_no" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#111827;" value="No" vertex="1">
+          <mxGeometry height="22" width="40" x="1010" y="356" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_yes" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#111827;" value="Yes" vertex="1">
+          <mxGeometry height="22" width="40" x="820" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_error" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Display Login or Access Error" vertex="1">
+          <mxGeometry height="50" width="200" x="910" y="415" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_landing" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Display User Management Landing Page" vertex="1">
+          <mxGeometry height="50" width="310" x="720" y="470" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_select" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Select Super Admin Module" vertex="1">
+          <mxGeometry height="48" width="280" x="185" y="560" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_users" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Manage Admin Users: create, edit, activate, or deactivate accounts" vertex="1">
+          <mxGeometry height="58" width="280" x="185" y="660" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_users_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Validate input, update admin_users, prevent unsafe self-deactivation, and write audit trail" vertex="1">
+          <mxGeometry height="78" width="310" x="720" y="650" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_reminders" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Configure Auto Email Reminders or send survey reminders" vertex="1">
+          <mxGeometry height="58" width="280" x="185" y="780" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_reminders_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Load active survey, eligible graduates, reminder logs; send PHPMailer emails when confirmed" vertex="1">
+          <mxGeometry height="78" width="310" x="720" y="770" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_audit" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="View, filter, or export Audit Trail" vertex="1">
+          <mxGeometry height="50" width="280" x="185" y="900" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_audit_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Retrieve audit logs and export CSV when requested" vertex="1">
+          <mxGeometry height="50" width="310" x="720" y="900" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_backup" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Review database summary or download backup" vertex="1">
+          <mxGeometry height="50" width="280" x="185" y="1010" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_backup_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Show table statistics and stream SQL backup file" vertex="1">
+          <mxGeometry height="50" width="310" x="720" y="1010" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_settings" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Update system, branding, feature, and maintenance settings" vertex="1">
+          <mxGeometry height="58" width="280" x="185" y="1120" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_settings_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Validate and save settings, upload branding images, and apply public feature flags" vertex="1">
+          <mxGeometry height="78" width="310" x="720" y="1110" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_profile" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Update own admin profile, password, image, notifications, or GenAI assistant prompt" vertex="1">
+          <mxGeometry height="74" width="280" x="185" y="1240" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_profile_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Save profile updates, mark notifications read, or return allowed GenAI response" vertex="1">
+          <mxGeometry height="74" width="310" x="720" y="1240" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_continue" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=6;" value="Continue Managing?" vertex="1">
+          <mxGeometry height="90" width="130" x="260" y="1360" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_continue_yes" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#111827;" value="Yes" vertex="1">
+          <mxGeometry height="22" width="40" x="110" y="1370" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_continue_no" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#111827;" value="No" vertex="1">
+          <mxGeometry height="22" width="40" x="405" y="1455" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_logout" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Confirm Logout" vertex="1">
+          <mxGeometry height="48" width="280" x="185" y="1490" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_logout_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="End session and return to Admin Sign In" vertex="1">
+          <mxGeometry height="48" width="310" x="720" y="1490" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_final_o" parent="1" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.5;" value="" vertex="1">
+          <mxGeometry height="32" width="32" x="859" y="1565" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_final_i" parent="1" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#000000;strokeColor=#000000;" value="" vertex="1">
+          <mxGeometry height="16" width="16" x="867" y="1573" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_e1" edge="1" parent="1" source="sa_start" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="sa_login">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_e2" edge="1" parent="1" source="sa_login" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="sa_validate">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_e3" edge="1" parent="1" source="sa_validate" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="sa_valid">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_e4" edge="1" parent="1" source="sa_valid" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="sa_error">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_e6" edge="1" parent="1" source="sa_valid" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="sa_landing">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_e7" edge="1" parent="1" source="sa_landing" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="sa_select">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_e8" edge="1" parent="1" source="sa_select" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="sa_users">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_e9" edge="1" parent="1" source="sa_users" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="sa_users_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_e10" edge="1" parent="1" source="sa_users_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;entryX=0.5;entryY=0;entryDx=0;entryDy=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="sa_reminders">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="720" y="728" as="sourcePoint" />
+            <mxPoint x="325" y="819" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="sa_e11" edge="1" parent="1" source="sa_reminders" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="sa_reminders_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_e12" edge="1" parent="1" source="sa_reminders_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;entryX=0.5;entryY=0;entryDx=0;entryDy=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="sa_audit">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="720" y="848" as="sourcePoint" />
+            <mxPoint x="325" y="939" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="sa_e13" edge="1" parent="1" source="sa_audit" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="sa_audit_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_e14" edge="1" parent="1" source="sa_audit_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="sa_backup">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="720" y="960" as="sourcePoint" />
+            <mxPoint x="325" y="1045" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="sa_e15" edge="1" parent="1" source="sa_backup" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="sa_backup_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_e16" edge="1" parent="1" source="sa_backup_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="sa_settings">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_e17" edge="1" parent="1" source="sa_settings" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="sa_settings_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_e18" edge="1" parent="1" source="sa_settings_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="sa_profile">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_e19" edge="1" parent="1" source="sa_profile" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="sa_profile_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_e20" edge="1" parent="1" source="sa_profile_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="sa_continue">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_e21" edge="1" parent="1" source="sa_continue" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="sa_select">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="115" y="1405" />
+              <mxPoint x="115" y="584" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="sa_e22" edge="1" parent="1" source="sa_continue" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="sa_logout">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_e23" edge="1" parent="1" source="sa_logout" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="sa_logout_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="sa_e24" edge="1" parent="1" source="sa_logout_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="sa_final_o">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="tyboxfv4MxTu6sA-vf-7-1" edge="1" parent="1" source="sa_error" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="sa_final_o">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1239" y="560" as="sourcePoint" />
+            <mxPoint x="1020" y="1756" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="admin-activity" name="Admin Activity Diagram">
+    <mxGraphModel dx="1414" dy="743" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="1760" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="ad_title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=18;fontStyle=1;fontColor=#111827;" value="Admin Activity Diagram" vertex="1">
+          <mxGeometry height="32" width="1100" x="50" y="24" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_user_lane" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1;" value="" vertex="1">
+          <mxGeometry height="1620" width="550" x="50" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_system_lane" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1;" value="" vertex="1">
+          <mxGeometry height="1620" width="550" x="600" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_user_header" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f3f4f6;strokeColor=#111827;strokeWidth=1;fontStyle=1;fontSize=14;fontColor=#111827;" value="ADMIN" vertex="1">
+          <mxGeometry height="42" width="550" x="50" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_system_header" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f3f4f6;strokeColor=#111827;strokeWidth=1;fontStyle=1;fontSize=14;fontColor=#111827;" value="SYSTEM" vertex="1">
+          <mxGeometry height="42" width="550" x="600" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_start" parent="1" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#000000;strokeColor=#000000;" value="" vertex="1">
+          <mxGeometry height="28" width="28" x="311" y="137" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_login" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Open Admin Sign In and Enter Admin Credentials" vertex="1">
+          <mxGeometry height="58" width="280" x="185" y="205" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_validate" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Validate Credentials, Active Status, Role, and Maintenance Rule" vertex="1">
+          <mxGeometry height="58" width="310" x="720" y="205" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_valid" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=6;" value="Valid Admin?" vertex="1">
+          <mxGeometry height="90" width="130" x="810" y="300" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_no" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#111827;" value="No" vertex="1">
+          <mxGeometry height="22" width="40" x="970" y="368" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_yes" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#111827;" value="Yes" vertex="1">
+          <mxGeometry height="22" width="40" x="820" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_error" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Display Login or Access Error" vertex="1">
+          <mxGeometry height="50" width="200" x="910" y="415" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_dashboard" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Display Dashboard with tracer statistics and active survey summaries" vertex="1">
+          <mxGeometry height="64" width="310" x="720" y="470" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_select" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Select Admin Module" vertex="1">
+          <mxGeometry height="48" width="280" x="185" y="570" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_participation" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Review graduate participation, filter status, view submitted answers, or notify selected graduates" vertex="1">
+          <mxGeometry height="78" width="280" x="185" y="670" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_participation_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Load survey status, answer details, and send reminder emails when confirmed" vertex="1">
+          <mxGeometry height="78" width="310" x="720" y="670" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_surveys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Create, edit, activate, delete, or clear surveys and questions" vertex="1">
+          <mxGeometry height="64" width="280" x="185" y="800" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_active_rule" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=6;" value="&lt;font style=&quot;font-size: 10px;&quot;&gt;Another Active Survey Exists?&lt;/font&gt;" vertex="1">
+          <mxGeometry height="90" width="130" x="810" y="790" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_active_yes" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#111827;" value="Yes" vertex="1">
+          <mxGeometry height="22" width="40" x="870" y="880" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_survey_result" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Show active-survey warning or save survey changes and audit trail" vertex="1">
+          <mxGeometry height="64" width="310" x="720" y="930" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_responses" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="View survey responses, question analytics, and CSV export data" vertex="1">
+          <mxGeometry height="64" width="280" x="185" y="1045" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_responses_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Load responses, answer summaries, and per-question analytics" vertex="1">
+          <mxGeometry height="64" width="310" x="720" y="1045" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_reports" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Generate Reports and Analytics or export Excel and PDF" vertex="1">
+          <mxGeometry height="64" width="280" x="185" y="1160" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_reports_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Generate overview, program, year, employment, salary, location, and AI analytics data" vertex="1">
+          <mxGeometry height="78" width="310" x="720" y="1160" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_ai_profile" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Use GenAI assistant, notifications, or update own profile" vertex="1">
+          <mxGeometry height="64" width="280" x="185" y="1290" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_ai_profile_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Return AI or fallback insight, mark notices read, or save profile updates" vertex="1">
+          <mxGeometry height="64" width="310" x="720" y="1290" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_continue" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=6;" value="Continue Admin Work?" vertex="1">
+          <mxGeometry height="90" width="130" x="260" y="1410" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_continue_yes" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#111827;" value="Yes" vertex="1">
+          <mxGeometry height="22" width="40" x="110" y="1420" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_continue_no" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#111827;" value="No" vertex="1">
+          <mxGeometry height="22" width="40" x="405" y="1505" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_logout" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Confirm Logout" vertex="1">
+          <mxGeometry height="48" width="280" x="185" y="1540" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_logout_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="End session and return to Admin Sign In" vertex="1">
+          <mxGeometry height="48" width="310" x="720" y="1540" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_final_o" parent="1" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.5;" value="" vertex="1">
+          <mxGeometry height="32" width="32" x="859" y="1620" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_final_i" parent="1" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#000000;strokeColor=#000000;" value="" vertex="1">
+          <mxGeometry height="16" width="16" x="867" y="1628" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_e1" edge="1" parent="1" source="ad_start" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ad_login">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_e2" edge="1" parent="1" source="ad_login" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ad_validate">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_e3" edge="1" parent="1" source="ad_validate" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ad_valid">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_e4" edge="1" parent="1" source="ad_valid" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ad_error">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_e6" edge="1" parent="1" source="ad_valid" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ad_dashboard">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_e7" edge="1" parent="1" source="ad_dashboard" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ad_select">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_e8" edge="1" parent="1" source="ad_select" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ad_participation">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_e9" edge="1" parent="1" source="ad_participation" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ad_participation_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_e10" edge="1" parent="1" source="ad_participation_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="ad_surveys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_e11" edge="1" parent="1" source="ad_surveys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ad_active_rule">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_e12" edge="1" parent="1" source="ad_active_rule" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ad_survey_result">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_e13" edge="1" parent="1" source="ad_survey_result" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ad_responses">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_e14" edge="1" parent="1" source="ad_responses" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ad_responses_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_e15" edge="1" parent="1" source="ad_responses_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="ad_reports">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_e16" edge="1" parent="1" source="ad_reports" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;entryX=0.003;entryY=0.41;entryDx=0;entryDy=0;entryPerimeter=0;" target="ad_reports_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_e17" edge="1" parent="1" source="ad_reports_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="ad_ai_profile">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_e18" edge="1" parent="1" source="ad_ai_profile" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ad_ai_profile_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_e19" edge="1" parent="1" source="ad_ai_profile_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="ad_continue">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_e20" edge="1" parent="1" source="ad_continue" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ad_select">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="115" y="1455" />
+              <mxPoint x="115" y="594" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ad_e21" edge="1" parent="1" source="ad_continue" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ad_logout">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_e22" edge="1" parent="1" source="ad_logout" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ad_logout_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ad_e23" edge="1" parent="1" source="ad_logout_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ad_final_o">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Cx8RYRI4DZ0wSOda4ise-1" edge="1" parent="1" source="ad_error" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="ad_final_o">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1239" y="320" as="sourcePoint" />
+            <mxPoint x="1020" y="1516" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="alumni-admin-activity" name="Alumni Admin Activity Diagram">
+    <mxGraphModel dx="1414" dy="743" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="1740" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="aa_system_lane" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1;" value="" vertex="1">
+          <mxGeometry height="1600" width="550" x="600" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ZWq5WiUDjlnk9OIr9qQD-2" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="" vertex="1">
+          <mxGeometry height="42" width="100" x="924" y="681" as="geometry" />
+        </mxCell>
+        <mxCell id="ZWq5WiUDjlnk9OIr9qQD-1" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="" vertex="1">
+          <mxGeometry height="42" width="100" x="715" y="681" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=18;fontStyle=1;fontColor=#111827;" value="Alumni Admin Activity Diagram" vertex="1">
+          <mxGeometry height="32" width="1100" x="50" y="24" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_user_lane" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1;" value="" vertex="1">
+          <mxGeometry height="1600" width="550" x="50" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_user_header" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f3f4f6;strokeColor=#111827;strokeWidth=1;fontStyle=1;fontSize=14;fontColor=#111827;" value="ALUMNI ADMIN" vertex="1">
+          <mxGeometry height="42" width="550" x="50" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_system_header" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f3f4f6;strokeColor=#111827;strokeWidth=1;fontStyle=1;fontSize=14;fontColor=#111827;" value="SYSTEM" vertex="1">
+          <mxGeometry height="42" width="550" x="600" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_start" parent="1" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#000000;strokeColor=#000000;" value="" vertex="1">
+          <mxGeometry height="28" width="28" x="311" y="137" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_login" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Open Admin Sign In and Enter Alumni Admin Credentials" vertex="1">
+          <mxGeometry height="58" width="280" x="185" y="205" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_validate" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Validate Credentials, Active Status, Role, and Maintenance Rule" vertex="1">
+          <mxGeometry height="58" width="310" x="720" y="205" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_valid" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=6;" value="Valid Alumni Admin?" vertex="1">
+          <mxGeometry height="90" width="130" x="810" y="300" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_no" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#111827;" value="No" vertex="1">
+          <mxGeometry height="22" width="40" x="1010" y="356" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_yes" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#111827;" value="Yes" vertex="1">
+          <mxGeometry height="22" width="40" x="820" y="390" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_error" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Display Login or Access Error" vertex="1">
+          <mxGeometry height="50" width="200" x="910" y="415" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_landing" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Display Alumni Verification Page" vertex="1">
+          <mxGeometry height="50" width="310" x="720" y="470" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_select" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Select Alumni Admin Module" vertex="1">
+          <mxGeometry height="48" width="280" x="185" y="570" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_accounts" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Review pending Graduate Portal accounts and choose approve or reject" vertex="1">
+          <mxGeometry height="64" width="280" x="185" y="670" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_account_decision" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=6;" value="Approve Account?" vertex="1">
+          <mxGeometry height="90" width="130" x="810" y="580" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_approve" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#111827;" value="Approve" vertex="1">
+          <mxGeometry height="22" width="70" x="730" y="691" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_reject" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#111827;" value="Reject" vertex="1">
+          <mxGeometry height="22" width="70" x="940" y="691" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_account_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Set account active and approved, or save rejection reason; sync alumni registry and write audit trail" vertex="1">
+          <mxGeometry height="78" width="310" x="720" y="790" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_registry" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Manage official alumni registry: import, preview, edit, link, unlink, delete, or export records" vertex="1">
+          <mxGeometry height="78" width="280" x="185" y="920" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_registry_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Validate registry action, update registered_alumni, refresh summaries, and write audit trail" vertex="1">
+          <mxGeometry height="78" width="310" x="720" y="920" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_forum" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Moderate forum posts, comments, and reports" vertex="1">
+          <mxGeometry height="58" width="280" x="185" y="1050" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_forum_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Load moderation queue and apply approve, pending, hidden, delete, or comment delete actions" vertex="1">
+          <mxGeometry height="78" width="310" x="720" y="1040" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_jobs" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Review pending alumni job posts and choose approve or decline" vertex="1">
+          <mxGeometry height="64" width="280" x="185" y="1175" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_job_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Update job approval status, save review notes, send approval email, and write audit trail" vertex="1">
+          <mxGeometry height="78" width="310" x="720" y="1168" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_profile" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Open notifications or update own admin profile" vertex="1">
+          <mxGeometry height="58" width="280" x="185" y="1300" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_profile_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Show forum and job approval notices, mark read, or save profile updates" vertex="1">
+          <mxGeometry height="64" width="310" x="720" y="1297" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_continue" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=6;" value="Continue Alumni Admin Work?" vertex="1">
+          <mxGeometry height="90" width="130" x="260" y="1410" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_continue_yes" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#111827;" value="Yes" vertex="1">
+          <mxGeometry height="22" width="40" x="110" y="1420" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_continue_no" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#111827;" value="No" vertex="1">
+          <mxGeometry height="22" width="40" x="405" y="1505" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_logout" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Confirm Logout" vertex="1">
+          <mxGeometry height="48" width="280" x="185" y="1540" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_logout_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="End session and return to Admin Sign In" vertex="1">
+          <mxGeometry height="48" width="310" x="720" y="1540" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_final_o" parent="1" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.5;" value="" vertex="1">
+          <mxGeometry height="32" width="32" x="859" y="1620" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_final_i" parent="1" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#000000;strokeColor=#000000;" value="" vertex="1">
+          <mxGeometry height="16" width="16" x="867" y="1628" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_e1" edge="1" parent="1" source="aa_start" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="aa_login">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_e2" edge="1" parent="1" source="aa_login" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="aa_validate">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_e3" edge="1" parent="1" source="aa_validate" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="aa_valid">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_e4" edge="1" parent="1" source="aa_valid" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="aa_error">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_e6" edge="1" parent="1" source="aa_valid" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="aa_landing">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_e7" edge="1" parent="1" source="aa_landing" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="aa_select">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_e8" edge="1" parent="1" source="aa_select" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="aa_accounts">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_e9" edge="1" parent="1" source="aa_accounts" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="aa_account_decision">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_e10" edge="1" parent="1" source="ZWq5WiUDjlnk9OIr9qQD-1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" target="aa_account_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_e11" edge="1" parent="1" source="aa_account_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="aa_registry">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_e12" edge="1" parent="1" source="aa_registry" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="aa_registry_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_e13" edge="1" parent="1" source="aa_registry_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="aa_forum">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_e14" edge="1" parent="1" source="aa_forum" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="aa_forum_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_e15" edge="1" parent="1" source="aa_forum_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="aa_jobs">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_e16" edge="1" parent="1" source="aa_jobs" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="aa_job_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_e17" edge="1" parent="1" source="aa_job_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="aa_profile">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_e18" edge="1" parent="1" source="aa_profile" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="aa_profile_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_e19" edge="1" parent="1" source="aa_profile_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="aa_continue">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_e20" edge="1" parent="1" source="aa_continue" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="aa_select">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="115" y="1455" />
+              <mxPoint x="115" y="594" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="aa_e21" edge="1" parent="1" source="aa_continue" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="aa_logout">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_e22" edge="1" parent="1" source="aa_logout" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="aa_logout_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="aa_e23" edge="1" parent="1" source="aa_logout_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="aa_final_o">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="Ep877ZFce0jGC0RL34dy-1" edge="1" parent="1" source="aa_error" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="aa_final_o">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1050" y="530" as="sourcePoint" />
+            <mxPoint x="1305" y="530" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ZWq5WiUDjlnk9OIr9qQD-3" edge="1" parent="1" source="aa_account_decision" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;exitX=0;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="ZWq5WiUDjlnk9OIr9qQD-1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="870" y="710" as="sourcePoint" />
+            <mxPoint x="870" y="830" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ZWq5WiUDjlnk9OIr9qQD-4" edge="1" parent="1" source="aa_account_decision" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="ZWq5WiUDjlnk9OIr9qQD-2">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1075" y="592.5" as="sourcePoint" />
+            <mxPoint x="925" y="643.5" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="graduate-alumni-activity" name="Graduate Alumni Activity Diagram">
+    <mxGraphModel dx="1664" dy="874" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="2380" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="ga_title" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=18;fontStyle=1;fontColor=#111827;" value="Graduate / Alumni Activity Diagram" vertex="1">
+          <mxGeometry height="32" width="1100" x="50" y="24" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_user_lane" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1;" value="" vertex="1">
+          <mxGeometry height="2260" width="550" x="50" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_system_lane" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1;" value="" vertex="1">
+          <mxGeometry height="2260" width="550" x="600" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_user_header" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f3f4f6;strokeColor=#111827;strokeWidth=1;fontStyle=1;fontSize=14;fontColor=#111827;" value="GRADUATE / ALUMNI USER" vertex="1">
+          <mxGeometry height="42" width="550" x="50" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_system_header" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f3f4f6;strokeColor=#111827;strokeWidth=1;fontStyle=1;fontSize=14;fontColor=#111827;" value="SYSTEM" vertex="1">
+          <mxGeometry height="42" width="550" x="600" y="70" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_start" parent="1" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#000000;strokeColor=#000000;" value="" vertex="1">
+          <mxGeometry height="28" width="28" x="311" y="137" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_verify_open" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Open Survey Verification" vertex="1">
+          <mxGeometry height="48" width="280" x="185" y="200" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_survey_check" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Check survey feature, maintenance mode, and active survey availability" vertex="1">
+          <mxGeometry height="68" width="310" x="720" y="190" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_available" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=6;" value="Survey Available?" vertex="1">
+          <mxGeometry height="90" width="130" x="810" y="300" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_avail_no" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#111827;" value="No" vertex="1">
+          <mxGeometry height="22" width="40" x="970" y="320" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_avail_yes" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#111827;" value="Yes" vertex="1">
+          <mxGeometry height="22" width="40" x="730" y="320" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_unavailable" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Show unavailable or maintenance message" vertex="1">
+          <mxGeometry height="50" width="200" x="940" y="370" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_identity" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Enter student number or email, last name, and program" vertex="1">
+          <mxGeometry height="58" width="280" x="185" y="435" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_identity_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Verify registrar record, program match, existing response, and survey token" vertex="1">
+          <mxGeometry height="68" width="310" x="720" y="430" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_verified" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=6;" value="Verified and Not Already Blocked?" vertex="1">
+          <mxGeometry height="96" width="130" x="810" y="540" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_ver_no" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#111827;" value="No" vertex="1">
+          <mxGeometry height="22" width="40" x="990" y="650" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_ver_yes" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#111827;" value="Yes" vertex="1">
+          <mxGeometry height="22" width="40" x="760" y="560" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_ver_error" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Show verification error or already-answered message" vertex="1">
+          <mxGeometry height="58" width="200" x="775" y="660" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_answer" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Answer Graduate Tracer Survey and submit response" vertex="1">
+          <mxGeometry height="58" width="280" x="185" y="690" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_answer_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Validate token, address and required answers; save response, mark token submitted, send confirmation, and log audit" vertex="1">
+          <mxGeometry height="86" width="310" x="720" y="745" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_account" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Create Graduate Portal Account from survey response" vertex="1">
+          <mxGeometry height="58" width="280" x="185" y="840" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_account_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Validate email and password, link response, sync registry, and create pending verification account" vertex="1">
+          <mxGeometry height="78" width="310" x="720" y="865" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_wait" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Wait for Alumni Admin verification" vertex="1">
+          <mxGeometry height="50" width="280" x="185" y="970" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_login" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Open Graduate Sign In and enter credentials" vertex="1">
+          <mxGeometry height="50" width="280" x="185" y="1070" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_login_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Validate password, maintenance mode, and account status" vertex="1">
+          <mxGeometry height="50" width="310" x="720" y="1070" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_active" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=6;" value="Approved and Active?" vertex="1">
+          <mxGeometry height="90" width="130" x="810" y="1160" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_active_no" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#111827;" value="No" vertex="1">
+          <mxGeometry height="22" width="40" x="1010" y="1206" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_active_yes" parent="1" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#111827;" value="Yes" vertex="1">
+          <mxGeometry height="22" width="40" x="827" y="1260" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_status_error" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Show pending, rejected, inactive, or login error message" vertex="1">
+          <mxGeometry height="58" width="200" x="920" y="1243" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_portal" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Display Graduate Portal Dashboard" vertex="1">
+          <mxGeometry height="50" width="310" x="720" y="1315" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_select" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Select portal tab" vertex="1">
+          <mxGeometry height="48" width="280" x="185" y="1395" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_profile" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="View profile, survey-derived work and education details, or update profile, photo, cover, and password" vertex="1">
+          <mxGeometry height="86" width="280" x="185" y="1490" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_profile_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Load graduate profile and save allowed profile updates" vertex="1">
+          <mxGeometry height="50" width="310" x="720" y="1508" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_jobs" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Browse approved jobs, open how-to-apply details, or submit and manage own job posts when eligible" vertex="1">
+          <mxGeometry height="78" width="280" x="185" y="1625" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_jobs_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Load approved active jobs, check can_post_jobs, and save owned job posts as pending approval" vertex="1">
+          <mxGeometry height="78" width="310" x="720" y="1625" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_forum" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Open Community Forum and view post feed" vertex="1">
+          <mxGeometry height="50" width="280" x="185" y="1745" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_forum_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Load approved forum posts, categories, authors, reaction counts, and comment counts" vertex="1">
+          <mxGeometry height="64" width="310" x="720" y="1738" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_view_post" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Open selected post and view full post, media, comments, and reactions" vertex="1">
+          <mxGeometry height="64" width="280" x="185" y="1840" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_view_post_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Load post detail and existing comments for the selected forum post" vertex="1">
+          <mxGeometry height="54" width="310" x="720" y="1845" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_comment_react" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Add comment, react or unreact to post, or delete own comment" vertex="1">
+          <mxGeometry height="64" width="280" x="185" y="1945" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_comment_react_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Save comment or reaction, update counts, and log forum activity" vertex="1">
+          <mxGeometry height="54" width="310" x="720" y="1950" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_forum_manage" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Create, edit, delete, or report forum content" vertex="1">
+          <mxGeometry height="58" width="280" x="185" y="2050" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_forum_manage_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Run AI and word moderation, save approved or pending content, store reports, and refresh feed" vertex="1">
+          <mxGeometry height="78" width="310" x="720" y="2040" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_chat" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Open direct or group chats, send messages or attachments, view notifications, then log out" vertex="1">
+          <mxGeometry height="78" width="280" x="185" y="2180" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_chat_sys" parent="1" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" value="Create chat rooms, save and sync messages, mark notifications read, end session, and return to sign in" vertex="1">
+          <mxGeometry height="78" width="310" x="720" y="2180" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_final_o" parent="1" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.5;" value="" vertex="1">
+          <mxGeometry height="32" width="32" x="859" y="2295" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_final_i" parent="1" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#000000;strokeColor=#000000;" value="" vertex="1">
+          <mxGeometry height="16" width="16" x="867" y="2303" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e1" edge="1" parent="1" source="ga_start" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ga_verify_open">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e2" edge="1" parent="1" source="ga_verify_open" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ga_survey_check">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e3" edge="1" parent="1" source="ga_survey_check" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ga_available">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e4" edge="1" parent="1" source="ga_available" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" target="ga_unavailable">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e5" edge="1" parent="1" source="ga_available" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ga_identity">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e6" edge="1" parent="1" source="ga_identity" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ga_identity_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e7" edge="1" parent="1" source="ga_identity_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ga_verified">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e8" edge="1" parent="1" source="ga_verified" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ga_ver_error">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e10" edge="1" parent="1" source="ga_verified" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ga_answer">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e11" edge="1" parent="1" source="ga_answer" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ga_answer_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e12" edge="1" parent="1" source="ga_answer_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="ga_account">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e13" edge="1" parent="1" source="ga_account" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ga_account_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e14" edge="1" parent="1" source="ga_account_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="ga_wait">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e15" edge="1" parent="1" source="ga_wait" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ga_login">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e16" edge="1" parent="1" source="ga_login" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ga_login_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e17" edge="1" parent="1" source="ga_login_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ga_active">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e18" edge="1" parent="1" source="ga_active" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" target="ga_status_error">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e20" edge="1" parent="1" source="ga_active" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ga_portal">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e21" edge="1" parent="1" source="ga_portal" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ga_select">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e22" edge="1" parent="1" source="ga_select" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ga_profile">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e23" edge="1" parent="1" source="ga_profile" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ga_profile_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e24" edge="1" parent="1" source="ga_profile_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="ga_jobs">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e25" edge="1" parent="1" source="ga_jobs" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ga_jobs_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e26" edge="1" parent="1" source="ga_jobs_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="ga_forum">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e27" edge="1" parent="1" source="ga_forum" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ga_forum_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e28" edge="1" parent="1" source="ga_forum_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="ga_view_post">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e28a" edge="1" parent="1" source="ga_view_post" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ga_view_post_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e28b" edge="1" parent="1" source="ga_view_post_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="ga_comment_react">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e28c" edge="1" parent="1" source="ga_comment_react" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ga_comment_react_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e28d" edge="1" parent="1" source="ga_comment_react_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="ga_forum_manage">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e28e" edge="1" parent="1" source="ga_forum_manage" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ga_forum_manage_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e28f" edge="1" parent="1" source="ga_forum_manage_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="ga_chat">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e29" edge="1" parent="1" source="ga_chat" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ga_chat_sys">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e30" edge="1" parent="1" source="ga_chat_sys" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ga_final_o">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ga_e31" edge="1" parent="1" source="ga_unavailable" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" target="ga_final_o">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1130" y="2311" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+  <diagram id="registrar-activity" name="Registrar Activity Diagram">
+    <mxGraphModel dx="1414" dy="743" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1200" pageHeight="1780" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="rg_title" value="Registrar Activity Diagram" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=18;fontStyle=1;fontColor=#111827;" vertex="1" parent="1">
+          <mxGeometry x="50" y="24" width="1100" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_user_lane" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1;" vertex="1" parent="1">
+          <mxGeometry x="50" y="70" width="550" height="1640" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_system_lane" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1;" vertex="1" parent="1">
+          <mxGeometry x="600" y="70" width="550" height="1640" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_user_header" value="REGISTRAR" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f3f4f6;strokeColor=#111827;strokeWidth=1;fontStyle=1;fontSize=14;fontColor=#111827;" vertex="1" parent="1">
+          <mxGeometry x="50" y="70" width="550" height="42" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_system_header" value="SYSTEM" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f3f4f6;strokeColor=#111827;strokeWidth=1;fontStyle=1;fontSize=14;fontColor=#111827;" vertex="1" parent="1">
+          <mxGeometry x="600" y="70" width="550" height="42" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_start" value="" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#000000;strokeColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="311" y="137" width="28" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_login" value="Open Admin Sign In and Enter Registrar Credentials" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="185" y="205" width="280" height="58" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_validate" value="Validate Credentials, Active Status, Registrar Role, and Maintenance Rule" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="720" y="205" width="310" height="58" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_valid" value="Valid Registrar?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="810" y="300" width="130" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_no" value="No" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#111827;" vertex="1" parent="1">
+          <mxGeometry x="1010" y="356" width="40" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_yes" value="Yes" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#111827;" vertex="1" parent="1">
+          <mxGeometry x="820" y="390" width="40" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_error" value="Display Login or Access Error" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="910" y="415" width="200" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_landing" value="Redirect to Manage Graduates Page" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="720" y="470" width="310" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_select" value="Select Registrar Task" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="185" y="570" width="280" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_view" value="View, search, filter, paginate, and select graduate records" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="185" y="670" width="280" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_view_sys" value="Load graduate records with program, year, search, status, and pagination filters" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="720" y="665" width="310" height="78" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_add_edit" value="Add or edit graduate record and employment information" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="185" y="800" width="280" height="58" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_add_edit_sys" value="Validate Student No., contact number, duplicate records, then insert or update graduates and employment" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="720" y="790" width="310" height="82" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_import" value="Import graduate records from Excel file" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="185" y="925" width="280" height="50" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_import_sys" value="Parse worksheet rows, map graduate fields, save valid rows, skip invalid rows, and refresh list" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="720" y="915" width="310" height="78" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_delete" value="Delete single, selected, or year-filtered graduate records" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="185" y="1050" width="280" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_confirm" value="Confirm Deletion?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="810" y="1040" width="130" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_confirm_yes" value="Yes" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#111827;" vertex="1" parent="1">
+          <mxGeometry x="820" y="1130" width="40" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_confirm_no" value="No" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#111827;" vertex="1" parent="1">
+          <mxGeometry x="1005" y="1082" width="40" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_delete_sys" value="Delete graduate records, return deleted count, refresh list, and write audit trail" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="720" y="1175" width="310" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_profile" value="Open notifications or update own admin profile" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="185" y="1290" width="280" height="58" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_profile_sys" value="Show registrar graduate-record notices, mark read, or save profile updates" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="720" y="1290" width="310" height="64" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_continue" value="Continue Registrar Work?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=6;" vertex="1" parent="1">
+          <mxGeometry x="260" y="1410" width="130" height="90" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_continue_yes" value="Yes" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#111827;" vertex="1" parent="1">
+          <mxGeometry x="110" y="1420" width="40" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_continue_no" value="No" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontSize=11;fontStyle=1;fontColor=#111827;" vertex="1" parent="1">
+          <mxGeometry x="405" y="1505" width="40" height="22" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_logout" value="Confirm Logout" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="185" y="1540" width="280" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_logout_sys" value="End session and return to Admin Sign In" style="rounded=1;whiteSpace=wrap;html=1;arcSize=12;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.5;fontSize=12;fontColor=#111827;spacing=8;" vertex="1" parent="1">
+          <mxGeometry x="720" y="1540" width="310" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_final_o" value="" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.5;" vertex="1" parent="1">
+          <mxGeometry x="859" y="1620" width="32" height="32" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_final_i" value="" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#000000;strokeColor=#000000;" vertex="1" parent="1">
+          <mxGeometry x="867" y="1628" width="16" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="rg_e1" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" edge="1" parent="1" source="rg_start" target="rg_login"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="rg_e2" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" edge="1" parent="1" source="rg_login" target="rg_validate"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="rg_e3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" edge="1" parent="1" source="rg_validate" target="rg_valid"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="rg_e4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" edge="1" parent="1" source="rg_valid" target="rg_error"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="rg_e5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" edge="1" parent="1" source="rg_error" target="rg_login"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1120" y="234" /><mxPoint x="1120" y="234" /></Array></mxGeometry></mxCell>
+        <mxCell id="rg_e6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" edge="1" parent="1" source="rg_valid" target="rg_landing"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="rg_e7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" edge="1" parent="1" source="rg_landing" target="rg_select"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="rg_e8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" edge="1" parent="1" source="rg_select" target="rg_view"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="rg_e9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" edge="1" parent="1" source="rg_view" target="rg_view_sys"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="rg_e10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" edge="1" parent="1" source="rg_view_sys" target="rg_add_edit"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="rg_e11" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" edge="1" parent="1" source="rg_add_edit" target="rg_add_edit_sys"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="rg_e12" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" edge="1" parent="1" source="rg_add_edit_sys" target="rg_import"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="rg_e13" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" edge="1" parent="1" source="rg_import" target="rg_import_sys"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="rg_e14" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" edge="1" parent="1" source="rg_import_sys" target="rg_delete"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="rg_e15" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" edge="1" parent="1" source="rg_delete" target="rg_confirm"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="rg_e16" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" edge="1" parent="1" source="rg_confirm" target="rg_delete_sys"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="rg_e17" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" edge="1" parent="1" source="rg_confirm" target="rg_profile"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="1040" y="1319" /></Array></mxGeometry></mxCell>
+        <mxCell id="rg_e18" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" edge="1" parent="1" source="rg_delete_sys" target="rg_profile"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="rg_e19" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" edge="1" parent="1" source="rg_profile" target="rg_profile_sys"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="rg_e20" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" edge="1" parent="1" source="rg_profile_sys" target="rg_continue"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="rg_e21" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" edge="1" parent="1" source="rg_continue" target="rg_select"><mxGeometry relative="1" as="geometry"><Array as="points"><mxPoint x="115" y="1455" /><mxPoint x="115" y="594" /></Array></mxGeometry></mxCell>
+        <mxCell id="rg_e22" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" edge="1" parent="1" source="rg_continue" target="rg_logout"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="rg_e23" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" edge="1" parent="1" source="rg_logout" target="rg_logout_sys"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="rg_e24" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;" edge="1" parent="1" source="rg_logout_sys" target="rg_final_o"><mxGeometry relative="1" as="geometry" /></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

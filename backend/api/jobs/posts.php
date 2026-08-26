@@ -201,6 +201,34 @@ function gradtrack_jobs_attach_requirements_data(array &$row): void
     $row['requirements_file_size_bytes'] = isset($requirements['file_size_bytes']) ? (int) $requirements['file_size_bytes'] : null;
 }
 
+function gradtrack_jobs_normalize_row(array &$row): void
+{
+    $row['id'] = isset($row['id']) ? (int) $row['id'] : 0;
+    $row['is_active'] = isset($row['is_active']) ? (int) $row['is_active'] : 0;
+
+    if (isset($row['posted_by_account_id'])) {
+        $row['posted_by_account_id'] = (int) $row['posted_by_account_id'];
+    }
+    if (isset($row['poster_account_id'])) {
+        $row['poster_account_id'] = (int) $row['poster_account_id'];
+    }
+    if (isset($row['poster_graduate_id'])) {
+        $row['poster_graduate_id'] = (int) $row['poster_graduate_id'];
+    }
+
+    $nameParts = [
+        trim((string) ($row['first_name'] ?? '')),
+        trim((string) ($row['middle_name'] ?? '')),
+        trim((string) ($row['last_name'] ?? '')),
+    ];
+    $fallbackName = trim(preg_replace('/\s+/', ' ', implode(' ', array_filter($nameParts))) ?? '');
+    $posterName = trim((string) ($row['poster_full_name'] ?? ''));
+    $row['poster_full_name'] = $posterName !== '' ? $posterName : $fallbackName;
+    $row['poster_profile_image_path'] = $row['poster_profile_image_path'] ?? null;
+
+    gradtrack_jobs_attach_requirements_data($row);
+}
+
 function gradtrack_jobs_str_or_null(array $data, string $key): ?string
 {
     if (!isset($data[$key])) {
@@ -267,6 +295,7 @@ $database = new Database();
 $db = $database->getConnection();
 gradtrack_jobs_ensure_schema($db);
 gradtrack_ensure_engagement_approval_schema($db);
+gradtrack_ensure_graduate_profile_image_table($db);
 $method = $_SERVER['REQUEST_METHOD'];
 
 if ($method === 'POST' && isset($_POST['_method']) && strtoupper((string) $_POST['_method']) === 'PUT') {
@@ -279,12 +308,16 @@ try {
         $mineOnly = isset($_GET['mine']) && $_GET['mine'] === '1';
 
         if ($jobId > 0) {
-            $detailQuery = "SELECT jp.*, g.first_name, g.last_name, ga.email AS poster_email,
-                                   p.name AS poster_program_name, p.code AS poster_program_code
+            $detailQuery = "SELECT jp.*, ga.id AS poster_account_id, ga.email AS poster_email,
+                                   g.id AS poster_graduate_id, g.first_name, g.middle_name, g.last_name,
+                                   TRIM(CONCAT_WS(' ', g.first_name, g.middle_name, g.last_name)) AS poster_full_name,
+                                   p.name AS poster_program_name, p.code AS poster_program_code,
+                                   gpi.file_path AS poster_profile_image_path
                             FROM job_posts jp
                             JOIN graduate_accounts ga ON jp.posted_by_account_id = ga.id
                             JOIN graduates g ON ga.graduate_id = g.id
                             LEFT JOIN programs p ON g.program_id = p.id
+                            LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
                             WHERE jp.id = :id";
             $detailStmt = $db->prepare($detailQuery);
             $detailStmt->bindParam(':id', $jobId);
@@ -305,10 +338,7 @@ try {
                 exit;
             }
 
-            $job['id'] = (int) $job['id'];
-            $job['posted_by_account_id'] = (int) $job['posted_by_account_id'];
-            $job['is_active'] = (int) $job['is_active'];
-            gradtrack_jobs_attach_requirements_data($job);
+            gradtrack_jobs_normalize_row($job);
 
             echo json_encode(['success' => true, 'data' => $job]);
             exit;
@@ -326,16 +356,20 @@ try {
             $activeOnly = false;
         }
 
-        $sql = "SELECT jp.id, jp.title, jp.company, jp.location, jp.salary_range, jp.job_type, jp.industry,
+        $sql = "SELECT jp.id, jp.posted_by_account_id, jp.title, jp.company, jp.location, jp.salary_range, jp.job_type, jp.industry,
                        jp.description, jp.required_skills, jp.course_program_fit,
                        jp.application_deadline, jp.contact_email, jp.application_link, jp.application_method,
                        jp.is_active, jp.approval_status, jp.approval_reviewed_at, jp.approval_notes, jp.created_at,
-                       g.first_name, g.last_name,
-                       p.name AS poster_program_name, p.code AS poster_program_code
+                       ga.id AS poster_account_id, ga.email AS poster_email,
+                       g.id AS poster_graduate_id, g.first_name, g.middle_name, g.last_name,
+                       TRIM(CONCAT_WS(' ', g.first_name, g.middle_name, g.last_name)) AS poster_full_name,
+                       p.name AS poster_program_name, p.code AS poster_program_code,
+                       gpi.file_path AS poster_profile_image_path
                 FROM job_posts jp
                 JOIN graduate_accounts ga ON jp.posted_by_account_id = ga.id
                 JOIN graduates g ON ga.graduate_id = g.id
                 LEFT JOIN programs p ON g.program_id = p.id
+                LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
                 WHERE 1=1";
 
         $params = [];
@@ -363,6 +397,11 @@ try {
                 OR jp.course_program_fit LIKE :search6
                 OR jp.contact_email LIKE :search7
                 OR jp.application_link LIKE :search8
+                OR g.first_name LIKE :search9
+                OR g.last_name LIKE :search10
+                OR p.code LIKE :search11
+                OR p.name LIKE :search12
+                OR ga.email LIKE :search13
             )";
             $params[':search'] = '%' . $search . '%';
             $params[':search2'] = '%' . $search . '%';
@@ -372,6 +411,11 @@ try {
             $params[':search6'] = '%' . $search . '%';
             $params[':search7'] = '%' . $search . '%';
             $params[':search8'] = '%' . $search . '%';
+            $params[':search9'] = '%' . $search . '%';
+            $params[':search10'] = '%' . $search . '%';
+            $params[':search11'] = '%' . $search . '%';
+            $params[':search12'] = '%' . $search . '%';
+            $params[':search13'] = '%' . $search . '%';
         }
 
         if ($jobType !== '') {
@@ -396,9 +440,7 @@ try {
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         foreach ($rows as &$row) {
-            $row['id'] = (int) $row['id'];
-            $row['is_active'] = (int) $row['is_active'];
-            gradtrack_jobs_attach_requirements_data($row);
+            gradtrack_jobs_normalize_row($row);
         }
 
         echo json_encode(['success' => true, 'data' => $rows]);

@@ -1,6 +1,6 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, Dispatch, SetStateAction } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Award,
   Briefcase,
@@ -169,6 +169,7 @@ type ChatMessage = MessagingMessage;
 
 interface JobPost {
   id: number;
+  posted_by_account_id?: number;
   title: string;
   company: string;
   location?: string | null;
@@ -176,18 +177,33 @@ interface JobPost {
   job_type: string;
   industry?: string | null;
   description?: string | null;
+  qualifications?: string | null;
   required_skills?: string | null;
   course_program_fit?: string | null;
   application_deadline?: string | null;
   contact_email?: string | null;
   application_link?: string | null;
   application_method?: string | null;
+  first_name?: string | null;
+  middle_name?: string | null;
+  last_name?: string | null;
+  poster_account_id?: number;
+  poster_graduate_id?: number;
+  poster_full_name?: string | null;
   poster_program_name?: string | null;
   poster_program_code?: string | null;
   poster_email?: string | null;
+  poster_profile_image_path?: string | null;
+  requirements_file_path?: string | null;
+  requirements_file_name?: string | null;
+  requirements_mime_type?: string | null;
+  requirements_file_size_bytes?: number | null;
   approval_status?: ApprovalStatus | null;
   approval_notes?: string | null;
+  approval_reviewed_at?: string | null;
   is_active: number;
+  created_at?: string | null;
+  updated_at?: string | null;
 }
 
 interface JobForm {
@@ -274,6 +290,8 @@ interface GraduateSurveyProfile {
 interface GraduateProfilePayload {
   user?: GraduateUser | null;
   survey_profile?: GraduateSurveyProfile | null;
+  is_self?: boolean;
+  viewer_graduate_id?: number;
 }
 
 interface MessageBoxState {
@@ -400,6 +418,17 @@ function formatDateTime(value?: string | null) {
     year: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
+  });
+}
+
+function formatDate(value?: string | null) {
+  const parsed = parseDate(value);
+  if (!parsed) return 'Not specified';
+
+  return parsed.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
   });
 }
 
@@ -660,6 +689,26 @@ function normalizeApplicationLink(value?: string | null) {
   return /^https?:\/\//i.test(link) ? link : `https://${link}`;
 }
 
+function getJobPosterName(job: JobPost) {
+  const fallbackName = [job.first_name, job.middle_name, job.last_name]
+    .map((part) => String(part || '').trim())
+    .filter(Boolean)
+    .join(' ');
+  return (job.poster_full_name || fallbackName || 'Graduate Alumni').trim();
+}
+
+function getJobPosterProgram(job: JobPost) {
+  return job.poster_program_code || job.poster_program_name || 'Graduate';
+}
+
+function getJobProgramFit(job: JobPost) {
+  return job.course_program_fit || job.poster_program_code || job.poster_program_name || 'Open to eligible graduates';
+}
+
+function getJobPostedLabel(job: JobPost) {
+  return job.created_at ? `Posted ${formatRelativeTime(job.created_at)}` : 'Recently posted';
+}
+
 function normalizeDateInput(value?: string | null) {
   if (!value) return '';
   return String(value).slice(0, 10);
@@ -786,9 +835,15 @@ function formatActivityLabel(activity: ForumActivityLog) {
 export default function GraduatePortal() {
   const { user, logout, checkAuth } = useGraduateAuth();
   const { getSetting, isEnabled, resolveAssetUrl: resolveSystemAssetUrl } = useSystemSettings();
+  const navigate = useNavigate();
+  const params = useParams<{ graduateId?: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
+  const routeProfileGraduateId = parsePositiveIntParam(params.graduateId || null);
+  const isCommunityProfileRoute = routeProfileGraduateId > 0;
 
-  const [activeTab, setActiveTab] = useState<PortalTab>(() => getPortalTab(searchParams.get('tab')));
+  const [activeTab, setActiveTab] = useState<PortalTab>(() => (
+    isCommunityProfileRoute ? 'my_profile' : getPortalTab(searchParams.get('tab'))
+  ));
   const [loading, setLoading] = useState(true);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
@@ -819,6 +874,7 @@ export default function GraduatePortal() {
 
   const [forumPosts, setForumPosts] = useState<ForumPost[]>([]);
   const [myForumPosts, setMyForumPosts] = useState<ForumPost[]>([]);
+  const [profileForumPosts, setProfileForumPosts] = useState<ForumPost[]>([]);
   const [forumCategories, setForumCategories] = useState<string[]>(forumCategoryFallback);
   const [forumSearch, setForumSearch] = useState('');
   const [forumCategory, setForumCategory] = useState('all');
@@ -860,6 +916,8 @@ export default function GraduatePortal() {
   const [myPostedJobs, setMyPostedJobs] = useState<JobPost[]>([]);
   const [jobSearch, setJobSearch] = useState('');
   const [highlightedJobId, setHighlightedJobId] = useState<number | null>(null);
+  const [selectedJob, setSelectedJob] = useState<JobPost | null>(null);
+  const [selectedJobLoading, setSelectedJobLoading] = useState(false);
   const [showJobPostForm, setShowJobPostForm] = useState(false);
   const [jobSubmitting, setJobSubmitting] = useState(false);
   const [myJobForm, setMyJobForm] = useState<JobForm>(() => createDefaultJobForm(user));
@@ -921,18 +979,25 @@ export default function GraduatePortal() {
   const commentRefs = useRef<Record<number, HTMLElement | null>>({});
   const jobCardRefs = useRef<Record<number, HTMLElement | null>>({});
 
-  const profileUser = profileDetails?.user || user;
+  const currentGraduateId = user?.graduate_id ?? 0;
+  const profileTargetGraduateId = isCommunityProfileRoute ? routeProfileGraduateId : currentGraduateId;
+  const isViewingOwnProfile = profileTargetGraduateId > 0 && profileTargetGraduateId === currentGraduateId;
+  const profileUser = profileDetails?.user || (isViewingOwnProfile ? user : null);
   const profileSurvey = profileDetails?.survey_profile || null;
   const profileWorkFields = profileSurvey?.work?.fields || [];
   const profileEducationFields = profileSurvey?.education?.fields || [];
   const profileGraduateStudyFields = profileSurvey?.education?.graduate_studies || [];
   const profileTrainings = profileSurvey?.trainings || [];
-  const currentGraduateId = user?.graduate_id ?? 0;
   const currentProfileImageUrl = resolveAssetUrl(user?.profile_image_path);
-  const profileImageUrl = profileImagePreview || resolveAssetUrl(profileUser?.profile_image_path) || currentProfileImageUrl;
+  const profileImageUrl = isViewingOwnProfile
+    ? (profileImagePreview || resolveAssetUrl(profileUser?.profile_image_path) || currentProfileImageUrl)
+    : resolveAssetUrl(profileUser?.profile_image_path);
   const currentCoverImageUrl = resolveAssetUrl(profileUser?.cover_image_path);
-  const profileCoverImageUrl = coverRemoveRequested ? '' : (coverImagePreview || currentCoverImageUrl);
+  const profileCoverImageUrl = isViewingOwnProfile
+    ? (coverRemoveRequested ? '' : (coverImagePreview || currentCoverImageUrl))
+    : currentCoverImageUrl;
   const profileJobTitle = profileSurvey?.work?.summary?.current_job_title || '';
+  const profilePosts = isViewingOwnProfile ? myForumPosts : profileForumPosts;
   const canPostJobs = !!ratingSummary?.permissions?.can_post_jobs;
   const communityAvailable = isEnabled('community_available', true);
   const jobsAvailable = isEnabled('feature_alumni_job_support_enabled', true);
@@ -941,7 +1006,12 @@ export default function GraduatePortal() {
   const notificationsEnabled = isEnabled('feature_notifications_enabled', true);
   const systemLogoUrl = resolveSystemAssetUrl(getSetting('system_logo_path'), '/Gradtrack_small.png');
   const systemShortName = getSetting('system_short_name', 'GradTrack');
-  const pageHeading = getPortalHeading(activeTab);
+  const pageHeading = activeTab === 'my_profile' && !isViewingOwnProfile
+    ? {
+        title: 'Community Profile',
+        subtitle: 'A professional GradTrack alumni profile with career, tracer, and community activity.',
+      }
+    : getPortalHeading(activeTab);
 
   const filteredForumPosts = forumPosts.filter((post) => {
     const matchesCategory = forumCategory === 'all' || post.category === forumCategory;
@@ -968,6 +1038,11 @@ export default function GraduatePortal() {
       job.industry,
       job.required_skills,
       job.course_program_fit,
+      job.poster_full_name,
+      job.first_name,
+      job.last_name,
+      job.poster_program_code,
+      job.poster_program_name,
     ]
       .join(' ')
       .toLowerCase()
@@ -1083,9 +1158,13 @@ export default function GraduatePortal() {
   const selectTab = useCallback(
     (tab: PortalTab) => {
       setActiveTab(tab);
+      if (isCommunityProfileRoute) {
+        navigate(`/graduate/portal?tab=${tab}`);
+        return;
+      }
       setSearchParams({ tab });
     },
-    [setSearchParams],
+    [isCommunityProfileRoute, navigate, setSearchParams],
   );
 
   const resetForumForm = useCallback(() => {
@@ -1162,16 +1241,38 @@ export default function GraduatePortal() {
   }, [authenticatedFetch]);
 
   const loadGraduateProfile = useCallback(async () => {
+    if (profileTargetGraduateId <= 0) {
+      return;
+    }
+
     setProfileDetailsLoading(true);
 
     try {
-      const response = await authenticatedFetch(API_ENDPOINTS.GRADUATE_PROFILE);
+      const endpoint = isViewingOwnProfile
+        ? API_ENDPOINTS.GRADUATE_PROFILE
+        : `${API_ENDPOINTS.GRADUATE_PROFILE}?graduate_id=${profileTargetGraduateId}`;
+      const response = await authenticatedFetch(endpoint);
       setProfileDetails((response.data as GraduateProfilePayload | undefined) || null);
       setProfileDetailsLoaded(true);
     } finally {
       setProfileDetailsLoading(false);
     }
-  }, [authenticatedFetch]);
+  }, [authenticatedFetch, isViewingOwnProfile, profileTargetGraduateId]);
+
+  const loadProfileForumPosts = useCallback(async () => {
+    if (!communityAvailable || profileTargetGraduateId <= 0) {
+      setProfileForumPosts([]);
+      return;
+    }
+
+    if (isViewingOwnProfile) {
+      await loadMyForumPosts();
+      return;
+    }
+
+    const response = await authenticatedFetch(`${API_ENDPOINTS.FORUM.POSTS}?graduate_id=${profileTargetGraduateId}`);
+    setProfileForumPosts(Array.isArray(response.data) ? (response.data as ForumPost[]) : []);
+  }, [authenticatedFetch, communityAvailable, isViewingOwnProfile, loadMyForumPosts, profileTargetGraduateId]);
 
   const loadForumComments = useCallback(
     async (postId: number) => {
@@ -1523,18 +1624,43 @@ export default function GraduatePortal() {
   }, [activeTab, loadBootData]);
 
   useEffect(() => {
-    setActiveTab(getPortalTab(searchParams.get('tab')));
-  }, [searchParams]);
+    if (profileTargetGraduateId <= 0) return;
+    setProfileDetails(null);
+    setProfileDetailsLoaded(false);
+    setProfileDetailsLoading(false);
+    setProfileForumPosts([]);
+    setProfileSection('overview');
+    setProfileEditOpen(false);
+  }, [profileTargetGraduateId]);
 
   useEffect(() => {
-    if (activeTab !== 'my_profile' || profileDetailsLoaded || profileDetailsLoading) {
+    if (isCommunityProfileRoute) {
+      setActiveTab('my_profile');
+      return;
+    }
+
+    setActiveTab(getPortalTab(searchParams.get('tab')));
+  }, [isCommunityProfileRoute, searchParams]);
+
+  useEffect(() => {
+    if (activeTab !== 'my_profile' || profileTargetGraduateId <= 0 || profileDetailsLoaded || profileDetailsLoading) {
       return;
     }
 
     void loadGraduateProfile().catch((error) => {
       notify('warning', error instanceof Error ? error.message : 'Unable to load profile details', 'My Profile');
     });
-  }, [activeTab, loadGraduateProfile, notify, profileDetailsLoaded, profileDetailsLoading]);
+  }, [activeTab, loadGraduateProfile, notify, profileDetailsLoaded, profileDetailsLoading, profileTargetGraduateId]);
+
+  useEffect(() => {
+    if (activeTab !== 'my_profile' || profileTargetGraduateId <= 0) {
+      return;
+    }
+
+    void loadProfileForumPosts().catch((error) => {
+      notify('warning', error instanceof Error ? error.message : 'Unable to load profile posts', 'Community Profile');
+    });
+  }, [activeTab, loadProfileForumPosts, notify, profileTargetGraduateId]);
 
   useEffect(() => {
     if (!communityAvailable) {
@@ -2227,7 +2353,7 @@ export default function GraduatePortal() {
       }
 
       closeForumComposer();
-      await Promise.all([loadForumFeed(), loadMyForumPosts()]);
+      await Promise.all([loadForumFeed(), loadMyForumPosts(), loadProfileForumPosts()]);
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to save forum post', 'Community Forum');
     } finally {
@@ -2259,7 +2385,7 @@ export default function GraduatePortal() {
           }
 
           notify('success', 'Forum post deleted successfully.', 'Community Forum');
-          await Promise.all([loadForumFeed(), loadMyForumPosts()]);
+          await Promise.all([loadForumFeed(), loadMyForumPosts(), loadProfileForumPosts()]);
         } catch (error) {
           notify('error', error instanceof Error ? error.message : 'Unable to delete forum post', 'Community Forum');
         } finally {
@@ -2290,6 +2416,9 @@ export default function GraduatePortal() {
         current.map((post) => (post.id === postId ? { ...post, is_liked: liked, like_count: likeCount } : post)),
       );
       setMyForumPosts((current) =>
+        current.map((post) => (post.id === postId ? { ...post, is_liked: liked, like_count: likeCount } : post)),
+      );
+      setProfileForumPosts((current) =>
         current.map((post) => (post.id === postId ? { ...post, is_liked: liked, like_count: likeCount } : post)),
       );
       setSelectedPost((current) =>
@@ -2332,7 +2461,7 @@ export default function GraduatePortal() {
 
       setCommentDraft('');
       await loadPostDetail(selectedPost.id);
-      await Promise.all([loadForumFeed(), loadMyForumPosts(), loadActivityLogs()]);
+      await Promise.all([loadForumFeed(), loadMyForumPosts(), loadProfileForumPosts(), loadActivityLogs()]);
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to post comment', 'Community Forum');
     } finally {
@@ -2376,7 +2505,7 @@ export default function GraduatePortal() {
         setSelectedPost((current) => (current ? { ...current, comment_count: comments.length } : current));
       }
 
-      await Promise.all([loadForumFeed(), loadMyForumPosts(), loadActivityLogs()]);
+      await Promise.all([loadForumFeed(), loadMyForumPosts(), loadProfileForumPosts(), loadActivityLogs()]);
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to post comment', 'Community Forum');
     } finally {
@@ -2402,7 +2531,7 @@ export default function GraduatePortal() {
           });
 
           await loadPostDetail(selectedPost.id);
-          await Promise.all([loadForumFeed(), loadMyForumPosts(), loadActivityLogs()]);
+          await Promise.all([loadForumFeed(), loadMyForumPosts(), loadProfileForumPosts(), loadActivityLogs()]);
           notify('success', 'Comment deleted successfully.', 'Community Forum');
         } catch (error) {
           notify('error', error instanceof Error ? error.message : 'Unable to delete comment', 'Community Forum');
@@ -2470,6 +2599,24 @@ export default function GraduatePortal() {
     setSelectedRoomId(roomId);
     setForumChatWindowOpen(true);
   };
+
+  const openCommunityProfile = useCallback((graduateId?: number | null) => {
+    const targetId = Number(graduateId || 0);
+    if (!Number.isInteger(targetId) || targetId <= 0) {
+      return;
+    }
+
+    setSelectedPostOpen(false);
+    setSelectedPost(null);
+    setPostComments([]);
+    setMediaViewer(null);
+    setReportTarget(null);
+    setChatModalOpen(false);
+    setProfileMenuOpen(false);
+    setMobileNavOpen(false);
+    setActiveTab('my_profile');
+    navigate(`/graduate/community/profile/${targetId}`);
+  }, [navigate]);
 
   const createDirectChat = async (graduateId: number) => {
     if (!messagingAvailable) {
@@ -2894,6 +3041,32 @@ export default function GraduatePortal() {
     void markVisibleMessagesAsRead();
   }, [markVisibleMessagesAsRead]);
 
+  const openJobDetails = async (job: JobPost) => {
+    if (!jobsAvailable) {
+      notify('info', 'This feature is currently unavailable.', 'Browse Jobs');
+      return;
+    }
+
+    setSelectedJob(job);
+    setSelectedJobLoading(true);
+
+    try {
+      const response = await authenticatedFetch(`${API_ENDPOINTS.JOBS.POSTS}?id=${job.id}`);
+      if (response.data) {
+        setSelectedJob(response.data as JobPost);
+      }
+    } catch (error) {
+      notify('error', error instanceof Error ? error.message : 'Unable to load job details', 'Browse Jobs');
+    } finally {
+      setSelectedJobLoading(false);
+    }
+  };
+
+  const closeJobDetails = () => {
+    setSelectedJob(null);
+    setSelectedJobLoading(false);
+  };
+
   const beginCreateJob = () => {
     if (!jobsAvailable) {
       notify('info', 'This feature is currently unavailable.', 'Job Posting');
@@ -3065,6 +3238,10 @@ export default function GraduatePortal() {
   };
 
   const openProfileEditor = (section: ProfileEditSection = 'basic') => {
+    if (!isViewingOwnProfile) {
+      return;
+    }
+
     setProfileEditSection(section);
     setProfileEditOpen(true);
   };
@@ -3098,6 +3275,11 @@ export default function GraduatePortal() {
     includePassword?: boolean;
     closeEditor?: boolean;
   } = {}) => {
+    if (!isViewingOwnProfile) {
+      notify('info', 'You can only edit your own profile.', 'Community Profile');
+      return;
+    }
+
     const formData = new FormData();
     formData.append('first_name', profileForm.first_name.trim());
     formData.append('middle_name', profileForm.middle_name.trim());
@@ -3166,6 +3348,10 @@ export default function GraduatePortal() {
   };
 
   const handleProfileAssetSelection = (file: File | null, kind: 'profile' | 'cover') => {
+    if (!isViewingOwnProfile) {
+      return;
+    }
+
     if (!file) return;
 
     if (!file.type.startsWith('image/')) {
@@ -3193,6 +3379,10 @@ export default function GraduatePortal() {
   };
 
   const handleRemoveCoverImage = () => {
+    if (!isViewingOwnProfile) {
+      return;
+    }
+
     setCoverRemoveRequested(true);
     setCoverImageFile(null);
     setCoverImagePreview('');
@@ -3309,6 +3499,7 @@ export default function GraduatePortal() {
           onCloseNewConversation={() => setChatModalOpen(false)}
           onNewConversationSearchChange={setChatModalSearch}
           onStartConversation={(graduateId) => void createDirectChat(graduateId)}
+          onOpenProfile={openCommunityProfile}
         />
       );
     }
@@ -3661,17 +3852,17 @@ export default function GraduatePortal() {
                         filteredForumPosts.map((post) => (
                           <article key={post.id} className="overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-sm">
                             <div className="flex items-start justify-between gap-4 px-5 py-5 sm:px-6">
-                              <div className="flex min-w-0 items-center gap-3">
+                              <button type="button" onClick={() => openCommunityProfile(post.graduate_id)} className="flex min-w-0 items-center gap-3 text-left">
                                 <Avatar src={resolveAssetUrl(post.author_profile_image_path)} label={post.author_name} size="md" />
                                 <div className="min-w-0">
-                                  <button type="button" onClick={() => void loadPostDetail(post.id)} className="truncate text-left text-sm font-semibold text-slate-900 hover:text-blue-700">
+                                  <p className="truncate text-sm font-semibold text-slate-900 transition hover:text-blue-700">
                                     {post.author_name}
-                                  </button>
+                                  </p>
                                   <p className="truncate text-xs text-slate-500">
                                     {post.author_program_code || post.author_program_name || 'Graduate'} - {formatRelativeTime(post.created_at)}
                                   </p>
                                 </div>
-                              </div>
+                              </button>
 
                               <div className="flex items-center gap-2">
                                 <span className="rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700">{post.category}</span>
@@ -3817,54 +4008,104 @@ export default function GraduatePortal() {
                       No approved jobs match your search right now.
                     </div>
                   ) : (
-                    <div className="grid gap-5 xl:grid-cols-2">
+                    <div className="grid gap-5 lg:grid-cols-2">
                       {filteredJobs.map((job) => {
                         const applicationLink = normalizeApplicationLink(job.application_link);
+                        const posterName = getJobPosterName(job);
+                        const posterProgram = getJobPosterProgram(job);
+                        const hasApplyDetails = Boolean(job.contact_email || applicationLink || job.application_method);
+                        const detailItems = [
+                          { icon: MapPin, label: 'Location', value: job.location || 'Not specified' },
+                          { icon: GraduationCap, label: 'Program Fit', value: getJobProgramFit(job) },
+                          ...(job.industry ? [{ icon: Building2, label: 'Industry', value: job.industry }] : []),
+                          ...(job.salary_range ? [{ icon: Briefcase, label: 'Salary', value: job.salary_range }] : []),
+                        ];
 
                         return (
                           <article
                             key={job.id}
                             ref={(element) => { jobCardRefs.current[job.id] = element; }}
-                            className={`rounded-[32px] border p-6 shadow-sm transition ${
+                            className={`flex h-full flex-col rounded-[28px] border p-5 shadow-sm transition sm:p-6 ${
                               highlightedJobId === job.id
-                                ? 'border-emerald-300 bg-emerald-50/40 ring-2 ring-emerald-200'
+                                ? 'border-blue-300 bg-blue-50/50 ring-2 ring-blue-200'
                                 : 'border-slate-200 bg-white'
                             }`}
                           >
-                            <div className="flex flex-wrap items-start justify-between gap-3">
-                              <div>
-                                <h3 className="text-xl font-bold text-slate-900">{job.title}</h3>
-                                <p className="mt-1 text-sm text-slate-500">{job.company}</p>
-                              </div>
-                              <span className="rounded-full border border-emerald-100 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                            <div className="flex items-start justify-between gap-4">
+                              <button
+                                type="button"
+                                onClick={() => job.poster_graduate_id && openCommunityProfile(job.poster_graduate_id)}
+                                className="flex min-w-0 items-center gap-3 text-left"
+                                disabled={!job.poster_graduate_id}
+                              >
+                                <Avatar src={resolveAssetUrl(job.poster_profile_image_path)} label={posterName} size="md" />
+                                <span className="min-w-0">
+                                  <span className="block truncate text-sm font-semibold text-slate-900 transition hover:text-blue-700">{posterName}</span>
+                                  <span className="block text-xs text-slate-500">
+                                    {posterProgram} - {getJobPostedLabel(job)}
+                                  </span>
+                                </span>
+                              </button>
+
+                              <span className="shrink-0 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700">
                                 {formatEmploymentType(job.job_type)}
                               </span>
                             </div>
 
-                            <p className="mt-4 whitespace-pre-line text-sm leading-7 text-slate-700">{job.description || 'No description provided yet.'}</p>
-
-                            <div className="mt-5 grid gap-3 text-sm text-slate-600 sm:grid-cols-2">
-                              <MetaRow icon={MapPin} label="Location" value={job.location || 'Not specified'} />
-                              <MetaRow icon={Building2} label="Industry" value={job.industry || 'Not specified'} />
-                              <MetaRow className="sm:col-span-2" icon={Briefcase} label="Program Fit" value={job.course_program_fit || job.poster_program_code || job.poster_program_name || 'Open to eligible graduates'} />
+                            <div className="mt-5 min-w-0">
+                              <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-500">
+                                <Building2 className="h-4 w-4 text-blue-500" />
+                                <span className="truncate">{job.company || 'Company not specified'}</span>
+                              </p>
+                              <h3 className="mt-2 text-xl font-bold leading-snug text-slate-950">{job.title}</h3>
                             </div>
 
-                            <div className="mt-5 rounded-[24px] border border-slate-100 bg-slate-50 p-4 text-sm">
-                              <p className="font-semibold text-slate-900">How to apply</p>
-                              <div className="mt-2 space-y-2 text-slate-600">
-                                {job.contact_email && (
-                                  <a href={`mailto:${job.contact_email}`} className="block text-blue-700 hover:underline">
-                                    Email: {job.contact_email}
-                                  </a>
-                                )}
-                                {applicationLink && (
-                                  <a href={applicationLink} target="_blank" rel="noreferrer" className="block text-blue-700 hover:underline">
-                                    Open application link
-                                  </a>
-                                )}
-                                {job.application_method && <p className="whitespace-pre-line">{job.application_method}</p>}
-                                {!job.contact_email && !applicationLink && !job.application_method && <p>No application contact details were provided.</p>}
-                              </div>
+                            <p className="mt-3 min-h-[4.5rem] whitespace-pre-line text-sm leading-6 text-slate-600">
+                              {previewText(job.description || 'No description provided yet.', 180)}
+                            </p>
+
+                            <div className="mt-5 flex flex-wrap gap-2">
+                              {detailItems.map((item) => (
+                                <JobInfoChip key={`${job.id}-${item.label}`} icon={item.icon} label={item.label} value={item.value} />
+                              ))}
+                            </div>
+
+                            <div className="mt-5 border-t border-slate-100 pt-4">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">How to Apply</p>
+                              {hasApplyDetails ? (
+                                <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-600">
+                                  {job.contact_email && (
+                                    <a href={`mailto:${job.contact_email}`} className="inline-flex min-w-0 items-center gap-1.5 font-medium text-blue-700 hover:underline">
+                                      <Mail className="h-4 w-4 shrink-0" />
+                                      <span className="truncate">{job.contact_email}</span>
+                                    </a>
+                                  )}
+                                  {applicationLink && (
+                                    <a href={applicationLink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 font-medium text-blue-700 hover:underline">
+                                      <FileText className="h-4 w-4" />
+                                      Application link
+                                    </a>
+                                  )}
+                                  {job.application_method && <p className="w-full whitespace-pre-line text-slate-600">{previewText(job.application_method, 120)}</p>}
+                                </div>
+                              ) : (
+                                <p className="mt-2 text-sm text-slate-500">Application details are not specified.</p>
+                              )}
+                            </div>
+
+                            <div className="mt-auto flex flex-wrap items-center justify-between gap-3 pt-5">
+                              {job.application_deadline ? (
+                                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500">
+                                  <CalendarDays className="h-4 w-4 text-slate-400" />
+                                  Deadline {formatDate(job.application_deadline)}
+                                </span>
+                              ) : (
+                                <span className="text-xs font-medium text-slate-400">No deadline specified</span>
+                              )}
+                              <button type="button" onClick={() => void openJobDetails(job)} className="inline-flex items-center gap-2 rounded-full bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800">
+                                <FileText className="h-4 w-4" />
+                                View Details
+                              </button>
                             </div>
                           </article>
                         );
@@ -4050,57 +4291,59 @@ export default function GraduatePortal() {
 
               {activeTab === 'my_profile' && (
                 <section className="space-y-6">
-                  <input
-                    ref={profileImageInputRef}
-                    type="file"
-                    accept={profileImageAccept}
-                    className="hidden"
-                    onChange={(event) => handleProfileAssetSelection(event.target.files?.[0] || null, 'profile')}
-                  />
-                  <input
-                    ref={coverImageInputRef}
-                    type="file"
-                    accept={profileImageAccept}
-                    className="hidden"
-                    onChange={(event) => handleProfileAssetSelection(event.target.files?.[0] || null, 'cover')}
-                  />
-
-                  <ProfileHeader
-                    user={profileUser}
-                    profileImageUrl={profileImageUrl}
-                    coverImageUrl={profileCoverImageUrl}
-                    defaultLogoUrl={systemLogoUrl}
-                    jobTitle={profileJobTitle}
-                    saving={profileSaving}
-                    onEdit={() => openProfileEditor('basic')}
-                    onChangeProfilePhoto={() => profileImageInputRef.current?.click()}
-                    onChangeCoverPhoto={() => coverImageInputRef.current?.click()}
-                    onRemoveCoverPhoto={handleRemoveCoverImage}
-                  />
-
-                  <ProfileNavigation activeTab={profileSection} onChange={setProfileSection} />
+                  {isViewingOwnProfile && (
+                    <>
+                      <input
+                        ref={profileImageInputRef}
+                        type="file"
+                        accept={profileImageAccept}
+                        className="hidden"
+                        onChange={(event) => handleProfileAssetSelection(event.target.files?.[0] || null, 'profile')}
+                      />
+                      <input
+                        ref={coverImageInputRef}
+                        type="file"
+                        accept={profileImageAccept}
+                        className="hidden"
+                        onChange={(event) => handleProfileAssetSelection(event.target.files?.[0] || null, 'cover')}
+                      />
+                    </>
+                  )}
 
                   {profileDetailsLoading && !profileDetailsLoaded ? (
                     <ProfileSkeleton />
                   ) : (
-                    <ProfileSectionContent
-                      activeTab={profileSection}
+                    <ProfileWorkspace
                       user={profileUser}
                       survey={profileSurvey}
                       workFields={profileWorkFields}
                       educationFields={profileEducationFields}
                       graduateStudyFields={profileGraduateStudyFields}
                       trainings={profileTrainings}
-                      posts={myForumPosts}
-                      activityLogs={activityLogs}
+                      posts={profilePosts}
+                      activityLogs={isViewingOwnProfile ? activityLogs : []}
+                      activeSection={profileSection}
                       profileImageUrl={profileImageUrl}
+                      coverImageUrl={profileCoverImageUrl}
+                      defaultLogoUrl={systemLogoUrl}
+                      jobTitle={profileJobTitle}
+                      canEdit={isViewingOwnProfile}
+                      saving={profileSaving}
+                      messagingAvailable={messagingAvailable}
+                      currentGraduateId={currentGraduateId}
                       forumActionKey={forumActionKey}
+                      onSectionChange={setProfileSection}
                       onEdit={openProfileEditor}
+                      onChangeProfilePhoto={() => profileImageInputRef.current?.click()}
+                      onChangeCoverPhoto={() => coverImageInputRef.current?.click()}
+                      onRemoveCoverPhoto={handleRemoveCoverImage}
+                      onMessage={() => profileUser?.graduate_id && void createDirectChat(profileUser.graduate_id)}
                       onOpenPost={(post) => void loadPostDetail(post.id)}
                       onOpenMedia={openMediaViewer}
                       onToggleLike={(postId) => void toggleLike(postId)}
                       onEditPost={openForumComposer}
                       onDeletePost={handleForumDelete}
+                      onOpenProfile={openCommunityProfile}
                     />
                   )}
                 </section>
@@ -4113,7 +4356,7 @@ export default function GraduatePortal() {
         <div className="fixed bottom-4 left-4 right-4 z-40 flex h-[32rem] max-h-[calc(100vh_-_7rem)] flex-col overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-2xl sm:left-auto sm:w-96">
           <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-3">
             {selectedForumChatRoom ? (
-              <div className="flex min-w-0 items-center gap-3">
+              <button type="button" onClick={() => openCommunityProfile(selectedForumChatRecipient?.graduate_id)} disabled={selectedForumChatRoom.is_group || !selectedForumChatRecipient?.graduate_id} className="flex min-w-0 items-center gap-3 text-left disabled:cursor-default">
                 <div className="relative shrink-0">
                   <Avatar src={resolveAssetUrl(selectedForumChatRecipient?.profile_image_path)} label={getRoomLabel(selectedForumChatRoom, currentGraduateId)} size="md" />
                   {!selectedForumChatRoom.is_group && selectedForumChatRecipient?.is_online && (
@@ -4121,10 +4364,10 @@ export default function GraduatePortal() {
                   )}
                 </div>
                 <div className="min-w-0">
-                  <p className="truncate font-semibold text-slate-900">{getRoomLabel(selectedForumChatRoom, currentGraduateId)}</p>
+                  <p className="truncate font-semibold text-slate-900 transition hover:text-blue-700">{getRoomLabel(selectedForumChatRoom, currentGraduateId)}</p>
                   <p className="truncate text-xs text-slate-500">{getForumChatHeaderSubtitle(selectedForumChatRoom, currentGraduateId)}</p>
                 </div>
-              </div>
+              </button>
             ) : (
               <div>
                 <p className="font-semibold text-slate-900">Loading chat</p>
@@ -4344,10 +4587,11 @@ export default function GraduatePortal() {
           onZoomReset={() => setMediaViewerZoom(1)}
           onCommentDraftChange={setMediaViewerCommentDraft}
           onCommentSubmit={handleMediaViewerCommentSubmit}
+          onOpenProfile={openCommunityProfile}
         />
       )}
 
-      {profileEditOpen && (
+      {isViewingOwnProfile && profileEditOpen && (
         <ProfileEditModal
           activeSection={profileEditSection}
           user={profileUser}
@@ -4368,6 +4612,15 @@ export default function GraduatePortal() {
           onChangeProfilePhoto={() => profileImageInputRef.current?.click()}
           onChangeCoverPhoto={() => coverImageInputRef.current?.click()}
           onRemoveCoverPhoto={handleRemoveCoverImage}
+        />
+      )}
+
+      {selectedJob && (
+        <JobDetailsModal
+          job={selectedJob}
+          loading={selectedJobLoading}
+          onClose={closeJobDetails}
+          onOpenProfile={openCommunityProfile}
         />
       )}
 
@@ -4397,13 +4650,13 @@ export default function GraduatePortal() {
               <div className="grid flex-1 gap-0 overflow-hidden xl:grid-cols-[minmax(0,1fr)_360px]">
                 <div className="overflow-y-auto px-6 py-5">
                   <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-center gap-3">
+                    <button type="button" onClick={() => openCommunityProfile(selectedPost.graduate_id)} className="flex items-center gap-3 text-left">
                       <Avatar src={resolveAssetUrl(selectedPost.author_profile_image_path)} label={selectedPost.author_name} size="md" />
                       <div>
-                        <p className="font-semibold text-slate-900">{selectedPost.author_name}</p>
+                        <p className="font-semibold text-slate-900 transition hover:text-blue-700">{selectedPost.author_name}</p>
                         <p className="text-xs text-slate-500">{selectedPost.category}</p>
                       </div>
-                    </div>
+                    </button>
 
                     <div className="flex flex-wrap gap-2">
                       {selectedPost.graduate_id !== currentGraduateId && (
@@ -4472,13 +4725,17 @@ export default function GraduatePortal() {
                           }`}
                         >
                           <div className="flex items-start gap-3">
-                            <Avatar src={resolveAssetUrl(comment.commenter_profile_image_path)} label={comment.commenter_name} size="sm" />
                             <div className="min-w-0 flex-1">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <p className="font-semibold text-slate-900">{comment.commenter_name}</p>
-                                <span className="text-xs text-slate-400">{formatRelativeTime(comment.created_at)}</span>
-                              </div>
-                              <p className="text-xs text-slate-500">{comment.commenter_program_code || comment.commenter_program_name || 'Graduate'}</p>
+                              <button type="button" onClick={() => openCommunityProfile(comment.graduate_id)} className="flex items-start gap-3 text-left">
+                                <Avatar src={resolveAssetUrl(comment.commenter_profile_image_path)} label={comment.commenter_name} size="sm" />
+                                <span className="min-w-0">
+                                  <span className="flex flex-wrap items-center gap-2">
+                                    <span className="font-semibold text-slate-900 transition hover:text-blue-700">{comment.commenter_name}</span>
+                                    <span className="text-xs text-slate-400">{formatRelativeTime(comment.created_at)}</span>
+                                  </span>
+                                  <span className="block text-xs text-slate-500">{comment.commenter_program_code || comment.commenter_program_name || 'Graduate'}</span>
+                                </span>
+                              </button>
                               <p className="mt-2 whitespace-pre-line text-sm leading-7 text-slate-700">{comment.comment}</p>
                               <div className="mt-3 flex flex-wrap gap-2">
                                 {comment.graduate_id !== currentGraduateId && (
@@ -4600,7 +4857,7 @@ export default function GraduatePortal() {
                     const selected = chatModalSelectedIds.includes(participant.graduate_id);
 
                     return (
-                      <label key={participant.graduate_id} className={`flex cursor-pointer items-center gap-3 rounded-2xl border px-4 py-3 transition ${selected ? 'border-blue-200 bg-blue-50' : 'border-slate-200 hover:bg-slate-50'}`}>
+                      <div key={participant.graduate_id} className={`flex items-center gap-3 rounded-2xl border px-4 py-3 transition ${selected ? 'border-blue-200 bg-blue-50' : 'border-slate-200 hover:bg-slate-50'}`}>
                         <input
                           type={chatModalMode === 'group' ? 'checkbox' : 'radio'}
                           name="chat_participant"
@@ -4617,14 +4874,16 @@ export default function GraduatePortal() {
                             }
                           }}
                         />
-                        <Avatar src={resolveAssetUrl(participant.profile_image_path)} label={participant.full_name} size="sm" />
-                        <div className="min-w-0">
-                          <p className="truncate font-semibold text-slate-900">{participant.full_name}</p>
-                          <p className="text-xs text-slate-500">
-                            {participant.program_code || 'Graduate'}{participant.year_graduated ? ` - Batch ${participant.year_graduated}` : ''}
-                          </p>
-                        </div>
-                      </label>
+                        <button type="button" onClick={() => openCommunityProfile(participant.graduate_id)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+                          <Avatar src={resolveAssetUrl(participant.profile_image_path)} label={participant.full_name} size="sm" />
+                          <span className="min-w-0">
+                            <span className="block truncate font-semibold text-slate-900 transition hover:text-blue-700">{participant.full_name}</span>
+                            <span className="block text-xs text-slate-500">
+                              {participant.program_code || 'Graduate'}{participant.year_graduated ? ` - Batch ${participant.year_graduated}` : ''}
+                            </span>
+                          </span>
+                        </button>
+                      </div>
                     );
                   })
                 )}
@@ -4695,99 +4954,315 @@ export default function GraduatePortal() {
   );
 }
 
-function ProfileHeader({
+function ProfileWorkspace({
   user,
+  survey,
+  workFields,
+  educationFields,
+  graduateStudyFields,
+  trainings,
+  posts,
+  activityLogs,
+  activeSection,
   profileImageUrl,
   coverImageUrl,
   defaultLogoUrl,
   jobTitle,
+  canEdit,
   saving,
+  messagingAvailable,
+  currentGraduateId,
+  forumActionKey,
+  onSectionChange,
   onEdit,
   onChangeProfilePhoto,
   onChangeCoverPhoto,
   onRemoveCoverPhoto,
+  onMessage,
+  onOpenPost,
+  onOpenMedia,
+  onToggleLike,
+  onEditPost,
+  onDeletePost,
+  onOpenProfile,
 }: {
   user?: GraduateUser | null;
+  survey?: GraduateSurveyProfile | null;
+  workFields: GraduateProfileField[];
+  educationFields: GraduateProfileField[];
+  graduateStudyFields: GraduateProfileField[];
+  trainings: GraduateTrainingEntry[];
+  posts: ForumPost[];
+  activityLogs: ForumActivityLog[];
+  activeSection: ProfileSectionTab;
   profileImageUrl: string;
   coverImageUrl: string;
   defaultLogoUrl: string;
   jobTitle: string;
+  canEdit: boolean;
   saving: boolean;
+  messagingAvailable: boolean;
+  currentGraduateId: number;
+  forumActionKey: string;
+  onSectionChange: (tab: ProfileSectionTab) => void;
+  onEdit: (section?: ProfileEditSection) => void;
+  onChangeProfilePhoto: () => void;
+  onChangeCoverPhoto: () => void;
+  onRemoveCoverPhoto: () => void;
+  onMessage: () => void;
+  onOpenPost: (post: ForumPost) => void;
+  onOpenMedia: (post: ForumPost, mediaIndex?: number) => void;
+  onToggleLike: (postId: number) => void;
+  onEditPost: (post?: ForumPost) => void;
+  onDeletePost: (post: ForumPost) => void;
+  onOpenProfile: (graduateId?: number | null) => void;
+}) {
+  return (
+    <div className="grid gap-6 xl:grid-cols-[minmax(280px,0.34fr)_minmax(0,1fr)]">
+      <ProfileIdentityPanel
+        user={user}
+        survey={survey}
+        profileImageUrl={profileImageUrl}
+        coverImageUrl={coverImageUrl}
+        defaultLogoUrl={defaultLogoUrl}
+        jobTitle={jobTitle}
+        canEdit={canEdit}
+        saving={saving}
+        messagingAvailable={messagingAvailable}
+        currentGraduateId={currentGraduateId}
+        onEdit={() => onEdit('basic')}
+        onChangeProfilePhoto={onChangeProfilePhoto}
+        onChangeCoverPhoto={onChangeCoverPhoto}
+        onRemoveCoverPhoto={onRemoveCoverPhoto}
+        onMessage={onMessage}
+      />
+
+      <div className="min-w-0 space-y-6">
+        <ProfileSummaryPanel user={user} survey={survey} workFields={workFields} educationFields={educationFields} />
+
+        <div className="grid gap-6 lg:grid-cols-[230px_minmax(0,1fr)]">
+          <ProfileNavigation activeTab={activeSection} onChange={onSectionChange} />
+          <div className="min-w-0">
+            <ProfileSectionContent
+              activeTab={activeSection}
+              user={user}
+              survey={survey}
+              workFields={workFields}
+              educationFields={educationFields}
+              graduateStudyFields={graduateStudyFields}
+              trainings={trainings}
+              posts={posts}
+              activityLogs={activityLogs}
+              profileImageUrl={profileImageUrl}
+              forumActionKey={forumActionKey}
+              canEdit={canEdit}
+              canManagePosts={canEdit}
+              onEdit={onEdit}
+              onOpenPost={onOpenPost}
+              onOpenMedia={onOpenMedia}
+              onToggleLike={onToggleLike}
+              onEditPost={onEditPost}
+              onDeletePost={onDeletePost}
+              onOpenProfile={onOpenProfile}
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProfileIdentityPanel({
+  user,
+  survey,
+  profileImageUrl,
+  coverImageUrl,
+  defaultLogoUrl,
+  jobTitle,
+  canEdit,
+  saving,
+  messagingAvailable,
+  currentGraduateId,
+  onEdit,
+  onChangeProfilePhoto,
+  onChangeCoverPhoto,
+  onRemoveCoverPhoto,
+  onMessage,
+}: {
+  user?: GraduateUser | null;
+  survey?: GraduateSurveyProfile | null;
+  profileImageUrl: string;
+  coverImageUrl: string;
+  defaultLogoUrl: string;
+  jobTitle: string;
+  canEdit: boolean;
+  saving: boolean;
+  messagingAvailable: boolean;
+  currentGraduateId: number;
   onEdit: () => void;
   onChangeProfilePhoto: () => void;
   onChangeCoverPhoto: () => void;
   onRemoveCoverPhoto: () => void;
+  onMessage: () => void;
 }) {
-  const program = user?.program_name || user?.program_code || 'Graduate';
-  const batch = getBatchLabel(user?.year_graduated);
   const fullName = getGraduateFullName(user);
-  const summaryLine = [batch, jobTitle].filter(hasDisplayValue).join(' - ');
+  const program = user?.program_name || user?.program_code || '';
+  const batch = getBatchLabel(user?.year_graduated);
+  const location = buildProfileLocation(user, survey);
+  const headline = [jobTitle, program, batch].filter(hasDisplayValue).join(' - ');
+  const isVerified = user?.alumni_verification_status === 'approved';
+  const canMessage = messagingAvailable && !canEdit && !!user?.graduate_id && user.graduate_id !== currentGraduateId;
 
   return (
-    <div className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm">
-      <div className="relative h-56 bg-[#081733] sm:h-64 lg:h-72">
-        {coverImageUrl ? (
-          <img src={coverImageUrl} alt={`${fullName} cover`} className="h-full w-full object-cover" />
-        ) : (
-          <div className="absolute inset-0 overflow-hidden bg-[#081733]">
-            <div className="absolute inset-x-0 top-0 h-16 bg-[#0e3475]" />
-            <div className="absolute left-0 top-0 h-full w-2/3 bg-[#102f63]" style={{ clipPath: 'polygon(0 0, 82% 0, 54% 100%, 0% 100%)' }} />
-            <div className="absolute bottom-0 left-0 right-0 h-2 bg-[#f8c331]" />
-            <div className="absolute bottom-8 left-6 flex items-center gap-3 text-white/85">
-              <img src={defaultLogoUrl} alt="GradTrack" className="h-12 w-12 rounded-lg bg-white/90 p-1 object-contain" />
-              <div>
-                <p className="text-sm font-bold uppercase tracking-wide text-[#f8c331]">GradTrack Alumni</p>
-                <p className="text-xs text-white/70">Norzagaray College</p>
-              </div>
+    <aside className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm xl:sticky xl:top-[calc(var(--graduate-portal-header-height)_+_var(--graduate-portal-sticky-gap))] xl:self-start">
+      <div className="relative min-h-[19rem] overflow-hidden bg-[#071735] px-6 py-6 text-white">
+        {coverImageUrl && (
+          <img src={coverImageUrl} alt={`${fullName} profile visual`} className="absolute inset-0 h-full w-full object-cover opacity-35" />
+        )}
+        <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(15,51,111,0.95),rgba(7,23,53,0.96)_58%,rgba(3,12,30,0.98))]" />
+        <div className="absolute -right-20 top-7 h-52 w-52 rounded-full border border-white/10" />
+        <div className="absolute -right-8 top-20 h-24 w-24 rounded-full border border-[#f8c331]/30" />
+        <div className="absolute bottom-0 left-0 h-2 w-full bg-[#f8c331]" />
+        <div className="absolute left-7 top-24 h-24 w-24 rotate-45 border border-white/10" />
+        <div className="absolute inset-x-0 top-0 h-px bg-white/20" />
+
+        <div className="relative z-10 flex items-start justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <img src={defaultLogoUrl} alt="GradTrack" className="h-11 w-11 rounded-xl bg-white p-1.5 object-contain shadow-sm" />
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#f8c331]">GradTrack Alumni</p>
+              <p className="text-xs text-white/70">Norzagaray College</p>
             </div>
           </div>
+
+          {canEdit && (
+            <div className="flex gap-2">
+              <button type="button" onClick={onChangeCoverPhoto} disabled={saving} className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-60" aria-label="Change profile visual" title="Change profile visual">
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
+              </button>
+              {coverImageUrl && (
+                <button type="button" onClick={onRemoveCoverPhoto} disabled={saving} className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-60" aria-label="Remove profile visual" title="Remove profile visual">
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="relative z-10 mt-10 flex justify-center">
+          <div className="relative rounded-[2rem] border border-white/20 bg-white/12 p-2 shadow-2xl backdrop-blur">
+            <Avatar src={profileImageUrl} label={fullName} size="xl" />
+            {canEdit && (
+              <button type="button" onClick={onChangeProfilePhoto} disabled={saving} className="absolute -bottom-2 -right-2 inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60" aria-label="Change profile photo" title="Change profile photo">
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="px-6 py-6">
+        <div className="flex flex-wrap items-center gap-2">
+          {isVerified && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
+              <ShieldCheck className="h-3.5 w-3.5" />
+              Verified Alumni
+            </span>
+          )}
+          {batch && (
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
+              <CalendarDays className="h-3.5 w-3.5" />
+              {batch}
+            </span>
+          )}
+        </div>
+
+        <h2 className="mt-5 break-words text-3xl font-bold leading-tight text-slate-950">{fullName}</h2>
+        {program && <p className="mt-2 text-sm font-semibold leading-6 text-blue-800">{program}</p>}
+        {headline ? (
+          <p className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold leading-6 text-slate-700">{headline}</p>
+        ) : (
+          <p className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm font-semibold leading-6 text-slate-500">No professional headline provided yet.</p>
         )}
 
-        <div className="absolute right-4 top-4 flex flex-wrap justify-end gap-2">
-          <button type="button" onClick={onChangeCoverPhoto} disabled={saving} className="inline-flex items-center gap-2 rounded-full bg-white/95 px-4 py-2 text-sm font-semibold text-slate-800 shadow-sm transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60">
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
-            Change Cover
-          </button>
-          {coverImageUrl && (
-            <button type="button" onClick={onRemoveCoverPhoto} disabled={saving} className="inline-flex items-center gap-2 rounded-full bg-slate-950/70 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-950 disabled:cursor-not-allowed disabled:opacity-60">
-              <Trash2 className="h-4 w-4" />
-              Remove
+        {location && (
+          <p className="mt-4 flex items-start gap-2 text-sm font-medium leading-6 text-slate-600">
+            <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+            <span>{location}</span>
+          </p>
+        )}
+
+        <div className="mt-6 flex flex-wrap gap-3">
+          {canEdit && (
+            <button type="button" onClick={onEdit} className="inline-flex items-center justify-center gap-2 rounded-full bg-blue-700 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-blue-800">
+              <Pencil className="h-4 w-4" />
+              Edit Profile
+            </button>
+          )}
+          {canMessage && (
+            <button type="button" onClick={onMessage} className="inline-flex items-center justify-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-5 py-3 text-sm font-bold text-blue-800 transition hover:bg-blue-100">
+              <MessageCircle className="h-4 w-4" />
+              Message
             </button>
           )}
         </div>
       </div>
+    </aside>
+  );
+}
 
-      <div className="px-5 pb-6 sm:px-7">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
-            <div className="relative -mt-14 flex h-32 w-32 shrink-0 items-center justify-center rounded-full border-4 border-white bg-white shadow-lg sm:-mt-16">
-              <Avatar src={profileImageUrl} label={fullName} size="xl" />
-              <button type="button" onClick={onChangeProfilePhoto} disabled={saving} className="absolute bottom-2 right-2 inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60" aria-label="Change profile photo">
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
-              </button>
-            </div>
+function ProfileSummaryPanel({
+  user,
+  survey,
+  workFields,
+  educationFields,
+}: {
+  user?: GraduateUser | null;
+  survey?: GraduateSurveyProfile | null;
+  workFields: GraduateProfileField[];
+  educationFields: GraduateProfileField[];
+}) {
+  const summary = survey?.work?.summary;
+  const rows = [
+    { icon: CheckCircle2, label: 'Employment Status', value: summary?.employment_status || getProfileFieldValue(workFields, 'employment_status') },
+    { icon: Briefcase, label: 'Current Position', value: summary?.current_job_title || getProfileFieldValue(workFields, 'current_job_title') },
+    { icon: Building2, label: 'Company / Organization', value: summary?.company || getProfileFieldValue(workFields, 'company') },
+    { icon: MapPin, label: 'Employment Location', value: summary?.location || getProfileFieldValue(workFields, 'company_location') },
+    { icon: GraduationCap, label: 'Job Relevance to Degree', value: summary?.job_related_to_program || getProfileFieldValue(workFields, 'job_related_to_program') },
+    { icon: CalendarDays, label: 'Graduation Year', value: getProfileFieldValue(educationFields, 'year_graduated') || (user?.year_graduated ? String(user.year_graduated) : '') },
+    { icon: BookOpen, label: 'Program / Course', value: getProfileFieldValue(educationFields, 'degree_program') || user?.program_name || user?.program_code },
+  ].filter((row) => hasDisplayValue(row.value));
 
-            <div className="min-w-0 pt-0 sm:pt-5">
-              <h2 className="break-words text-3xl font-bold leading-tight text-slate-950 sm:text-4xl">{fullName}</h2>
-              <p className="mt-2 max-w-3xl text-base font-semibold leading-6 text-slate-700">{program}</p>
-              {summaryLine && (
-                <p className="mt-2 flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-600">
-                  <span className="inline-flex items-center gap-1.5">
-                    <CalendarDays className="h-4 w-4 text-amber-500" />
-                    {summaryLine}
-                  </span>
-                </p>
-              )}
-            </div>
-          </div>
-
-          <button type="button" onClick={onEdit} className="inline-flex items-center justify-center gap-2 rounded-full bg-blue-700 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-800">
-            <Pencil className="h-4 w-4" />
-            Edit Profile
-          </button>
+  return (
+    <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-700">Professional Snapshot</p>
+          <h3 className="mt-2 text-2xl font-bold text-slate-950">Graduate tracer highlights</h3>
         </div>
+        {survey?.response?.submitted_at && (
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-bold text-slate-500">
+            Updated {formatDateTime(survey.response.submitted_at)}
+          </span>
+        )}
       </div>
-    </div>
+
+      {rows.length === 0 ? (
+        <ProfileEmptyState icon={FileText} message="No information provided yet." />
+      ) : (
+        <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {rows.map((row) => (
+            <div key={row.label} className="rounded-2xl border border-slate-200 bg-[#fafbff] px-4 py-4">
+              <div className="flex items-center gap-2">
+                <row.icon className="h-4 w-4 text-blue-700" />
+                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{row.label}</p>
+              </div>
+              <p className="mt-2 break-words text-sm font-bold leading-6 text-slate-800">{row.value}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -4799,8 +5274,8 @@ function ProfileNavigation({
   onChange: (tab: ProfileSectionTab) => void;
 }) {
   return (
-    <div className="overflow-x-auto rounded-[28px] border border-slate-200 bg-white px-3 py-2 shadow-sm">
-      <div className="flex min-w-max gap-1">
+    <nav className="rounded-[24px] border border-slate-200 bg-white p-2 shadow-sm lg:sticky lg:top-[calc(var(--graduate-portal-header-height)_+_var(--graduate-portal-sticky-gap))]" aria-label="Profile sections">
+      <div className="flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
         {profileSectionTabs.map((tab) => {
           const isActive = activeTab === tab.key;
           return (
@@ -4808,17 +5283,17 @@ function ProfileNavigation({
               key={tab.key}
               type="button"
               onClick={() => onChange(tab.key)}
-              className={`inline-flex items-center gap-2 rounded-full px-4 py-2.5 text-sm font-semibold transition ${
+              className={`inline-flex shrink-0 items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-bold transition lg:w-full ${
                 isActive ? 'bg-blue-700 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
               }`}
             >
               <tab.icon className="h-4 w-4" />
-              {tab.label}
+              <span className="whitespace-nowrap">{tab.label}</span>
             </button>
           );
         })}
       </div>
-    </div>
+    </nav>
   );
 }
 
@@ -4834,12 +5309,15 @@ function ProfileSectionContent({
   activityLogs,
   profileImageUrl,
   forumActionKey,
+  canEdit,
+  canManagePosts,
   onEdit,
   onOpenPost,
   onOpenMedia,
   onToggleLike,
   onEditPost,
   onDeletePost,
+  onOpenProfile,
 }: {
   activeTab: ProfileSectionTab;
   user?: GraduateUser | null;
@@ -4852,23 +5330,26 @@ function ProfileSectionContent({
   activityLogs: ForumActivityLog[];
   profileImageUrl: string;
   forumActionKey: string;
+  canEdit: boolean;
+  canManagePosts: boolean;
   onEdit: (section?: ProfileEditSection) => void;
   onOpenPost: (post: ForumPost) => void;
   onOpenMedia: (post: ForumPost, mediaIndex?: number) => void;
   onToggleLike: (postId: number) => void;
   onEditPost: (post?: ForumPost) => void;
   onDeletePost: (post: ForumPost) => void;
+  onOpenProfile: (graduateId?: number | null) => void;
 }) {
   if (activeTab === 'work') {
-    return <ProfileWorkSection survey={survey} fields={workFields} onEdit={() => onEdit('employment')} />;
+    return <ProfileWorkSection survey={survey} fields={workFields} onEdit={canEdit ? () => onEdit('employment') : undefined} />;
   }
 
   if (activeTab === 'education') {
-    return <ProfileEducationSection user={user} fields={educationFields} graduateStudyFields={graduateStudyFields} onEdit={() => onEdit('education')} />;
+    return <ProfileEducationSection user={user} fields={educationFields} graduateStudyFields={graduateStudyFields} onEdit={canEdit ? () => onEdit('education') : undefined} />;
   }
 
   if (activeTab === 'trainings') {
-    return <ProfileTrainingsSection trainings={trainings} onEdit={() => onEdit('trainings')} />;
+    return <ProfileTrainingsSection trainings={trainings} onEdit={canEdit ? () => onEdit('trainings') : undefined} />;
   }
 
   if (activeTab === 'posts') {
@@ -4882,6 +5363,8 @@ function ProfileSectionContent({
         onToggleLike={onToggleLike}
         onEditPost={onEditPost}
         onDeletePost={onDeletePost}
+        onOpenProfile={onOpenProfile}
+        canManagePosts={canManagePosts}
       />
     );
   }
@@ -4901,12 +5384,15 @@ function ProfileSectionContent({
       posts={posts}
       profileImageUrl={profileImageUrl}
       forumActionKey={forumActionKey}
+      canEdit={canEdit}
+      canManagePosts={canManagePosts}
       onEdit={onEdit}
       onOpenPost={onOpenPost}
       onOpenMedia={onOpenMedia}
       onToggleLike={onToggleLike}
       onEditPost={onEditPost}
       onDeletePost={onDeletePost}
+      onOpenProfile={onOpenProfile}
     />
   );
 }
@@ -4921,12 +5407,15 @@ function ProfileOverview({
   posts,
   profileImageUrl,
   forumActionKey,
+  canEdit,
+  canManagePosts,
   onEdit,
   onOpenPost,
   onOpenMedia,
   onToggleLike,
   onEditPost,
   onDeletePost,
+  onOpenProfile,
 }: {
   user?: GraduateUser | null;
   survey?: GraduateSurveyProfile | null;
@@ -4937,23 +5426,26 @@ function ProfileOverview({
   posts: ForumPost[];
   profileImageUrl: string;
   forumActionKey: string;
+  canEdit: boolean;
+  canManagePosts: boolean;
   onEdit: (section?: ProfileEditSection) => void;
   onOpenPost: (post: ForumPost) => void;
   onOpenMedia: (post: ForumPost, mediaIndex?: number) => void;
   onToggleLike: (postId: number) => void;
   onEditPost: (post?: ForumPost) => void;
   onDeletePost: (post: ForumPost) => void;
+  onOpenProfile: (graduateId?: number | null) => void;
 }) {
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
       <aside className="space-y-6">
-        <ProfileAboutCard user={user} survey={survey} onEdit={() => onEdit('basic')} />
-        <ProfileEducationCard user={user} fields={educationFields} graduateStudyFields={graduateStudyFields} compact onEdit={() => onEdit('education')} />
-        <ProfileTrainingsSection trainings={trainings.slice(0, 2)} compact onEdit={() => onEdit('trainings')} />
+        <ProfileAboutCard user={user} survey={survey} onEdit={canEdit ? () => onEdit('basic') : undefined} />
+        <ProfileEducationCard user={user} fields={educationFields} graduateStudyFields={graduateStudyFields} compact onEdit={canEdit ? () => onEdit('education') : undefined} />
+        <ProfileTrainingsSection trainings={trainings.slice(0, 2)} compact onEdit={canEdit ? () => onEdit('trainings') : undefined} />
       </aside>
 
       <div className="space-y-6">
-        <ProfileWorkCard survey={survey} fields={workFields} compact onEdit={() => onEdit('employment')} />
+        <ProfileWorkCard survey={survey} fields={workFields} compact onEdit={canEdit ? () => onEdit('employment') : undefined} />
 
         <ProfilePostsSection
           posts={posts}
@@ -4965,6 +5457,8 @@ function ProfileOverview({
           onToggleLike={onToggleLike}
           onEditPost={onEditPost}
           onDeletePost={onDeletePost}
+          onOpenProfile={onOpenProfile}
+          canManagePosts={canManagePosts}
         />
       </div>
     </div>
@@ -5006,7 +5500,7 @@ function ProfileAboutCard({
 }: {
   user?: GraduateUser | null;
   survey?: GraduateSurveyProfile | null;
-  onEdit: () => void;
+  onEdit?: () => void;
 }) {
   const rows = [
     { icon: Contact, label: 'Full Name', value: getGraduateFullName(user) },
@@ -5019,7 +5513,7 @@ function ProfileAboutCard({
 
   return (
     <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-      <ProfileCardHeader icon={Contact} title="About" actionLabel="Edit" onAction={onEdit} />
+      <ProfileCardHeader icon={Contact} title="About" actionLabel={onEdit ? 'Edit' : undefined} onAction={onEdit} />
       {rows.length === 0 ? (
         <ProfileEmptyState icon={FileText} message="No personal information available." />
       ) : (
@@ -5040,7 +5534,7 @@ function ProfileWorkSection({
 }: {
   survey?: GraduateSurveyProfile | null;
   fields: GraduateProfileField[];
-  onEdit: () => void;
+  onEdit?: () => void;
 }) {
   return (
     <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
@@ -5125,7 +5619,7 @@ function ProfileEducationSection({
   user?: GraduateUser | null;
   fields: GraduateProfileField[];
   graduateStudyFields: GraduateProfileField[];
-  onEdit: () => void;
+  onEdit?: () => void;
 }) {
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
@@ -5146,14 +5640,14 @@ function ProfileEducationCard({
   fields: GraduateProfileField[];
   graduateStudyFields: GraduateProfileField[];
   compact?: boolean;
-  onEdit: () => void;
+  onEdit?: () => void;
 }) {
   const degree = getProfileFieldValue(fields, 'degree_program') || user?.program_name || user?.program_code || '';
   const year = getProfileFieldValue(fields, 'year_graduated') || (user?.year_graduated ? String(user.year_graduated) : '');
 
   return (
     <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-      <ProfileCardHeader icon={GraduationCap} title="Education" actionLabel="View" onAction={onEdit} />
+      <ProfileCardHeader icon={GraduationCap} title="Education" actionLabel={onEdit ? 'View' : undefined} onAction={onEdit} />
       <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-4">
         <p className="font-bold text-slate-950">Norzagaray College</p>
         {degree && <p className="mt-1 text-sm text-slate-700">{degree}</p>}
@@ -5245,21 +5739,25 @@ function ProfilePostsSection({
   profileImageUrl,
   forumActionKey,
   limit,
+  canManagePosts,
   onOpenPost,
   onOpenMedia,
   onToggleLike,
   onEditPost,
   onDeletePost,
+  onOpenProfile,
 }: {
   posts: ForumPost[];
   profileImageUrl: string;
   forumActionKey: string;
   limit?: number;
+  canManagePosts: boolean;
   onOpenPost: (post: ForumPost) => void;
   onOpenMedia: (post: ForumPost, mediaIndex?: number) => void;
   onToggleLike: (postId: number) => void;
   onEditPost: (post?: ForumPost) => void;
   onDeletePost: (post: ForumPost) => void;
+  onOpenProfile: (graduateId?: number | null) => void;
 }) {
   const visiblePosts = typeof limit === 'number' ? posts.slice(0, limit) : posts;
 
@@ -5286,11 +5784,13 @@ function ProfilePostsSection({
             post={post}
             profileImageUrl={profileImageUrl}
             actionKey={forumActionKey}
+            canManage={canManagePosts}
             onOpenPost={onOpenPost}
             onOpenMedia={onOpenMedia}
             onToggleLike={onToggleLike}
             onEditPost={onEditPost}
             onDeletePost={onDeletePost}
+            onOpenProfile={onOpenProfile}
           />
         ))
       )}
@@ -5302,28 +5802,32 @@ function ProfilePostCard({
   post,
   profileImageUrl,
   actionKey,
+  canManage,
   onOpenPost,
   onOpenMedia,
   onToggleLike,
   onEditPost,
   onDeletePost,
+  onOpenProfile,
 }: {
   post: ForumPost;
   profileImageUrl: string;
   actionKey: string;
+  canManage: boolean;
   onOpenPost: (post: ForumPost) => void;
   onOpenMedia: (post: ForumPost, mediaIndex?: number) => void;
   onToggleLike: (postId: number) => void;
   onEditPost: (post?: ForumPost) => void;
   onDeletePost: (post: ForumPost) => void;
+  onOpenProfile: (graduateId?: number | null) => void;
 }) {
   return (
     <article className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <button type="button" onClick={() => onOpenPost(post)} className="flex min-w-0 items-center gap-3 text-left">
+        <button type="button" onClick={() => onOpenProfile(post.graduate_id)} className="flex min-w-0 items-center gap-3 text-left">
           <Avatar src={resolveAssetUrl(post.author_profile_image_path) || profileImageUrl} label={post.author_name} size="md" />
           <div className="min-w-0">
-            <p className="font-semibold text-slate-950">{post.author_name}</p>
+            <p className="font-semibold text-slate-950 transition hover:text-blue-700">{post.author_name}</p>
             <p className="truncate text-xs text-slate-500">
               {post.author_program_code || post.author_program_name || 'Graduate'} - {formatRelativeTime(post.created_at)}
             </p>
@@ -5351,16 +5855,18 @@ function ProfilePostCard({
           </button>
           <span className="text-xs text-slate-400">Posted {formatDateTime(post.created_at)}</span>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={() => onEditPost(post)} className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50">
-            <Pencil className="h-3.5 w-3.5" />
-            Edit
-          </button>
-          <button type="button" onClick={() => onDeletePost(post)} disabled={actionKey === `delete-${post.id}`} className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 disabled:opacity-60">
-            <Trash2 className="h-3.5 w-3.5" />
-            Delete
-          </button>
-        </div>
+        {canManage && (
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => onEditPost(post)} className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50">
+              <Pencil className="h-3.5 w-3.5" />
+              Edit
+            </button>
+            <button type="button" onClick={() => onDeletePost(post)} disabled={actionKey === `delete-${post.id}`} className="inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 transition hover:bg-rose-100 disabled:opacity-60">
+              <Trash2 className="h-3.5 w-3.5" />
+              Delete
+            </button>
+          </div>
+        )}
       </div>
     </article>
   );
@@ -5792,23 +6298,172 @@ function SummaryPill({
   );
 }
 
-function MetaRow({
-  className = '',
+function JobInfoChip({
   icon: Icon,
   label,
   value,
 }: {
-  className?: string;
   icon: LucideIcon;
   label: string;
   value: string;
 }) {
   return (
-    <div className={`flex items-start gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 ${className}`}>
-      <Icon className="mt-0.5 h-4 w-4 text-slate-400" />
-      <div>
-        <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p>
-        <p className="mt-1 text-sm text-slate-700">{value}</p>
+    <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-slate-200 bg-[#f8fbff] px-3 py-2 text-xs text-slate-600">
+      <Icon className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+      <span className="shrink-0 font-semibold text-slate-500">{label}:</span>
+      <span className="truncate font-medium text-slate-700">{value}</span>
+    </div>
+  );
+}
+
+function JobDetailsModal({
+  job,
+  loading,
+  onClose,
+  onOpenProfile,
+}: {
+  job: JobPost;
+  loading: boolean;
+  onClose: () => void;
+  onOpenProfile: (graduateId: number) => void;
+}) {
+  const posterName = getJobPosterName(job);
+  const applicationLink = normalizeApplicationLink(job.application_link);
+  const requirementsLink = resolveAssetUrl(job.requirements_file_path);
+  const hasApplyDetails = Boolean(job.contact_email || applicationLink || job.application_method || requirementsLink);
+
+  const detailItems = [
+    { icon: Building2, label: 'Company', value: job.company || 'Not specified' },
+    { icon: Briefcase, label: 'Type', value: formatEmploymentType(job.job_type) },
+    { icon: MapPin, label: 'Location', value: job.location || 'Not specified' },
+    { icon: GraduationCap, label: 'Program Fit', value: getJobProgramFit(job) },
+    { icon: Building2, label: 'Industry', value: job.industry || 'Not specified' },
+    { icon: Briefcase, label: 'Salary', value: job.salary_range || 'Not specified' },
+    { icon: CalendarDays, label: 'Deadline', value: job.application_deadline ? formatDate(job.application_deadline) : 'Not specified' },
+    { icon: Clock3, label: 'Posted', value: job.created_at ? formatDateTime(job.created_at) : 'Not specified' },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-6">
+      <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-5 sm:px-6">
+          <button
+            type="button"
+            onClick={() => job.poster_graduate_id && onOpenProfile(job.poster_graduate_id)}
+            disabled={!job.poster_graduate_id}
+            className="flex min-w-0 items-center gap-3 text-left"
+          >
+            <Avatar src={resolveAssetUrl(job.poster_profile_image_path)} label={posterName} size="md" />
+            <span className="min-w-0">
+              <span className="block truncate text-sm font-semibold text-slate-900 transition hover:text-blue-700">{posterName}</span>
+              <span className="block text-xs text-slate-500">
+                {getJobPosterProgram(job)} - {getJobPostedLabel(job)}
+              </span>
+            </span>
+          </button>
+
+          <div className="flex shrink-0 items-center gap-2">
+            <span className="rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700">
+              {formatEmploymentType(job.job_type)}
+            </span>
+            <button type="button" onClick={onClose} className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100" aria-label="Close job details">
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+          {loading && (
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              Loading complete job details...
+            </div>
+          )}
+
+          <div className="min-w-0">
+            <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-500">
+              <Building2 className="h-4 w-4 text-blue-500" />
+              <span className="truncate">{job.company || 'Company not specified'}</span>
+            </p>
+            <h2 className="mt-2 text-2xl font-bold leading-tight text-slate-950 sm:text-3xl">{job.title || 'Job Post'}</h2>
+          </div>
+
+          <div className="mt-5 flex flex-wrap gap-2">
+            {detailItems.map((item) => (
+              <JobInfoChip key={`modal-${item.label}`} icon={item.icon} label={item.label} value={item.value} />
+            ))}
+          </div>
+
+          <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
+            <div className="space-y-5">
+              <section>
+                <h3 className="text-sm font-bold text-slate-900">Description</h3>
+                <p className="mt-2 whitespace-pre-line text-sm leading-7 text-slate-700">{job.description || 'No description provided yet.'}</p>
+              </section>
+
+              {hasDisplayValue(job.qualifications) && (
+                <section>
+                  <h3 className="text-sm font-bold text-slate-900">Qualifications</h3>
+                  <p className="mt-2 whitespace-pre-line text-sm leading-7 text-slate-700">{job.qualifications}</p>
+                </section>
+              )}
+
+              {hasDisplayValue(job.required_skills) && (
+                <section>
+                  <h3 className="text-sm font-bold text-slate-900">Required Skills</h3>
+                  <p className="mt-2 whitespace-pre-line text-sm leading-7 text-slate-700">{job.required_skills}</p>
+                </section>
+              )}
+            </div>
+
+            <aside className="space-y-4 rounded-[24px] border border-slate-200 bg-[#fafbff] p-4">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">How to Apply</h3>
+                {hasApplyDetails ? (
+                  <div className="mt-3 space-y-3 text-sm text-slate-600">
+                    {job.contact_email && (
+                      <a href={`mailto:${job.contact_email}`} className="flex min-w-0 items-center gap-2 font-medium text-blue-700 hover:underline">
+                        <Mail className="h-4 w-4 shrink-0" />
+                        <span className="truncate">{job.contact_email}</span>
+                      </a>
+                    )}
+                    {applicationLink && (
+                      <a href={applicationLink} target="_blank" rel="noreferrer" className="flex items-center gap-2 font-medium text-blue-700 hover:underline">
+                        <FileText className="h-4 w-4" />
+                        Open application link
+                      </a>
+                    )}
+                    {requirementsLink && (
+                      <a href={requirementsLink} target="_blank" rel="noreferrer" className="flex min-w-0 items-center gap-2 font-medium text-blue-700 hover:underline">
+                        <FileText className="h-4 w-4 shrink-0" />
+                        <span className="truncate">{job.requirements_file_name || 'Requirements file'}</span>
+                      </a>
+                    )}
+                    {job.application_method && <p className="whitespace-pre-line leading-6">{job.application_method}</p>}
+                  </div>
+                ) : (
+                  <p className="mt-3 text-sm text-slate-500">Application details are not specified.</p>
+                )}
+              </div>
+
+              <div className="border-t border-slate-200 pt-4">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Posted By</p>
+                <button
+                  type="button"
+                  onClick={() => job.poster_graduate_id && onOpenProfile(job.poster_graduate_id)}
+                  disabled={!job.poster_graduate_id}
+                  className="mt-3 flex min-w-0 items-center gap-3 text-left"
+                >
+                  <Avatar src={resolveAssetUrl(job.poster_profile_image_path)} label={posterName} size="sm" />
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-semibold text-slate-900 transition hover:text-blue-700">{posterName}</span>
+                    <span className="block text-xs text-slate-500">{getJobPosterProgram(job)}</span>
+                  </span>
+                </button>
+              </div>
+            </aside>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -5961,6 +6616,7 @@ function ForumMediaViewer({
   onZoomReset,
   onCommentDraftChange,
   onCommentSubmit,
+  onOpenProfile,
 }: {
   viewer: { post: ForumPost; mediaIndex: number };
   zoom: number;
@@ -5975,6 +6631,7 @@ function ForumMediaViewer({
   onZoomReset: () => void;
   onCommentDraftChange: (value: string) => void;
   onCommentSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onOpenProfile: (graduateId?: number | null) => void;
 }) {
   const media = getPostMedia(viewer.post);
   const current = media[viewer.mediaIndex] || media[0];
@@ -6035,7 +6692,9 @@ function ForumMediaViewer({
 
         <aside className="hidden min-h-0 border-l border-white/10 bg-white text-slate-900 lg:flex lg:flex-col">
           <div className="border-b border-slate-200 px-5 py-5">
-            <p className="text-sm font-semibold text-slate-900">{viewer.post.author_name}</p>
+            <button type="button" onClick={() => onOpenProfile(viewer.post.graduate_id)} className="text-left text-sm font-semibold text-slate-900 transition hover:text-blue-700">
+              {viewer.post.author_name}
+            </button>
             <p className="mt-1 text-xs text-slate-500">{viewer.post.author_program_code || viewer.post.author_program_name || 'Graduate'} - {formatDateTime(viewer.post.created_at)}</p>
           </div>
           <div className="flex-1 overflow-y-auto px-5 py-5">
@@ -6092,10 +6751,12 @@ function ForumMediaViewer({
                   comments.map((comment) => (
                     <article key={comment.id} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
                       <div className="flex items-start gap-3">
-                        <Avatar src={resolveAssetUrl(comment.commenter_profile_image_path)} label={comment.commenter_name} size="sm" />
+                        <button type="button" onClick={() => onOpenProfile(comment.graduate_id)} className="shrink-0" aria-label={`Open ${comment.commenter_name} profile`}>
+                          <Avatar src={resolveAssetUrl(comment.commenter_profile_image_path)} label={comment.commenter_name} size="sm" />
+                        </button>
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <p className="text-sm font-semibold text-slate-900">{comment.commenter_name}</p>
+                            <button type="button" onClick={() => onOpenProfile(comment.graduate_id)} className="text-left text-sm font-semibold text-slate-900 transition hover:text-blue-700">{comment.commenter_name}</button>
                             <span className="text-xs text-slate-400">{formatRelativeTime(comment.created_at)}</span>
                           </div>
                           <p className="text-xs text-slate-500">{comment.commenter_program_code || comment.commenter_program_name || 'Graduate'}</p>

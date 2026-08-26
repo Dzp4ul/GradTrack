@@ -1,0 +1,104 @@
+<mxfile host="app.diagrams.net" modified="2026-08-26T00:00:00.000Z" agent="Codex" version="24.7.17" type="device">
+  <diagram id="gradtrack-system-architecture" name="System Architecture">
+    <mxGraphModel dx="1422" dy="794" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="850" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="title" value="System Architecture" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=Arial;fontSize=24;fontStyle=1;fontColor=#111827;" vertex="1" parent="1">
+          <mxGeometry x="330" y="25" width="440" height="36" as="geometry" />
+        </mxCell>
+        <mxCell id="users" value="&lt;b&gt;Users / Roles&lt;/b&gt;&lt;br&gt;&#8226; Graduate / Alumni&lt;br&gt;&#8226; Registrar&lt;br&gt;&#8226; Alumni Admin&lt;br&gt;&#8226; Admin / Super Admin&lt;br&gt;&#8226; Deans, MIS, Research" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;absoluteArcSize=1;fillColor=#ffffff;strokeColor=#111827;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#111827;spacing=10;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="40" y="330" width="150" height="145" as="geometry" />
+        </mxCell>
+        <mxCell id="browser" value="&lt;b&gt;Responsive Web Browser&lt;/b&gt;&lt;br&gt;&#8226; Desktop and laptop&lt;br&gt;&#8226; Tablet and mobile browser&lt;br&gt;&#8226; Accesses GradTrack&lt;br&gt;&#8226; Sends user requests" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;absoluteArcSize=1;fillColor=#f8fafc;strokeColor=#111827;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#111827;spacing=10;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="230" y="330" width="150" height="145" as="geometry" />
+        </mxCell>
+        <mxCell id="frontend" value="&lt;b&gt;React + TypeScript + Vite&lt;br&gt;Frontend&lt;/b&gt;&lt;br&gt;&#8226; Responsive user interface&lt;br&gt;&#8226; Routes and form handling&lt;br&gt;&#8226; Dashboards and reports&lt;br&gt;&#8226; Surveys, portal, forum, jobs&lt;br&gt;&#8226; Socket.IO chat client" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;absoluteArcSize=1;fillColor=#eef6ff;strokeColor=#111827;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#111827;spacing=10;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="425" y="315" width="200" height="175" as="geometry" />
+        </mxCell>
+        <mxCell id="backend" value="&lt;b&gt;PHP REST API (Apache)&lt;br&gt;Application Layer&lt;/b&gt;&lt;br&gt;&#8226; Admin and graduate sessions&lt;br&gt;&#8226; Role authorization checks&lt;br&gt;&#8226; Survey, profile, jobs, forum&lt;br&gt;&#8226; Notifications, reports, analytics&lt;br&gt;&#8226; Validation, audit trail, uploads&lt;br&gt;&#8226; Keeps service secrets server-side" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;absoluteArcSize=1;fillColor=#eef2ff;strokeColor=#111827;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#111827;spacing=10;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="675" y="300" width="220" height="205" as="geometry" />
+        </mxCell>
+        <mxCell id="database" value="&lt;b&gt;Amazon RDS / MySQL&lt;br&gt;Database&lt;/b&gt;&lt;br&gt;&#8226; Admin and graduate accounts&lt;br&gt;&#8226; Graduate tracer records&lt;br&gt;&#8226; Survey and employment data&lt;br&gt;&#8226; Jobs, forum, messages&lt;br&gt;&#8226; Settings and audit logs" style="shape=cylinder3d;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#f8fafc;strokeColor=#111827;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#111827;spacing=10;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="940" y="320" width="145" height="165" as="geometry" />
+        </mxCell>
+        <mxCell id="realtime" value="&lt;b&gt;Node.js Socket.IO&lt;br&gt;Realtime Service&lt;/b&gt;&lt;br&gt;&#8226; Graduate chat messages&lt;br&gt;&#8226; Presence and typing status&lt;br&gt;&#8226; Unread/read message state&lt;br&gt;&#8226; Uses PHP session check" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;absoluteArcSize=1;fillColor=#ecfeff;strokeColor=#111827;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#111827;spacing=10;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="425" y="105" width="200" height="145" as="geometry" />
+        </mxCell>
+        <mxCell id="groq" value="&lt;b&gt;Groq API / GenAI Service&lt;/b&gt;&lt;br&gt;&#8226; AI report analytics&lt;br&gt;&#8226; Predictive insights&lt;br&gt;&#8226; Forum content moderation&lt;br&gt;&#8226; Authorized aggregate data only" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;absoluteArcSize=1;fillColor=#f5f3ff;strokeColor=#111827;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#111827;spacing=10;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="675" y="105" width="220" height="145" as="geometry" />
+        </mxCell>
+        <mxCell id="psgc" value="&lt;b&gt;PSGC Address API&lt;/b&gt;&lt;br&gt;&#8226; Region and locality lists&lt;br&gt;&#8226; Address code validation" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;absoluteArcSize=1;fillColor=#f8fafc;strokeColor=#111827;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#111827;spacing=10;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="425" y="590" width="200" height="120" as="geometry" />
+        </mxCell>
+        <mxCell id="storage" value="&lt;b&gt;Backend Local Upload Storage&lt;/b&gt;&lt;br&gt;&#8226; Profile, cover, admin images&lt;br&gt;&#8226; Forum media and chat files&lt;br&gt;&#8226; Job requirements and alumni docs&lt;br&gt;&#8226; Branding and mentor proofs" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;absoluteArcSize=1;fillColor=#fff7ed;strokeColor=#111827;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#111827;spacing=10;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="675" y="590" width="220" height="135" as="geometry" />
+        </mxCell>
+        <mxCell id="email" value="&lt;b&gt;SMTP Email Service&lt;br&gt;(PHPMailer)&lt;/b&gt;&lt;br&gt;&#8226; Password reset OTPs&lt;br&gt;&#8226; Survey emails&lt;br&gt;&#8226; Approval and mentorship notices" style="rounded=1;whiteSpace=wrap;html=1;arcSize=8;absoluteArcSize=1;fillColor=#f0fdf4;strokeColor=#111827;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#111827;spacing=10;align=center;verticalAlign=middle;" vertex="1" parent="1">
+          <mxGeometry x="940" y="590" width="145" height="135" as="geometry" />
+        </mxCell>
+        <mxCell id="caption_fig" value="Figure X" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=Arial;fontSize=14;fontStyle=1;fontColor=#111827;" vertex="1" parent="1">
+          <mxGeometry x="0" y="785" width="1100" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="caption_title" value="GradTrack System Architecture" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontFamily=Arial;fontSize=16;fontStyle=1;fontColor=#111827;" vertex="1" parent="1">
+          <mxGeometry x="0" y="810" width="1100" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_users_browser" value="User access" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;fontFamily=Arial;fontSize=10;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="users" target="browser">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_browser_frontend" value="Loads web app" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;fontFamily=Arial;fontSize=10;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="browser" target="frontend">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_frontend_backend" value="HTTP/HTTPS REST API" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;fontFamily=Arial;fontSize=10;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="frontend" target="backend">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_backend_database" value="SQL queries" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=block;startFill=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;fontFamily=Arial;fontSize=10;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="backend" target="database">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_frontend_realtime" value="WebSocket / polling" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=block;startFill=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;fontFamily=Arial;fontSize=10;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="frontend" target="realtime">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_realtime_backend" value="Session auth check" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;dashed=1;strokeColor=#111827;strokeWidth=1.2;fontFamily=Arial;fontSize=10;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="realtime" target="backend">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="650" y="270" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge_realtime_database" value="Chat and presence data" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=block;startFill=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.2;fontFamily=Arial;fontSize=10;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="realtime" target="database">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="525" y="270" />
+              <mxPoint x="1013" y="270" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge_backend_groq" value="AI requests / responses" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=block;startFill=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;fontFamily=Arial;fontSize=10;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="backend" target="groq">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_frontend_psgc" value="Address lookups" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=block;startFill=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.2;fontFamily=Arial;fontSize=10;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="frontend" target="psgc">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_backend_psgc" value="Address validation" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=block;startFill=1;endArrow=block;endFill=1;dashed=1;strokeColor=#111827;strokeWidth=1.2;fontFamily=Arial;fontSize=10;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="backend" target="psgc">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="650" y="555" />
+              <mxPoint x="525" y="555" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge_backend_storage" value="File upload/download" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;startArrow=block;startFill=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;fontFamily=Arial;fontSize=10;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="backend" target="storage">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_backend_email" value="SMTP mail" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;endArrow=block;endFill=1;strokeColor=#111827;strokeWidth=1.4;fontFamily=Arial;fontSize=10;labelBackgroundColor=#ffffff;" edge="1" parent="1" source="backend" target="email">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="895" y="555" />
+              <mxPoint x="1013" y="555" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

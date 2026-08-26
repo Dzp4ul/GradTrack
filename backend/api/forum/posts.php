@@ -104,6 +104,7 @@ try {
     if ($method === 'GET') {
         $postId = isset($_GET['id']) ? (int) $_GET['id'] : 0;
         $mineOnly = isset($_GET['mine']) && (string) $_GET['mine'] === '1';
+        $profileGraduateId = isset($_GET['graduate_id']) ? (int) $_GET['graduate_id'] : 0;
         $search = gradtrack_forum_clean_text($_GET['search'] ?? '');
         $category = gradtrack_forum_clean_text($_GET['category'] ?? '');
         $status = gradtrack_forum_clean_text($_GET['status'] ?? '');
@@ -158,6 +159,11 @@ try {
             }
         } else {
             $sql .= " AND fp.status = 'approved'";
+
+            if ($profileGraduateId > 0) {
+                $sql .= ' AND fp.graduate_id = :profile_graduate_id';
+                $params[':profile_graduate_id'] = $profileGraduateId;
+            }
         }
 
         if ($category !== '' && gradtrack_forum_valid_category($category)) {

@@ -70,6 +70,7 @@ interface RealtimeMessagingWorkspaceProps {
   onCloseNewConversation: () => void;
   onNewConversationSearchChange: (value: string) => void;
   onStartConversation: (graduateId: number) => void;
+  onOpenProfile?: (graduateId?: number | null) => void;
 }
 
 function getInitials(value?: string | null) {
@@ -206,20 +207,29 @@ function ConversationItem({
   currentGraduateId,
   resolveAssetUrl,
   onSelect,
+  onOpenProfile,
 }: {
   room: MessagingRoom;
   active: boolean;
   currentGraduateId: number;
   resolveAssetUrl: (path?: string | null) => string;
   onSelect: () => void;
+  onOpenProfile?: (graduateId?: number | null) => void;
 }) {
   const label = getRoomLabel(room, currentGraduateId);
   const recipient = getRecipient(room, currentGraduateId);
+  const canOpenRecipient = !room.is_group && !!recipient?.graduate_id && recipient.graduate_id !== currentGraduateId;
+  const handleIdentityClick = () => {
+    if (canOpenRecipient && onOpenProfile) {
+      onOpenProfile(recipient?.graduate_id);
+      return;
+    }
+
+    onSelect();
+  };
 
   return (
-    <button
-      type="button"
-      onClick={onSelect}
+    <div
       className={`grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border px-3 py-3 text-left transition ${
         active
           ? 'border-blue-200 bg-blue-50 shadow-sm'
@@ -227,27 +237,27 @@ function ConversationItem({
       }`}
       aria-current={active ? 'true' : undefined}
     >
-      <div className="relative">
+      <button type="button" onClick={handleIdentityClick} className="relative shrink-0" aria-label={canOpenRecipient ? `Open ${label} profile` : `Open ${label}`}>
         <Avatar src={getRoomAvatar(room, currentGraduateId)} label={label} size="sm" resolveAssetUrl={resolveAssetUrl} />
         {recipient?.is_online && <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-emerald-500" />}
-      </div>
+      </button>
 
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
-          <p className="truncate text-sm font-bold text-slate-900">{label}</p>
+          <button type="button" onClick={handleIdentityClick} className="truncate text-left text-sm font-bold text-slate-900 transition hover:text-blue-700">{label}</button>
         </div>
-        <p className="mt-0.5 truncate text-xs text-slate-500">{safePreview(room.last_message)}</p>
+        <button type="button" onClick={onSelect} className="mt-0.5 block w-full truncate text-left text-xs text-slate-500">{safePreview(room.last_message)}</button>
       </div>
 
-      <div className="flex flex-col items-end gap-2">
+      <button type="button" onClick={onSelect} className="flex flex-col items-end gap-2 text-right">
         <span className="text-[11px] font-semibold text-slate-400">{formatConversationTime(room.last_message_at || room.updated_at)}</span>
         {(room.unread_count || 0) > 0 && (
           <span className="min-w-5 rounded-full bg-blue-700 px-1.5 py-0.5 text-center text-[11px] font-bold text-white">
             {room.unread_count && room.unread_count > 9 ? '9+' : room.unread_count}
           </span>
         )}
-      </div>
-    </button>
+      </button>
+    </div>
   );
 }
 
@@ -261,6 +271,7 @@ function ConversationList({
   onSearchChange,
   onSelectRoom,
   onOpenNewConversation,
+  onOpenProfile,
 }: {
   currentGraduate: CurrentGraduate;
   rooms: MessagingRoom[];
@@ -271,6 +282,7 @@ function ConversationList({
   onSearchChange: (value: string) => void;
   onSelectRoom: (roomId: number) => void;
   onOpenNewConversation: () => void;
+  onOpenProfile?: (graduateId?: number | null) => void;
 }) {
   const query = search.trim().toLowerCase();
   const filteredRooms = useMemo(() => {
@@ -345,6 +357,7 @@ function ConversationList({
                 currentGraduateId={currentGraduate.graduate_id}
                 resolveAssetUrl={resolveAssetUrl}
                 onSelect={() => onSelectRoom(room.id)}
+                onOpenProfile={onOpenProfile}
               />
             ))}
           </div>
@@ -359,14 +372,22 @@ function ChatHeader({
   currentGraduateId,
   resolveAssetUrl,
   onBack,
+  onOpenProfile,
 }: {
   room: MessagingRoom | null;
   currentGraduateId: number;
   resolveAssetUrl: (path?: string | null) => string;
   onBack: () => void;
+  onOpenProfile?: (graduateId?: number | null) => void;
 }) {
   const recipient = getRecipient(room, currentGraduateId);
   const label = room ? getRoomLabel(room, currentGraduateId) : 'Select a conversation';
+  const canOpenRecipient = !!room && !room.is_group && !!recipient?.graduate_id && recipient.graduate_id !== currentGraduateId;
+  const handleIdentityClick = () => {
+    if (canOpenRecipient && onOpenProfile) {
+      onOpenProfile(recipient?.graduate_id);
+    }
+  };
 
   return (
     <header className="flex min-h-[76px] items-center gap-3 border-b border-slate-200 bg-white px-4 py-3">
@@ -375,12 +396,12 @@ function ChatHeader({
       </button>
       {room ? (
         <>
-          <div className="relative">
+          <button type="button" onClick={handleIdentityClick} disabled={!canOpenRecipient} className="relative shrink-0 disabled:cursor-default" aria-label={canOpenRecipient ? `Open ${label} profile` : undefined}>
             <Avatar src={recipient?.profile_image_path} label={label} size="lg" resolveAssetUrl={resolveAssetUrl} />
             {recipient?.is_online && <span className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" />}
-          </div>
+          </button>
           <div className="min-w-0">
-            <p className="truncate text-base font-bold text-slate-900">{label}</p>
+            <button type="button" onClick={handleIdentityClick} disabled={!canOpenRecipient} className="max-w-full truncate text-left text-base font-bold text-slate-900 transition hover:text-blue-700 disabled:cursor-default disabled:hover:text-slate-900">{label}</button>
             <p className="truncate text-xs font-semibold text-slate-500">{getPresenceLabel(recipient)}</p>
           </div>
         </>
@@ -447,11 +468,13 @@ function MessageBubble({
   resolveAssetUrl,
   onRetry,
   onImageOpen,
+  onOpenProfile,
 }: {
   message: MessagingMessage;
   resolveAssetUrl: (path?: string | null) => string;
   onRetry: (message: MessagingMessage) => void;
   onImageOpen: (attachment: MessageAttachment) => void;
+  onOpenProfile?: (graduateId?: number | null) => void;
 }) {
   const isMine = message.is_mine;
 
@@ -465,7 +488,11 @@ function MessageBubble({
               : 'bg-blue-700 text-white'
             : 'border border-slate-200 bg-white text-slate-800'
         }`}>
-          {!isMine && <p className="mb-1 text-xs font-bold text-slate-500">{message.sender_name}</p>}
+          {!isMine && (
+            <button type="button" onClick={() => onOpenProfile?.(message.graduate_id)} className="mb-1 block text-left text-xs font-bold text-slate-500 transition hover:text-blue-700">
+              {message.sender_name}
+            </button>
+          )}
           {message.message && <p className="whitespace-pre-wrap break-words leading-6">{message.message}</p>}
           {(message.attachments || []).map((attachment) => (
             <AttachmentTile key={attachment.id} attachment={attachment} resolveAssetUrl={resolveAssetUrl} onImageOpen={onImageOpen} />
@@ -520,6 +547,7 @@ function MessageList({
   onNearBottomChange,
   onScrollToNewest,
   onImageOpen,
+  onOpenProfile,
 }: {
   room: MessagingRoom | null;
   messages: MessagingMessage[];
@@ -534,6 +562,7 @@ function MessageList({
   onNearBottomChange: (nearBottom: boolean) => void;
   onScrollToNewest: () => void;
   onImageOpen: (attachment: MessageAttachment) => void;
+  onOpenProfile?: (graduateId?: number | null) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const preserveScrollRef = useRef<{ height: number; top: number } | null>(null);
@@ -647,7 +676,7 @@ function MessageList({
                 <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-500 shadow-sm">{item.label}</span>
               </div>
             ) : (
-              <MessageBubble key={item.id} message={item.message} resolveAssetUrl={resolveAssetUrl} onRetry={onRetryMessage} onImageOpen={onImageOpen} />
+              <MessageBubble key={item.id} message={item.message} resolveAssetUrl={resolveAssetUrl} onRetry={onRetryMessage} onImageOpen={onImageOpen} onOpenProfile={onOpenProfile} />
             ))}
             <TypingIndicator names={typingNames} />
           </div>
@@ -896,6 +925,7 @@ function NewConversationModal({
   onClose,
   onSearchChange,
   onStartConversation,
+  onOpenProfile,
 }: {
   open: boolean;
   directory: MessagingParticipant[];
@@ -905,6 +935,7 @@ function NewConversationModal({
   onClose: () => void;
   onSearchChange: (value: string) => void;
   onStartConversation: (graduateId: number) => void;
+  onOpenProfile?: (graduateId?: number | null) => void;
 }) {
   const query = search.trim().toLowerCase();
   const [programFilter, setProgramFilter] = useState('all');
@@ -1001,22 +1032,24 @@ function NewConversationModal({
           ) : (
             <div className="space-y-2">
               {filtered.map((participant) => (
-                <button
+                <div
                   key={participant.graduate_id}
-                  type="button"
-                  disabled={creating}
-                  onClick={() => onStartConversation(participant.graduate_id)}
-                  className="flex w-full items-center gap-3 rounded-lg border border-slate-200 px-4 py-3 text-left transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="flex w-full items-center gap-3 rounded-lg border border-slate-200 px-4 py-3 text-left transition hover:bg-slate-50"
                 >
-                  <Avatar src={participant.profile_image_path} label={participant.full_name} size="sm" resolveAssetUrl={resolveAssetUrl} />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-bold text-slate-900">{participant.full_name}</p>
-                    <p className="truncate text-xs text-slate-500">
-                      {participant.program_code || 'Graduate'}{participant.year_graduated ? ` - Batch ${participant.year_graduated}` : ''}
-                    </p>
-                  </div>
-                  {creating && <Loader2 className="h-4 w-4 animate-spin text-slate-400" />}
-                </button>
+                  <button type="button" onClick={() => onOpenProfile?.(participant.graduate_id)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+                    <Avatar src={participant.profile_image_path} label={participant.full_name} size="sm" resolveAssetUrl={resolveAssetUrl} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-bold text-slate-900 transition hover:text-blue-700">{participant.full_name}</span>
+                      <span className="block truncate text-xs text-slate-500">
+                        {participant.program_code || 'Graduate'}{participant.year_graduated ? ` - Batch ${participant.year_graduated}` : ''}
+                      </span>
+                    </span>
+                  </button>
+                  <button type="button" disabled={creating} onClick={() => onStartConversation(participant.graduate_id)} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60">
+                    {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                    Message
+                  </button>
+                </div>
               ))}
             </div>
           )}
@@ -1064,6 +1097,7 @@ export default function RealtimeMessagingWorkspace({
   onCloseNewConversation,
   onNewConversationSearchChange,
   onStartConversation,
+  onOpenProfile,
 }: RealtimeMessagingWorkspaceProps) {
   const [previewAttachment, setPreviewAttachment] = useState<MessageAttachment | null>(null);
 
@@ -1081,11 +1115,12 @@ export default function RealtimeMessagingWorkspace({
             onSearchChange={onSearchChange}
             onSelectRoom={onSelectRoom}
             onOpenNewConversation={onOpenNewConversation}
+            onOpenProfile={onOpenProfile}
           />
         </div>
 
         <div className={`${mobileChatOpen ? 'flex' : 'hidden lg:flex'} min-h-0 flex-col bg-white`}>
-          <ChatHeader room={activeRoom} currentGraduateId={currentGraduate.graduate_id} resolveAssetUrl={resolveAssetUrl} onBack={onBackToList} />
+          <ChatHeader room={activeRoom} currentGraduateId={currentGraduate.graduate_id} resolveAssetUrl={resolveAssetUrl} onBack={onBackToList} onOpenProfile={onOpenProfile} />
           {(connectionStatus === 'reconnecting' || connectionStatus === 'error') && (
             <div className="flex items-center justify-center gap-2 border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800" role="status">
               {connectionStatus === 'reconnecting' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
@@ -1106,6 +1141,7 @@ export default function RealtimeMessagingWorkspace({
             onNearBottomChange={onNearBottomChange}
             onScrollToNewest={onScrollToNewest}
             onImageOpen={setPreviewAttachment}
+            onOpenProfile={onOpenProfile}
           />
           <MessageComposer
             draft={draft}
@@ -1129,6 +1165,7 @@ export default function RealtimeMessagingWorkspace({
         onClose={onCloseNewConversation}
         onSearchChange={onNewConversationSearchChange}
         onStartConversation={onStartConversation}
+        onOpenProfile={onOpenProfile}
       />
 
       {previewAttachment && (
