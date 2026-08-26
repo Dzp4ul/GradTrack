@@ -141,6 +141,8 @@ if (!function_exists('gradtrack_chat_ensure_schema')) {
             ],
             'forum_chat_messages' => [
                 'idx_forum_chat_messages_room_id' => [['room_id', 'id'], false, "ALTER TABLE forum_chat_messages ADD INDEX idx_forum_chat_messages_room_id (room_id, id)"],
+                'idx_forum_chat_messages_room_visible_created' => [['room_id', 'deleted_at', 'created_at', 'id'], false, "ALTER TABLE forum_chat_messages ADD INDEX idx_forum_chat_messages_room_visible_created (room_id, deleted_at, created_at, id)"],
+                'idx_forum_chat_messages_room_visible_id' => [['room_id', 'deleted_at', 'id'], false, "ALTER TABLE forum_chat_messages ADD INDEX idx_forum_chat_messages_room_visible_id (room_id, deleted_at, id)"],
                 'idx_forum_chat_messages_sender_created' => [['graduate_id', 'created_at'], false, "ALTER TABLE forum_chat_messages ADD INDEX idx_forum_chat_messages_sender_created (graduate_id, created_at)"],
                 'idx_forum_chat_messages_created' => [['created_at', 'id'], false, "ALTER TABLE forum_chat_messages ADD INDEX idx_forum_chat_messages_created (created_at, id)"],
                 'uniq_forum_chat_client_message' => [['room_id', 'graduate_id', 'client_message_id'], true, "ALTER TABLE forum_chat_messages ADD UNIQUE KEY uniq_forum_chat_client_message (room_id, graduate_id, client_message_id)"],

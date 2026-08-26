@@ -129,6 +129,18 @@ CALL gradtrack_add_index_if_missing(
 );
 CALL gradtrack_add_index_if_missing(
   'forum_chat_messages',
+  'room_id,deleted_at,created_at,id',
+  0,
+  'ALTER TABLE forum_chat_messages ADD INDEX idx_forum_chat_messages_room_visible_created (room_id, deleted_at, created_at, id)'
+);
+CALL gradtrack_add_index_if_missing(
+  'forum_chat_messages',
+  'room_id,deleted_at,id',
+  0,
+  'ALTER TABLE forum_chat_messages ADD INDEX idx_forum_chat_messages_room_visible_id (room_id, deleted_at, id)'
+);
+CALL gradtrack_add_index_if_missing(
+  'forum_chat_messages',
   'graduate_id,created_at',
   0,
   'ALTER TABLE forum_chat_messages ADD INDEX idx_forum_chat_messages_sender_created (graduate_id, created_at)'

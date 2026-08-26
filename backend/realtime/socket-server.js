@@ -1,5 +1,6 @@
 const http = require('http');
 const path = require('path');
+const crypto = require('crypto');
 const { Server } = require('socket.io');
 const mysql = require('mysql2/promise');
 const dotenv = require('dotenv');
@@ -28,6 +29,71 @@ const pool = mysql.createPool({
 
 const onlineSocketsByGraduate = new Map();
 const autoMigrate = String(process.env.REALTIME_AUTO_MIGRATE || '').toLowerCase() === 'true';
+
+function getRealtimeAuthSecret() {
+  const configuredSecret = process.env.REALTIME_AUTH_SECRET || process.env.APP_KEY || '';
+  if (configuredSecret.trim()) {
+    return configuredSecret;
+  }
+
+  return crypto
+    .createHash('sha256')
+    .update([
+      'gradtrack-realtime-auth',
+      process.env.DB_HOST || 'localhost',
+      process.env.DB_NAME || 'gradtrackdb',
+      process.env.DB_USER || 'root',
+      process.env.DB_PASSWORD || '',
+    ].join('|'))
+    .digest('hex');
+}
+
+function base64UrlDecode(segment) {
+  const base64 = segment.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
+  return Buffer.from(padded, 'base64');
+}
+
+function verifyRealtimeAuthToken(token) {
+  const [payloadSegment, signatureSegment] = String(token || '').split('.');
+  if (!payloadSegment || !signatureSegment) {
+    throw new Error('Graduate authentication required');
+  }
+
+  const expectedSignature = crypto
+    .createHmac('sha256', getRealtimeAuthSecret())
+    .update(payloadSegment)
+    .digest();
+  const providedSignature = base64UrlDecode(signatureSegment);
+
+  if (
+    providedSignature.length !== expectedSignature.length
+    || !crypto.timingSafeEqual(providedSignature, expectedSignature)
+  ) {
+    throw new Error('Graduate authentication required');
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(base64UrlDecode(payloadSegment).toString('utf8'));
+  } catch {
+    throw new Error('Graduate authentication required');
+  }
+
+  const expiresAt = Number(payload.exp || 0);
+  const graduateId = Number(payload.graduate_id || 0);
+  const accountId = Number(payload.account_id || 0);
+  if (!graduateId || !accountId || !expiresAt || expiresAt < Math.floor(Date.now() / 1000)) {
+    throw new Error('Graduate authentication required');
+  }
+
+  return {
+    account_id: accountId,
+    graduate_id: graduateId,
+    full_name: String(payload.full_name || 'Graduate').trim() || 'Graduate',
+    role: 'graduate',
+  };
+}
 
 function socketRoom(roomId) {
   return `conversation:${roomId}`;
@@ -143,6 +209,8 @@ async function ensureSchema() {
   await addIndexIfMissing('forum_chat_rooms', 'idx_forum_chat_rooms_last_message', ['last_message_at', 'updated_at', 'id'], false, 'ALTER TABLE forum_chat_rooms ADD INDEX idx_forum_chat_rooms_last_message (last_message_at, updated_at, id)');
   await addIndexIfMissing('forum_chat_members', 'idx_forum_chat_members_read', ['room_id', 'graduate_id', 'last_read_at'], false, 'ALTER TABLE forum_chat_members ADD INDEX idx_forum_chat_members_read (room_id, graduate_id, last_read_at)');
   await addIndexIfMissing('forum_chat_messages', 'idx_forum_chat_messages_room_id', ['room_id', 'id'], false, 'ALTER TABLE forum_chat_messages ADD INDEX idx_forum_chat_messages_room_id (room_id, id)');
+  await addIndexIfMissing('forum_chat_messages', 'idx_forum_chat_messages_room_visible_created', ['room_id', 'deleted_at', 'created_at', 'id'], false, 'ALTER TABLE forum_chat_messages ADD INDEX idx_forum_chat_messages_room_visible_created (room_id, deleted_at, created_at, id)');
+  await addIndexIfMissing('forum_chat_messages', 'idx_forum_chat_messages_room_visible_id', ['room_id', 'deleted_at', 'id'], false, 'ALTER TABLE forum_chat_messages ADD INDEX idx_forum_chat_messages_room_visible_id (room_id, deleted_at, id)');
   await addIndexIfMissing('forum_chat_messages', 'idx_forum_chat_messages_sender_created', ['graduate_id', 'created_at'], false, 'ALTER TABLE forum_chat_messages ADD INDEX idx_forum_chat_messages_sender_created (graduate_id, created_at)');
   await addIndexIfMissing('forum_chat_messages', 'idx_forum_chat_messages_created', ['created_at', 'id'], false, 'ALTER TABLE forum_chat_messages ADD INDEX idx_forum_chat_messages_created (created_at, id)');
   await addIndexIfMissing('forum_chat_messages', 'uniq_forum_chat_client_message', ['room_id', 'graduate_id', 'client_message_id'], true, 'ALTER TABLE forum_chat_messages ADD UNIQUE KEY uniq_forum_chat_client_message (room_id, graduate_id, client_message_id)');
@@ -197,6 +265,11 @@ async function verifySchema() {
 }
 
 async function authenticateSocket(socket) {
+  const authToken = typeof socket.handshake.auth?.token === 'string' ? socket.handshake.auth.token : '';
+  if (authToken) {
+    return verifyRealtimeAuthToken(authToken);
+  }
+
   const cookie = socket.handshake.headers.cookie || '';
   if (!cookie) {
     throw new Error('Graduate authentication required');
@@ -553,20 +626,6 @@ async function markDelivered(roomId, graduateId) {
     await connection.commit();
   } catch (error) {
     await connection.rollback();
-    if (error?.code === 'ER_DUP_ENTRY') {
-      const [existingRows] = await connection.query(
-        `SELECT id
-           FROM forum_chat_messages
-          WHERE room_id = ?
-            AND graduate_id = ?
-            AND client_message_id = ?
-          LIMIT 1`,
-        [roomId, senderId, clientMessageId],
-      );
-      if (existingRows.length) {
-        return fetchMessage(Number(existingRows[0].id));
-      }
-    }
     throw error;
   } finally {
     connection.release();
