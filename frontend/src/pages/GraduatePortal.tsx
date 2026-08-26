@@ -3986,25 +3986,25 @@ export default function GraduatePortal() {
 
               {activeTab === 'jobs' && !unavailableForTab(activeTab) && (
                 <section className="space-y-5">
-                  <div className="rounded-[32px] border border-slate-200 bg-white p-5 shadow-sm">
+                  <div className="rounded-[32px] border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
                     <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                       <div>
-                        <h2 className="text-2xl font-bold text-slate-900">Browse Jobs</h2>
-                        <p className="text-sm text-slate-500">Approved job opportunities stay separate from Community Forum discussions.</p>
+                        <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Browse Jobs</h2>
+                        <p className="text-sm text-slate-500 dark:text-slate-400">Approved job opportunities stay separate from Community Forum discussions.</p>
                       </div>
-                      <div className="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700">
+                      <div className="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
                         {filteredJobs.length} job{filteredJobs.length === 1 ? '' : 's'}
                       </div>
                     </div>
 
                     <label className="relative mt-4 block">
-                      <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                      <input value={jobSearch} onChange={(event) => setJobSearch(event.target.value)} placeholder="Search jobs by title, company, skills, location, or program fit" className="w-full rounded-2xl border border-slate-200 bg-[#fafbff] px-11 py-3 text-sm outline-none transition focus:border-blue-500" />
+                      <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+                      <input value={jobSearch} onChange={(event) => setJobSearch(event.target.value)} placeholder="Search jobs by title, company, skills, location, or program fit" className="w-full rounded-2xl border border-slate-200 bg-[#fafbff] px-11 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500" />
                     </label>
                   </div>
 
                   {filteredJobs.length === 0 ? (
-                    <div className="rounded-[32px] border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-500">
+                    <div className="rounded-[32px] border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
                       No approved jobs match your search right now.
                     </div>
                   ) : (
@@ -4027,8 +4027,8 @@ export default function GraduatePortal() {
                             ref={(element) => { jobCardRefs.current[job.id] = element; }}
                             className={`flex h-full flex-col rounded-[28px] border p-5 shadow-sm transition sm:p-6 ${
                               highlightedJobId === job.id
-                                ? 'border-blue-300 bg-blue-50/50 ring-2 ring-blue-200'
-                                : 'border-slate-200 bg-white'
+                                ? 'border-blue-300 bg-blue-50/50 ring-2 ring-blue-200 dark:border-blue-500/70 dark:bg-blue-950/30 dark:ring-blue-500/30'
+                                : 'border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900'
                             }`}
                           >
                             <div className="flex items-start justify-between gap-4">
@@ -4040,27 +4040,27 @@ export default function GraduatePortal() {
                               >
                                 <Avatar src={resolveAssetUrl(job.poster_profile_image_path)} label={posterName} size="md" />
                                 <span className="min-w-0">
-                                  <span className="block truncate text-sm font-semibold text-slate-900 transition hover:text-blue-700">{posterName}</span>
-                                  <span className="block text-xs text-slate-500">
+                                  <span className="block truncate text-sm font-semibold text-slate-900 transition hover:text-blue-700 dark:text-slate-100 dark:hover:text-blue-300">{posterName}</span>
+                                  <span className="block text-xs text-slate-500 dark:text-slate-400">
                                     {posterProgram} - {getJobPostedLabel(job)}
                                   </span>
                                 </span>
                               </button>
 
-                              <span className="shrink-0 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700">
+                              <span className="shrink-0 rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700 dark:border-blue-500/40 dark:bg-blue-500/10 dark:text-blue-200">
                                 {formatEmploymentType(job.job_type)}
                               </span>
                             </div>
 
                             <div className="mt-5 min-w-0">
-                              <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-500">
-                                <Building2 className="h-4 w-4 text-blue-500" />
+                              <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-500 dark:text-slate-400">
+                                <Building2 className="h-4 w-4 text-blue-500 dark:text-blue-300" />
                                 <span className="truncate">{job.company || 'Company not specified'}</span>
                               </p>
-                              <h3 className="mt-2 text-xl font-bold leading-snug text-slate-950">{job.title}</h3>
+                              <h3 className="mt-2 text-xl font-bold leading-snug text-slate-950 dark:text-slate-50">{job.title}</h3>
                             </div>
 
-                            <p className="mt-3 min-h-[4.5rem] whitespace-pre-line text-sm leading-6 text-slate-600">
+                            <p className="mt-3 min-h-[4.5rem] whitespace-pre-line text-sm leading-6 text-slate-600 dark:text-slate-300">
                               {previewText(job.description || 'No description provided yet.', 180)}
                             </p>
 
@@ -4070,37 +4070,37 @@ export default function GraduatePortal() {
                               ))}
                             </div>
 
-                            <div className="mt-5 border-t border-slate-100 pt-4">
-                              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">How to Apply</p>
+                            <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-700">
+                              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">How to Apply</p>
                               {hasApplyDetails ? (
-                                <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-600">
+                                <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-600 dark:text-slate-300">
                                   {job.contact_email && (
-                                    <a href={`mailto:${job.contact_email}`} className="inline-flex min-w-0 items-center gap-1.5 font-medium text-blue-700 hover:underline">
+                                    <a href={`mailto:${job.contact_email}`} className="inline-flex min-w-0 items-center gap-1.5 font-medium text-blue-700 hover:underline dark:text-blue-300">
                                       <Mail className="h-4 w-4 shrink-0" />
                                       <span className="truncate">{job.contact_email}</span>
                                     </a>
                                   )}
                                   {applicationLink && (
-                                    <a href={applicationLink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 font-medium text-blue-700 hover:underline">
+                                    <a href={applicationLink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 font-medium text-blue-700 hover:underline dark:text-blue-300">
                                       <FileText className="h-4 w-4" />
                                       Application link
                                     </a>
                                   )}
-                                  {job.application_method && <p className="w-full whitespace-pre-line text-slate-600">{previewText(job.application_method, 120)}</p>}
+                                  {job.application_method && <p className="w-full whitespace-pre-line text-slate-600 dark:text-slate-300">{previewText(job.application_method, 120)}</p>}
                                 </div>
                               ) : (
-                                <p className="mt-2 text-sm text-slate-500">Application details are not specified.</p>
+                                <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Application details are not specified.</p>
                               )}
                             </div>
 
                             <div className="mt-auto flex flex-wrap items-center justify-between gap-3 pt-5">
                               {job.application_deadline ? (
-                                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500">
-                                  <CalendarDays className="h-4 w-4 text-slate-400" />
+                                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
+                                  <CalendarDays className="h-4 w-4 text-slate-400 dark:text-slate-500" />
                                   Deadline {formatDate(job.application_deadline)}
                                 </span>
                               ) : (
-                                <span className="text-xs font-medium text-slate-400">No deadline specified</span>
+                                <span className="text-xs font-medium text-slate-400 dark:text-slate-500">No deadline specified</span>
                               )}
                               <button type="button" onClick={() => void openJobDetails(job)} className="inline-flex items-center gap-2 rounded-full bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800">
                                 <FileText className="h-4 w-4" />
@@ -6308,10 +6308,10 @@ function JobInfoChip({
   value: string;
 }) {
   return (
-    <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-slate-200 bg-[#f8fbff] px-3 py-2 text-xs text-slate-600">
-      <Icon className="h-3.5 w-3.5 shrink-0 text-blue-500" />
-      <span className="shrink-0 font-semibold text-slate-500">{label}:</span>
-      <span className="truncate font-medium text-slate-700">{value}</span>
+    <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-slate-200 bg-[#f8fbff] px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300">
+      <Icon className="h-3.5 w-3.5 shrink-0 text-blue-500 dark:text-blue-300" />
+      <span className="shrink-0 font-semibold text-slate-500 dark:text-slate-400">{label}:</span>
+      <span className="truncate font-medium text-slate-700 dark:text-slate-200">{value}</span>
     </div>
   );
 }
@@ -6345,8 +6345,8 @@ function JobDetailsModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-6">
-      <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-2xl">
-        <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-5 sm:px-6">
+      <div className="flex max-h-[90vh] w-full max-w-4xl flex-col overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+        <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-5 sm:px-6 dark:border-slate-700">
           <button
             type="button"
             onClick={() => job.poster_graduate_id && onOpenProfile(job.poster_graduate_id)}
@@ -6355,18 +6355,18 @@ function JobDetailsModal({
           >
             <Avatar src={resolveAssetUrl(job.poster_profile_image_path)} label={posterName} size="md" />
             <span className="min-w-0">
-              <span className="block truncate text-sm font-semibold text-slate-900 transition hover:text-blue-700">{posterName}</span>
-              <span className="block text-xs text-slate-500">
+              <span className="block truncate text-sm font-semibold text-slate-900 transition hover:text-blue-700 dark:text-slate-100 dark:hover:text-blue-300">{posterName}</span>
+              <span className="block text-xs text-slate-500 dark:text-slate-400">
                 {getJobPosterProgram(job)} - {getJobPostedLabel(job)}
               </span>
             </span>
           </button>
 
           <div className="flex shrink-0 items-center gap-2">
-            <span className="rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700">
+            <span className="rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700 dark:border-blue-500/40 dark:bg-blue-500/10 dark:text-blue-200">
               {formatEmploymentType(job.job_type)}
             </span>
-            <button type="button" onClick={onClose} className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100" aria-label="Close job details">
+            <button type="button" onClick={onClose} className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200" aria-label="Close job details">
               <X className="h-5 w-5" />
             </button>
           </div>
@@ -6374,18 +6374,18 @@ function JobDetailsModal({
 
         <div className="flex-1 overflow-y-auto px-5 py-5 sm:px-6">
           {loading && (
-            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700">
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 dark:border-blue-500/40 dark:bg-blue-500/10 dark:text-blue-200">
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               Loading complete job details...
             </div>
           )}
 
           <div className="min-w-0">
-            <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-500">
-              <Building2 className="h-4 w-4 text-blue-500" />
+            <p className="flex items-center gap-1.5 text-sm font-semibold text-slate-500 dark:text-slate-400">
+              <Building2 className="h-4 w-4 text-blue-500 dark:text-blue-300" />
               <span className="truncate">{job.company || 'Company not specified'}</span>
             </p>
-            <h2 className="mt-2 text-2xl font-bold leading-tight text-slate-950 sm:text-3xl">{job.title || 'Job Post'}</h2>
+            <h2 className="mt-2 text-2xl font-bold leading-tight text-slate-950 sm:text-3xl dark:text-slate-50">{job.title || 'Job Post'}</h2>
           </div>
 
           <div className="mt-5 flex flex-wrap gap-2">
@@ -6397,44 +6397,44 @@ function JobDetailsModal({
           <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
             <div className="space-y-5">
               <section>
-                <h3 className="text-sm font-bold text-slate-900">Description</h3>
-                <p className="mt-2 whitespace-pre-line text-sm leading-7 text-slate-700">{job.description || 'No description provided yet.'}</p>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Description</h3>
+                <p className="mt-2 whitespace-pre-line text-sm leading-7 text-slate-700 dark:text-slate-300">{job.description || 'No description provided yet.'}</p>
               </section>
 
               {hasDisplayValue(job.qualifications) && (
                 <section>
-                  <h3 className="text-sm font-bold text-slate-900">Qualifications</h3>
-                  <p className="mt-2 whitespace-pre-line text-sm leading-7 text-slate-700">{job.qualifications}</p>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Qualifications</h3>
+                  <p className="mt-2 whitespace-pre-line text-sm leading-7 text-slate-700 dark:text-slate-300">{job.qualifications}</p>
                 </section>
               )}
 
               {hasDisplayValue(job.required_skills) && (
                 <section>
-                  <h3 className="text-sm font-bold text-slate-900">Required Skills</h3>
-                  <p className="mt-2 whitespace-pre-line text-sm leading-7 text-slate-700">{job.required_skills}</p>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Required Skills</h3>
+                  <p className="mt-2 whitespace-pre-line text-sm leading-7 text-slate-700 dark:text-slate-300">{job.required_skills}</p>
                 </section>
               )}
             </div>
 
-            <aside className="space-y-4 rounded-[24px] border border-slate-200 bg-[#fafbff] p-4">
+            <aside className="space-y-4 rounded-[24px] border border-slate-200 bg-[#fafbff] p-4 dark:border-slate-700 dark:bg-slate-950/60">
               <div>
-                <h3 className="text-sm font-bold text-slate-900">How to Apply</h3>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">How to Apply</h3>
                 {hasApplyDetails ? (
-                  <div className="mt-3 space-y-3 text-sm text-slate-600">
+                  <div className="mt-3 space-y-3 text-sm text-slate-600 dark:text-slate-300">
                     {job.contact_email && (
-                      <a href={`mailto:${job.contact_email}`} className="flex min-w-0 items-center gap-2 font-medium text-blue-700 hover:underline">
+                      <a href={`mailto:${job.contact_email}`} className="flex min-w-0 items-center gap-2 font-medium text-blue-700 hover:underline dark:text-blue-300">
                         <Mail className="h-4 w-4 shrink-0" />
                         <span className="truncate">{job.contact_email}</span>
                       </a>
                     )}
                     {applicationLink && (
-                      <a href={applicationLink} target="_blank" rel="noreferrer" className="flex items-center gap-2 font-medium text-blue-700 hover:underline">
+                      <a href={applicationLink} target="_blank" rel="noreferrer" className="flex items-center gap-2 font-medium text-blue-700 hover:underline dark:text-blue-300">
                         <FileText className="h-4 w-4" />
                         Open application link
                       </a>
                     )}
                     {requirementsLink && (
-                      <a href={requirementsLink} target="_blank" rel="noreferrer" className="flex min-w-0 items-center gap-2 font-medium text-blue-700 hover:underline">
+                      <a href={requirementsLink} target="_blank" rel="noreferrer" className="flex min-w-0 items-center gap-2 font-medium text-blue-700 hover:underline dark:text-blue-300">
                         <FileText className="h-4 w-4 shrink-0" />
                         <span className="truncate">{job.requirements_file_name || 'Requirements file'}</span>
                       </a>
@@ -6442,12 +6442,12 @@ function JobDetailsModal({
                     {job.application_method && <p className="whitespace-pre-line leading-6">{job.application_method}</p>}
                   </div>
                 ) : (
-                  <p className="mt-3 text-sm text-slate-500">Application details are not specified.</p>
+                  <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">Application details are not specified.</p>
                 )}
               </div>
 
-              <div className="border-t border-slate-200 pt-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">Posted By</p>
+              <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
+                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Posted By</p>
                 <button
                   type="button"
                   onClick={() => job.poster_graduate_id && onOpenProfile(job.poster_graduate_id)}
@@ -6456,8 +6456,8 @@ function JobDetailsModal({
                 >
                   <Avatar src={resolveAssetUrl(job.poster_profile_image_path)} label={posterName} size="sm" />
                   <span className="min-w-0">
-                    <span className="block truncate text-sm font-semibold text-slate-900 transition hover:text-blue-700">{posterName}</span>
-                    <span className="block text-xs text-slate-500">{getJobPosterProgram(job)}</span>
+                    <span className="block truncate text-sm font-semibold text-slate-900 transition hover:text-blue-700 dark:text-slate-100 dark:hover:text-blue-300">{posterName}</span>
+                    <span className="block text-xs text-slate-500 dark:text-slate-400">{getJobPosterProgram(job)}</span>
                   </span>
                 </button>
               </div>
