@@ -752,6 +752,16 @@ function gradtrack_profile_survey_data(PDO $db, array $user): ?array
     $questions = $questionStmt->fetchAll(PDO::FETCH_ASSOC);
     $questionKeyMap = gradtrack_profile_build_question_key_map($questions, $decodedResponses);
 
+    $personalFields = gradtrack_profile_compact_fields([
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'birthday', 'Birthday', [], [['birthday'], ['birth date'], ['date of birth']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'civil_status', 'Civil Status', [], [['civil status']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'sex', 'Sex / Gender', [], [['sex'], ['gender']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'telephone', 'Telephone / Contact Number', [], [['telephone'], ['contact number'], ['contact no']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'language', 'Language', [], [['language']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'interests', 'Interests', [], [['interest']]),
+        gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'social_media', 'Facebook / Social Media', [], [['facebook'], ['social media'], ['linkedin']]),
+    ]);
+
     $employmentRow = gradtrack_profile_database_employment($db, (int) $user['graduate_id']);
     $currentlyEmployedField = gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'currently_employed', 'Currently Employed', ['Employment'], [['presently employed'], ['are you employed']]);
     $employmentTypeField = gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'employment_type', 'Employment Type', ['Employment'], [['present employment status'], ['employment status']]);
@@ -850,6 +860,9 @@ function gradtrack_profile_survey_data(PDO $db, array $user): ?array
             'survey_id' => (int) $response['survey_id'],
             'survey_title' => $response['survey_title'] ?? 'Graduate Tracer Survey',
             'submitted_at' => $response['submitted_at'],
+        ],
+        'personal' => [
+            'fields' => $personalFields,
         ],
         'work' => [
             'is_employed' => $isEmployed,

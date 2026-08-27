@@ -1,9 +1,221 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<mxfile host="app.diagrams.net" modified="2026-08-26T00:00:00.000Z" agent="Codex" version="24.7.17" type="device">
+<mxfile host="app.diagrams.net" agent="Codex">
   <diagram id="GradTrackUseCaseDiagram" name="GradTrack Use Case Diagram">
-    <mxGraphModel dx="1100" dy="850" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="850" math="0" shadow="0">
+    <mxGraphModel dx="3928" dy="1486" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1100" pageHeight="850" math="0" shadow="0">
       <root>
-<mxCell id="0" /><mxCell id="1" parent="0" /><mxCell id="system_boundary" value="" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#000000;strokeWidth=2;container=1;collapsible=0;" vertex="1" parent="1"><mxGeometry x="120.0" y="45.0" width="855.0" height="790.0" as="geometry" /></mxCell><mxCell id="system_title" value="GradTrack Responsive Web System" style="text;html=1;strokeColor=none;fillColor=#ffffff;align=center;verticalAlign=middle;fontFamily=Arial;fontSize=18;fontColor=#000000;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="330.0" y="62.0" width="430.0" height="34.0" as="geometry" /></mxCell><mxCell id="system_subtitle" value="Graduate Tracer and Alumni Job Support System" style="text;html=1;strokeColor=none;fillColor=#ffffff;align=center;verticalAlign=middle;fontFamily=Arial;fontSize=13;fontColor=#000000;" vertex="1" parent="1"><mxGeometry x="335.0" y="95.0" width="420.0" height="24.0" as="geometry" /></mxCell><mxCell id="actor_super_admin" value="Super Admin" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.3;fontFamily=Arial;fontSize=13;fontStyle=1;fontColor=#000000;" vertex="1" parent="1"><mxGeometry x="24.0" y="88.0" width="72.0" height="112.0" as="geometry" /></mxCell><mxCell id="actor_admin" value="Admin" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.3;fontFamily=Arial;fontSize=13;fontStyle=1;fontColor=#000000;" vertex="1" parent="1"><mxGeometry x="24.0" y="292.0" width="72.0" height="112.0" as="geometry" /></mxCell><mxCell id="actor_registrar" value="Registrar" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.3;fontFamily=Arial;fontSize=13;fontStyle=1;fontColor=#000000;" vertex="1" parent="1"><mxGeometry x="24.0" y="548.0" width="72.0" height="112.0" as="geometry" /></mxCell><mxCell id="actor_alumni_admin" value="Alumni Admin" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.3;fontFamily=Arial;fontSize=13;fontStyle=1;fontColor=#000000;" vertex="1" parent="1"><mxGeometry x="24.0" y="704.0" width="72.0" height="112.0" as="geometry" /></mxCell><mxCell id="actor_graduate" value="Graduate / Alumni" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.3;fontFamily=Arial;fontSize=13;fontStyle=1;fontColor=#000000;" vertex="1" parent="1"><mxGeometry x="1002.0" y="315.0" width="78.0" height="120.0" as="geometry" /></mxCell><mxCell id="uc_sa_accounts_roles" value="Manage Administrator Accounts and Roles" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" vertex="1" parent="1"><mxGeometry x="160.0" y="65.0" width="300.0" height="62.0" as="geometry" /></mxCell><mxCell id="uc_sa_settings" value="Configure System Settings" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" vertex="1" parent="1"><mxGeometry x="195.0" y="135.0" width="250.0" height="58.0" as="geometry" /></mxCell><mxCell id="uc_sa_audit" value="View Activity and Audit Logs" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" vertex="1" parent="1"><mxGeometry x="160.0" y="205.0" width="230.0" height="58.0" as="geometry" /></mxCell><mxCell id="uc_admin_survey" value="Manage Graduate Tracer Survey" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" vertex="1" parent="1"><mxGeometry x="340.0" y="255.0" width="280.0" height="60.0" as="geometry" /></mxCell><mxCell id="uc_admin_participation" value="Monitor Survey Participation and Responses" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" vertex="1" parent="1"><mxGeometry x="340.0" y="330.0" width="300.0" height="64.0" as="geometry" /></mxCell><mxCell id="uc_admin_reports" value="View Reports, Analytics and AI Explanations" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" vertex="1" parent="1"><mxGeometry x="340.0" y="410.0" width="300.0" height="68.0" as="geometry" /></mxCell><mxCell id="uc_admin_export" value="Generate and Export Reports" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" vertex="1" parent="1"><mxGeometry x="340.0" y="490.0" width="270.0" height="60.0" as="geometry" /></mxCell><mxCell id="uc_reg_records" value="Manage Official Graduate Records" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" vertex="1" parent="1"><mxGeometry x="160.0" y="545.0" width="290.0" height="60.0" as="geometry" /></mxCell><mxCell id="uc_reg_review_import" value="Review, Search and Import Graduate Information" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" vertex="1" parent="1"><mxGeometry x="190.0" y="612.0" width="320.0" height="64.0" as="geometry" /></mxCell><mxCell id="uc_alumni_registry" value="Manage Alumni Registry and Verification" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" vertex="1" parent="1"><mxGeometry x="160.0" y="690.0" width="315.0" height="58.0" as="geometry" /></mxCell><mxCell id="uc_alumni_moderation" value="Moderate Forum and Job Post Approvals" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" vertex="1" parent="1"><mxGeometry x="160.0" y="755.0" width="320.0" height="60.0" as="geometry" /></mxCell><mxCell id="uc_grad_survey_register" value="Verify Identity, Complete Survey and Register" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" vertex="1" parent="1"><mxGeometry x="660.0" y="70.0" width="290.0" height="66.0" as="geometry" /></mxCell><mxCell id="uc_grad_login" value="Login and Access Graduate Portal" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" vertex="1" parent="1"><mxGeometry x="700.0" y="150.0" width="250.0" height="60.0" as="geometry" /></mxCell><mxCell id="uc_grad_profile" value="Manage Profile and Career Information" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" vertex="1" parent="1"><mxGeometry x="660.0" y="250.0" width="290.0" height="64.0" as="geometry" /></mxCell><mxCell id="uc_grad_jobs" value="Use Alumni Job Support" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" vertex="1" parent="1"><mxGeometry x="700.0" y="325.0" width="250.0" height="60.0" as="geometry" /></mxCell><mxCell id="uc_grad_community" value="Participate in Community Forum and Messaging" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" vertex="1" parent="1"><mxGeometry x="660.0" y="405.0" width="290.0" height="66.0" as="geometry" /></mxCell><mxCell id="uc_grad_notifications" value="Receive System and Job Notifications" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" vertex="1" parent="1"><mxGeometry x="700.0" y="530.0" width="250.0" height="60.0" as="geometry" /></mxCell><mxCell id="assoc_01" value="" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" edge="1" parent="1" source="actor_super_admin" target="uc_sa_accounts_roles"><mxGeometry relative="1" as="geometry" /></mxCell><mxCell id="assoc_02" value="" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" edge="1" parent="1" source="actor_super_admin" target="uc_sa_settings"><mxGeometry relative="1" as="geometry" /></mxCell><mxCell id="assoc_03" value="" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" edge="1" parent="1" source="actor_super_admin" target="uc_sa_audit"><mxGeometry relative="1" as="geometry" /></mxCell><mxCell id="assoc_04" value="" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" edge="1" parent="1" source="actor_admin" target="uc_admin_survey"><mxGeometry relative="1" as="geometry" /></mxCell><mxCell id="assoc_05" value="" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" edge="1" parent="1" source="actor_admin" target="uc_admin_participation"><mxGeometry relative="1" as="geometry" /></mxCell><mxCell id="assoc_06" value="" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" edge="1" parent="1" source="actor_admin" target="uc_admin_reports"><mxGeometry relative="1" as="geometry" /></mxCell><mxCell id="assoc_07" value="" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" edge="1" parent="1" source="actor_admin" target="uc_admin_export"><mxGeometry relative="1" as="geometry" /></mxCell><mxCell id="assoc_08" value="" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" edge="1" parent="1" source="actor_registrar" target="uc_reg_records"><mxGeometry relative="1" as="geometry" /></mxCell><mxCell id="assoc_09" value="" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" edge="1" parent="1" source="actor_registrar" target="uc_reg_review_import"><mxGeometry relative="1" as="geometry" /></mxCell><mxCell id="assoc_10" value="" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" edge="1" parent="1" source="actor_alumni_admin" target="uc_alumni_registry"><mxGeometry relative="1" as="geometry" /></mxCell><mxCell id="assoc_11" value="" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" edge="1" parent="1" source="actor_alumni_admin" target="uc_alumni_moderation"><mxGeometry relative="1" as="geometry" /></mxCell><mxCell id="assoc_12" value="" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" edge="1" parent="1" source="actor_graduate" target="uc_grad_survey_register"><mxGeometry relative="1" as="geometry" /></mxCell><mxCell id="assoc_13" value="" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" edge="1" parent="1" source="actor_graduate" target="uc_grad_login"><mxGeometry relative="1" as="geometry" /></mxCell><mxCell id="assoc_14" value="" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" edge="1" parent="1" source="actor_graduate" target="uc_grad_profile"><mxGeometry relative="1" as="geometry" /></mxCell><mxCell id="assoc_15" value="" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" edge="1" parent="1" source="actor_graduate" target="uc_grad_jobs"><mxGeometry relative="1" as="geometry" /></mxCell><mxCell id="assoc_16" value="" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" edge="1" parent="1" source="actor_graduate" target="uc_grad_community"><mxGeometry relative="1" as="geometry" /></mxCell><mxCell id="assoc_17" value="" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" edge="1" parent="1" source="actor_graduate" target="uc_grad_notifications"><mxGeometry relative="1" as="geometry" /></mxCell>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="system_boundary" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=none;strokeColor=#000000;strokeWidth=2;container=0;collapsible=0;" value="" vertex="1">
+          <mxGeometry height="1300" width="925" x="125" y="50" as="geometry" />
+        </mxCell>
+        <mxCell id="system_title" parent="1" style="text;html=1;strokeColor=none;fillColor=#ffffff;align=center;verticalAlign=middle;fontFamily=Arial;fontSize=18;fontColor=#000000;fontStyle=1;" value="GradTrack Responsive Web System" vertex="1">
+          <mxGeometry height="34" width="430" x="330" y="62" as="geometry" />
+        </mxCell>
+        <mxCell id="system_subtitle" parent="1" style="text;html=1;strokeColor=none;fillColor=#ffffff;align=center;verticalAlign=middle;fontFamily=Arial;fontSize=13;fontColor=#000000;" value="Graduate Tracer and Alumni Job Support System" vertex="1">
+          <mxGeometry height="24" width="420" x="335" y="95" as="geometry" />
+        </mxCell>
+        <mxCell id="actor_graduate" parent="1" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.3;fontFamily=Arial;fontSize=13;fontStyle=1;fontColor=#000000;" value="Graduate / Alumni" vertex="1">
+          <mxGeometry height="120" width="78" x="1112" y="332" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_grad_survey" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" value="Verify Identity and Complete Tracer Survey" vertex="1">
+          <mxGeometry height="62" width="286" x="750" y="130" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_grad_register" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" value="Register / Create Account" vertex="1">
+          <mxGeometry height="58" width="238" x="770" y="204" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_grad_login" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" value="Login and Access Graduate Portal" vertex="1">
+          <mxGeometry height="58" width="254" x="770" y="274" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_grad_profile" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" value="Manage Profile and Career Information" vertex="1">
+          <mxGeometry height="62" width="278" x="762" y="344" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_grad_jobs" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" value="Use Alumni Job Support" vertex="1">
+          <mxGeometry height="58" width="238" x="770" y="418" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_grad_forum" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" value="Participate in Community Forum" vertex="1">
+          <mxGeometry height="58" width="258" x="770" y="488" as="geometry" />
+        </mxCell>
+        <mxCell id="assoc_17" edge="1" parent="1" source="actor_graduate" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;entryX=1;entryY=1;entryDx=0;entryDy=0;" target="uc_grad_survey" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="assoc_18" edge="1" parent="1" source="actor_graduate" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;entryX=0.945;entryY=0.776;entryDx=0;entryDy=0;entryPerimeter=0;" target="uc_grad_register" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="assoc_19" edge="1" parent="1" source="actor_graduate" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" target="uc_grad_login" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="assoc_20" edge="1" parent="1" source="actor_graduate" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" target="uc_grad_profile" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="assoc_21" edge="1" parent="1" source="actor_graduate" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" target="uc_grad_jobs" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="assoc_22" edge="1" parent="1" source="actor_graduate" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" target="uc_grad_forum" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="assoc_04" edge="1" parent="1" source="actor_super_admin" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;entryX=0;entryY=0;entryDx=0;entryDy=0;" target="uc_sa_activity_logs" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_alumni_jobs" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" value="Review Job Post Approvals" vertex="1">
+          <mxGeometry height="76.16161616161617" width="248" x="746" y="1222.3232323232323" as="geometry" />
+        </mxCell>
+        <mxCell id="actor_registrar" parent="1" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.3;fontFamily=Arial;fontSize=13;fontStyle=1;fontColor=#000000;" value="Registrar" vertex="1">
+          <mxGeometry height="147.07070707070707" width="72" x="-7" y="827.3731313131314" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_reg_records" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" value="Manage Official Graduate Records" vertex="1">
+          <mxGeometry height="76.16161616161617" width="266" x="134" y="777.4741414141415" as="geometry" />
+        </mxCell>
+        <mxCell id="assoc_10" edge="1" parent="1" source="actor_registrar" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" target="uc_reg_records" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_reg_review" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" value="Review and Search Graduate Information" vertex="1">
+          <mxGeometry height="76.16161616161617" width="286" x="134" y="869.3933333333334" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_reg_import" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" value="Import Graduate Records from Excel" vertex="1">
+          <mxGeometry height="76.16161616161617" width="272" x="134" y="961.3125252525253" as="geometry" />
+        </mxCell>
+        <mxCell id="assoc_12" edge="1" parent="1" source="actor_registrar" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" target="uc_reg_import" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="assoc_11" edge="1" parent="1" source="actor_registrar" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" target="uc_reg_review" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="assoc_05" edge="1" parent="1" source="actor_admin" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" target="uc_admin_survey" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="assoc_06" edge="1" parent="1" source="actor_admin" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" target="uc_admin_participation" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="assoc_07" edge="1" parent="1" source="actor_admin" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" target="uc_admin_reports" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="assoc_08" edge="1" parent="1" source="actor_admin" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" target="uc_admin_export" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="assoc_09" edge="1" parent="1" source="actor_admin" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" target="uc_admin_ai" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="actor_admin" parent="1" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.3;fontFamily=Arial;fontSize=13;fontStyle=1;fontColor=#000000;" value="Admin" vertex="1">
+          <mxGeometry height="147.07070707070707" width="72" x="14" y="588.3795959595959" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_admin_survey" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" value="Manage Graduate Tracer Survey" vertex="1">
+          <mxGeometry height="76.16161616161617" width="252" x="420" y="349.38969696969696" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_admin_participation" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" value="Monitor Survey Participation and Responses" vertex="1">
+          <mxGeometry height="81.41414141414141" width="292" x="420" y="443.9351515151515" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_admin_reports" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" value="View Reports and Descriptive Analytics" vertex="1">
+          <mxGeometry height="81.41414141414141" width="286" x="420" y="541.1068686868687" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_admin_export" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" value="Generate and Export Reports" vertex="1">
+          <mxGeometry height="76.16161616161617" width="248" x="420" y="640.9048484848485" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_admin_ai" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" value="Use AI-Assisted Report Explanation" vertex="1">
+          <mxGeometry height="76.16161616161617" width="278" x="420" y="735.450303030303" as="geometry" />
+        </mxCell>
+        <mxCell id="rel_ai_extends_reports" edge="1" parent="1" source="uc_admin_ai" style="endArrow=open;endFill=0;html=1;rounded=0;edgeStyle=orthogonalEdgeStyle;dashed=1;strokeColor=#000000;strokeWidth=1.1;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="uc_admin_reports" value="">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="730.03" y="773.59" />
+              <mxPoint x="730.03" y="581.79" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="assoc_13" edge="1" parent="1" source="actor_alumni_admin" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="uc_alumni_registry" value="">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1603.9567097767376" y="1009.9980119180038" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="assoc_14" edge="1" parent="1" source="actor_alumni_admin" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="uc_alumni_verification" value="">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1573.1802578140032" y="1075.6743283562362" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="assoc_15" edge="1" parent="1" source="actor_alumni_admin" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="uc_alumni_forum" value="">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1544.2099583362478" y="1130.924943093283" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="actor_alumni_admin" parent="1" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.3;fontFamily=Arial;fontSize=13;fontStyle=1;fontColor=#000000;" value="Alumni Admin" vertex="1">
+          <mxGeometry height="112" width="72" x="1112" y="1088.8" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_alumni_forum" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" value="Moderate Community Forum" vertex="1">
+          <mxGeometry height="58" width="238" x="744" y="1144" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_alumni_verification" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" value="Review and Manage Alumni Verification" vertex="1">
+          <mxGeometry height="62" width="292" x="744" y="1072" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_alumni_registry" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" value="Manage Alumni Registry and Membership" vertex="1">
+          <mxGeometry height="62" width="292" x="744" y="1000" as="geometry" />
+        </mxCell>
+        <mxCell id="assoc_16" edge="1" parent="1" source="actor_alumni_admin" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;entryX=0.952;entryY=0.258;entryDx=0;entryDy=0;entryPerimeter=0;" target="uc_alumni_jobs" value="">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1554.9124703480384" y="1199.2849019110915" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="uc_sa_settings" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" value="Configure System Settings" vertex="1">
+          <mxGeometry height="58" width="238" x="165" y="219" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_sa_accounts_roles" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" value="Manage Administrator Accounts and Roles" vertex="1">
+          <mxGeometry height="62" width="272" x="165" y="147" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_sa_maintenance_backup" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" value="Manage Maintenance, Reminders and Backup" vertex="1">
+          <mxGeometry height="62" width="286" x="165" y="291" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_sa_activity_logs" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" value="View Activity Logs" vertex="1">
+          <mxGeometry height="58" width="238" x="165" y="367" as="geometry" />
+        </mxCell>
+        <mxCell id="assoc_02" edge="1" parent="1" source="actor_super_admin" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" target="uc_sa_settings" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="assoc_01" edge="1" parent="1" source="actor_super_admin" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" target="uc_sa_accounts_roles" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="actor_super_admin" parent="1" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.3;fontFamily=Arial;fontSize=13;fontStyle=1;fontColor=#000000;" value="Super Admin" vertex="1">
+          <mxGeometry height="112" width="72" x="24" y="161" as="geometry" />
+        </mxCell>
+        <mxCell id="assoc_03" edge="1" parent="1" source="actor_super_admin" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;" target="uc_sa_maintenance_backup" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_grad_notifications" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" value="Receive Notifications" vertex="1">
+          <mxGeometry height="76.16161616161617" width="238" x="783" y="683.3661616161617" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_grad_messaging" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" value="Use Direct and Group Messaging" vertex="1">
+          <mxGeometry height="76.16161616161617" width="264" x="770" y="573.0631313131313" as="geometry" />
+        </mxCell>
+        <mxCell id="assoc_23" edge="1" parent="1" source="actor_graduate" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;entryX=1;entryY=0;entryDx=0;entryDy=0;" target="uc_grad_messaging" value="">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1102.227559981322" y="435.75" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="assoc_24" edge="1" parent="1" source="actor_graduate" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="uc_grad_notifications" value="">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="1110.8574692549714" y="435.75" as="sourcePoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="actor_dean" parent="1" style="shape=umlActor;verticalLabelPosition=bottom;verticalAlign=top;html=1;outlineConnect=0;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.3;fontFamily=Arial;fontSize=13;fontStyle=1;fontColor=#000000;" value="Dean" vertex="1">
+          <mxGeometry height="112" width="72" x="1112" y="812" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_dean_participation" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" value="Monitor Program-Scoped Survey Participation" vertex="1">
+          <mxGeometry height="58" width="292" x="744" y="778" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_dean_answers" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" value="View Submitted Survey Answers" vertex="1">
+          <mxGeometry height="58" width="258" x="770" y="852" as="geometry" />
+        </mxCell>
+        <mxCell id="uc_dean_reminders" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#000000;strokeWidth=1.2;fontFamily=Arial;fontSize=12;fontColor=#000000;align=center;verticalAlign=middle;spacing=8;" value="Send Reminder Emails to Non-Respondents" vertex="1">
+          <mxGeometry height="58" width="286" x="750" y="926" as="geometry" />
+        </mxCell>
+        <mxCell id="assoc_25" edge="1" parent="1" source="actor_dean" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="uc_dean_participation" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="assoc_26" edge="1" parent="1" source="actor_dean" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="uc_dean_answers" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="assoc_27" edge="1" parent="1" source="actor_dean" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="uc_dean_reminders" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="assoc_28" edge="1" parent="1" source="actor_dean" style="endArrow=none;html=1;rounded=0;edgeStyle=none;strokeColor=#000000;strokeWidth=1.2;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" target="uc_admin_ai" value="">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
       </root>
     </mxGraphModel>
   </diagram>

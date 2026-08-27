@@ -148,15 +148,6 @@ interface ForumFormState {
   remove_media: boolean;
 }
 
-interface ForumActivityLog {
-  id: number;
-  action: string;
-  post_id?: number | null;
-  comment_id?: number | null;
-  post_title?: string | null;
-  created_at: string;
-}
-
 interface ReportTarget {
   target_type: 'post' | 'comment';
   target_id: number;
@@ -236,7 +227,6 @@ interface ProfileFormState {
   confirm_password: string;
 }
 
-type ProfileSectionTab = 'overview' | 'work' | 'education' | 'trainings' | 'posts' | 'activity';
 type ProfileEditSection = 'basic' | 'employment' | 'education' | 'trainings' | 'photo' | 'cover' | 'security';
 
 interface GraduateProfileField {
@@ -264,6 +254,9 @@ interface GraduateSurveyProfile {
     survey_id: number;
     survey_title?: string | null;
     submitted_at?: string | null;
+  };
+  personal?: {
+    fields?: GraduateProfileField[];
   };
   work?: {
     is_employed?: boolean | null;
@@ -321,14 +314,6 @@ const passwordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$
 const passwordRequirementMessage =
   'Password must be at least 8 characters and include uppercase, lowercase, number, and symbol.';
 const profileImageAccept = 'image/png,image/jpeg,image/webp,image/gif';
-const profileSectionTabs: Array<{ key: ProfileSectionTab; label: string; icon: LucideIcon }> = [
-  { key: 'overview', label: 'Overview', icon: User },
-  { key: 'work', label: 'Work', icon: Briefcase },
-  { key: 'education', label: 'Education', icon: GraduationCap },
-  { key: 'trainings', label: 'Trainings & Seminars', icon: Award },
-  { key: 'posts', label: 'Posts', icon: MessageSquare },
-  { key: 'activity', label: 'Activity', icon: Clock3 },
-];
 const profileEditSections: Array<{ key: ProfileEditSection; label: string; icon: LucideIcon }> = [
   { key: 'basic', label: 'Basic Profile', icon: Contact },
   { key: 'employment', label: 'Employment', icon: Briefcase },
@@ -821,17 +806,6 @@ function getPortalHeading(tab: PortalTab) {
   };
 }
 
-function formatActivityLabel(activity: ForumActivityLog) {
-  const title = activity.post_title ? `"${activity.post_title}"` : 'a forum post';
-
-  if (activity.action === 'post_liked') return `Reacted to ${title}`;
-  if (activity.action === 'post_unliked') return `Removed reaction from ${title}`;
-  if (activity.action === 'comment_created') return `Commented on ${title}`;
-  if (activity.action === 'comment_deleted') return `Deleted a comment from ${title}`;
-
-  return `Updated ${title}`;
-}
-
 export default function GraduatePortal() {
   const { user, logout, checkAuth } = useGraduateAuth();
   const { getSetting, isEnabled, resolveAssetUrl: resolveSystemAssetUrl } = useSystemSettings();
@@ -850,7 +824,6 @@ export default function GraduatePortal() {
   const [profileDetails, setProfileDetails] = useState<GraduateProfilePayload | null>(null);
   const [profileDetailsLoaded, setProfileDetailsLoaded] = useState(false);
   const [profileDetailsLoading, setProfileDetailsLoading] = useState(false);
-  const [profileSection, setProfileSection] = useState<ProfileSectionTab>('overview');
   const [profileEditOpen, setProfileEditOpen] = useState(false);
   const [profileEditSection, setProfileEditSection] = useState<ProfileEditSection>('basic');
   const [profileSaving, setProfileSaving] = useState(false);
@@ -907,7 +880,6 @@ export default function GraduatePortal() {
   const [postComments, setPostComments] = useState<ForumComment[]>([]);
   const [commentDraft, setCommentDraft] = useState('');
   const [commentSubmitting, setCommentSubmitting] = useState(false);
-  const [activityLogs, setActivityLogs] = useState<ForumActivityLog[]>([]);
   const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
   const [reportReason, setReportReason] = useState('');
   const [reportSubmitting, setReportSubmitting] = useState(false);
@@ -984,6 +956,7 @@ export default function GraduatePortal() {
   const isViewingOwnProfile = profileTargetGraduateId > 0 && profileTargetGraduateId === currentGraduateId;
   const profileUser = profileDetails?.user || (isViewingOwnProfile ? user : null);
   const profileSurvey = profileDetails?.survey_profile || null;
+  const profilePersonalFields = profileSurvey?.personal?.fields || [];
   const profileWorkFields = profileSurvey?.work?.fields || [];
   const profileEducationFields = profileSurvey?.education?.fields || [];
   const profileGraduateStudyFields = profileSurvey?.education?.graduate_studies || [];
@@ -1233,11 +1206,6 @@ export default function GraduatePortal() {
       }
       return roomList[0].id;
     });
-  }, [authenticatedFetch]);
-
-  const loadActivityLogs = useCallback(async () => {
-    const response = await authenticatedFetch(`${API_ENDPOINTS.FORUM.ACTIVITY}?limit=12`);
-    setActivityLogs(Array.isArray(response.data) ? (response.data as ForumActivityLog[]) : []);
   }, [authenticatedFetch]);
 
   const loadGraduateProfile = useCallback(async () => {
@@ -1535,7 +1503,6 @@ export default function GraduatePortal() {
         ...(communityAvailable ? [
           { key: 'forum', label: 'forum feed', run: loadForumFeed },
           { key: 'my_forum', label: 'my forum posts', run: loadMyForumPosts },
-          { key: 'activity', label: 'activity logs', run: loadActivityLogs },
         ] : []),
         ...(jobsAvailable ? [
           { key: 'jobs', label: 'jobs', run: loadJobs },
@@ -1578,7 +1545,7 @@ export default function GraduatePortal() {
         void Promise.allSettled(backgroundTasks.map((task) => task.run()));
       }
     },
-    [communityAvailable, jobsAvailable, loadActivityLogs, loadChats, loadForumFeed, loadJobs, loadMyForumPosts, loadMyJobs, loadRatingSummary, messagingAvailable, notify],
+    [communityAvailable, jobsAvailable, loadChats, loadForumFeed, loadJobs, loadMyForumPosts, loadMyJobs, loadRatingSummary, messagingAvailable, notify],
   );
 
   const closePostDetail = useCallback(() => {
@@ -1629,7 +1596,6 @@ export default function GraduatePortal() {
     setProfileDetailsLoaded(false);
     setProfileDetailsLoading(false);
     setProfileForumPosts([]);
-    setProfileSection('overview');
     setProfileEditOpen(false);
   }, [profileTargetGraduateId]);
 
@@ -2424,7 +2390,6 @@ export default function GraduatePortal() {
       setSelectedPost((current) =>
         current && current.id === postId ? { ...current, is_liked: liked, like_count: likeCount } : current,
       );
-      await loadActivityLogs();
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to update reaction', 'Community Forum');
     } finally {
@@ -2461,7 +2426,7 @@ export default function GraduatePortal() {
 
       setCommentDraft('');
       await loadPostDetail(selectedPost.id);
-      await Promise.all([loadForumFeed(), loadMyForumPosts(), loadProfileForumPosts(), loadActivityLogs()]);
+      await Promise.all([loadForumFeed(), loadMyForumPosts(), loadProfileForumPosts()]);
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to post comment', 'Community Forum');
     } finally {
@@ -2505,7 +2470,7 @@ export default function GraduatePortal() {
         setSelectedPost((current) => (current ? { ...current, comment_count: comments.length } : current));
       }
 
-      await Promise.all([loadForumFeed(), loadMyForumPosts(), loadProfileForumPosts(), loadActivityLogs()]);
+      await Promise.all([loadForumFeed(), loadMyForumPosts(), loadProfileForumPosts()]);
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to post comment', 'Community Forum');
     } finally {
@@ -2531,7 +2496,7 @@ export default function GraduatePortal() {
           });
 
           await loadPostDetail(selectedPost.id);
-          await Promise.all([loadForumFeed(), loadMyForumPosts(), loadProfileForumPosts(), loadActivityLogs()]);
+          await Promise.all([loadForumFeed(), loadMyForumPosts(), loadProfileForumPosts()]);
           notify('success', 'Comment deleted successfully.', 'Community Forum');
         } catch (error) {
           notify('error', error instanceof Error ? error.message : 'Unable to delete comment', 'Community Forum');
@@ -4316,13 +4281,12 @@ export default function GraduatePortal() {
                     <ProfileWorkspace
                       user={profileUser}
                       survey={profileSurvey}
+                      personalFields={profilePersonalFields}
                       workFields={profileWorkFields}
                       educationFields={profileEducationFields}
                       graduateStudyFields={profileGraduateStudyFields}
                       trainings={profileTrainings}
                       posts={profilePosts}
-                      activityLogs={isViewingOwnProfile ? activityLogs : []}
-                      activeSection={profileSection}
                       profileImageUrl={profileImageUrl}
                       coverImageUrl={profileCoverImageUrl}
                       defaultLogoUrl={systemLogoUrl}
@@ -4332,7 +4296,6 @@ export default function GraduatePortal() {
                       messagingAvailable={messagingAvailable}
                       currentGraduateId={currentGraduateId}
                       forumActionKey={forumActionKey}
-                      onSectionChange={setProfileSection}
                       onEdit={openProfileEditor}
                       onChangeProfilePhoto={() => profileImageInputRef.current?.click()}
                       onChangeCoverPhoto={() => coverImageInputRef.current?.click()}
@@ -4957,13 +4920,12 @@ export default function GraduatePortal() {
 function ProfileWorkspace({
   user,
   survey,
+  personalFields,
   workFields,
   educationFields,
   graduateStudyFields,
   trainings,
   posts,
-  activityLogs,
-  activeSection,
   profileImageUrl,
   coverImageUrl,
   defaultLogoUrl,
@@ -4973,7 +4935,6 @@ function ProfileWorkspace({
   messagingAvailable,
   currentGraduateId,
   forumActionKey,
-  onSectionChange,
   onEdit,
   onChangeProfilePhoto,
   onChangeCoverPhoto,
@@ -4988,13 +4949,12 @@ function ProfileWorkspace({
 }: {
   user?: GraduateUser | null;
   survey?: GraduateSurveyProfile | null;
+  personalFields: GraduateProfileField[];
   workFields: GraduateProfileField[];
   educationFields: GraduateProfileField[];
   graduateStudyFields: GraduateProfileField[];
   trainings: GraduateTrainingEntry[];
   posts: ForumPost[];
-  activityLogs: ForumActivityLog[];
-  activeSection: ProfileSectionTab;
   profileImageUrl: string;
   coverImageUrl: string;
   defaultLogoUrl: string;
@@ -5004,7 +4964,6 @@ function ProfileWorkspace({
   messagingAvailable: boolean;
   currentGraduateId: number;
   forumActionKey: string;
-  onSectionChange: (tab: ProfileSectionTab) => void;
   onEdit: (section?: ProfileEditSection) => void;
   onChangeProfilePhoto: () => void;
   onChangeCoverPhoto: () => void;
@@ -5017,8 +4976,10 @@ function ProfileWorkspace({
   onDeletePost: (post: ForumPost) => void;
   onOpenProfile: (graduateId?: number | null) => void;
 }) {
+  const hasSupplementaryDetails = educationFields.length > 0 || graduateStudyFields.length > 0 || trainings.length > 0;
+
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(280px,0.34fr)_minmax(0,1fr)]">
+    <div className="space-y-6">
       <ProfileIdentityPanel
         user={user}
         survey={survey}
@@ -5037,37 +4998,39 @@ function ProfileWorkspace({
         onMessage={onMessage}
       />
 
-      <div className="min-w-0 space-y-6">
-        <ProfileSummaryPanel user={user} survey={survey} workFields={workFields} educationFields={educationFields} />
+      <ProfileSummaryPanel
+        user={user}
+        survey={survey}
+        personalFields={personalFields}
+        workFields={workFields}
+        educationFields={educationFields}
+        canEdit={canEdit}
+        onEdit={onEdit}
+      />
 
-        <div className="grid gap-6 lg:grid-cols-[230px_minmax(0,1fr)]">
-          <ProfileNavigation activeTab={activeSection} onChange={onSectionChange} />
-          <div className="min-w-0">
-            <ProfileSectionContent
-              activeTab={activeSection}
-              user={user}
-              survey={survey}
-              workFields={workFields}
-              educationFields={educationFields}
-              graduateStudyFields={graduateStudyFields}
-              trainings={trainings}
-              posts={posts}
-              activityLogs={activityLogs}
-              profileImageUrl={profileImageUrl}
-              forumActionKey={forumActionKey}
-              canEdit={canEdit}
-              canManagePosts={canEdit}
-              onEdit={onEdit}
-              onOpenPost={onOpenPost}
-              onOpenMedia={onOpenMedia}
-              onToggleLike={onToggleLike}
-              onEditPost={onEditPost}
-              onDeletePost={onDeletePost}
-              onOpenProfile={onOpenProfile}
-            />
-          </div>
-        </div>
-      </div>
+      <ProfilePostsSection
+        posts={posts}
+        profileImageUrl={profileImageUrl}
+        forumActionKey={forumActionKey}
+        onOpenPost={onOpenPost}
+        onOpenMedia={onOpenMedia}
+        onToggleLike={onToggleLike}
+        onEditPost={onEditPost}
+        onDeletePost={onDeletePost}
+        onOpenProfile={onOpenProfile}
+        canManagePosts={canEdit}
+      />
+
+      {hasSupplementaryDetails && (
+        <ProfileSupplementaryDetails
+          user={user}
+          educationFields={educationFields}
+          graduateStudyFields={graduateStudyFields}
+          trainings={trainings}
+          canEdit={canEdit}
+          onEdit={onEdit}
+        />
+      )}
     </div>
   );
 }
@@ -5109,359 +5072,264 @@ function ProfileIdentityPanel({
   const program = user?.program_name || user?.program_code || '';
   const batch = getBatchLabel(user?.year_graduated);
   const location = buildProfileLocation(user, survey);
-  const headline = [jobTitle, program, batch].filter(hasDisplayValue).join(' - ');
+  const employmentStatus = survey?.work?.summary?.employment_status || '';
+  const company = survey?.work?.summary?.company || '';
+  const headline = [jobTitle || employmentStatus, company].filter(hasDisplayValue).join(' at ');
+  const metaItems = [program, batch, jobTitle || employmentStatus].filter(hasDisplayValue);
   const isVerified = user?.alumni_verification_status === 'approved';
   const canMessage = messagingAvailable && !canEdit && !!user?.graduate_id && user.graduate_id !== currentGraduateId;
 
   return (
-    <aside className="overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm xl:sticky xl:top-[calc(var(--graduate-portal-header-height)_+_var(--graduate-portal-sticky-gap))] xl:self-start">
-      <div className="relative min-h-[19rem] overflow-hidden bg-[#071735] px-6 py-6 text-white">
-        {coverImageUrl && (
-          <img src={coverImageUrl} alt={`${fullName} profile visual`} className="absolute inset-0 h-full w-full object-cover opacity-35" />
+    <section className="rounded-[28px] border border-slate-200 bg-white shadow-sm">
+      <div className="relative h-52 overflow-hidden rounded-t-[28px] bg-[#071735] text-white sm:h-64 lg:h-72">
+        {coverImageUrl ? (
+          <img src={coverImageUrl} alt={`${fullName} profile cover`} className="absolute inset-0 h-full w-full object-cover" />
+        ) : (
+          <div className="absolute inset-0 bg-[linear-gradient(135deg,#071735_0%,#123a7a_56%,#0f172a_100%)]" />
         )}
-        <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(15,51,111,0.95),rgba(7,23,53,0.96)_58%,rgba(3,12,30,0.98))]" />
-        <div className="absolute -right-20 top-7 h-52 w-52 rounded-full border border-white/10" />
-        <div className="absolute -right-8 top-20 h-24 w-24 rounded-full border border-[#f8c331]/30" />
+        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(7,23,53,0.08)_0%,rgba(7,23,53,0.22)_48%,rgba(7,23,53,0.72)_100%)]" />
         <div className="absolute bottom-0 left-0 h-2 w-full bg-[#f8c331]" />
-        <div className="absolute left-7 top-24 h-24 w-24 rotate-45 border border-white/10" />
-        <div className="absolute inset-x-0 top-0 h-px bg-white/20" />
 
-        <div className="relative z-10 flex items-start justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <img src={defaultLogoUrl} alt="GradTrack" className="h-11 w-11 rounded-xl bg-white p-1.5 object-contain shadow-sm" />
-            <div>
-              <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#f8c331]">GradTrack Alumni</p>
-              <p className="text-xs text-white/70">Norzagaray College</p>
-            </div>
+        {!coverImageUrl && (
+          <div className="absolute inset-0 flex items-center justify-end px-8 opacity-20">
+            <img src={defaultLogoUrl} alt="GradTrack" className="h-28 w-28 object-contain sm:h-36 sm:w-36" />
           </div>
+        )}
 
-          {canEdit && (
-            <div className="flex gap-2">
-              <button type="button" onClick={onChangeCoverPhoto} disabled={saving} className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-60" aria-label="Change profile visual" title="Change profile visual">
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
-              </button>
-              {coverImageUrl && (
-                <button type="button" onClick={onRemoveCoverPhoto} disabled={saving} className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white backdrop-blur transition hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-60" aria-label="Remove profile visual" title="Remove profile visual">
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              )}
-            </div>
-          )}
+        <div className="absolute left-4 top-4 flex items-center gap-3 rounded-2xl bg-slate-950/32 px-3 py-2 backdrop-blur sm:left-6 sm:top-6">
+          <img src={defaultLogoUrl} alt="GradTrack" className="h-9 w-9 rounded-xl bg-white p-1.5 object-contain shadow-sm" />
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#f8c331]">GradTrack Alumni</p>
+            <p className="text-xs text-white/78">Norzagaray College</p>
+          </div>
         </div>
 
-        <div className="relative z-10 mt-10 flex justify-center">
-          <div className="relative rounded-[2rem] border border-white/20 bg-white/12 p-2 shadow-2xl backdrop-blur">
+        {canEdit && (
+          <div className="absolute right-4 top-4 flex flex-wrap justify-end gap-2 sm:right-6 sm:top-6">
+            <button type="button" onClick={onChangeCoverPhoto} disabled={saving} className="inline-flex items-center gap-2 rounded-full bg-white/90 px-4 py-2 text-xs font-bold text-slate-800 shadow-sm backdrop-blur transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60" aria-label="Change cover photo" title="Change cover photo">
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
+              <span className="hidden sm:inline">Change Cover</span>
+            </button>
+            {coverImageUrl && (
+              <button type="button" onClick={onRemoveCoverPhoto} disabled={saving} className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-slate-800 shadow-sm backdrop-blur transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60" aria-label="Remove cover photo" title="Remove cover photo">
+                <Trash2 className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="relative px-4 pb-5 pt-[4.75rem] sm:px-6 sm:pb-6 lg:px-8">
+        <div className="absolute -top-14 left-4 sm:-top-16 sm:left-6 lg:left-8">
+          <div className="relative rounded-full border-4 border-white bg-white shadow-lg">
             <Avatar src={profileImageUrl} label={fullName} size="xl" />
             {canEdit && (
-              <button type="button" onClick={onChangeProfilePhoto} disabled={saving} className="absolute -bottom-2 -right-2 inline-flex h-11 w-11 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60" aria-label="Change profile photo" title="Change profile photo">
+              <button type="button" onClick={onChangeProfilePhoto} disabled={saving} className="absolute bottom-1 right-1 inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60" aria-label="Change profile photo" title="Change profile photo">
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
               </button>
             )}
           </div>
         </div>
-      </div>
 
-      <div className="px-6 py-6">
-        <div className="flex flex-wrap items-center gap-2">
-          {isVerified && (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
-              <ShieldCheck className="h-3.5 w-3.5" />
-              Verified Alumni
-            </span>
-          )}
-          {batch && (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
-              <CalendarDays className="h-3.5 w-3.5" />
-              {batch}
-            </span>
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              {isVerified && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  Verified Alumni
+                </span>
+              )}
+              {batch && (
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
+                  <CalendarDays className="h-3.5 w-3.5" />
+                  {batch}
+                </span>
+              )}
+            </div>
+
+            <h2 className="mt-3 break-words text-2xl font-bold leading-tight text-slate-950 sm:text-3xl">{fullName}</h2>
+            {metaItems.length > 0 && (
+              <p className="mt-2 break-words text-sm font-semibold leading-6 text-slate-600">
+                {metaItems.join(' - ')}
+              </p>
+            )}
+            {headline && (
+              <p className="mt-2 break-words text-sm font-semibold leading-6 text-blue-800">{headline}</p>
+            )}
+            {location && (
+              <p className="mt-3 flex items-start gap-2 text-sm font-medium leading-6 text-slate-600">
+                <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
+                <span>{location}</span>
+              </p>
+            )}
+          </div>
+
+          {(canEdit || canMessage) && (
+            <div className="flex flex-wrap gap-3 lg:justify-end">
+              {canEdit && (
+                <button type="button" onClick={onEdit} className="inline-flex items-center justify-center gap-2 rounded-full bg-blue-700 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-blue-800">
+                  <Pencil className="h-4 w-4" />
+                  Edit Profile
+                </button>
+              )}
+              {canMessage && (
+                <button type="button" onClick={onMessage} className="inline-flex items-center justify-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-5 py-3 text-sm font-bold text-blue-800 transition hover:bg-blue-100">
+                  <MessageCircle className="h-4 w-4" />
+                  Message
+                </button>
+              )}
+            </div>
           )}
         </div>
-
-        <h2 className="mt-5 break-words text-3xl font-bold leading-tight text-slate-950">{fullName}</h2>
-        {program && <p className="mt-2 text-sm font-semibold leading-6 text-blue-800">{program}</p>}
-        {headline ? (
-          <p className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold leading-6 text-slate-700">{headline}</p>
-        ) : (
-          <p className="mt-4 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-sm font-semibold leading-6 text-slate-500">No professional headline provided yet.</p>
-        )}
-
-        {location && (
-          <p className="mt-4 flex items-start gap-2 text-sm font-medium leading-6 text-slate-600">
-            <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
-            <span>{location}</span>
-          </p>
-        )}
-
-        <div className="mt-6 flex flex-wrap gap-3">
-          {canEdit && (
-            <button type="button" onClick={onEdit} className="inline-flex items-center justify-center gap-2 rounded-full bg-blue-700 px-5 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-blue-800">
-              <Pencil className="h-4 w-4" />
-              Edit Profile
-            </button>
-          )}
-          {canMessage && (
-            <button type="button" onClick={onMessage} className="inline-flex items-center justify-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-5 py-3 text-sm font-bold text-blue-800 transition hover:bg-blue-100">
-              <MessageCircle className="h-4 w-4" />
-              Message
-            </button>
-          )}
-        </div>
       </div>
-    </aside>
+    </section>
   );
+}
+
+function formatProfileValue(value?: string | number | null) {
+  const text = String(value ?? '').trim();
+  return text || 'Not provided';
+}
+
+function formatProfileDateValue(value?: string | null) {
+  if (!value) return 'Not provided';
+  return parseDate(value) ? formatDate(value) : formatProfileValue(value);
 }
 
 function ProfileSummaryPanel({
   user,
   survey,
+  personalFields,
   workFields,
   educationFields,
+  canEdit,
+  onEdit,
 }: {
   user?: GraduateUser | null;
   survey?: GraduateSurveyProfile | null;
+  personalFields: GraduateProfileField[];
   workFields: GraduateProfileField[];
   educationFields: GraduateProfileField[];
+  canEdit: boolean;
+  onEdit: (section?: ProfileEditSection) => void;
 }) {
-  const summary = survey?.work?.summary;
+  return (
+    <div className="grid gap-5 lg:grid-cols-3">
+      <ProfileContactsCard user={user} survey={survey} personalFields={personalFields} canEdit={canEdit} onEdit={onEdit} />
+      <ProfileInformationCard user={user} personalFields={personalFields} educationFields={educationFields} />
+      <ProfileWorkCard survey={survey} fields={workFields} onEdit={canEdit ? () => onEdit('employment') : undefined} />
+    </div>
+  );
+}
+
+function ProfileContactsCard({
+  user,
+  survey,
+  personalFields,
+  canEdit,
+  onEdit,
+}: {
+  user?: GraduateUser | null;
+  survey?: GraduateSurveyProfile | null;
+  personalFields: GraduateProfileField[];
+  canEdit: boolean;
+  onEdit: (section?: ProfileEditSection) => void;
+}) {
+  const socialMedia = getProfileFieldValue(personalFields, 'social_media');
+  const surveyTelephone = getProfileFieldValue(personalFields, 'telephone');
   const rows = [
-    { icon: CheckCircle2, label: 'Employment Status', value: summary?.employment_status || getProfileFieldValue(workFields, 'employment_status') },
-    { icon: Briefcase, label: 'Current Position', value: summary?.current_job_title || getProfileFieldValue(workFields, 'current_job_title') },
-    { icon: Building2, label: 'Company / Organization', value: summary?.company || getProfileFieldValue(workFields, 'company') },
-    { icon: MapPin, label: 'Employment Location', value: summary?.location || getProfileFieldValue(workFields, 'company_location') },
-    { icon: GraduationCap, label: 'Job Relevance to Degree', value: summary?.job_related_to_program || getProfileFieldValue(workFields, 'job_related_to_program') },
-    { icon: CalendarDays, label: 'Graduation Year', value: getProfileFieldValue(educationFields, 'year_graduated') || (user?.year_graduated ? String(user.year_graduated) : '') },
-    { icon: BookOpen, label: 'Program / Course', value: getProfileFieldValue(educationFields, 'degree_program') || user?.program_name || user?.program_code },
-  ].filter((row) => hasDisplayValue(row.value));
+    { icon: Mail, label: 'Email Address', value: user?.email },
+    { icon: Phone, label: 'Phone Number', value: user?.phone || surveyTelephone },
+    ...(hasDisplayValue(socialMedia) ? [{ icon: Users, label: 'Facebook / Social Media', value: socialMedia }] : []),
+    { icon: MapPin, label: 'Current Location', value: buildProfileLocation(user, survey) },
+  ];
 
   return (
-    <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-700">Professional Snapshot</p>
-          <h3 className="mt-2 text-2xl font-bold text-slate-950">Graduate tracer highlights</h3>
-        </div>
-        {survey?.response?.submitted_at && (
-          <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-bold text-slate-500">
-            Updated {formatDateTime(survey.response.submitted_at)}
-          </span>
-        )}
+    <section className="flex h-full min-w-0 flex-col rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+      <ProfileCardHeader icon={Contact} title="Contacts" actionLabel={canEdit ? 'Edit' : undefined} onAction={canEdit ? () => onEdit('basic') : undefined} />
+      <div className="mt-5 space-y-4">
+        {rows.map((row) => (
+          <ProfileInfoRow key={row.label} icon={row.icon} label={row.label} value={formatProfileValue(row.value)} />
+        ))}
       </div>
-
-      {rows.length === 0 ? (
-        <ProfileEmptyState icon={FileText} message="No information provided yet." />
-      ) : (
-        <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {rows.map((row) => (
-            <div key={row.label} className="rounded-2xl border border-slate-200 bg-[#fafbff] px-4 py-4">
-              <div className="flex items-center gap-2">
-                <row.icon className="h-4 w-4 text-blue-700" />
-                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{row.label}</p>
-              </div>
-              <p className="mt-2 break-words text-sm font-bold leading-6 text-slate-800">{row.value}</p>
-            </div>
-          ))}
-        </div>
-      )}
     </section>
   );
 }
 
-function ProfileNavigation({
-  activeTab,
-  onChange,
+function ProfileInformationCard({
+  user,
+  personalFields,
+  educationFields,
 }: {
-  activeTab: ProfileSectionTab;
-  onChange: (tab: ProfileSectionTab) => void;
+  user?: GraduateUser | null;
+  personalFields: GraduateProfileField[];
+  educationFields: GraduateProfileField[];
 }) {
+  const language = getProfileFieldValue(personalFields, 'language');
+  const interests = getProfileFieldValue(personalFields, 'interests');
+  const rows = [
+    { icon: User, label: 'Full Name', value: getGraduateFullName(user) },
+    { icon: CalendarDays, label: 'Birthday', value: formatProfileDateValue(getProfileFieldValue(personalFields, 'birthday')) },
+    { icon: Contact, label: 'Civil Status', value: getProfileFieldValue(personalFields, 'civil_status') },
+    { icon: User, label: 'Sex / Gender', value: getProfileFieldValue(personalFields, 'sex') },
+    ...(hasDisplayValue(language) ? [{ icon: BookOpen, label: 'Language', value: language }] : []),
+    ...(hasDisplayValue(interests) ? [{ icon: Award, label: 'Interests', value: interests }] : []),
+    { icon: GraduationCap, label: 'Program / Course', value: getProfileFieldValue(educationFields, 'degree_program') || user?.program_name || user?.program_code },
+    { icon: CalendarDays, label: 'Graduation Year / Batch', value: getProfileFieldValue(educationFields, 'year_graduated') || (user?.year_graduated ? String(user.year_graduated) : '') },
+  ];
+
   return (
-    <nav className="rounded-[24px] border border-slate-200 bg-white p-2 shadow-sm lg:sticky lg:top-[calc(var(--graduate-portal-header-height)_+_var(--graduate-portal-sticky-gap))]" aria-label="Profile sections">
-      <div className="flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
-        {profileSectionTabs.map((tab) => {
-          const isActive = activeTab === tab.key;
-          return (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => onChange(tab.key)}
-              className={`inline-flex shrink-0 items-center gap-3 rounded-2xl px-4 py-3 text-left text-sm font-bold transition lg:w-full ${
-                isActive ? 'bg-blue-700 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-950'
-              }`}
-            >
-              <tab.icon className="h-4 w-4" />
-              <span className="whitespace-nowrap">{tab.label}</span>
-            </button>
-          );
-        })}
+    <section className="flex h-full min-w-0 flex-col rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+      <ProfileCardHeader icon={User} title="Information" />
+      <div className="mt-5 space-y-4">
+        {rows.map((row) => (
+          <ProfileInfoRow key={row.label} icon={row.icon} label={row.label} value={formatProfileValue(row.value)} />
+        ))}
       </div>
-    </nav>
+    </section>
   );
 }
 
-function ProfileSectionContent({
-  activeTab,
+function ProfileSupplementaryDetails({
   user,
-  survey,
-  workFields,
   educationFields,
   graduateStudyFields,
   trainings,
-  posts,
-  activityLogs,
-  profileImageUrl,
-  forumActionKey,
   canEdit,
-  canManagePosts,
   onEdit,
-  onOpenPost,
-  onOpenMedia,
-  onToggleLike,
-  onEditPost,
-  onDeletePost,
-  onOpenProfile,
 }: {
-  activeTab: ProfileSectionTab;
   user?: GraduateUser | null;
-  survey?: GraduateSurveyProfile | null;
-  workFields: GraduateProfileField[];
   educationFields: GraduateProfileField[];
   graduateStudyFields: GraduateProfileField[];
   trainings: GraduateTrainingEntry[];
-  posts: ForumPost[];
-  activityLogs: ForumActivityLog[];
-  profileImageUrl: string;
-  forumActionKey: string;
   canEdit: boolean;
-  canManagePosts: boolean;
   onEdit: (section?: ProfileEditSection) => void;
-  onOpenPost: (post: ForumPost) => void;
-  onOpenMedia: (post: ForumPost, mediaIndex?: number) => void;
-  onToggleLike: (postId: number) => void;
-  onEditPost: (post?: ForumPost) => void;
-  onDeletePost: (post: ForumPost) => void;
-  onOpenProfile: (graduateId?: number | null) => void;
-}) {
-  if (activeTab === 'work') {
-    return <ProfileWorkSection survey={survey} fields={workFields} onEdit={canEdit ? () => onEdit('employment') : undefined} />;
-  }
-
-  if (activeTab === 'education') {
-    return <ProfileEducationSection user={user} fields={educationFields} graduateStudyFields={graduateStudyFields} onEdit={canEdit ? () => onEdit('education') : undefined} />;
-  }
-
-  if (activeTab === 'trainings') {
-    return <ProfileTrainingsSection trainings={trainings} onEdit={canEdit ? () => onEdit('trainings') : undefined} />;
-  }
-
-  if (activeTab === 'posts') {
-    return (
-      <ProfilePostsSection
-        posts={posts}
-        profileImageUrl={profileImageUrl}
-        forumActionKey={forumActionKey}
-        onOpenPost={onOpenPost}
-        onOpenMedia={onOpenMedia}
-        onToggleLike={onToggleLike}
-        onEditPost={onEditPost}
-        onDeletePost={onDeletePost}
-        onOpenProfile={onOpenProfile}
-        canManagePosts={canManagePosts}
-      />
-    );
-  }
-
-  if (activeTab === 'activity') {
-    return <ActivityLogsCard activityLogs={activityLogs} />;
-  }
-
-  return (
-    <ProfileOverview
-      user={user}
-      survey={survey}
-      workFields={workFields}
-      educationFields={educationFields}
-      graduateStudyFields={graduateStudyFields}
-      trainings={trainings}
-      posts={posts}
-      profileImageUrl={profileImageUrl}
-      forumActionKey={forumActionKey}
-      canEdit={canEdit}
-      canManagePosts={canManagePosts}
-      onEdit={onEdit}
-      onOpenPost={onOpenPost}
-      onOpenMedia={onOpenMedia}
-      onToggleLike={onToggleLike}
-      onEditPost={onEditPost}
-      onDeletePost={onDeletePost}
-      onOpenProfile={onOpenProfile}
-    />
-  );
-}
-
-function ProfileOverview({
-  user,
-  survey,
-  workFields,
-  educationFields,
-  graduateStudyFields,
-  trainings,
-  posts,
-  profileImageUrl,
-  forumActionKey,
-  canEdit,
-  canManagePosts,
-  onEdit,
-  onOpenPost,
-  onOpenMedia,
-  onToggleLike,
-  onEditPost,
-  onDeletePost,
-  onOpenProfile,
-}: {
-  user?: GraduateUser | null;
-  survey?: GraduateSurveyProfile | null;
-  workFields: GraduateProfileField[];
-  educationFields: GraduateProfileField[];
-  graduateStudyFields: GraduateProfileField[];
-  trainings: GraduateTrainingEntry[];
-  posts: ForumPost[];
-  profileImageUrl: string;
-  forumActionKey: string;
-  canEdit: boolean;
-  canManagePosts: boolean;
-  onEdit: (section?: ProfileEditSection) => void;
-  onOpenPost: (post: ForumPost) => void;
-  onOpenMedia: (post: ForumPost, mediaIndex?: number) => void;
-  onToggleLike: (postId: number) => void;
-  onEditPost: (post?: ForumPost) => void;
-  onDeletePost: (post: ForumPost) => void;
-  onOpenProfile: (graduateId?: number | null) => void;
 }) {
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-      <aside className="space-y-6">
-        <ProfileAboutCard user={user} survey={survey} onEdit={canEdit ? () => onEdit('basic') : undefined} />
-        <ProfileEducationCard user={user} fields={educationFields} graduateStudyFields={graduateStudyFields} compact onEdit={canEdit ? () => onEdit('education') : undefined} />
-        <ProfileTrainingsSection trainings={trainings.slice(0, 2)} compact onEdit={canEdit ? () => onEdit('trainings') : undefined} />
-      </aside>
-
-      <div className="space-y-6">
-        <ProfileWorkCard survey={survey} fields={workFields} compact onEdit={canEdit ? () => onEdit('employment') : undefined} />
-
-        <ProfilePostsSection
-          posts={posts}
-          profileImageUrl={profileImageUrl}
-          forumActionKey={forumActionKey}
-          limit={3}
-          onOpenPost={onOpenPost}
-          onOpenMedia={onOpenMedia}
-          onToggleLike={onToggleLike}
-          onEditPost={onEditPost}
-          onDeletePost={onDeletePost}
-          onOpenProfile={onOpenProfile}
-          canManagePosts={canManagePosts}
-        />
+    <section className="space-y-4">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h3 className="text-lg font-bold text-slate-950">Additional Profile Details</h3>
+          <p className="text-sm text-slate-500">Education and training records from existing GradTrack survey data.</p>
+        </div>
+        {canEdit && (
+          <button type="button" onClick={() => onEdit('education')} className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
+            <Pencil className="h-4 w-4" />
+            Update Details
+          </button>
+        )}
       </div>
-    </div>
+
+      <div className="mt-5 grid gap-5 xl:grid-cols-2">
+        {(educationFields.length > 0 || graduateStudyFields.length > 0) && (
+          <ProfileEducationCard user={user} fields={educationFields} graduateStudyFields={graduateStudyFields} compact />
+        )}
+        {trainings.length > 0 && (
+          <ProfileTrainingsSection trainings={trainings.slice(0, 3)} compact onEdit={canEdit ? () => onEdit('trainings') : undefined} />
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -5493,139 +5361,69 @@ function ProfileCardHeader({
   );
 }
 
-function ProfileAboutCard({
-  user,
-  survey,
-  onEdit,
-}: {
-  user?: GraduateUser | null;
-  survey?: GraduateSurveyProfile | null;
-  onEdit?: () => void;
-}) {
-  const rows = [
-    { icon: Contact, label: 'Full Name', value: getGraduateFullName(user) },
-    { icon: Mail, label: 'Email Address', value: user?.email },
-    { icon: Phone, label: 'Phone Number', value: user?.phone },
-    { icon: GraduationCap, label: 'Program / Course', value: user?.program_name || user?.program_code },
-    { icon: CalendarDays, label: 'Graduation Year', value: user?.year_graduated ? String(user.year_graduated) : '' },
-    { icon: MapPin, label: 'Location', value: buildProfileLocation(user, survey) },
-  ].filter((row) => hasDisplayValue(row.value));
-
-  return (
-    <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-      <ProfileCardHeader icon={Contact} title="About" actionLabel={onEdit ? 'Edit' : undefined} onAction={onEdit} />
-      {rows.length === 0 ? (
-        <ProfileEmptyState icon={FileText} message="No personal information available." />
-      ) : (
-        <div className="mt-5 space-y-3">
-          {rows.map((row) => (
-            <ProfileInfoRow key={row.label} icon={row.icon} label={row.label} value={String(row.value)} />
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
-function ProfileWorkSection({
-  survey,
-  fields,
-  onEdit,
-}: {
-  survey?: GraduateSurveyProfile | null;
-  fields: GraduateProfileField[];
-  onEdit?: () => void;
-}) {
-  return (
-    <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-      <ProfileWorkCard survey={survey} fields={fields} onEdit={onEdit} />
-      <SurveySourceCard survey={survey} />
-    </div>
-  );
-}
-
 function ProfileWorkCard({
   survey,
   fields,
-  compact,
   onEdit,
 }: {
   survey?: GraduateSurveyProfile | null;
   fields: GraduateProfileField[];
-  compact?: boolean;
   onEdit?: () => void;
 }) {
   const isEmployed = survey?.work?.is_employed;
   const summary = survey?.work?.summary;
-  const status = summary?.employment_status || getProfileFieldValue(fields, 'employment_status') || 'Employment not specified';
+  const status = summary?.employment_status || getProfileFieldValue(fields, 'employment_status');
   const jobTitle = summary?.current_job_title || getProfileFieldValue(fields, 'current_job_title');
   const company = summary?.company || getProfileFieldValue(fields, 'company');
-  const detailRows = [
-    { icon: Briefcase, label: 'Employment Type', value: summary?.employment_type || getProfileFieldValue(fields, 'employment_type') },
-    { icon: CalendarDays, label: 'Start Date', value: summary?.start_date || getProfileFieldValue(fields, 'date_started') },
-    { icon: MapPin, label: 'Location', value: summary?.location || getProfileFieldValue(fields, 'company_location') },
-    { icon: GraduationCap, label: 'Job Relevance', value: summary?.job_related_to_program || getProfileFieldValue(fields, 'job_related_to_program') },
+  const fixedKeys = new Set([
+    'employment_status',
+    'current_job_title',
+    'company',
+    'employment_type',
+    'date_started',
+    'company_location',
+    'job_related_to_program',
+    'industry',
+    'skills_used',
+  ]);
+  const rows = [
+    { icon: CheckCircle2, label: 'Employment Status', value: status },
+    { icon: Briefcase, label: 'Current Position / Job Title', value: jobTitle },
+    { icon: Building2, label: 'Company Name', value: company },
+    { icon: MapPin, label: 'Employment Location', value: summary?.location || getProfileFieldValue(fields, 'company_location') },
+    { icon: GraduationCap, label: 'Job Relevance to Degree', value: summary?.job_related_to_program || getProfileFieldValue(fields, 'job_related_to_program') },
     { icon: Award, label: 'Skills Used', value: summary?.skills_used || getProfileFieldValue(fields, 'skills_used') },
-  ].filter((row) => hasDisplayValue(row.value));
-  const visibleDetailRows = compact ? detailRows.slice(0, 4) : detailRows;
-  const hasRoleDetails = hasDisplayValue(jobTitle) || hasDisplayValue(company);
-  const missingWorkDetails = isEmployed === true && !hasRoleDetails;
+    { icon: Briefcase, label: 'Employment Type', value: summary?.employment_type || getProfileFieldValue(fields, 'employment_type') },
+    { icon: Building2, label: 'Industry', value: summary?.industry || getProfileFieldValue(fields, 'industry') },
+    { icon: CalendarDays, label: 'Start Date', value: summary?.start_date || getProfileFieldValue(fields, 'date_started') },
+  ];
+  const extraFields = fields.filter((field) => !fixedKeys.has(field.key));
   const statusClass = isEmployed === false
-    ? 'bg-amber-50 text-amber-700'
+    ? 'border-amber-200 bg-amber-50 text-amber-700'
     : isEmployed === true
-      ? 'bg-emerald-50 text-emerald-700'
-      : 'bg-slate-100 text-slate-600';
+      ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+      : 'border-slate-200 bg-slate-100 text-slate-600';
 
   return (
-    <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-      <ProfileCardHeader icon={Briefcase} title="Work Experience" actionLabel={onEdit ? 'View' : undefined} onAction={onEdit} />
-      <div className={`mt-5 inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold ${statusClass}`}>
+    <section className="flex h-full min-w-0 flex-col rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+      <ProfileCardHeader icon={Briefcase} title="Work" actionLabel={onEdit ? 'View' : undefined} onAction={onEdit} />
+      <div className={`mt-5 inline-flex w-fit items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-semibold ${statusClass}`}>
         <CheckCircle2 className="h-4 w-4" />
-        {status}
+        {formatProfileValue(status)}
       </div>
 
-      {missingWorkDetails ? (
-        <div className="mt-5 rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6">
-          <p className="text-sm font-semibold text-slate-700">Employment details not provided.</p>
-          <p className="mt-1 text-sm leading-6 text-slate-500">No valid job position or company has been saved for this profile.</p>
+      <div className="mt-5 space-y-4">
+        {rows.slice(1).map((row) => (
+          <ProfileInfoRow key={row.label} icon={row.icon} label={row.label} value={formatProfileValue(row.value)} />
+        ))}
+      </div>
+
+      {extraFields.length > 0 && (
+        <div className="mt-5 border-t border-slate-100 pt-4">
+          <ProfileFieldList fields={extraFields} />
         </div>
-      ) : hasRoleDetails ? (
-        <div className="mt-5 rounded-2xl border border-blue-100 bg-blue-50 px-4 py-4">
-          <h4 className="text-lg font-bold text-slate-950">{jobTitle || 'Current Role'}</h4>
-          {company && <p className="mt-1 text-sm font-semibold text-slate-700">{company}</p>}
-          {visibleDetailRows.length > 0 && (
-            <div className="mt-4 grid gap-3 sm:grid-cols-2">
-              {visibleDetailRows.map((row) => (
-                <ProfileInfoRow key={row.label} icon={row.icon} label={row.label} value={String(row.value)} />
-              ))}
-            </div>
-          )}
-        </div>
-      ) : fields.length === 0 ? (
-        <ProfileEmptyState icon={Briefcase} message="No employment information available from submitted surveys." />
-      ) : (
-        <ProfileFieldList fields={compact ? fields.slice(0, 2) : fields} className="mt-5" />
       )}
     </section>
-  );
-}
-
-function ProfileEducationSection({
-  user,
-  fields,
-  graduateStudyFields,
-  onEdit,
-}: {
-  user?: GraduateUser | null;
-  fields: GraduateProfileField[];
-  graduateStudyFields: GraduateProfileField[];
-  onEdit?: () => void;
-}) {
-  return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
-      <ProfileEducationCard user={user} fields={fields} graduateStudyFields={graduateStudyFields} onEdit={onEdit} />
-      <ProfileGraduateStudiesCard fields={graduateStudyFields} />
-    </div>
   );
 }
 
@@ -5960,17 +5758,28 @@ function ProfileEmptyState({
 
 function ProfileSkeleton() {
   return (
-    <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
-      {[0, 1, 2].map((item) => (
-        <div key={item} className="h-64 animate-pulse rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="h-10 w-40 rounded-full bg-slate-100" />
-          <div className="mt-6 space-y-3">
-            <div className="h-14 rounded-2xl bg-slate-100" />
-            <div className="h-14 rounded-2xl bg-slate-100" />
-            <div className="h-14 rounded-2xl bg-slate-100" />
-          </div>
+    <div className="space-y-6">
+      <div className="animate-pulse rounded-[28px] border border-slate-200 bg-white shadow-sm">
+        <div className="h-52 rounded-t-[28px] bg-slate-200 sm:h-64 lg:h-72" />
+        <div className="px-6 pb-6 pt-20">
+          <div className="-mt-32 h-28 w-28 rounded-full border-4 border-white bg-slate-100" />
+          <div className="mt-5 h-8 max-w-sm rounded-full bg-slate-100" />
+          <div className="mt-3 h-4 max-w-lg rounded-full bg-slate-100" />
         </div>
-      ))}
+      </div>
+
+      <div className="grid gap-5 lg:grid-cols-3">
+        {[0, 1, 2].map((item) => (
+          <div key={item} className="h-72 animate-pulse rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="h-10 w-36 rounded-full bg-slate-100" />
+            <div className="mt-6 space-y-4">
+              <div className="h-12 rounded-2xl bg-slate-100" />
+              <div className="h-12 rounded-2xl bg-slate-100" />
+              <div className="h-12 rounded-2xl bg-slate-100" />
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -6251,32 +6060,6 @@ function StatusRow({
     <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
       <span className="text-slate-600">{label}</span>
       <span className={`font-semibold ${positive ? 'text-emerald-700' : 'text-amber-700'}`}>{value}</span>
-    </div>
-  );
-}
-
-function ActivityLogsCard({ activityLogs }: { activityLogs: ForumActivityLog[] }) {
-  return (
-    <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
-      <div>
-        <h3 className="text-lg font-bold text-slate-900">Activity Logs</h3>
-        <p className="mt-1 text-sm text-slate-500">Your recent reactions and comments.</p>
-      </div>
-
-      {activityLogs.length === 0 ? (
-        <p className="mt-5 rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-500">
-          No forum activity yet.
-        </p>
-      ) : (
-        <div className="mt-5 space-y-3">
-          {activityLogs.map((activity) => (
-            <div key={activity.id} className="rounded-lg bg-slate-50 px-3 py-2">
-              <p className="text-sm font-medium text-slate-700">{formatActivityLabel(activity)}</p>
-              <p className="mt-1 text-xs text-slate-400">{formatRelativeTime(activity.created_at)}</p>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
