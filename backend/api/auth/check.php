@@ -12,18 +12,9 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 session_start();
 
 if (isset($_SESSION['user_id'])) {
-    $profileImagePath = $_SESSION['profile_image_path'] ?? null;
-
-    if ($profileImagePath === null) {
-        try {
-            $database = new Database();
-            $db = $database->getConnection();
-            $profileImagePath = gradtrack_admin_profile_image_path($db, (int) $_SESSION['user_id']);
-            $_SESSION['profile_image_path'] = $profileImagePath;
-        } catch (Throwable $ignored) {
-            $profileImagePath = null;
-        }
-    }
+    $profileImagePath = array_key_exists('profile_image_path', $_SESSION)
+        ? $_SESSION['profile_image_path']
+        : null;
 
     http_response_code(200);
     echo json_encode([

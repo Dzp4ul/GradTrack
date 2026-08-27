@@ -248,10 +248,14 @@ function gradtrack_jobs_ensure_schema(PDO $db): void
     ];
 
     foreach ($columns as $column => $alterSql) {
-        $stmt = $db->prepare('SHOW COLUMNS FROM job_posts LIKE :column_name');
+        $stmt = $db->prepare("SELECT COUNT(*) AS total
+                              FROM INFORMATION_SCHEMA.COLUMNS
+                              WHERE TABLE_SCHEMA = DATABASE()
+                                AND TABLE_NAME = 'job_posts'
+                                AND COLUMN_NAME = :column_name");
         $stmt->execute([':column_name' => $column]);
 
-        if (!$stmt->fetch(PDO::FETCH_ASSOC)) {
+        if ((int) ($stmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0) === 0) {
             $db->exec($alterSql);
         }
     }

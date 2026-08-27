@@ -65,7 +65,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     if (!response.ok) {
-      const error = await response.json();
+      const error = await response.json().catch(() => ({}));
+      if (response.status >= 500) {
+        throw new Error('Unable to connect to the server. Please try again later.');
+      }
       throw new Error(error.error || 'Login failed');
     }
 

@@ -22,48 +22,6 @@ if (!isset($data['email']) || !isset($data['password'])) {
 $email = trim($data['email']);
 $password = $data['password'];
 
-// Hardcoded admin credentials
-$hardcodedEmail = "admin@norzagaray.edu.ph";
-$hardcodedPassword = "admin123";
-
-// Check hardcoded credentials first
-if ($email === $hardcodedEmail && $password === $hardcodedPassword) {
-    // Start session
-    session_start();
-    $_SESSION['user_id'] = 1;
-    $_SESSION['email'] = $hardcodedEmail;
-    $_SESSION['username'] = "admin";
-    $_SESSION['full_name'] = "System Administrator";
-    $_SESSION['role'] = "super_admin";
-    $_SESSION['profile_image_path'] = null;
-
-    // Audit Trail: call logAuditTrail() after a login session is successfully created.
-    logAuditTrail(
-        1,
-        'System Administrator',
-        'super_admin',
-        null,
-        'Login',
-        'Authentication',
-        'Logged in to the administrative portal.'
-    );
-
-    http_response_code(200);
-    echo json_encode([
-        "success" => true,
-        "user" => [
-            "id" => 1,
-            "username" => "admin",
-            "email" => $hardcodedEmail,
-            "full_name" => "System Administrator",
-            "role" => "super_admin",
-            "profile_image_path" => null,
-        ]
-    ]);
-    exit;
-}
-
-// Check database for other users
 $database = new Database();
 $conn = $database->getConnection();
 gradtrack_ensure_admin_profile_image_table($conn);
@@ -140,7 +98,8 @@ try {
     ]);
 
 } catch(PDOException $e) {
+    error_log('Admin login database error: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(["error" => "Database error: " . $e->getMessage()]);
+    echo json_encode(["error" => "Unable to connect to the server. Please try again later."]);
 }
 ?>

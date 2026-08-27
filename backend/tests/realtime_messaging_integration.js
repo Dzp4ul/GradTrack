@@ -6,7 +6,39 @@ const dotenv = require('dotenv');
 const { io } = require('../../frontend/node_modules/socket.io-client');
 
 const projectRoot = path.resolve(__dirname, '../..');
-dotenv.config({ path: path.resolve(__dirname, '../.env'), quiet: true });
+dotenv.config({ path: path.resolve(__dirname, '../.env'), quiet: true, override: true });
+
+function requiredEnv(name) {
+  const value = String(process.env[name] || '').trim();
+  if (!value) {
+    throw new Error(`${name} is required for the AWS RDS test connection`);
+  }
+  return value;
+}
+
+function requiredEnvAny(names, label) {
+  for (const name of names) {
+    const value = String(process.env[name] || '').trim();
+    if (value) {
+      return value;
+    }
+  }
+  throw new Error(`${label} is required for the AWS RDS test connection`);
+}
+
+function normalizedDbHost() {
+  const host = requiredEnv('DB_HOST').replace(/^["']|["']$/g, '');
+  if (/^https?:\/\//i.test(host)) {
+    throw new Error('DB_HOST must be a hostname only; remove http:// or https://');
+  }
+  if (/:\d+$/.test(host)) {
+    throw new Error('DB_HOST must not include a port; use DB_PORT separately');
+  }
+  if (/\s/.test(host) || host.includes('/')) {
+    throw new Error('DB_HOST contains invalid hostname characters');
+  }
+  return host;
+}
 
 const testPort = Number(process.env.REALTIME_TEST_PORT || 3101);
 const realtimeUrl = `http://127.0.0.1:${testPort}`;
@@ -16,11 +48,11 @@ const allowedOrigin = (process.env.CORS_ALLOWED_ORIGINS || process.env.FRONTEND_
   .find((value) => value && value !== '*') || 'http://localhost:5173';
 
 const pool = mysql.createPool({
-  host: process.env.DB_HOST || 'localhost',
+  host: normalizedDbHost(),
   port: Number(process.env.DB_PORT || 3306),
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'gradtrackdb',
+  user: requiredEnvAny(['DB_USER', 'DB_USERNAME'], 'DB_USER/DB_USERNAME'),
+  password: requiredEnv('DB_PASSWORD'),
+  database: requiredEnvAny(['DB_NAME', 'DB_DATABASE'], 'DB_NAME/DB_DATABASE'),
   connectionLimit: 3,
   charset: 'utf8mb4',
   timezone: process.env.DB_TIMEZONE || '+08:00',

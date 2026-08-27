@@ -330,7 +330,7 @@ sudo chmod -R 755 /var/www/html/gradtrack
 sudo cat /var/www/html/gradtrack/backend/.env
 
 # Test RDS connection from EC2
-mysql -h gradtrackdb.cry06m2ok5u8.ap-southeast-2.rds.amazonaws.com -u admin -p
+mysql -h your-rds-endpoint.rds.amazonaws.com -u your_database_user -p
 ```
 
 ### Issue: CORS Errors

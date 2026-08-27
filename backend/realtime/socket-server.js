@@ -4,7 +4,47 @@ const { Server } = require('socket.io');
 const mysql = require('mysql2/promise');
 const dotenv = require('dotenv');
 
-dotenv.config({ path: path.resolve(__dirname, '../.env'), quiet: true });
+dotenv.config({ path: path.resolve(__dirname, '../.env'), quiet: true, override: true });
+
+function requiredEnv(name) {
+  const value = String(process.env[name] || '').trim();
+  if (!value) {
+    throw new Error(`${name} is required for the AWS RDS connection`);
+  }
+  return value;
+}
+
+function requiredEnvAny(names, label) {
+  for (const name of names) {
+    const value = String(process.env[name] || '').trim();
+    if (value) {
+      return value;
+    }
+  }
+  throw new Error(`${label} is required for the AWS RDS connection`);
+}
+
+function normalizedDbHost() {
+  const host = requiredEnv('DB_HOST').replace(/^["']|["']$/g, '');
+  if (/^https?:\/\//i.test(host)) {
+    throw new Error('DB_HOST must be a hostname only; remove http:// or https://');
+  }
+  if (/:\d+$/.test(host)) {
+    throw new Error('DB_HOST must not include a port; use DB_PORT separately');
+  }
+  if (/\s/.test(host) || host.includes('/')) {
+    throw new Error('DB_HOST contains invalid hostname characters');
+  }
+  return host;
+}
+
+function normalizedDbPort() {
+  const port = Number(process.env.DB_PORT || 3306);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error('DB_PORT must be a valid TCP port');
+  }
+  return port;
+}
 
 const port = Number(process.env.REALTIME_PORT || 3001);
 const apiBaseUrl = (process.env.GRADTRACK_API_BASE_URL || 'http://localhost/GradTrack/backend').replace(/\/+$/, '');
@@ -15,11 +55,11 @@ const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || process.env.FRONTEND
   .filter(Boolean);
 
 const pool = mysql.createPool({
-  host: process.env.DB_HOST || 'localhost',
-  port: Number(process.env.DB_PORT || 3306),
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'gradtrackdb',
+  host: normalizedDbHost(),
+  port: normalizedDbPort(),
+  user: requiredEnvAny(['DB_USER', 'DB_USERNAME'], 'DB_USER/DB_USERNAME'),
+  password: requiredEnv('DB_PASSWORD'),
+  database: requiredEnvAny(['DB_NAME', 'DB_DATABASE'], 'DB_NAME/DB_DATABASE'),
   waitForConnections: true,
   connectionLimit: Number(process.env.REALTIME_DB_CONNECTION_LIMIT || 10),
   charset: 'utf8mb4',

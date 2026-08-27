@@ -51,12 +51,7 @@ GradTrack/
 
 ## Default Accounts
 
-- Super Admin: `admin@norzagaray.edu.ph` / `admin123`
-- Super Admin: `superadmin@gradtrack.com` / `Superadin2026`
-- Registrar: `registrar@norzagaray.edu.ph` / `Registrar2026`
-- Dean (CS - BSCS/ACT): `deancs@gradtrack.com` / `COMSCIE2026`
-- Dean (COED - BSED/BEED): `deancoed@gradtrack.com` / `COED2026`
-- Dean (HM - BSHM): `deanhm@gradtrack.com` / `HostManagement2026`
+Administrator accounts are stored in the AWS RDS `admin_users` table. Use the existing database-backed credentials managed through User Management or the forgot-password flow.
 
 ## Quick Start (Local Development)
 

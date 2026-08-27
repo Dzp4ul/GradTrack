@@ -1,36 +1,42 @@
 <?php
-header("Content-Type: application/json");
-require_once 'config/database.php';
+require_once __DIR__ . '/config/cors.php';
+require_once __DIR__ . '/config/database.php';
 
-$database = new Database();
-$conn = $database->getConnection();
+if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
+    http_response_code(405);
+    echo json_encode(['success' => false, 'error' => 'Method not allowed']);
+    exit;
+}
+
+$email = trim((string) ($_GET['email'] ?? ''));
+if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+    http_response_code(400);
+    echo json_encode(['success' => false, 'error' => 'A valid email query parameter is required.']);
+    exit;
+}
 
 try {
-    $query = "SELECT id, email, username, full_name, password FROM admin_users WHERE email = 'admin@norzagaray.edu.ph'";
-    $stmt = $conn->prepare($query);
-    $stmt->execute();
+    $database = new Database();
+    $conn = $database->getConnection();
 
-    if ($stmt->rowCount() === 0) {
-        echo json_encode(["error" => "Admin user not found in database"]);
-        exit;
-    }
-
+    $stmt = $conn->prepare('SELECT id, email, username, full_name, role, COALESCE(is_active, 1) AS is_active FROM admin_users WHERE email = :email LIMIT 1');
+    $stmt->execute([':email' => $email]);
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    // Test password verification
-    $testPassword = "admin123";
-    $passwordMatch = password_verify($testPassword, $user['password']);
-
     echo json_encode([
-        "user_exists" => true,
-        "email" => $user['email'],
-        "username" => $user['username'],
-        "full_name" => $user['full_name'],
-        "password_hash" => $user['password'],
-        "test_password" => $testPassword,
-        "password_verify_result" => $passwordMatch
+        'success' => true,
+        'user_exists' => $user !== false,
+        'user' => $user ? [
+            'id' => (int) $user['id'],
+            'email' => $user['email'],
+            'username' => $user['username'],
+            'full_name' => $user['full_name'],
+            'role' => $user['role'],
+            'is_active' => (int) $user['is_active'] === 1,
+        ] : null,
     ]);
-} catch(Exception $e) {
-    echo json_encode(["error" => "Database error: " . $e->getMessage()]);
+} catch (Throwable $e) {
+    error_log('Admin diagnostic failed: ' . $e->getMessage());
+    http_response_code(500);
+    echo json_encode(['success' => false, 'error' => 'Unable to connect to the server. Please try again later.']);
 }
-?>

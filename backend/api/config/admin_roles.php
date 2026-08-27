@@ -48,56 +48,6 @@ if (!function_exists('gradtrack_ensure_admin_is_active_column')) {
 if (!function_exists('gradtrack_upsert_alumni_admin_account')) {
     function gradtrack_upsert_alumni_admin_account(PDO $db): array
     {
-        $account = [
-            'username' => 'alumni@gradtrack.com',
-            'email' => 'alumni@gradtrack.com',
-            'password' => 'alumni123',
-            'full_name' => 'Alumni Admin',
-            'role' => 'alumni_admin',
-        ];
-
-        gradtrack_ensure_admin_role_column($db);
-        gradtrack_ensure_admin_is_active_column($db);
-
-        $checkStmt = $db->prepare('SELECT id FROM admin_users WHERE email = :email LIMIT 1');
-        $checkStmt->execute([':email' => $account['email']]);
-        $existing = $checkStmt->fetch(PDO::FETCH_ASSOC);
-
-        $passwordHash = password_hash($account['password'], PASSWORD_BCRYPT);
-
-        if ($existing) {
-            $updateStmt = $db->prepare("
-                UPDATE admin_users
-                SET username = :username,
-                    password = :password,
-                    full_name = :full_name,
-                    role = :role,
-                    is_active = 1
-                WHERE id = :id
-            ");
-            $updateStmt->execute([
-                ':username' => $account['username'],
-                ':password' => $passwordHash,
-                ':full_name' => $account['full_name'],
-                ':role' => $account['role'],
-                ':id' => (int) $existing['id'],
-            ]);
-
-            return ['email' => $account['email'], 'password' => $account['password'], 'status' => 'updated'];
-        }
-
-        $insertStmt = $db->prepare("
-            INSERT INTO admin_users (username, email, password, full_name, role, is_active)
-            VALUES (:username, :email, :password, :full_name, :role, 1)
-        ");
-        $insertStmt->execute([
-            ':username' => $account['username'],
-            ':email' => $account['email'],
-            ':password' => $passwordHash,
-            ':full_name' => $account['full_name'],
-            ':role' => $account['role'],
-        ]);
-
-        return ['email' => $account['email'], 'password' => $account['password'], 'status' => 'created'];
+        throw new RuntimeException('Public alumni-admin bootstrap is disabled. Manage administrator accounts through User Management.');
     }
 }

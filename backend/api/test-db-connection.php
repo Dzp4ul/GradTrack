@@ -1,39 +1,29 @@
 <?php
-header("Access-Control-Allow-Origin: *");
-header("Content-Type: application/json");
-
+require_once __DIR__ . '/config/cors.php';
 require_once __DIR__ . '/config/database.php';
 
 try {
     $database = new Database();
     $conn = $database->getConnection();
-    
-    // Test query
-    $stmt = $conn->query("SELECT COUNT(*) as count FROM graduates");
-    $result = $stmt->fetch(PDO::FETCH_ASSOC);
-    
-    $stmt2 = $conn->query("SELECT COUNT(*) as count FROM survey_responses");
-    $result2 = $stmt2->fetch(PDO::FETCH_ASSOC);
-    
-    $stmt3 = $conn->query("SELECT COUNT(*) as count FROM admin_users");
-    $result3 = $stmt3->fetch(PDO::FETCH_ASSOC);
-    
+
+    $graduates = $conn->query('SELECT COUNT(*) AS count FROM graduates')->fetch(PDO::FETCH_ASSOC);
+    $responses = $conn->query('SELECT COUNT(*) AS count FROM survey_responses')->fetch(PDO::FETCH_ASSOC);
+    $admins = $conn->query('SELECT COUNT(*) AS count FROM admin_users')->fetch(PDO::FETCH_ASSOC);
+
     echo json_encode([
-        "status" => "success",
-        "message" => "Database connected successfully",
-        "database" => [
-            "host" => getenv('DB_HOST'),
-            "name" => getenv('DB_NAME'),
-            "graduates_count" => $result['count'],
-            "survey_responses_count" => $result2['count'],
-            "admin_users_count" => $result3['count']
-        ]
+        'status' => 'success',
+        'message' => 'Database connected successfully',
+        'database' => [
+            'graduates_count' => (int) ($graduates['count'] ?? 0),
+            'survey_responses_count' => (int) ($responses['count'] ?? 0),
+            'admin_users_count' => (int) ($admins['count'] ?? 0),
+        ],
     ]);
-} catch (Exception $e) {
+} catch (Throwable $e) {
+    error_log('Database connection diagnostic failed: ' . $e->getMessage());
     http_response_code(500);
     echo json_encode([
-        "status" => "error",
-        "message" => "Database connection failed",
-        "error" => $e->getMessage()
+        'status' => 'error',
+        'message' => 'Unable to connect to the server. Please try again later.',
     ]);
 }

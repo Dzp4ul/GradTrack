@@ -33,7 +33,7 @@ Your GradTrack system has been completely restructured from a **6/10 deployment 
 **Problem**: Database password exposed in `database.php`
 ```php
 // BEFORE (SECURITY RISK!)
-private $password = "Gradtrack301";
+private $password = "<hardcoded-db-password>";
 ```
 **Solution**:
 ```php
@@ -46,7 +46,7 @@ $this->password = getenv('DB_PASSWORD');
 ```typescript
 // BEFORE (SECURITY RISK!)
 const hardcodedEmail = "admin@norzagaray.edu.ph";
-const hardcodedPassword = "admin123";
+const hardcodedPassword = "<hardcoded-admin-password>";
 ```
 **Solution**: Removed completely, all auth goes through database
 

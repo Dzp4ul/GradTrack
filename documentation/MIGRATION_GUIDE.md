@@ -32,7 +32,7 @@ Your GradTrack system has been restructured for production deployment. Here's wh
 ```typescript
 // ❌ REMOVED (Security Risk)
 const hardcodedEmail = "admin@norzagaray.edu.ph";
-const hardcodedPassword = "admin123";
+const hardcodedPassword = "<hardcoded-admin-password>";
 
 // ✅ NOW: All authentication goes through database
 ```
@@ -74,8 +74,8 @@ server: {
 **Changed**: Now reads from environment variables
 ```php
 // ❌ OLD (Hardcoded)
-private $host = "gradtrackdb.cry06m2ok5u8...";
-private $password = "Gradtrack301";
+private $host = "<old-rds-endpoint>";
+private $password = "<hardcoded-db-password>";
 
 // ✅ NEW (Environment Variables)
 public function __construct() {
@@ -164,10 +164,10 @@ docker-compose up
 ### Backend (.env)
 Create `backend/.env`:
 ```env
-DB_HOST=gradtrackdb.cry06m2ok5u8.ap-southeast-2.rds.amazonaws.com
+DB_HOST=<AWS_RDS_ENDPOINT>
 DB_NAME=gradtrackdb
 DB_USER=admin
-DB_PASSWORD=Gradtrack301
+DB_PASSWORD=<DB_PASSWORD>
 DB_PORT=3306
 APP_ENV=development
 CORS_ALLOWED_ORIGINS=http://localhost:5173

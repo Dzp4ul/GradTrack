@@ -234,6 +234,51 @@ if (!function_exists('gradtrack_rating_get_latest_employment')) {
     }
 }
 
+if (!function_exists('gradtrack_rating_get_latest_survey')) {
+    function gradtrack_rating_get_latest_survey(PDO $db, int $graduateId, int $accountId): ?array
+    {
+        $accountStmt = $db->prepare('SELECT source_survey_response_id
+                                     FROM graduate_accounts
+                                     WHERE id = :account_id
+                                     LIMIT 1');
+        $accountStmt->execute([':account_id' => $accountId]);
+        $sourceResponseId = (int) ($accountStmt->fetch(PDO::FETCH_ASSOC)['source_survey_response_id'] ?? 0);
+
+        if ($sourceResponseId > 0) {
+            $sourceStmt = $db->prepare('SELECT id, survey_id, responses
+                                        FROM survey_responses
+                                        WHERE id = :response_id
+                                          AND (graduate_id = :source_graduate_id OR graduate_account_id = :source_account_id)
+                                          AND submitted_at IS NOT NULL
+                                        LIMIT 1');
+            $sourceStmt->execute([
+                ':response_id' => $sourceResponseId,
+                ':source_graduate_id' => $graduateId,
+                ':source_account_id' => $accountId,
+            ]);
+
+            $source = $sourceStmt->fetch(PDO::FETCH_ASSOC);
+            if ($source) {
+                return $source;
+            }
+        }
+
+        $stmt = $db->prepare('SELECT id, survey_id, responses
+                              FROM survey_responses
+                              WHERE (graduate_id = :graduate_id OR graduate_account_id = :account_id)
+                                AND submitted_at IS NOT NULL
+                              ORDER BY submitted_at DESC, id DESC
+                              LIMIT 1');
+        $stmt->execute([
+            ':graduate_id' => $graduateId,
+            ':account_id' => $accountId,
+        ]);
+
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        return $row ?: null;
+    }
+}
+
 if (!function_exists('gradtrack_rating_get_verification_flags')) {
     function gradtrack_rating_get_verification_flags(PDO $db, int $accountId): array
     {
@@ -252,12 +297,14 @@ if (!function_exists('gradtrack_rating_get_verification_flags')) {
                                           JOIN mentors m ON mr.mentor_id = m.id
                                           WHERE mr.status = 'completed'
                                             AND (
-                                                m.graduate_account_id = :account_id
-                                                OR mr.mentee_account_id = :account_id
+                                                m.graduate_account_id = :mentor_account_id
+                                                OR mr.mentee_account_id = :mentee_account_id
                                             )
                                           LIMIT 1");
-        $activeMentorStmt->bindParam(':account_id', $accountId);
-        $activeMentorStmt->execute();
+        $activeMentorStmt->execute([
+            ':mentor_account_id' => $accountId,
+            ':mentee_account_id' => $accountId,
+        ]);
         $isActiveMentor = (bool) $activeMentorStmt->fetch(PDO::FETCH_ASSOC);
 
         return [
@@ -308,10 +355,7 @@ if (!function_exists('gradtrack_get_alumni_rating')) {
             'alignment_signal' => null,
         ];
 
-        $latestSurveyStmt = $db->prepare('SELECT id, survey_id, responses FROM survey_responses WHERE graduate_id = :graduate_id ORDER BY submitted_at DESC, id DESC LIMIT 1');
-        $latestSurveyStmt->bindParam(':graduate_id', $graduateId);
-        $latestSurveyStmt->execute();
-        $latestSurvey = $latestSurveyStmt->fetch(PDO::FETCH_ASSOC);
+        $latestSurvey = gradtrack_rating_get_latest_survey($db, $graduateId, $accountId);
 
         if ($latestSurvey) {
             $surveyMeta['latest_survey_response_id'] = (int) $latestSurvey['id'];

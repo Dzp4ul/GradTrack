@@ -37,7 +37,7 @@ GradTrack/                     GradTrack/
 ```
 
 ### 2. Security Hardening
-- ❌ **REMOVED**: Hardcoded database password (`Gradtrack301`)
+- ❌ **REMOVED**: Hardcoded database password (`<hardcoded-db-password>`)
 - ❌ **REMOVED**: Hardcoded admin credentials (`admin@norzagaray.edu.ph`)
 - ✅ **ADDED**: Environment variable system
 - ✅ **ADDED**: Secure configuration management
@@ -89,7 +89,7 @@ Created 10+ comprehensive documentation files:
 **Before:**
 ```php
 // backend/api/config/database.php
-private $password = "Gradtrack301"; // EXPOSED IN CODE!
+private $password = "<hardcoded-db-password>"; // EXPOSED IN CODE!
 ```
 
 **After:**
@@ -103,7 +103,7 @@ $this->password = getenv('DB_PASSWORD'); // Secure!
 ```typescript
 // frontend/src/contexts/AuthContext.tsx
 const hardcodedEmail = "admin@norzagaray.edu.ph";
-const hardcodedPassword = "admin123"; // SECURITY RISK!
+const hardcodedPassword = "<hardcoded-admin-password>"; // SECURITY RISK!
 ```
 
 **After:**

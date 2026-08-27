@@ -1,32 +1,10 @@
 <?php
+require_once __DIR__ . '/env.php';
 
 if (!function_exists('gradtrack_audit_load_env_file')) {
     function gradtrack_audit_load_env_file(): void
     {
-        $envFile = __DIR__ . '/../../.env';
-        if (!file_exists($envFile)) {
-            return;
-        }
-
-        $lines = file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-        if ($lines === false) {
-            return;
-        }
-
-        foreach ($lines as $line) {
-            $trimmed = trim($line);
-            if ($trimmed === '' || strpos($trimmed, '#') === 0 || strpos($trimmed, '=') === false) {
-                continue;
-            }
-
-            [$key, $value] = explode('=', $trimmed, 2);
-            $key = trim($key);
-            $value = trim($value);
-
-            if ($key !== '' && getenv($key) === false) {
-                putenv($key . '=' . $value);
-            }
-        }
+        gradtrack_load_env_file();
     }
 }
 
@@ -45,20 +23,21 @@ if (!function_exists('gradtrack_audit_get_connection')) {
 
         gradtrack_audit_load_env_file();
 
-        $host = getenv('DB_HOST') ?: 'localhost';
-        $database = getenv('DB_NAME') ?: 'gradtrackdb';
-        $username = getenv('DB_USER') ?: 'root';
-        $password = getenv('DB_PASSWORD') ?: '';
-        $port = getenv('DB_PORT') ?: 3306;
+        $host = gradtrack_env('DB_HOST', '');
+        $database = gradtrack_env('DB_NAME', gradtrack_env('DB_DATABASE', ''));
+        $username = gradtrack_env('DB_USER', gradtrack_env('DB_USERNAME', ''));
+        $password = gradtrack_env('DB_PASSWORD', '');
+        $port = gradtrack_env('DB_PORT', '3306');
 
         try {
             $pdo = new PDO(
-                "mysql:host={$host};port={$port};dbname={$database}",
+                "mysql:host={$host};port={$port};dbname={$database};charset=utf8mb4",
                 $username,
                 $password,
                 [
                     PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
                     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+                    PDO::ATTR_EMULATE_PREPARES => false,
                 ]
             );
             $pdo->exec('SET NAMES utf8mb4');

@@ -1,33 +1,5 @@
 <?php
-if (!function_exists('gradtrack_load_env_file')) {
-    function gradtrack_load_env_file()
-    {
-        $envFile = __DIR__ . '/../../.env';
-        if (!file_exists($envFile)) {
-            return;
-        }
-
-        $lines = file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-        if ($lines === false) {
-            return;
-        }
-
-        foreach ($lines as $line) {
-            $trimmed = trim($line);
-            if ($trimmed === '' || strpos($trimmed, '#') === 0 || strpos($trimmed, '=') === false) {
-                continue;
-            }
-
-            list($key, $value) = explode('=', $trimmed, 2);
-            $key = trim($key);
-            $value = trim($value);
-
-            if ($key !== '' && getenv($key) === false) {
-                putenv($key . '=' . $value);
-            }
-        }
-    }
-}
+require_once __DIR__ . '/env.php';
 
 gradtrack_load_env_file();
 
