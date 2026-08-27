@@ -25,7 +25,6 @@ export const API_ENDPOINTS = {
     CHECK: `${API_ROOT}/graduate-auth/check.php`,
     FORGOT_PASSWORD: `${API_ROOT}/graduate-auth/forgot-password.php`,
     REGISTER_FROM_SURVEY: `${API_ROOT}/graduate-auth/register-from-survey.php`,
-    REALTIME_TOKEN: `${API_ROOT}/graduate-auth/realtime-token.php`,
   },
   GRADUATE_PROFILE: `${API_ROOT}/graduate-profile/index.php`,
   GRADUATES: `${API_ROOT}/graduates/index.php`,

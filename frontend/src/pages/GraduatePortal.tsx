@@ -64,7 +64,7 @@ import ThemeToggle from '../components/ThemeToggle';
 import { useGraduateAuth } from '../contexts/GraduateAuthContext';
 import type { GraduateUser } from '../contexts/GraduateAuthContext';
 import { useSystemSettings } from '../contexts/SystemSettingsContext';
-import { createRealtimeChatSocket, emitWithAck, fetchRealtimeChatToken } from '../services/realtimeChat';
+import { createRealtimeChatSocket, emitWithAck } from '../services/realtimeChat';
 import type { RealtimeChatStatus } from '../services/realtimeChat';
 
 type PortalTab = 'dashboard' | 'community_forum' | 'messages' | 'group_chats' | 'jobs' | 'job_posting' | 'my_profile';
@@ -924,8 +924,6 @@ export default function GraduatePortal() {
 
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [directory, setDirectory] = useState<ChatParticipant[]>([]);
-  const [chatsLoading, setChatsLoading] = useState(false);
-  const [directoryLoading, setDirectoryLoading] = useState(false);
   const [chatSearch, setChatSearch] = useState('');
   const [selectedRoomId, setSelectedRoomId] = useState<number | null>(null);
   const [activeRoom, setActiveRoom] = useState<ChatRoom | null>(null);
@@ -968,16 +966,11 @@ export default function GraduatePortal() {
   const chatJoinedRoomIdRef = useRef<number | null>(null);
   const selectedRoomIdRef = useRef<number | null>(null);
   const previousSelectedRoomIdRef = useRef<number | null>(null);
-  const activeRoomRef = useRef<ChatRoom | null>(null);
   const roomMessagesRef = useRef<ChatMessage[]>([]);
   const retryAttachmentsRef = useRef<Record<string, SelectedAttachment>>({});
   const chatSelectedAttachmentRef = useRef<SelectedAttachment | null>(null);
   const chatTypingExpiryTimeoutsRef = useRef<Map<string, number>>(new Map());
-  const chatRoomsRequestRef = useRef<Promise<void> | null>(null);
-  const chatDirectoryRequestRef = useRef<Promise<void> | null>(null);
-  const chatDirectoryLoadedRef = useRef(false);
   const roomLoadRequestRef = useRef(0);
-  const loadedActiveRoomIdRef = useRef<number | null>(null);
   const loadMissedRoomMessagesRef = useRef<(roomId: number) => Promise<void>>(async () => undefined);
   const markVisibleMessagesAsReadRef = useRef<(roomId?: number, messages?: ChatMessage[]) => Promise<void>>(async () => undefined);
   const bootStartedRef = useRef(false);
@@ -1056,20 +1049,19 @@ export default function GraduatePortal() {
       .includes(query);
   });
 
-  const filteredRooms = useMemo(() => {
+  const matchesChatSearch = (room: ChatRoom) => {
     const query = chatSearch.trim().toLowerCase();
-    if (!query) return rooms;
+    if (!query) return true;
 
-    return rooms.filter((room) => (
-      [getRoomLabel(room, currentGraduateId), getRoomSubtitle(room, currentGraduateId), room.last_message || '']
-        .join(' ')
-        .toLowerCase()
-        .includes(query)
-    ));
-  }, [chatSearch, currentGraduateId, rooms]);
+    return [getRoomLabel(room, currentGraduateId), getRoomSubtitle(room, currentGraduateId), room.last_message || '']
+      .join(' ')
+      .toLowerCase()
+      .includes(query);
+  };
 
   const directRooms = useMemo(() => rooms.filter((room) => !room.is_group), [rooms]);
   const groupRooms = useMemo(() => rooms.filter((room) => room.is_group), [rooms]);
+  const filteredRooms = rooms.filter(matchesChatSearch);
 
   const chatModalProgramOptions = useMemo(() => (
     Array.from(new Set(directory.map((participant) => participant.program_code?.trim()).filter(Boolean) as string[]))
@@ -1084,7 +1076,7 @@ export default function GraduatePortal() {
     )).sort((first, second) => second - first)
   ), [directory]);
 
-  const filteredDirectory = useMemo(() => directory.filter((participant) => {
+  const filteredDirectory = directory.filter((participant) => {
     const query = chatModalSearch.trim().toLowerCase();
     const participantProgram = participant.program_code?.trim() || '';
     const participantBatch = participant.year_graduated ? String(participant.year_graduated) : '';
@@ -1094,7 +1086,7 @@ export default function GraduatePortal() {
     if (!query) return true;
 
     return [participant.full_name, participantProgram, participantBatch ? `Batch ${participantBatch}` : ''].join(' ').toLowerCase().includes(query);
-  }), [chatModalBatchFilter, chatModalProgramFilter, chatModalSearch, directory]);
+  });
 
   const pendingForumPostsCount = myForumPosts.filter((post) => post.status === 'pending').length;
   const approvedForumPostsCount = myForumPosts.filter((post) => post.status === 'approved').length;
@@ -1220,77 +1212,27 @@ export default function GraduatePortal() {
   }, [authenticatedFetch]);
 
   const loadChats = useCallback(async () => {
-    if (chatRoomsRequestRef.current) {
-      return chatRoomsRequestRef.current;
-    }
+    const response = await authenticatedFetch(API_ENDPOINTS.FORUM.CHATS);
+    const roomList = sortChatRooms(Array.isArray(response.data?.rooms) ? (response.data.rooms as ChatRoom[]) : []);
+    const directoryList = Array.isArray(response.data?.directory) ? (response.data.directory as ChatParticipant[]) : [];
 
-    setChatsLoading(true);
+    setRooms(roomList);
+    setDirectory(directoryList);
 
-    const request = (async () => {
-      const response = await authenticatedFetch(`${API_ENDPOINTS.FORUM.CHATS}?include_directory=0`);
-      const roomList = sortChatRooms(Array.isArray(response.data?.rooms) ? (response.data.rooms as ChatRoom[]) : []);
-
-      setRooms(roomList);
-
-      if (roomList.length === 0) {
-        setSelectedRoomId(null);
-        setActiveRoom(null);
-        setRoomMessages([]);
-        setMessagePagination(null);
-        roomMessagesRef.current = [];
-        activeRoomRef.current = null;
-        loadedActiveRoomIdRef.current = null;
-        return;
-      }
-
-      setSelectedRoomId((current) => {
-        if (current && roomList.some((room) => room.id === current)) {
-          return current;
-        }
-        return roomList[0].id;
-      });
-    })();
-
-    chatRoomsRequestRef.current = request;
-
-    try {
-      await request;
-    } finally {
-      if (chatRoomsRequestRef.current === request) {
-        chatRoomsRequestRef.current = null;
-        setChatsLoading(false);
-      }
-    }
-  }, [authenticatedFetch]);
-
-  const loadChatDirectory = useCallback(async (force = false) => {
-    if (!force && chatDirectoryLoadedRef.current) {
+    if (roomList.length === 0) {
+      setSelectedRoomId(null);
+      setActiveRoom(null);
+      setRoomMessages([]);
+      setMessagePagination(null);
       return;
     }
 
-    if (chatDirectoryRequestRef.current) {
-      return chatDirectoryRequestRef.current;
-    }
-
-    setDirectoryLoading(true);
-
-    const request = (async () => {
-      const response = await authenticatedFetch(`${API_ENDPOINTS.FORUM.CHATS}?include_rooms=0&include_directory=1`);
-      const directoryList = Array.isArray(response.data?.directory) ? (response.data.directory as ChatParticipant[]) : [];
-      setDirectory(directoryList);
-      chatDirectoryLoadedRef.current = true;
-    })();
-
-    chatDirectoryRequestRef.current = request;
-
-    try {
-      await request;
-    } finally {
-      if (chatDirectoryRequestRef.current === request) {
-        chatDirectoryRequestRef.current = null;
-        setDirectoryLoading(false);
+    setSelectedRoomId((current) => {
+      if (current && roomList.some((room) => room.id === current)) {
+        return current;
       }
-    }
+      return roomList[0].id;
+    });
   }, [authenticatedFetch]);
 
   const loadActivityLogs = useCallback(async () => {
@@ -1371,10 +1313,7 @@ export default function GraduatePortal() {
         const serverMessages = Array.isArray(response.data?.messages)
           ? (response.data.messages as ChatMessage[]).map((message) => normalizeChatMessage(message, currentGraduateId))
           : [];
-        const responseRoom = (response.data?.room as ChatRoom | undefined) || null;
-        activeRoomRef.current = responseRoom;
-        loadedActiveRoomIdRef.current = roomId;
-        setActiveRoom(responseRoom);
+        setActiveRoom((response.data?.room as ChatRoom | undefined) || null);
         setRoomMessages((current) => {
           const pendingForRoom = current.filter((message) => (
             message.room_id === roomId
@@ -1813,9 +1752,6 @@ export default function GraduatePortal() {
       setActiveRoom(null);
       setRoomMessages([]);
       setMessagePagination(null);
-      activeRoomRef.current = null;
-      roomMessagesRef.current = [];
-      loadedActiveRoomIdRef.current = null;
       setChatMobileConversationOpen(false);
       return;
     }
@@ -1892,10 +1828,6 @@ export default function GraduatePortal() {
   }, [selectedRoomId]);
 
   useEffect(() => {
-    activeRoomRef.current = activeRoom;
-  }, [activeRoom]);
-
-  useEffect(() => {
     const socket = chatSocketRef.current;
     const joinedRoomId = chatJoinedRoomIdRef.current;
     const typingRoomId = chatTypingRoomIdRef.current;
@@ -1925,8 +1857,6 @@ export default function GraduatePortal() {
         socket.emit('conversation:leave', { room_id: joinedRoomId });
       }
       chatJoinedRoomIdRef.current = null;
-      activeRoomRef.current = null;
-      loadedActiveRoomIdRef.current = null;
       return;
     }
 
@@ -1934,11 +1864,7 @@ export default function GraduatePortal() {
     if (activeTab === 'messages') {
       setChatMobileConversationOpen(true);
     }
-
-    const cachedRoom = activeRoomRef.current;
-    if (loadedActiveRoomIdRef.current !== selectedRoomId || cachedRoom?.id !== selectedRoomId) {
-      void loadRoomMessages(selectedRoomId);
-    }
+    void loadRoomMessages(selectedRoomId);
 
     if (socket?.connected) {
       void (async () => {
@@ -1960,34 +1886,20 @@ export default function GraduatePortal() {
   const chatFeatureOpen = messagingAvailable && ['community_forum', 'messages', 'group_chats'].includes(activeTab);
 
   useEffect(() => {
-    if (!chatFeatureOpen || chatsLoading || rooms.length === 0) return;
-
-    void loadChatDirectory().catch(() => undefined);
-  }, [chatFeatureOpen, chatsLoading, loadChatDirectory, rooms.length]);
-
-  useEffect(() => {
     if (!currentGraduateId || !chatFeatureOpen) {
       setChatConnectionStatus('disconnected');
       return undefined;
     }
 
     const socket = createRealtimeChatSocket();
-    let disposed = false;
-    let authRefreshAttempts = 0;
     let hasConnectedOnce = false;
     const typingExpiryTimeouts = chatTypingExpiryTimeoutsRef.current;
     chatSocketRef.current = socket;
     setChatConnectionStatus('connecting');
 
-    const refreshRealtimeToken = async () => {
-      const token = await fetchRealtimeChatToken();
-      socket.auth = { token };
-    };
-
     const handleConnect = () => {
       const isReconnect = hasConnectedOnce;
       hasConnectedOnce = true;
-      authRefreshAttempts = 0;
       setChatConnectionStatus('connected');
       const roomId = selectedRoomIdRef.current;
       if (roomId) {
@@ -2012,24 +1924,6 @@ export default function GraduatePortal() {
     };
 
     const handleConnectError = (error: Error) => {
-      if (/authentication required/i.test(error.message) && authRefreshAttempts < 1) {
-        authRefreshAttempts += 1;
-        setChatConnectionStatus('reconnecting');
-        void refreshRealtimeToken()
-          .then(() => {
-            if (!disposed && !socket.connected) {
-              socket.connect();
-            }
-          })
-          .catch(() => {
-            if (!disposed) {
-              setChatConnectionStatus('error');
-              socket.disconnect();
-            }
-          });
-        return;
-      }
-
       if (/authentication required|origin is not allowed/i.test(error.message)) {
         setChatConnectionStatus('error');
         socket.disconnect();
@@ -2166,18 +2060,9 @@ export default function GraduatePortal() {
     socket.on('unread-count:updated', handleUnreadUpdated);
     socket.on('user:status', applyPresenceStatus);
     socket.io.on('reconnect_attempt', handleReconnectAttempt);
-    void refreshRealtimeToken()
-      .catch((error) => {
-        console.warn('Realtime auth token unavailable; falling back to session cookie auth.', error);
-      })
-      .finally(() => {
-        if (!disposed) {
-          socket.connect();
-        }
-      });
+    socket.connect();
 
     return () => {
-      disposed = true;
       const typingRoomId = chatTypingRoomIdRef.current;
       if (typingRoomId && socket.connected) {
         socket.emit('typing:stop', { room_id: typingRoomId });
@@ -2257,21 +2142,15 @@ export default function GraduatePortal() {
 
   useEffect(() => {
     const handleNotificationUpdate = () => {
-      if (activeTab === 'messages' || activeTab === 'group_chats') {
-        void loadChats();
-        const roomId = selectedRoomIdRef.current;
-        if (roomId) {
-          void loadMissedRoomMessagesRef.current(roomId);
-        }
-        return;
-      }
-
       void loadBootData(true, activeTab);
+      if (selectedRoomId) {
+        void loadRoomMessages(selectedRoomId, true);
+      }
     };
 
     window.addEventListener('gradtrack:notifications-updated', handleNotificationUpdate);
     return () => window.removeEventListener('gradtrack:notifications-updated', handleNotificationUpdate);
-  }, [activeTab, loadBootData, loadChats]);
+  }, [activeTab, loadBootData, loadRoomMessages, selectedRoomId]);
 
   useEffect(() => {
     if (!mediaViewer) return undefined;
@@ -2709,9 +2588,6 @@ export default function GraduatePortal() {
     setChatModalProgramFilter('all');
     setChatModalBatchFilter('all');
     setChatModalOpen(true);
-    void loadChatDirectory().catch((error) => {
-      notify('error', error instanceof Error ? error.message : 'Unable to load graduates', 'Messages');
-    });
   };
 
   const openForumChatWindow = (roomId: number) => {
@@ -2764,6 +2640,7 @@ export default function GraduatePortal() {
       if (roomId > 0) {
         setSelectedRoomId(roomId);
         setChatMobileConversationOpen(true);
+        await loadRoomMessages(roomId);
       }
       setSelectedPostOpen(false);
       setChatModalOpen(false);
@@ -2812,6 +2689,7 @@ export default function GraduatePortal() {
       if (roomId > 0) {
         setSelectedRoomId(roomId);
         setChatMobileConversationOpen(true);
+        await loadRoomMessages(roomId);
       }
       selectTab(chatModalMode === 'group' ? 'group_chats' : 'messages');
 
@@ -3590,7 +3468,7 @@ export default function GraduatePortal() {
           search={chatSearch}
           draft={chatMessageDraft}
           roomLoading={roomLoading}
-          initialLoading={(loading || chatsLoading) && (isGroupMode ? groupRooms.length : directRooms.length) === 0}
+          initialLoading={loading && (isGroupMode ? groupRooms.length : directRooms.length) === 0}
           connectionStatus={chatConnectionStatus}
           loadingOlder={olderMessagesLoading}
           hasMoreOlder={!!messagePagination?.has_more_older}
@@ -3601,7 +3479,6 @@ export default function GraduatePortal() {
           newConversationOpen={!isGroupMode && chatModalOpen && chatModalMode === 'direct' && activeTab === 'messages'}
           newConversationSearch={chatModalSearch}
           newConversationCreating={chatCreating}
-          newConversationDirectoryLoading={directoryLoading}
           resolveAssetUrl={resolveAssetUrl}
           onSearchChange={setChatSearch}
           onSelectRoom={(roomId) => {
@@ -3630,7 +3507,6 @@ export default function GraduatePortal() {
   };
 
   const ActiveNavIcon = activeNavItem?.icon || MessageSquare;
-  const isChatTabActive = activeTab === 'messages' || activeTab === 'group_chats';
   const selectedForumChatRoom = selectedRoomId
     ? (activeRoom?.id === selectedRoomId ? activeRoom : rooms.find((room) => room.id === selectedRoomId) || null)
     : null;
@@ -3822,7 +3698,7 @@ export default function GraduatePortal() {
 
         </section>
 
-          {loading && !isChatTabActive ? (
+          {loading ? (
             <div className="flex min-h-[300px] items-center justify-center rounded-[32px] border border-slate-200 bg-white">
               <div className="flex items-center gap-3 text-slate-500">
                 <Loader2 className="h-5 w-5 animate-spin" />
@@ -4972,12 +4848,7 @@ export default function GraduatePortal() {
               </div>
 
               <div className="max-h-[360px] space-y-2 overflow-y-auto pr-1">
-                {directoryLoading && directory.length === 0 ? (
-                  <div className="flex min-h-[180px] items-center justify-center gap-3 rounded-2xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Loading graduates...
-                  </div>
-                ) : filteredDirectory.length === 0 ? (
+                {filteredDirectory.length === 0 ? (
                   <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">
                     No graduates match your filters.
                   </div>

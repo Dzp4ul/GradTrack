@@ -53,7 +53,6 @@ interface RealtimeMessagingWorkspaceProps {
   newConversationOpen: boolean;
   newConversationSearch: string;
   newConversationCreating: boolean;
-  newConversationDirectoryLoading: boolean;
   resolveAssetUrl: (path?: string | null) => string;
   onSearchChange: (value: string) => void;
   onSelectRoom: (roomId: number) => void;
@@ -921,7 +920,6 @@ function NewConversationModal({
   open,
   directory,
   search,
-  loading,
   creating,
   resolveAssetUrl,
   onClose,
@@ -932,7 +930,6 @@ function NewConversationModal({
   open: boolean;
   directory: MessagingParticipant[];
   search: string;
-  loading: boolean;
   creating: boolean;
   resolveAssetUrl: (path?: string | null) => string;
   onClose: () => void;
@@ -1028,12 +1025,7 @@ function NewConversationModal({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          {loading && directory.length === 0 ? (
-            <div className="flex min-h-[160px] items-center justify-center gap-3 rounded-lg border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading graduates...
-            </div>
-          ) : filtered.length === 0 ? (
+          {filtered.length === 0 ? (
             <div className="rounded-lg border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">
               No graduates match your filters.
             </div>
@@ -1088,7 +1080,6 @@ export default function RealtimeMessagingWorkspace({
   newConversationOpen,
   newConversationSearch,
   newConversationCreating,
-  newConversationDirectoryLoading,
   resolveAssetUrl,
   onSearchChange,
   onSelectRoom,
@@ -1169,7 +1160,6 @@ export default function RealtimeMessagingWorkspace({
         open={newConversationOpen}
         directory={directory}
         search={newConversationSearch}
-        loading={newConversationDirectoryLoading}
         creating={newConversationCreating}
         resolveAssetUrl={resolveAssetUrl}
         onClose={onCloseNewConversation}

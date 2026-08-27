@@ -49,25 +49,6 @@ function gradtrack_forum_chats_placeholders(array $ids, string $prefix, array &$
     return implode(', ', $placeholders);
 }
 
-function gradtrack_forum_chats_bool_query(string $key, bool $default): bool
-{
-    if (!array_key_exists($key, $_GET)) {
-        return $default;
-    }
-
-    $value = strtolower(trim((string) $_GET[$key]));
-
-    if (in_array($value, ['1', 'true', 'yes', 'on'], true)) {
-        return true;
-    }
-
-    if (in_array($value, ['0', 'false', 'no', 'off'], true)) {
-        return false;
-    }
-
-    return $default;
-}
-
 function gradtrack_forum_chats_validate_participants(PDO $db, array $participantIds): array
 {
     if (count($participantIds) === 0) {
@@ -268,26 +249,13 @@ try {
     $user = gradtrack_require_graduate_auth($db);
     $currentGraduateId = (int) $user['graduate_id'];
 
-    if (session_status() === PHP_SESSION_ACTIVE) {
-        session_write_close();
-    }
-
     if ($method === 'GET') {
-        $includeRooms = gradtrack_forum_chats_bool_query('include_rooms', true);
-        $includeDirectory = gradtrack_forum_chats_bool_query('include_directory', true);
-        $data = [];
-
-        if ($includeRooms) {
-            $data['rooms'] = gradtrack_forum_chats_rooms($db, $currentGraduateId);
-        }
-
-        if ($includeDirectory) {
-            $data['directory'] = gradtrack_forum_chats_directory($db, $currentGraduateId);
-        }
-
         echo json_encode([
             'success' => true,
-            'data' => $data,
+            'data' => [
+                'rooms' => gradtrack_forum_chats_rooms($db, $currentGraduateId),
+                'directory' => gradtrack_forum_chats_directory($db, $currentGraduateId),
+            ],
         ]);
         exit;
     }

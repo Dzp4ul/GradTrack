@@ -354,10 +354,6 @@ try {
     $user = gradtrack_require_graduate_auth($db);
     $currentGraduateId = (int) $user['graduate_id'];
 
-    if (session_status() === PHP_SESSION_ACTIVE) {
-        session_write_close();
-    }
-
     if ($method === 'GET') {
         $roomId = isset($_GET['room_id']) ? (int) $_GET['room_id'] : 0;
         $beforeId = isset($_GET['before_id']) ? (int) $_GET['before_id'] : null;
