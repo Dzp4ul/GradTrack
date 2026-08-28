@@ -1,6 +1,6 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties, Dispatch, SetStateAction } from 'react';
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Award,
   Briefcase,
@@ -18,13 +18,13 @@ import {
   Flag,
   GraduationCap,
   Heart,
-  Home,
   ImagePlus,
   Loader2,
   LogOut,
   Mail,
   MapPin,
   Maximize2,
+  Megaphone,
   Menu,
   MessageCircle,
   MessageSquare,
@@ -61,13 +61,14 @@ import MessageBox from '../components/MessageBox';
 import FeatureUnavailable from '../components/FeatureUnavailable';
 import NotificationBell from '../components/NotificationBell';
 import ThemeToggle from '../components/ThemeToggle';
+import GraduateAnnouncements from '../components/graduate/GraduateAnnouncements';
 import { useGraduateAuth } from '../contexts/GraduateAuthContext';
 import type { GraduateUser } from '../contexts/GraduateAuthContext';
 import { useSystemSettings } from '../contexts/SystemSettingsContext';
 import { createRealtimeChatSocket, emitWithAck } from '../services/realtimeChat';
 import type { RealtimeChatStatus } from '../services/realtimeChat';
 
-type PortalTab = 'dashboard' | 'community_forum' | 'messages' | 'group_chats' | 'jobs' | 'job_posting' | 'my_profile';
+type PortalTab = 'announcements' | 'dashboard' | 'community_forum' | 'messages' | 'group_chats' | 'jobs' | 'job_posting' | 'my_profile';
 type ForumStatus = 'approved' | 'pending' | 'hidden';
 type ApprovalStatus = 'pending' | 'approved' | 'declined';
 
@@ -297,7 +298,7 @@ interface MessageBoxState {
   onConfirm?: () => void;
 }
 
-const portalTabs: PortalTab[] = ['dashboard', 'community_forum', 'messages', 'group_chats', 'jobs', 'job_posting', 'my_profile'];
+const portalTabs: PortalTab[] = ['announcements', 'dashboard', 'community_forum', 'messages', 'group_chats', 'jobs', 'job_posting', 'my_profile'];
 const graduatePortalLayoutStyle = {
   '--graduate-portal-header-height': '4rem',
   '--graduate-portal-sticky-gap': '1rem',
@@ -328,7 +329,7 @@ function getPortalTab(rawValue: string | null): PortalTab {
   if (rawValue && portalTabs.includes(rawValue as PortalTab)) {
     return rawValue as PortalTab;
   }
-  return 'community_forum';
+  return 'announcements';
 }
 
 function parsePositiveIntParam(rawValue: string | null) {
@@ -758,6 +759,13 @@ function getForumChatHeaderSubtitle(room: ChatRoom, currentGraduateId: number) {
 }
 
 function getPortalHeading(tab: PortalTab) {
+  if (tab === 'announcements') {
+    return {
+      title: 'Announcements',
+      subtitle: 'Read and share updates, alumni opportunities, events, and college activities.',
+    };
+  }
+
   if (tab === 'dashboard') {
     return {
       title: 'Graduate Dashboard',
@@ -810,13 +818,16 @@ export default function GraduatePortal() {
   const { user, logout, checkAuth } = useGraduateAuth();
   const { getSetting, isEnabled, resolveAssetUrl: resolveSystemAssetUrl } = useSystemSettings();
   const navigate = useNavigate();
-  const params = useParams<{ graduateId?: string }>();
+  const location = useLocation();
+  const params = useParams<{ graduateId?: string; announcementId?: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const routeProfileGraduateId = parsePositiveIntParam(params.graduateId || null);
+  const routeAnnouncementId = parsePositiveIntParam(params.announcementId || null);
   const isCommunityProfileRoute = routeProfileGraduateId > 0;
+  const isAnnouncementRoute = location.pathname.startsWith('/graduate/announcements');
 
   const [activeTab, setActiveTab] = useState<PortalTab>(() => (
-    isCommunityProfileRoute ? 'my_profile' : getPortalTab(searchParams.get('tab'))
+    isAnnouncementRoute ? 'announcements' : (isCommunityProfileRoute ? 'my_profile' : getPortalTab(searchParams.get('tab')))
   ));
   const [loading, setLoading] = useState(true);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
@@ -1131,13 +1142,17 @@ export default function GraduatePortal() {
   const selectTab = useCallback(
     (tab: PortalTab) => {
       setActiveTab(tab);
-      if (isCommunityProfileRoute) {
+      if (tab === 'announcements') {
+        navigate('/graduate/announcements');
+        return;
+      }
+      if (isCommunityProfileRoute || isAnnouncementRoute) {
         navigate(`/graduate/portal?tab=${tab}`);
         return;
       }
       setSearchParams({ tab });
     },
-    [isCommunityProfileRoute, navigate, setSearchParams],
+    [isAnnouncementRoute, isCommunityProfileRoute, navigate, setSearchParams],
   );
 
   const resetForumForm = useCallback(() => {
@@ -1493,7 +1508,7 @@ export default function GraduatePortal() {
   }, []);
 
   const loadBootData = useCallback(
-    async (silent = false, tab: PortalTab = 'dashboard') => {
+    async (silent = false, tab: PortalTab = 'announcements') => {
       if (!silent) {
         setLoading(true);
       }
@@ -1514,6 +1529,7 @@ export default function GraduatePortal() {
       ];
 
       const blockingKeysByTab: Record<PortalTab, string[]> = {
+        announcements: [],
         dashboard: tasks.map((task) => task.key),
         community_forum: communityAvailable ? ['forum', 'my_forum'] : [],
         messages: messagingAvailable ? ['chats'] : [],
@@ -1600,13 +1616,24 @@ export default function GraduatePortal() {
   }, [profileTargetGraduateId]);
 
   useEffect(() => {
+    if (isAnnouncementRoute) {
+      setActiveTab('announcements');
+      return;
+    }
+
     if (isCommunityProfileRoute) {
       setActiveTab('my_profile');
       return;
     }
 
+    if (!searchParams.get('tab')) {
+      setActiveTab('announcements');
+      navigate('/graduate/announcements', { replace: true });
+      return;
+    }
+
     setActiveTab(getPortalTab(searchParams.get('tab')));
-  }, [isCommunityProfileRoute, searchParams]);
+  }, [isAnnouncementRoute, isCommunityProfileRoute, navigate, searchParams]);
 
   useEffect(() => {
     if (activeTab !== 'my_profile' || profileTargetGraduateId <= 0 || profileDetailsLoaded || profileDetailsLoading) {
@@ -3394,7 +3421,7 @@ export default function GraduatePortal() {
   };
 
   const navItems: Array<{ key: PortalTab; label: string; shortLabel: string; icon: LucideIcon; badge?: number }> = [
-    { key: 'dashboard', label: 'Dashboard', shortLabel: 'Home', icon: Home },
+    { key: 'announcements', label: 'Announcements', shortLabel: 'News', icon: Megaphone },
     { key: 'community_forum', label: 'Community Forum', shortLabel: 'Forum', icon: MessageSquare, badge: forumPosts.length },
     { key: 'messages', label: 'Messages', shortLabel: 'Chats', icon: MessageCircle, badge: directChatCount },
     { key: 'group_chats', label: 'Group Chats', shortLabel: 'Groups', icon: Users, badge: groupChatCount },
@@ -3491,7 +3518,7 @@ export default function GraduatePortal() {
         <div className="mx-auto grid max-w-screen-2xl grid-cols-[auto_minmax(0,1fr)] items-center gap-3 px-4 py-2 sm:px-6 xl:grid-cols-[minmax(180px,1fr)_auto_minmax(340px,1fr)] xl:gap-5">
           <button
             type="button"
-            onClick={() => selectTab('dashboard')}
+            onClick={() => selectTab('announcements')}
             className="flex shrink-0 items-center gap-3 justify-self-start text-left"
             title="GradTrack Community"
             aria-label="Open GradTrack Community"
@@ -3672,6 +3699,10 @@ export default function GraduatePortal() {
             </div>
           ) : (
             <>
+              {activeTab === 'announcements' && (
+                <GraduateAnnouncements announcementId={routeAnnouncementId || undefined} />
+              )}
+
               {activeTab === 'dashboard' && (
                 <section className="space-y-6">
                   <div className="grid gap-4 lg:grid-cols-4">

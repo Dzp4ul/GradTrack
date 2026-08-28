@@ -41,16 +41,25 @@ CREATE TABLE `surveys` (
 
 CREATE TABLE `announcements` (
     `id` INT NOT NULL AUTO_INCREMENT,
+    `graduate_id` INT DEFAULT NULL,
+    `created_by_admin_id` INT DEFAULT NULL,
     `title` VARCHAR(255) NOT NULL,
+    `summary` VARCHAR(500) DEFAULT NULL,
     `content` TEXT NOT NULL,
     `category` VARCHAR(50) NOT NULL DEFAULT 'general',
-    `status` ENUM('draft','published','archived') NOT NULL DEFAULT 'draft',
+    `event_date` DATE DEFAULT NULL,
+    `cover_image_path` VARCHAR(255) DEFAULT NULL,
+    `cover_image_original_name` VARCHAR(255) DEFAULT NULL,
+    `cover_image_mime_type` VARCHAR(120) DEFAULT NULL,
+    `cover_image_file_size_bytes` INT DEFAULT NULL,
+    `status` ENUM('draft','published','archived') NOT NULL DEFAULT 'published',
     `published_at` DATETIME DEFAULT NULL,
-    `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
-    `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
+    KEY `idx_announcements_graduate` (`graduate_id`),
     KEY `idx_announcements_status_created` (`status`, `created_at`),
-    KEY `idx_announcements_published` (`status`, `published_at`)
+    KEY `idx_announcements_category_created` (`category`, `created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE `employment_trends` (
@@ -691,6 +700,16 @@ ALTER TABLE `system_settings`
 ALTER TABLE `graduates`
     ADD CONSTRAINT `fk_graduates_program`
     FOREIGN KEY (`program_id`) REFERENCES `programs` (`id`)
+    ON DELETE SET NULL;
+
+ALTER TABLE `announcements`
+    ADD CONSTRAINT `fk_announcements_graduate`
+    FOREIGN KEY (`graduate_id`) REFERENCES `graduates` (`id`)
+    ON DELETE CASCADE;
+
+ALTER TABLE `announcements`
+    ADD CONSTRAINT `fk_announcements_admin`
+    FOREIGN KEY (`created_by_admin_id`) REFERENCES `admin_users` (`id`)
     ON DELETE SET NULL;
 
 ALTER TABLE `employment`

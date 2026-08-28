@@ -18,6 +18,7 @@ import {
   User,
   History,
   Mail,
+  Megaphone,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
@@ -57,6 +58,7 @@ const registrarNavItems: NavItem[] = [
 
 const alumniAdminNavItems: NavItem[] = [
   { to: '/admin/alumni-registered-list', icon: Users, label: 'Alumni Verification' },
+  { to: '/admin/announcements', icon: Megaphone, label: 'Announcements' },
   { to: '/admin/forum-moderation', icon: MessageSquareMore, label: 'Forum Moderation', end: true },
   { to: '/admin/job-approvals', icon: Briefcase, label: 'Job Approval' },
 ];

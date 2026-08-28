@@ -57,7 +57,7 @@ export default function GraduateSignIn() {
         title: 'Welcome Back',
         message: 'You are now signed in to the Graduate Portal.',
       });
-      setTimeout(() => navigate('/graduate/portal'), 900);
+      setTimeout(() => navigate('/graduate/announcements'), 900);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to sign in right now.';
       const isPending = message.toLowerCase().includes('pending alumni verification');

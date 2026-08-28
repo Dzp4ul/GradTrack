@@ -29,6 +29,7 @@ import DeanSurveyStatus from './pages/admin/DeanSurveyStatus';
 import UserManagement from './pages/admin/UserManagement';
 import EngagementApprovals from './pages/admin/EngagementApprovals';
 import ForumModeration from './pages/admin/ForumModeration';
+import Announcements from './pages/admin/Announcements';
 import AlumniRegisteredList from './pages/admin/AlumniRegisteredList';
 import AuditTrail from './pages/admin/AuditTrail.jsx';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -109,6 +110,22 @@ function App() {
           <Route path="/graduate/forgot-password" element={<GraduateForgotPassword />} />
           <Route
             path="/graduate/portal"
+            element={
+              <GraduateProtectedRoute>
+                <GraduatePortal />
+              </GraduateProtectedRoute>
+            }
+          />
+          <Route
+            path="/graduate/announcements"
+            element={
+              <GraduateProtectedRoute>
+                <GraduatePortal />
+              </GraduateProtectedRoute>
+            }
+          />
+          <Route
+            path="/graduate/announcements/:announcementId"
             element={
               <GraduateProtectedRoute>
                 <GraduatePortal />
@@ -264,6 +281,14 @@ function App() {
               element={
                 <ProtectedRoute allowedRoles={SUPER_ADMIN_ROLES}>
                   <AuditTrail />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="announcements"
+              element={
+                <ProtectedRoute allowedRoles={ALUMNI_ADMIN_ROLES}>
+                  <Announcements />
                 </ProtectedRoute>
               }
             />

@@ -4,6 +4,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/engagement_approval.php';
 require_once __DIR__ . '/../config/forum.php';
+require_once __DIR__ . '/../config/announcements.php';
 
 function gradtrack_notifications_json_error(int $statusCode, string $message): void
 {
@@ -77,10 +78,18 @@ function gradtrack_notifications_program_placeholders(array $programCodes, array
 function gradtrack_notifications_add_announcements(PDO $db, array &$notifications, string $targetType): void
 {
     try {
-        $stmt = $db->query("SELECT id, title, content, category, published_at, created_at, updated_at
-                           FROM announcements
-                           WHERE status = 'published'
-                           ORDER BY COALESCE(published_at, created_at) DESC, id DESC
+        $stmt = $db->query("SELECT a.id, a.title, a.summary, a.content, a.category,
+                                  a.published_at, a.created_at,
+                                  COALESCE(
+                                      NULLIF(TRIM(CONCAT_WS(' ', g.first_name, g.middle_name, g.last_name)), ''),
+                                      NULLIF(TRIM(au.full_name), ''),
+                                      'GradTrack'
+                                  ) AS author_name
+                           FROM announcements a
+                           LEFT JOIN graduates g ON g.id = a.graduate_id
+                           LEFT JOIN admin_users au ON au.id = a.created_by_admin_id
+                           WHERE a.status = 'published'
+                           ORDER BY COALESCE(a.published_at, a.created_at) DESC, a.id DESC
                            LIMIT 5");
     } catch (PDOException $e) {
         // Announcements are optional; skip this source when the table/schema is not present.
@@ -89,16 +98,20 @@ function gradtrack_notifications_add_announcements(PDO $db, array &$notification
 
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $createdAt = $row['published_at'] ?: $row['created_at'];
-        $token = gradtrack_notifications_date_token($row['updated_at'] ?: $createdAt);
-        $category = ucfirst((string) ($row['category'] ?? 'general'));
+        $token = gradtrack_notifications_date_token($createdAt);
+        $authorName = trim((string) ($row['author_name'] ?? 'GradTrack'));
+        $snippet = trim((string) ($row['summary'] ?? ''));
+        if ($snippet === '') {
+            $snippet = gradtrack_notifications_snippet($row['content']);
+        }
         gradtrack_notifications_add(
             $notifications,
             'announcement:' . $row['id'] . ':' . $token,
             'announcement',
-            (string) $row['title'],
-            $category . ': ' . gradtrack_notifications_snippet($row['content']),
+            'New announcement from ' . $authorName,
+            '“' . (string) $row['title'] . '” — ' . gradtrack_notifications_snippet($snippet),
             $createdAt,
-            $targetType === 'graduate' ? '/graduate/portal' : '/admin'
+            $targetType === 'graduate' ? '/graduate/announcements/' . (int) $row['id'] : '/admin'
         );
     }
 }
@@ -725,6 +738,7 @@ $method = $_SERVER['REQUEST_METHOD'];
 
 try {
     gradtrack_forum_ensure_schema($db);
+    gradtrack_announcements_ensure_schema($db);
     gradtrack_notifications_ensure_schema($db);
     gradtrack_ensure_engagement_approval_schema($db);
     $audience = isset($_GET['audience']) && in_array($_GET['audience'], ['admin', 'graduate'], true)
