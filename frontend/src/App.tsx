@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import HomePage from './pages/HomePage';
+import PublicAnnouncementsPage from './pages/PublicAnnouncementsPage';
 import AboutPage from './pages/AboutPage';
 import FAQPage from './pages/FAQPage';
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
@@ -99,6 +100,8 @@ function App() {
       <GraduateAuthProvider>
         <Routes>
           <Route path="/" element={<PublicPage><HomePage /></PublicPage>} />
+          <Route path="/announcements" element={<PublicPage><PublicAnnouncementsPage /></PublicPage>} />
+          <Route path="/announcements/:announcementId" element={<PublicPage><PublicAnnouncementsPage /></PublicPage>} />
           <Route path="/about" element={<PublicPage><AboutPage /></PublicPage>} />
           <Route path="/faq" element={<PublicPage><FAQPage /></PublicPage>} />
           <Route path="/privacy-policy" element={<PublicPage><PrivacyPolicyPage /></PublicPage>} />

@@ -1,5 +1,5 @@
-import { KeyboardEvent, useCallback, useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useCallback, useEffect, useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
   ArrowLeft,
@@ -14,33 +14,7 @@ import {
   X,
 } from 'lucide-react';
 import { API_BASE_URL, API_ENDPOINTS } from '../../config/api';
-
-interface Announcement {
-  id: number;
-  title: string;
-  summary: string;
-  content: string;
-  category: string;
-  event_date?: string | null;
-  cover_image_path?: string | null;
-  status: string;
-  published_at?: string | null;
-  created_at: string;
-  updated_at: string;
-  author_name: string;
-  author_program_name?: string | null;
-  author_program_code?: string | null;
-  author_profile_image_path?: string | null;
-  author_type?: 'graduate' | 'admin';
-  images?: AnnouncementGalleryImage[];
-}
-
-interface AnnouncementGalleryImage {
-  id: number;
-  file_path: string;
-  original_name: string;
-  sort_order: number;
-}
+import { fetchAnnouncements, type Announcement, type AnnouncementGalleryImage } from '../../services/announcements';
 
 interface CategoryCount {
   category: string;
@@ -52,15 +26,6 @@ interface Pagination {
   per_page: number;
   total: number;
   last_page: number;
-}
-
-interface AnnouncementResponse {
-  success: boolean;
-  data?: Announcement | Announcement[];
-  category_counts?: CategoryCount[];
-  recent?: Announcement[];
-  pagination?: Pagination;
-  error?: string;
 }
 
 const categories = [
@@ -107,21 +72,6 @@ function initials(name?: string | null) {
   const parts = (name || 'GradTrack').trim().split(/\s+/).filter(Boolean);
   if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
   return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
-}
-
-async function request(url: string): Promise<AnnouncementResponse> {
-  const response = await fetch(url, { credentials: 'include' });
-  const text = await response.text();
-  let data: AnnouncementResponse;
-  try {
-    data = text ? JSON.parse(text) as AnnouncementResponse : { success: false };
-  } catch {
-    throw new Error('The announcement service returned an invalid response.');
-  }
-  if (!response.ok || !data.success) {
-    throw new Error(data.error || 'Unable to load announcements.');
-  }
-  return data;
 }
 
 function AnnouncementImage({ announcement, compact = false }: { announcement: Announcement; compact?: boolean }) {
@@ -213,7 +163,23 @@ function CardSkeleton() {
   );
 }
 
-export default function GraduateAnnouncements({ announcementId }: { announcementId?: number }) {
+export function AnnouncementCard({ announcement, to, compact = false }: { announcement: Announcement; to: string; compact?: boolean }) {
+  return (
+    <article className="h-full min-w-0">
+      <Link to={to} className={`group flex h-full min-w-0 flex-col overflow-hidden border border-slate-200 bg-white shadow-sm transition duration-200 hover:-translate-y-1 hover:border-blue-200 hover:shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${compact ? 'rounded-2xl' : 'rounded-[28px]'}`}>
+        <div className={`${compact ? 'aspect-video' : 'aspect-[16/10]'} w-full overflow-hidden bg-slate-100`}><div className="h-full w-full transition duration-300 group-hover:scale-[1.025]"><AnnouncementImage announcement={announcement} compact={compact} /></div></div>
+        <div className="flex flex-1 flex-col p-5">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[11px] font-semibold text-slate-500"><span className="inline-flex items-center gap-1.5"><CalendarDays className="h-3.5 w-3.5 text-blue-600" />{formatShortDate(announcement.published_at || announcement.created_at)}</span><span className="inline-flex min-w-0 items-center gap-1.5"><Tag className="h-3.5 w-3.5 text-amber-600" /><span className="truncate">{categoryLabel(announcement.category)}</span></span></div>
+          <h2 className="mt-4 line-clamp-2 min-h-[3.5rem] text-lg font-bold leading-7 text-slate-900 transition group-hover:text-blue-700">{announcement.title}</h2>
+          <p className="mt-2 line-clamp-3 min-h-[4.5rem] text-sm leading-6 text-slate-500">{announcement.summary}</p>
+          <div className="mt-5 flex items-center gap-3 border-t border-slate-100 pt-4"><AuthorAvatar announcement={announcement} size="sm" /><div className="min-w-0 flex-1"><p className="truncate text-xs font-bold text-slate-800">{announcement.author_name}</p><p className="truncate text-[11px] text-slate-400">Alumni Administration</p></div><span className="shrink-0 text-xs font-extrabold uppercase tracking-wide text-blue-700">Read More</span></div>
+        </div>
+      </Link>
+    </article>
+  );
+}
+
+export default function GraduateAnnouncements({ announcementId, publicMode = false, basePath = '/graduate/announcements' }: { announcementId?: number; publicMode?: boolean; basePath?: string }) {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
@@ -232,9 +198,10 @@ export default function GraduateAnnouncements({ announcementId }: { announcement
     setError('');
     try {
       const params = new URLSearchParams({ page: String(page), per_page: '9' });
+      if (publicMode) params.set('public', '1');
       if (committedSearch.trim()) params.set('search', committedSearch.trim());
       if (category !== 'all') params.set('category', category);
-      const response = await request(`${API_ENDPOINTS.ANNOUNCEMENTS}?${params.toString()}`);
+      const response = await fetchAnnouncements(`${API_ENDPOINTS.ANNOUNCEMENTS}?${params.toString()}`);
       setAnnouncements(Array.isArray(response.data) ? response.data : []);
       setCategoryCounts(response.category_counts || []);
       setRecent(response.recent || []);
@@ -245,14 +212,16 @@ export default function GraduateAnnouncements({ announcementId }: { announcement
     } finally {
       setLoading(false);
     }
-  }, [category, committedSearch, page]);
+  }, [category, committedSearch, page, publicMode]);
 
   const loadDetail = useCallback(async (id: number) => {
     setLoading(true);
     setError('');
     setAnnouncement(null);
     try {
-      const response = await request(`${API_ENDPOINTS.ANNOUNCEMENTS}?id=${id}`);
+      const params = new URLSearchParams({ id: String(id) });
+      if (publicMode) params.set('public', '1');
+      const response = await fetchAnnouncements(`${API_ENDPOINTS.ANNOUNCEMENTS}?${params.toString()}`);
       setAnnouncement(!Array.isArray(response.data) ? response.data || null : null);
       setCategoryCounts(response.category_counts || []);
       setRecent(response.recent || []);
@@ -261,7 +230,7 @@ export default function GraduateAnnouncements({ announcementId }: { announcement
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [publicMode]);
 
   useEffect(() => {
     if (announcementId) void loadDetail(announcementId);
@@ -277,17 +246,11 @@ export default function GraduateAnnouncements({ announcementId }: { announcement
     setSearchParams(next, { replace: true });
   }, [announcementId, category, committedSearch, page, setSearchParams]);
 
-  const openAnnouncement = (id: number) => navigate(`/graduate/announcements/${id}`);
-  const handleCardKeyDown = (event: KeyboardEvent<HTMLElement>, id: number) => {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      openAnnouncement(id);
-    }
-  };
+  const openAnnouncement = (id: number) => navigate(`${basePath}/${id}`);
   const chooseCategory = (nextCategory: string) => {
     setCategory(nextCategory);
     setPage(1);
-    if (announcementId) navigate(nextCategory === 'all' ? '/graduate/announcements' : `/graduate/announcements?category=${nextCategory}`);
+    if (announcementId) navigate(nextCategory === 'all' ? basePath : `${basePath}?category=${nextCategory}`);
   };
   const retry = () => announcementId ? void loadDetail(announcementId) : void loadList();
 
@@ -299,7 +262,7 @@ export default function GraduateAnnouncements({ announcementId }: { announcement
         recent={recent}
         loading={loading}
         error={error}
-        onBack={() => navigate('/graduate/announcements')}
+        onBack={() => navigate(basePath)}
         onRetry={retry}
         onOpen={openAnnouncement}
         onCategory={chooseCategory}
@@ -310,24 +273,16 @@ export default function GraduateAnnouncements({ announcementId }: { announcement
   return (
     <section className="space-y-5" aria-label="Announcements list">
       {loading ? (
-        <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3" aria-label="Loading announcements">{Array.from({ length: 6 }, (_, index) => <CardSkeleton key={index} />)}</div>
+        <div className={`grid gap-5 md:grid-cols-2 ${publicMode ? 'lg:grid-cols-3' : 'xl:grid-cols-3'}`} aria-label="Loading announcements">{Array.from({ length: 6 }, (_, index) => <CardSkeleton key={index} />)}</div>
       ) : error ? (
         <div className="rounded-[28px] border border-red-200 bg-white px-6 py-14 text-center shadow-sm"><AlertCircle className="mx-auto h-11 w-11 text-red-500" /><h2 className="mt-4 text-lg font-bold text-slate-900">Announcements could not be loaded</h2><p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">{error}</p><button type="button" onClick={retry} className="mt-5 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-blue-800"><RotateCcw className="h-4 w-4" /> Try Again</button></div>
       ) : announcements.length === 0 ? (
         <div className="rounded-[28px] border border-slate-200 bg-white px-6 py-16 text-center shadow-sm"><span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50 text-blue-700"><Megaphone className="h-8 w-8" /></span><h2 className="mt-5 text-xl font-bold text-slate-900">No announcements yet.</h2><p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">{committedSearch || category !== 'all' ? 'No announcements match your current search or category.' : 'Announcements posted by the Alumni Admin will appear here.'}</p></div>
       ) : (
         <>
-          <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+          <div className={`grid gap-5 md:grid-cols-2 ${publicMode ? 'lg:grid-cols-3' : 'xl:grid-cols-3'}`}>
             {announcements.map((item) => (
-              <article key={item.id} role="link" tabIndex={0} onClick={() => openAnnouncement(item.id)} onKeyDown={(event) => handleCardKeyDown(event, item.id)} className="group flex min-w-0 cursor-pointer flex-col overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-sm transition duration-200 hover:-translate-y-1 hover:border-blue-200 hover:shadow-xl focus-visible:ring-2 focus-visible:ring-blue-500">
-                <div className="aspect-[16/10] w-full overflow-hidden bg-slate-100"><div className="h-full w-full transition duration-300 group-hover:scale-[1.025]"><AnnouncementImage announcement={item} /></div></div>
-                <div className="flex flex-1 flex-col p-5">
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[11px] font-semibold text-slate-500"><span className="inline-flex items-center gap-1.5"><CalendarDays className="h-3.5 w-3.5 text-blue-600" />{formatShortDate(item.published_at || item.created_at)}</span><span className="inline-flex min-w-0 items-center gap-1.5"><Tag className="h-3.5 w-3.5 text-blue-600" /><span className="truncate">{categoryLabel(item.category)}</span></span></div>
-                  <h2 className="mt-4 line-clamp-2 min-h-[3.5rem] text-lg font-bold leading-7 text-slate-900 transition group-hover:text-blue-700">{item.title}</h2>
-                  <p className="mt-2 line-clamp-3 min-h-[4.5rem] text-sm leading-6 text-slate-500">{item.summary}</p>
-                  <div className="mt-5 flex items-center gap-3 border-t border-slate-100 pt-4"><AuthorAvatar announcement={item} size="sm" /><div className="min-w-0 flex-1"><p className="truncate text-xs font-bold text-slate-800">{item.author_name}</p><p className="truncate text-[11px] text-slate-400">Alumni Administration</p></div><span className="shrink-0 text-xs font-extrabold uppercase tracking-wide text-blue-700">Read More</span></div>
-                </div>
-              </article>
+              <AnnouncementCard key={item.id} announcement={item} to={`${basePath}/${item.id}`} />
             ))}
           </div>
           {pagination.last_page > 1 && <nav className="flex items-center justify-center gap-3 pt-2" aria-label="Announcement pages"><button type="button" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))} className="inline-flex h-10 cursor-pointer items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 transition hover:border-blue-200 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"><ChevronLeft className="h-4 w-4" /> Previous</button><span className="text-sm font-semibold text-slate-500">Page {pagination.current_page} of {pagination.last_page}</span><button type="button" disabled={page >= pagination.last_page} onClick={() => setPage((current) => Math.min(pagination.last_page, current + 1))} className="inline-flex h-10 cursor-pointer items-center gap-1 rounded-xl border border-slate-200 bg-white px-3 text-sm font-bold text-slate-700 transition hover:border-blue-200 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40">Next <ChevronRight className="h-4 w-4" /></button></nav>}
@@ -375,7 +330,7 @@ function AnnouncementDetail({ announcement, categoryCounts, recent, loading, err
           <AnnouncementCoverImage announcement={announcement} />
 
           <header className="mt-5 max-w-3xl">
-            <h2 title={announcement.title} className="break-words text-2xl font-extrabold leading-tight text-slate-950 sm:text-[1.65rem] sm:leading-[1.25] lg:overflow-hidden lg:text-ellipsis lg:whitespace-nowrap">{announcement.title}</h2>
+            <h2 className="break-words text-2xl font-extrabold leading-tight text-slate-950 sm:text-[1.65rem] sm:leading-[1.25]">{announcement.title}</h2>
             <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-200 pb-4 text-xs font-medium text-slate-500">
               <span className="inline-flex min-w-0 items-center gap-2"><AuthorAvatar announcement={announcement} size="sm" /><span className="max-w-48 truncate font-bold text-slate-800">{announcement.author_name}</span></span>
               <span aria-hidden="true" className="hidden h-4 w-px bg-slate-300 sm:block" />

@@ -235,18 +235,22 @@ function gradtrack_announcements_insert_gallery_images(PDO $db, int $announcemen
     }
 }
 
-function gradtrack_announcements_category_counts(PDO $db): array
+function gradtrack_announcements_category_counts(PDO $db, bool $adminOnly = false): array
 {
+    $adminCondition = $adminOnly ? ' AND created_by_admin_id IS NOT NULL' : '';
     $stmt = $db->query("SELECT category, COUNT(*) AS total FROM announcements
-                        WHERE status = 'published' GROUP BY category ORDER BY total DESC, category ASC");
+                        WHERE status = 'published'{$adminCondition} GROUP BY category ORDER BY total DESC, category ASC");
     return array_map(static function (array $row): array {
         return ['category' => (string) $row['category'], 'count' => (int) $row['total']];
     }, $stmt->fetchAll(PDO::FETCH_ASSOC));
 }
 
-function gradtrack_announcements_recent(PDO $db, int $viewerGraduateId, int $excludeId = 0, int $limit = 5): array
+function gradtrack_announcements_recent(PDO $db, int $viewerGraduateId, int $excludeId = 0, int $limit = 5, bool $adminOnly = false): array
 {
     $sql = gradtrack_announcements_select_sql() . " WHERE a.status = 'published'";
+    if ($adminOnly) {
+        $sql .= ' AND a.created_by_admin_id IS NOT NULL';
+    }
     if ($excludeId > 0) {
         $sql .= ' AND a.id <> :exclude_id';
     }
@@ -289,20 +293,26 @@ if ($method === 'POST' && isset($_POST['_method'])) {
 }
 
 try {
-    $actor = gradtrack_announcements_require_actor($db);
-    $viewerGraduateId = $actor['type'] === 'graduate' ? (int) $actor['id'] : 0;
+    $actor = gradtrack_announcements_actor($db);
+    $isPublicRequest = $method === 'GET' && isset($_GET['public']) && $_GET['public'] === '1';
+    if (!$actor && !$isPublicRequest) {
+        gradtrack_announcements_json_error(401, 'Authentication required');
+    }
+    $viewerGraduateId = $actor && $actor['type'] === 'graduate' ? (int) $actor['id'] : 0;
 
     if ($method === 'GET') {
         $announcementId = isset($_GET['id']) ? (int) $_GET['id'] : 0;
         if ($announcementId > 0) {
             $sql = gradtrack_announcements_select_sql() . ' WHERE a.id = :id';
-            if ($actor['type'] === 'graduate') {
+            if ($isPublicRequest) {
+                $sql .= " AND a.status = 'published' AND a.created_by_admin_id IS NOT NULL";
+            } elseif ($actor['type'] === 'graduate') {
                 $sql .= " AND (a.status = 'published' OR a.graduate_id = :access_graduate_id)";
             }
             $stmt = $db->prepare($sql);
             $stmt->bindValue(':viewer_graduate_id', $viewerGraduateId, PDO::PARAM_INT);
             $stmt->bindValue(':id', $announcementId, PDO::PARAM_INT);
-            if ($actor['type'] === 'graduate') {
+            if (!$isPublicRequest && $actor['type'] === 'graduate') {
                 $stmt->bindValue(':access_graduate_id', $viewerGraduateId, PDO::PARAM_INT);
             }
             $stmt->execute();
@@ -316,8 +326,8 @@ try {
             echo json_encode([
                 'success' => true,
                 'data' => $normalized,
-                'category_counts' => gradtrack_announcements_category_counts($db),
-                'recent' => gradtrack_announcements_recent($db, $viewerGraduateId, $announcementId, 5),
+                'category_counts' => gradtrack_announcements_category_counts($db, $isPublicRequest),
+                'recent' => gradtrack_announcements_recent($db, $viewerGraduateId, $announcementId, 5, $isPublicRequest),
             ]);
             exit;
         }
@@ -326,8 +336,8 @@ try {
             $recentLimit = max(1, min(10, (int) ($_GET['limit'] ?? 5)));
             echo json_encode([
                 'success' => true,
-                'data' => gradtrack_announcements_recent($db, $viewerGraduateId, 0, $recentLimit),
-                'category_counts' => gradtrack_announcements_category_counts($db),
+                'data' => gradtrack_announcements_recent($db, $viewerGraduateId, 0, $recentLimit, $isPublicRequest),
+                'category_counts' => gradtrack_announcements_category_counts($db, $isPublicRequest),
             ]);
             exit;
         }
@@ -342,7 +352,10 @@ try {
 
         $conditions = [];
         $params = [];
-        if ($actor['type'] === 'graduate') {
+        if ($isPublicRequest) {
+            $conditions[] = "a.status = 'published'";
+            $conditions[] = 'a.created_by_admin_id IS NOT NULL';
+        } elseif ($actor['type'] === 'graduate') {
             $conditions[] = "a.status = 'published'";
             if ($mineOnly) {
                 $conditions[] = 'a.graduate_id = :mine_graduate_id';
@@ -381,9 +394,9 @@ try {
 
         echo json_encode([
             'success' => true,
-            'data' => gradtrack_announcements_normalize_rows($db, $stmt->fetchAll(PDO::FETCH_ASSOC), $actor['type'] === 'admin'),
-            'category_counts' => gradtrack_announcements_category_counts($db),
-            'recent' => gradtrack_announcements_recent($db, $viewerGraduateId, 0, 5),
+            'data' => gradtrack_announcements_normalize_rows($db, $stmt->fetchAll(PDO::FETCH_ASSOC), !$isPublicRequest && $actor['type'] === 'admin'),
+            'category_counts' => gradtrack_announcements_category_counts($db, $isPublicRequest),
+            'recent' => gradtrack_announcements_recent($db, $viewerGraduateId, 0, 5, $isPublicRequest),
             'pagination' => [
                 'current_page' => $page,
                 'per_page' => $perPage,

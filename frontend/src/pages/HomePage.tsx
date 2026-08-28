@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
-import { Briefcase, TrendingUp, Users, BarChart2, Bell, ShieldCheck } from 'lucide-react';
+import { BarChart2, Bell, ShieldCheck } from 'lucide-react';
 import Footer from '../components/Footer';
+import LatestAnnouncements from '../components/LatestAnnouncements';
 import PublicNav from '../components/PublicNav';
 import { useSystemSettings } from '../contexts/SystemSettingsContext';
 
@@ -46,50 +47,7 @@ function HomePage() {
           </div>
         </section>
 
-
-
-        <section id="about" className="bg-white py-14 sm:py-20">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-            <div className="text-center mb-10 sm:mb-16">
-              <h2 className="text-3xl sm:text-4xl font-bold text-blue-900 mb-4">About {getSetting('system_short_name', 'GradTrack')}</h2>
-              <p className="text-base sm:text-xl text-gray-600 max-w-3xl mx-auto">
-                {getSetting('system_description', "GradTrack is Norzagaray College's official graduate tracking and survey management system built to monitor alumni outcomes, measure program effectiveness, and strengthen the bond between the college and its graduates.")}
-              </p>
-            </div>
-
-            <div className="grid md:grid-cols-3 gap-8">
-              <div className="text-center p-6 sm:p-8 rounded-2xl bg-gradient-to-br from-blue-50 to-white border border-blue-100 hover:shadow-xl transition">
-                <div className="inline-block bg-blue-600 p-4 rounded-2xl mb-6">
-                  <Users className="w-8 h-8 text-white" />
-                </div>
-                <h3 className="text-2xl font-bold text-blue-900 mb-3">For Graduates</h3>
-                <p className="text-gray-600 leading-relaxed">
-                  Complete tracer surveys, submit your employment details, and receive announcements from Norzagaray College all in one place.
-                </p>
-              </div>
-
-              <div className="text-center p-6 sm:p-8 rounded-2xl bg-gradient-to-br from-yellow-50 to-white border border-yellow-100 hover:shadow-xl transition">
-                <div className="inline-block bg-yellow-500 p-4 rounded-2xl mb-6">
-                  <TrendingUp className="w-8 h-8 text-blue-900" />
-                </div>
-                <h3 className="text-2xl font-bold text-blue-900 mb-3">Institutional Insights</h3>
-                <p className="text-gray-600 leading-relaxed">
-                  Gain a clear picture of graduate outcomes employment rates, industry distribution, and course-career alignment.
-                </p>
-              </div>
-
-              <div className="text-center p-6 sm:p-8 rounded-2xl bg-gradient-to-br from-blue-50 to-white border border-blue-100 hover:shadow-xl transition">
-                <div className="inline-block bg-blue-600 p-4 rounded-2xl mb-6">
-                  <Briefcase className="w-8 h-8 text-white" />
-                </div>
-                <h3 className="text-2xl font-bold text-blue-900 mb-3">Course-Career Alignment</h3>
-                <p className="text-gray-600 leading-relaxed">
-                  Automatically measures whether graduates are working in fields related to their degree, giving the college actionable data to improve its programs.
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
+        <LatestAnnouncements />
 
         <section id="why-gradtrack" className="bg-gray-50 py-14 sm:py-20">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
