@@ -6,6 +6,7 @@ import {
   ChevronRight,
   Edit2,
   ImagePlus,
+  Images,
   Loader2,
   Megaphone,
   Plus,
@@ -30,6 +31,22 @@ interface Announcement {
   created_at: string;
   updated_at: string;
   author_name: string;
+  images?: AnnouncementGalleryImage[];
+}
+
+interface AnnouncementGalleryImage {
+  id: number;
+  announcement_id: number;
+  file_path: string;
+  original_name: string;
+  mime_type: string;
+  file_size_bytes: number;
+  sort_order: number;
+}
+
+interface SelectedGalleryImage {
+  file: File;
+  preview: string;
 }
 
 interface AnnouncementForm {
@@ -132,8 +149,13 @@ export default function Announcements() {
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState('');
   const [removeImage, setRemoveImage] = useState(false);
+  const [existingGalleryImages, setExistingGalleryImages] = useState<AnnouncementGalleryImage[]>([]);
+  const [galleryFiles, setGalleryFiles] = useState<SelectedGalleryImage[]>([]);
+  const [removedGalleryImageIds, setRemovedGalleryImageIds] = useState<number[]>([]);
   const [saving, setSaving] = useState(false);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
+  const galleryInputRef = useRef<HTMLInputElement | null>(null);
+  const galleryFilesRef = useRef<SelectedGalleryImage[]>([]);
   const [message, setMessage] = useState<{
     isOpen: boolean;
     type: 'success' | 'error' | 'warning' | 'info' | 'confirm';
@@ -168,6 +190,14 @@ export default function Announcements() {
     if (imagePreview.startsWith('blob:')) URL.revokeObjectURL(imagePreview);
   }, [imagePreview]);
 
+  useEffect(() => {
+    galleryFilesRef.current = galleryFiles;
+  }, [galleryFiles]);
+
+  useEffect(() => () => {
+    galleryFilesRef.current.forEach((item) => URL.revokeObjectURL(item.preview));
+  }, []);
+
   const closeMessage = () => setMessage((current) => ({ ...current, isOpen: false }));
 
   const closeForm = () => {
@@ -176,6 +206,10 @@ export default function Announcements() {
     setImageFile(null);
     setImagePreview('');
     setRemoveImage(false);
+    galleryFiles.forEach((item) => URL.revokeObjectURL(item.preview));
+    setExistingGalleryImages([]);
+    setGalleryFiles([]);
+    setRemovedGalleryImageIds([]);
   };
 
   const openCreate = () => {
@@ -183,6 +217,10 @@ export default function Announcements() {
     setImageFile(null);
     setImagePreview('');
     setRemoveImage(false);
+    galleryFiles.forEach((item) => URL.revokeObjectURL(item.preview));
+    setExistingGalleryImages([]);
+    setGalleryFiles([]);
+    setRemovedGalleryImageIds([]);
     setFormOpen(true);
   };
 
@@ -200,6 +238,10 @@ export default function Announcements() {
     setImageFile(null);
     setImagePreview(resolveAssetUrl(announcement.cover_image_path));
     setRemoveImage(false);
+    galleryFiles.forEach((item) => URL.revokeObjectURL(item.preview));
+    setExistingGalleryImages(announcement.images || []);
+    setGalleryFiles([]);
+    setRemovedGalleryImageIds([]);
     setFormOpen(true);
   };
 
@@ -220,6 +262,44 @@ export default function Announcements() {
     setRemoveImage(false);
   };
 
+  const selectGalleryImages = (fileList?: FileList | null) => {
+    const files = Array.from(fileList || []);
+    if (galleryInputRef.current) galleryInputRef.current.value = '';
+    if (files.length === 0) return;
+
+    const availableSlots = 10 - existingGalleryImages.length - galleryFiles.length;
+    if (files.length > availableSlots) {
+      setMessage({ isOpen: true, type: 'warning', title: 'Too Many Images', message: `You can add ${Math.max(0, availableSlots)} more image${availableSlots === 1 ? '' : 's'}. Each announcement can have up to 10 additional images.` });
+      return;
+    }
+
+    const unsupported = files.find((file) => !['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type));
+    if (unsupported) {
+      setMessage({ isOpen: true, type: 'warning', title: 'Unsupported Image', message: `“${unsupported.name}” is not supported. Choose JPG, PNG, WEBP, or GIF images.` });
+      return;
+    }
+    const invalidSize = files.find((file) => file.size <= 0 || file.size > 5 * 1024 * 1024);
+    if (invalidSize) {
+      setMessage({ isOpen: true, type: 'warning', title: 'Image Too Large', message: `“${invalidSize.name}” must be no larger than 5 MB.` });
+      return;
+    }
+
+    setGalleryFiles((current) => [
+      ...current,
+      ...files.map((file) => ({ file, preview: URL.createObjectURL(file) })),
+    ]);
+  };
+
+  const removeExistingGalleryImage = (image: AnnouncementGalleryImage) => {
+    setExistingGalleryImages((current) => current.filter((item) => item.id !== image.id));
+    setRemovedGalleryImageIds((current) => [...current, image.id]);
+  };
+
+  const removeSelectedGalleryImage = (preview: string) => {
+    URL.revokeObjectURL(preview);
+    setGalleryFiles((current) => current.filter((item) => item.preview !== preview));
+  };
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!form.title.trim() || !form.summary.trim() || !form.content.trim()) {
@@ -236,6 +316,8 @@ export default function Announcements() {
     payload.append('status', form.status);
     if (imageFile) payload.append('cover_image', imageFile);
     if (removeImage) payload.append('remove_image', '1');
+    galleryFiles.forEach((item) => payload.append('gallery_images[]', item.file));
+    payload.append('remove_gallery_image_ids', JSON.stringify(removedGalleryImageIds));
     if (form.id) {
       payload.append('id', String(form.id));
       payload.append('_method', 'PUT');
@@ -327,6 +409,7 @@ export default function Announcements() {
                   <div className="flex flex-wrap items-center gap-2">
                     <span className={`rounded-full px-2.5 py-1 text-xs font-bold capitalize ${statusStyle[announcement.status]}`}>{announcement.status}</span>
                     <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-bold text-blue-700"><Tag className="h-3 w-3" />{categoryLabel(announcement.category)}</span>
+                    {(announcement.images?.length || 0) > 0 && <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2.5 py-1 text-xs font-bold text-violet-700"><Images className="h-3 w-3" />{announcement.images?.length} additional</span>}
                   </div>
                   <h2 className="mt-3 line-clamp-2 text-lg font-bold text-[#1b2a4a]">{announcement.title}</h2>
                   <p className="mt-2 line-clamp-2 text-sm leading-6 text-gray-600">{announcement.summary}</p>
@@ -362,7 +445,14 @@ export default function Announcements() {
                 </div>
                 <label className="block text-sm font-bold text-gray-700">Short Description <span className="text-red-500">*</span><textarea required maxLength={500} rows={3} value={form.summary} onChange={(event) => setForm((current) => ({ ...current, summary: event.target.value }))} className="mt-2 w-full resize-y rounded-xl border px-4 py-3 text-sm leading-6 outline-none focus:border-blue-500" placeholder="Summary displayed on announcement cards" /><span className="mt-1 block text-right text-xs font-normal text-gray-400">{form.summary.length}/500</span></label>
                 <label className="block text-sm font-bold text-gray-700">Full Content <span className="text-red-500">*</span><textarea required maxLength={60000} rows={9} value={form.content} onChange={(event) => setForm((current) => ({ ...current, content: event.target.value }))} className="mt-2 w-full resize-y rounded-xl border px-4 py-3 text-sm leading-7 outline-none focus:border-blue-500" placeholder={'Write the full announcement.\n\nUse blank lines for paragraphs.'} /></label>
-                <div><p className="text-sm font-bold text-gray-700">Cover Image <span className="font-normal text-gray-400">(optional)</span></p><input ref={imageInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={(event) => selectImage(event.target.files?.[0])} className="hidden" />{imagePreview && !removeImage ? <div className="mt-2 overflow-hidden rounded-xl border"><img src={imagePreview} alt="Cover preview" className="aspect-[16/6] w-full object-cover" /><div className="flex justify-end gap-2 border-t p-3"><button type="button" onClick={() => imageInputRef.current?.click()} className="cursor-pointer px-3 py-1 text-xs font-bold text-blue-700">Replace</button><button type="button" onClick={() => { setImageFile(null); setImagePreview(''); setRemoveImage(Boolean(form.existing_image_path)); }} className="cursor-pointer px-3 py-1 text-xs font-bold text-red-600">Remove</button></div></div> : <button type="button" onClick={() => imageInputRef.current?.click()} className="mt-2 flex w-full cursor-pointer flex-col items-center rounded-xl border-2 border-dashed bg-gray-50 px-5 py-7 text-center transition hover:border-blue-400"><ImagePlus className="h-7 w-7 text-blue-700" /><span className="mt-2 text-sm font-bold text-gray-700">Choose cover image</span><span className="mt-1 text-xs text-gray-400">JPG, PNG, WEBP, or GIF · Maximum 5 MB</span></button>}</div>
+                <div><p className="text-sm font-bold text-gray-700">Cover Image <span className="font-normal text-gray-400">(optional)</span></p><p className="mt-1 text-xs text-gray-400">Used on announcement cards and at the top of Read More.</p><input ref={imageInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={(event) => selectImage(event.target.files?.[0])} className="hidden" />{imagePreview && !removeImage ? <div className="mt-2 overflow-hidden rounded-xl border"><img src={imagePreview} alt="Cover preview" className="aspect-[16/6] w-full object-cover" /><div className="flex justify-end gap-2 border-t p-3"><button type="button" onClick={() => imageInputRef.current?.click()} className="cursor-pointer px-3 py-1 text-xs font-bold text-blue-700">Replace</button><button type="button" onClick={() => { setImageFile(null); setImagePreview(''); setRemoveImage(Boolean(form.existing_image_path)); }} className="cursor-pointer px-3 py-1 text-xs font-bold text-red-600">Remove</button></div></div> : <button type="button" onClick={() => imageInputRef.current?.click()} className="mt-2 flex w-full cursor-pointer flex-col items-center rounded-xl border-2 border-dashed bg-gray-50 px-5 py-7 text-center transition hover:border-blue-400"><ImagePlus className="h-7 w-7 text-blue-700" /><span className="mt-2 text-sm font-bold text-gray-700">Choose cover image</span><span className="mt-1 text-xs text-gray-400">JPG, PNG, WEBP, or GIF · Maximum 5 MB</span></button>}</div>
+                <div>
+                  <div className="flex items-start justify-between gap-4"><div><p className="text-sm font-bold text-gray-700">Additional Images <span className="font-normal text-gray-400">(optional)</span></p><p className="mt-1 text-xs text-gray-400">Displayed as a gallery when graduates click Read More.</p></div><span className="shrink-0 text-xs font-semibold text-gray-400">{existingGalleryImages.length + galleryFiles.length}/10</span></div>
+                  <input ref={galleryInputRef} type="file" multiple accept="image/jpeg,image/png,image/webp,image/gif" onChange={(event) => selectGalleryImages(event.target.files)} className="hidden" />
+                  {(existingGalleryImages.length > 0 || galleryFiles.length > 0) && <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">{existingGalleryImages.map((image) => <div key={image.id} className="group relative aspect-[4/3] overflow-hidden rounded-xl border bg-gray-100"><img src={resolveAssetUrl(image.file_path)} alt={image.original_name} className="h-full w-full object-cover" /><button type="button" onClick={() => removeExistingGalleryImage(image)} aria-label={`Remove ${image.original_name}`} className="absolute right-2 top-2 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-slate-950/75 text-white opacity-100 transition hover:bg-red-600 sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100"><X className="h-4 w-4" /></button></div>)}{galleryFiles.map((item) => <div key={item.preview} className="group relative aspect-[4/3] overflow-hidden rounded-xl border bg-gray-100"><img src={item.preview} alt={item.file.name} className="h-full w-full object-cover" /><span className="absolute bottom-2 left-2 rounded-full bg-blue-700 px-2 py-1 text-[10px] font-bold text-white">New</span><button type="button" onClick={() => removeSelectedGalleryImage(item.preview)} aria-label={`Remove ${item.file.name}`} className="absolute right-2 top-2 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-slate-950/75 text-white opacity-100 transition hover:bg-red-600 sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100"><X className="h-4 w-4" /></button></div>)}</div>}
+                  {existingGalleryImages.length + galleryFiles.length < 10 && <button type="button" onClick={() => galleryInputRef.current?.click()} className="mt-3 flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed bg-gray-50 px-5 py-5 text-sm font-bold text-gray-700 transition hover:border-blue-400 hover:text-blue-700"><Images className="h-5 w-5" />Choose multiple images</button>}
+                  <p className="mt-2 text-xs text-gray-400">Select one or several images at once. Maximum 10 images, 5 MB each.</p>
+                </div>
               </div>
             </div>
             <div className="flex flex-col-reverse gap-3 border-t bg-gray-50 px-6 py-4 sm:flex-row sm:justify-end"><button type="button" onClick={closeForm} disabled={saving} className="cursor-pointer rounded-xl border bg-white px-5 py-2.5 text-sm font-bold text-gray-700">Cancel</button><button type="submit" disabled={saving} className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-[#1b2a4a] px-6 py-2.5 text-sm font-bold text-white transition hover:bg-[#263c66] disabled:cursor-not-allowed disabled:opacity-60">{saving ? <><Loader2 className="h-4 w-4 animate-spin" /> Saving...</> : <><Upload className="h-4 w-4" /> {form.id ? 'Save Changes' : 'Create Announcement'}</>}</button></div>

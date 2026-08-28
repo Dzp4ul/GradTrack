@@ -8,10 +8,12 @@ import {
   ChevronRight,
   Clock3,
   ImageIcon,
+  Images,
   Megaphone,
   RotateCcw,
   Search,
   Tag,
+  X,
 } from 'lucide-react';
 import { API_BASE_URL, API_ENDPOINTS } from '../../config/api';
 
@@ -32,6 +34,14 @@ interface Announcement {
   author_program_code?: string | null;
   author_profile_image_path?: string | null;
   author_type?: 'graduate' | 'admin';
+  images?: AnnouncementGalleryImage[];
+}
+
+interface AnnouncementGalleryImage {
+  id: number;
+  file_path: string;
+  original_name: string;
+  sort_order: number;
 }
 
 interface CategoryCount {
@@ -134,6 +144,34 @@ function AnnouncementImage({ announcement, compact = false }: { announcement: An
   }
 
   return <img src={source} alt={announcement.title} onError={() => setFailed(true)} className="h-full w-full object-cover" />;
+}
+
+function AnnouncementGallery({ images, title }: { images: AnnouncementGalleryImage[]; title: string }) {
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (selectedIndex === null) return undefined;
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') setSelectedIndex(null);
+      if (event.key === 'ArrowLeft') setSelectedIndex((current) => current === null ? null : (current - 1 + images.length) % images.length);
+      if (event.key === 'ArrowRight') setSelectedIndex((current) => current === null ? null : (current + 1) % images.length);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [images.length, selectedIndex]);
+
+  if (images.length === 0) return null;
+  const selected = selectedIndex === null ? null : images[selectedIndex];
+
+  return (
+    <div className="mt-10 border-t border-slate-100 pt-8">
+      <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><Images className="h-5 w-5 text-blue-700" /><h3 className="text-sm font-extrabold uppercase tracking-[0.12em] text-slate-900">Announcement Photos</h3></div><span className="text-xs font-semibold text-slate-400">{images.length} photo{images.length === 1 ? '' : 's'}</span></div>
+      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {images.map((image, index) => <button key={image.id} type="button" onClick={() => setSelectedIndex(index)} className={`group relative min-h-52 cursor-pointer overflow-hidden rounded-2xl bg-slate-100 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${images.length % 2 === 1 && index === 0 ? 'sm:col-span-2 sm:aspect-[16/8]' : 'aspect-[4/3]'}`}><img src={resolveAssetUrl(image.file_path)} alt={`${title} photo ${index + 1}`} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" /><span className="absolute inset-0 bg-slate-950/0 transition group-hover:bg-slate-950/10" /><span className="absolute bottom-3 right-3 rounded-full bg-slate-950/70 px-3 py-1.5 text-xs font-bold text-white">View photo</span></button>)}
+      </div>
+      {selected && <div role="dialog" aria-modal="true" aria-label="Announcement photo viewer" className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/90 p-3 sm:p-8" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedIndex(null); }}><button type="button" onClick={() => setSelectedIndex(null)} aria-label="Close photo viewer" className="absolute right-4 top-4 z-10 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"><X className="h-6 w-6" /></button>{images.length > 1 && <button type="button" onClick={() => setSelectedIndex((current) => current === null ? null : (current - 1 + images.length) % images.length)} aria-label="Previous photo" className="absolute left-3 z-10 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20 sm:left-6"><ChevronLeft className="h-7 w-7" /></button>}<img src={resolveAssetUrl(selected.file_path)} alt={selected.original_name || `${title} photo`} className="max-h-[88vh] max-w-full rounded-xl object-contain shadow-2xl" />{images.length > 1 && <button type="button" onClick={() => setSelectedIndex((current) => current === null ? null : (current + 1) % images.length)} aria-label="Next photo" className="absolute right-3 z-10 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20 sm:right-6"><ChevronRight className="h-7 w-7" /></button>}<span className="absolute bottom-4 rounded-full bg-black/50 px-3 py-1 text-xs font-bold text-white">{(selectedIndex ?? 0) + 1} / {images.length}</span></div>}
+    </div>
+  );
 }
 
 function AuthorAvatar({ announcement, size = 'md' }: { announcement: Announcement; size?: 'sm' | 'md' }) {
@@ -326,6 +364,7 @@ function AnnouncementDetail({ announcement, categoryCounts, recent, loading, err
             <h2 className="mt-5 break-words text-2xl font-extrabold leading-tight text-slate-950 sm:text-3xl lg:text-4xl">{announcement.title}</h2>
             <div className="mt-6 flex flex-col gap-4 border-y border-slate-100 py-5 sm:flex-row sm:items-center sm:justify-between"><div className="flex min-w-0 items-center gap-3"><AuthorAvatar announcement={announcement} /><div className="min-w-0"><p className="truncate text-sm font-bold text-slate-900">{announcement.author_name}</p><p className="truncate text-xs text-slate-500">GradTrack Alumni Administration</p></div></div><span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500"><Clock3 className="h-4 w-4 text-blue-600" />Posted {formatDate(announcement.published_at || announcement.created_at)}</span></div>
             <div className="mt-8 space-y-6 text-[15px] leading-8 text-slate-700 sm:text-base">{paragraphs.length > 0 ? paragraphs.map((paragraph, index) => <p key={index} className="whitespace-pre-line break-words">{paragraph}</p>) : <p>{announcement.content}</p>}</div>
+            <AnnouncementGallery images={announcement.images || []} title={announcement.title} />
           </div>
         </article>
 

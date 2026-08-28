@@ -67,6 +67,20 @@ if (!function_exists('gradtrack_announcements_ensure_schema')) {
             CONSTRAINT fk_announcements_admin FOREIGN KEY (created_by_admin_id) REFERENCES admin_users(id) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
+        $db->exec("CREATE TABLE IF NOT EXISTS announcement_images (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            announcement_id INT NOT NULL,
+            file_path VARCHAR(255) NOT NULL,
+            original_name VARCHAR(255) NOT NULL,
+            mime_type VARCHAR(120) NOT NULL,
+            file_size_bytes INT NOT NULL,
+            sort_order INT NOT NULL DEFAULT 0,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_announcement_images_announcement_order (announcement_id, sort_order, id),
+            CONSTRAINT fk_announcement_images_announcement
+                FOREIGN KEY (announcement_id) REFERENCES announcements(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
         $columns = [
             'graduate_id' => "ALTER TABLE announcements ADD graduate_id INT NULL AFTER id",
             'created_by_admin_id' => "ALTER TABLE announcements ADD created_by_admin_id INT NULL AFTER graduate_id",
@@ -198,5 +212,42 @@ if (!function_exists('gradtrack_announcements_save_cover')) {
             'mime_type' => $mimeType,
             'file_size_bytes' => $fileSize,
         ];
+    }
+}
+
+if (!function_exists('gradtrack_announcements_save_gallery_image')) {
+    function gradtrack_announcements_save_gallery_image(int $announcementId, array $file): array
+    {
+        return gradtrack_announcements_save_cover($announcementId, $file);
+    }
+}
+
+if (!function_exists('gradtrack_announcements_remove_all_uploads')) {
+    function gradtrack_announcements_remove_all_uploads(int $announcementId): void
+    {
+        if ($announcementId <= 0) {
+            return;
+        }
+
+        $directory = gradtrack_announcements_upload_root() . DIRECTORY_SEPARATOR . $announcementId;
+        if (!is_dir($directory)) {
+            return;
+        }
+
+        $items = scandir($directory);
+        if (!is_array($items)) {
+            return;
+        }
+
+        foreach ($items as $item) {
+            if ($item === '.' || $item === '..') {
+                continue;
+            }
+            $path = $directory . DIRECTORY_SEPARATOR . $item;
+            if (is_file($path)) {
+                @unlink($path);
+            }
+        }
+        @rmdir($directory);
     }
 }

@@ -28,6 +28,34 @@ function gradtrack_announcements_request_data(): array
     return is_array($decoded) ? $decoded : [];
 }
 
+function gradtrack_announcements_uploaded_files(string $field): array
+{
+    if (!isset($_FILES[$field])) {
+        return [];
+    }
+
+    $upload = $_FILES[$field];
+    if (!is_array($upload['name'] ?? null)) {
+        return (int) ($upload['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE ? [] : [$upload];
+    }
+
+    $files = [];
+    foreach ($upload['name'] as $index => $name) {
+        $error = (int) ($upload['error'][$index] ?? UPLOAD_ERR_NO_FILE);
+        if ($error === UPLOAD_ERR_NO_FILE) {
+            continue;
+        }
+        $files[] = [
+            'name' => $name,
+            'type' => $upload['type'][$index] ?? '',
+            'tmp_name' => $upload['tmp_name'][$index] ?? '',
+            'error' => $error,
+            'size' => $upload['size'][$index] ?? 0,
+        ];
+    }
+    return $files;
+}
+
 function gradtrack_announcements_actor(PDO $db): ?array
 {
     $graduate = gradtrack_current_graduate_user($db);
@@ -158,6 +186,55 @@ function gradtrack_announcements_normalize_row(array $row): array
     return $row;
 }
 
+function gradtrack_announcements_images(PDO $db, int $announcementId): array
+{
+    $stmt = $db->prepare('SELECT id, announcement_id, file_path, original_name, mime_type,
+                                 file_size_bytes, sort_order, created_at
+                          FROM announcement_images
+                          WHERE announcement_id = :announcement_id
+                          ORDER BY sort_order ASC, id ASC');
+    $stmt->execute([':announcement_id' => $announcementId]);
+    return array_map(static function (array $row): array {
+        foreach (['id', 'announcement_id', 'file_size_bytes', 'sort_order'] as $key) {
+            $row[$key] = (int) $row[$key];
+        }
+        return $row;
+    }, $stmt->fetchAll(PDO::FETCH_ASSOC));
+}
+
+function gradtrack_announcements_normalize_rows(PDO $db, array $rows, bool $includeImages = false): array
+{
+    return array_map(static function (array $row) use ($db, $includeImages): array {
+        $normalized = gradtrack_announcements_normalize_row($row);
+        if ($includeImages) {
+            $normalized['images'] = gradtrack_announcements_images($db, (int) $normalized['id']);
+        }
+        return $normalized;
+    }, $rows);
+}
+
+function gradtrack_announcements_insert_gallery_images(PDO $db, int $announcementId, array $files, int $startOrder = 0): void
+{
+    if (count($files) > 10) {
+        throw new InvalidArgumentException('You can upload up to 10 additional announcement images');
+    }
+
+    $stmt = $db->prepare('INSERT INTO announcement_images
+        (announcement_id, file_path, original_name, mime_type, file_size_bytes, sort_order)
+        VALUES (:announcement_id, :file_path, :original_name, :mime_type, :file_size_bytes, :sort_order)');
+    foreach ($files as $index => $file) {
+        $saved = gradtrack_announcements_save_gallery_image($announcementId, $file);
+        $stmt->execute([
+            ':announcement_id' => $announcementId,
+            ':file_path' => $saved['path'],
+            ':original_name' => $saved['original_name'],
+            ':mime_type' => $saved['mime_type'],
+            ':file_size_bytes' => $saved['file_size_bytes'],
+            ':sort_order' => $startOrder + $index,
+        ]);
+    }
+}
+
 function gradtrack_announcements_category_counts(PDO $db): array
 {
     $stmt = $db->query("SELECT category, COUNT(*) AS total FROM announcements
@@ -234,9 +311,11 @@ try {
                 gradtrack_announcements_json_error(404, 'Announcement not found');
             }
 
+            $normalized = gradtrack_announcements_normalize_row($row);
+            $normalized['images'] = gradtrack_announcements_images($db, $announcementId);
             echo json_encode([
                 'success' => true,
-                'data' => gradtrack_announcements_normalize_row($row),
+                'data' => $normalized,
                 'category_counts' => gradtrack_announcements_category_counts($db),
                 'recent' => gradtrack_announcements_recent($db, $viewerGraduateId, $announcementId, 5),
             ]);
@@ -302,7 +381,7 @@ try {
 
         echo json_encode([
             'success' => true,
-            'data' => array_map('gradtrack_announcements_normalize_row', $stmt->fetchAll(PDO::FETCH_ASSOC)),
+            'data' => gradtrack_announcements_normalize_rows($db, $stmt->fetchAll(PDO::FETCH_ASSOC), $actor['type'] === 'admin'),
             'category_counts' => gradtrack_announcements_category_counts($db),
             'recent' => gradtrack_announcements_recent($db, $viewerGraduateId, 0, 5),
             'pagination' => [
@@ -341,8 +420,11 @@ try {
                 $coverStmt->execute([':path' => $cover['path'], ':original_name' => $cover['original_name'],
                     ':mime_type' => $cover['mime_type'], ':file_size' => $cover['file_size_bytes'], ':id' => $announcementId]);
             }
+            $galleryFiles = gradtrack_announcements_uploaded_files('gallery_images');
+            gradtrack_announcements_insert_gallery_images($db, $announcementId, $galleryFiles);
         } catch (Throwable $uploadError) {
             $db->prepare('DELETE FROM announcements WHERE id = :id')->execute([':id' => $announcementId]);
+            gradtrack_announcements_remove_all_uploads($announcementId);
             throw $uploadError;
         }
 
@@ -370,6 +452,27 @@ try {
         }
 
         $payload = gradtrack_announcements_validate_payload($data, $actor);
+        $galleryFiles = gradtrack_announcements_uploaded_files('gallery_images');
+        $decodedRemovalIds = json_decode((string) ($data['remove_gallery_image_ids'] ?? '[]'), true);
+        $removeGalleryIds = is_array($decodedRemovalIds)
+            ? array_values(array_unique(array_filter(array_map('intval', $decodedRemovalIds), static fn (int $id): bool => $id > 0)))
+            : [];
+        $removalRows = [];
+        if (count($removeGalleryIds) > 0) {
+            $placeholders = implode(',', array_fill(0, count($removeGalleryIds), '?'));
+            $removalStmt = $db->prepare("SELECT id, file_path FROM announcement_images
+                                         WHERE announcement_id = ? AND id IN ({$placeholders})");
+            $removalStmt->execute(array_merge([$announcementId], $removeGalleryIds));
+            $removalRows = $removalStmt->fetchAll(PDO::FETCH_ASSOC);
+        }
+        $galleryCountStmt = $db->prepare('SELECT COUNT(*) AS total, COALESCE(MAX(sort_order), -1) AS max_sort
+                                          FROM announcement_images WHERE announcement_id = :announcement_id');
+        $galleryCountStmt->execute([':announcement_id' => $announcementId]);
+        $galleryStats = $galleryCountStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+        $remainingGalleryCount = (int) ($galleryStats['total'] ?? 0) - count($removalRows);
+        if ($remainingGalleryCount + count($galleryFiles) > 10) {
+            throw new InvalidArgumentException('You can keep up to 10 additional announcement images');
+        }
         $publishedAt = $payload['status'] === 'published'
             ? ((string) ($existing['published_at'] ?? '') !== '' ? $existing['published_at'] : date('Y-m-d H:i:s'))
             : null;
@@ -396,6 +499,14 @@ try {
                     cover_image_mime_type = NULL, cover_image_file_size_bytes = NULL WHERE id = :id")
                     ->execute([':id' => $announcementId]);
             }
+
+            foreach ($removalRows as $removalRow) {
+                $db->prepare('DELETE FROM announcement_images WHERE id = :id AND announcement_id = :announcement_id')
+                    ->execute([':id' => (int) $removalRow['id'], ':announcement_id' => $announcementId]);
+                gradtrack_announcements_remove_cover($removalRow['file_path'] ?? null);
+            }
+            $nextSortOrder = max(0, (int) ($galleryStats['max_sort'] ?? -1) + 1);
+            gradtrack_announcements_insert_gallery_images($db, $announcementId, $galleryFiles, $nextSortOrder);
             $db->commit();
         } catch (Throwable $updateError) {
             if ($db->inTransaction()) {
@@ -427,7 +538,7 @@ try {
         }
 
         $db->prepare('DELETE FROM announcements WHERE id = :id')->execute([':id' => $announcementId]);
-        gradtrack_announcements_remove_cover($existing['cover_image_path'] ?? null);
+        gradtrack_announcements_remove_all_uploads($announcementId);
         gradtrack_announcements_log($actor, 'Delete', $announcementId);
         echo json_encode(['success' => true, 'message' => 'Announcement deleted successfully']);
         exit;
