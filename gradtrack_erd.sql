@@ -187,6 +187,73 @@ CREATE TABLE `system_settings` (
     KEY `idx_system_settings_updated_by` (`updated_by_admin_user_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE `website_content` (
+    `id` INT NOT NULL AUTO_INCREMENT,
+    `page` VARCHAR(40) NOT NULL,
+    `section_key` VARCHAR(80) NOT NULL,
+    `title` VARCHAR(255) NOT NULL,
+    `subtitle` VARCHAR(255) DEFAULT NULL,
+    `content` TEXT NOT NULL,
+    `image_path` VARCHAR(500) DEFAULT NULL,
+    `default_image_path` VARCHAR(500) DEFAULT NULL,
+    `image_alt` VARCHAR(255) DEFAULT NULL,
+    `display_order` INT NOT NULL DEFAULT 0,
+    `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+    `updated_by_admin_user_id` INT DEFAULT NULL,
+    `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_website_content_page_section` (`page`, `section_key`),
+    KEY `idx_website_content_page_order` (`page`, `is_active`, `display_order`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `faq_categories` (
+    `id` INT NOT NULL AUTO_INCREMENT,
+    `name` VARCHAR(150) NOT NULL,
+    `display_order` INT NOT NULL DEFAULT 0,
+    `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+    `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_faq_categories_order` (`is_active`, `display_order`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `faq_items` (
+    `id` INT NOT NULL AUTO_INCREMENT,
+    `category_id` INT NOT NULL,
+    `question` VARCHAR(500) NOT NULL,
+    `answer` TEXT NOT NULL,
+    `display_order` INT NOT NULL DEFAULT 0,
+    `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+    `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_faq_items_category_order` (`category_id`, `is_active`, `display_order`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `privacy_policy_meta` (
+    `id` TINYINT UNSIGNED NOT NULL,
+    `introductory_statement` TEXT NOT NULL,
+    `effective_date` DATE NOT NULL,
+    `last_updated_date` DATE NOT NULL,
+    `updated_by_admin_user_id` INT DEFAULT NULL,
+    `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `privacy_sections` (
+    `id` INT NOT NULL AUTO_INCREMENT,
+    `heading` VARCHAR(255) NOT NULL,
+    `content_html` MEDIUMTEXT NOT NULL,
+    `display_order` INT NOT NULL DEFAULT 0,
+    `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+    `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_privacy_sections_order` (`is_active`, `display_order`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE `employment` (
     `id` INT NOT NULL AUTO_INCREMENT,
     `graduate_id` INT DEFAULT NULL,
@@ -1018,3 +1085,18 @@ ALTER TABLE `survey_reminder_logs`
     ADD CONSTRAINT `fk_survey_reminder_logs_graduate`
     FOREIGN KEY (`graduate_id`) REFERENCES `graduates` (`id`)
     ON DELETE CASCADE;
+
+ALTER TABLE `website_content`
+    ADD CONSTRAINT `fk_website_content_updated_by`
+    FOREIGN KEY (`updated_by_admin_user_id`) REFERENCES `admin_users` (`id`)
+    ON DELETE SET NULL;
+
+ALTER TABLE `faq_items`
+    ADD CONSTRAINT `fk_faq_items_category`
+    FOREIGN KEY (`category_id`) REFERENCES `faq_categories` (`id`)
+    ON DELETE CASCADE;
+
+ALTER TABLE `privacy_policy_meta`
+    ADD CONSTRAINT `fk_privacy_policy_meta_updated_by`
+    FOREIGN KEY (`updated_by_admin_user_id`) REFERENCES `admin_users` (`id`)
+    ON DELETE SET NULL;

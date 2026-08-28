@@ -4,6 +4,7 @@ import {
   AlertCircle,
   Building2,
   CheckCircle2,
+  Globe2,
   ImagePlus,
   Loader2,
   Lock,
@@ -24,6 +25,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { API_ENDPOINTS } from '../../config/api';
 import MessageBox from '../../components/MessageBox';
+import PublicWebsiteContentSettings from './PublicWebsiteContentSettings';
 import {
   DEFAULT_SYSTEM_SETTINGS,
   SystemSettingsMap,
@@ -33,7 +35,7 @@ import {
 } from '../../contexts/SystemSettingsContext';
 
 type SettingType = 'text' | 'email' | 'tel' | 'textarea' | 'boolean' | 'color' | 'image';
-type SettingsTab = 'general' | 'branding' | 'login' | 'features' | 'survey' | 'community' | 'maintenance';
+type SettingsTab = 'general' | 'branding' | 'login' | 'features' | 'survey' | 'community' | 'maintenance' | 'public_content';
 
 interface SettingDefinition {
   key: string;
@@ -72,6 +74,7 @@ const tabConfig: Array<{ key: SettingsTab; label: string; icon: LucideIcon; desc
   { key: 'survey', label: 'Survey', icon: ShieldCheck, description: 'Tracer survey messaging and availability.' },
   { key: 'community', label: 'Community', icon: Users, description: 'Forum availability, guidelines, and announcement text.' },
   { key: 'maintenance', label: 'Maintenance', icon: Wrench, description: 'Maintenance access controls and blocked-user page copy.' },
+  { key: 'public_content', label: 'Public Website Content', icon: Globe2, description: 'Manage the About, FAQ, and Privacy Policy pages.' },
 ];
 
 const definitionsByTab: Record<SettingsTab, SettingDefinition[]> = {
@@ -127,6 +130,7 @@ const definitionsByTab: Record<SettingsTab, SettingDefinition[]> = {
     { key: 'maintenance_message', label: 'Maintenance Message', description: 'Main message shown while maintenance mode is enabled.', type: 'textarea', rows: 4 },
     { key: 'maintenance_expected_availability_message', label: 'Expected Availability Message', description: 'Optional timing or follow-up note for blocked users.', type: 'text' },
   ],
+  public_content: [],
 };
 
 const editableKeys = Array.from(new Set(Object.values(definitionsByTab).flat().map((definition) => definition.key)));
@@ -490,7 +494,7 @@ export default function Settings() {
           </p>
         </div>
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        {activeTab !== 'public_content' && <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <button
             type="button"
             onClick={() => void fetchSettings()}
@@ -519,10 +523,10 @@ export default function Settings() {
             <Save className="h-4 w-4" />
             Save Changes
           </button>
-        </div>
+        </div>}
       </div>
 
-      {notice && (
+      {notice && activeTab !== 'public_content' && (
         <div
           className={`flex items-center gap-2 rounded-lg border px-4 py-3 text-sm font-medium ${
             notice.type === 'success'
@@ -562,7 +566,7 @@ export default function Settings() {
         </div>
       </div>
 
-      <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
+      {activeTab === 'public_content' ? <PublicWebsiteContentSettings /> : <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
         <div className="flex flex-col gap-3 border-b bg-gray-50 px-5 py-4 md:flex-row md:items-start md:justify-between">
           <div>
             <div className="flex items-center gap-2">
@@ -604,7 +608,7 @@ export default function Settings() {
             <LoginPreview draft={draft} uploadPreviews={uploadPreviews} />
           )}
         </div>
-      </section>
+      </section>}
 
       {activeTab === 'branding' && primaryContrast < 4.5 && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">

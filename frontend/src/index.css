@@ -2,6 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer components {
+  .public-rich-text p { @apply mb-3 leading-relaxed last:mb-0; }
+  .public-rich-text ul { @apply mb-3 list-disc space-y-1 pl-6; }
+  .public-rich-text ol { @apply mb-3 list-decimal space-y-1 pl-6; }
+  .public-rich-text h2 { @apply mb-2 mt-4 text-2xl font-bold text-blue-900 dark:text-blue-200; }
+  .public-rich-text h3 { @apply mb-2 mt-4 text-xl font-bold text-blue-900 dark:text-blue-200; }
+  .public-rich-text strong,
+  .public-rich-text b { @apply font-bold; }
+
+  .field-input { @apply w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-gray-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-100; }
+}
+
 @layer base {
   html {
     min-height: 100%;
