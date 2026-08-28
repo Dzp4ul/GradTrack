@@ -1,4 +1,4 @@
-import { KeyboardEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { KeyboardEvent, useCallback, useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
@@ -8,10 +8,8 @@ import {
   ChevronRight,
   Clock3,
   ImageIcon,
-  Images,
   Megaphone,
   RotateCcw,
-  Search,
   Tag,
   X,
 } from 'lucide-react';
@@ -146,8 +144,26 @@ function AnnouncementImage({ announcement, compact = false }: { announcement: An
   return <img src={source} alt={announcement.title} onError={() => setFailed(true)} className="h-full w-full object-cover" />;
 }
 
-function AnnouncementGallery({ images, title }: { images: AnnouncementGalleryImage[]; title: string }) {
+function AnnouncementCoverImage({ announcement }: { announcement: Announcement }) {
+  const [failed, setFailed] = useState(false);
+  const source = resolveAssetUrl(announcement.cover_image_path);
+
+  useEffect(() => setFailed(false), [announcement.cover_image_path]);
+
+  if (!source || failed) {
+    return (
+      <div className="flex min-h-52 w-full items-center justify-center rounded-lg bg-gradient-to-br from-blue-700 via-blue-600 to-indigo-500 text-white sm:min-h-72">
+        <div className="text-center"><Megaphone className="mx-auto h-12 w-12 opacity-90" /><p className="mt-3 text-xs font-bold uppercase tracking-[0.2em] text-blue-100">GradTrack Announcement</p></div>
+      </div>
+    );
+  }
+
+  return <img src={source} alt={announcement.title} onError={() => setFailed(true)} className="block h-auto w-full max-w-full rounded-lg object-contain" />;
+}
+
+function AnnouncementArticleImages({ images, title }: { images: AnnouncementGalleryImage[]; title: string }) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
+  const [failedImageIds, setFailedImageIds] = useState<number[]>([]);
 
   useEffect(() => {
     if (selectedIndex === null) return undefined;
@@ -164,11 +180,12 @@ function AnnouncementGallery({ images, title }: { images: AnnouncementGalleryIma
   const selected = selectedIndex === null ? null : images[selectedIndex];
 
   return (
-    <div className="mt-10 border-t border-slate-100 pt-8">
-      <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><Images className="h-5 w-5 text-blue-700" /><h3 className="text-sm font-extrabold uppercase tracking-[0.12em] text-slate-900">Announcement Photos</h3></div><span className="text-xs font-semibold text-slate-400">{images.length} photo{images.length === 1 ? '' : 's'}</span></div>
-      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-        {images.map((image, index) => <button key={image.id} type="button" onClick={() => setSelectedIndex(index)} className={`group relative min-h-52 cursor-pointer overflow-hidden rounded-2xl bg-slate-100 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${images.length % 2 === 1 && index === 0 ? 'sm:col-span-2 sm:aspect-[16/8]' : 'aspect-[4/3]'}`}><img src={resolveAssetUrl(image.file_path)} alt={`${title} photo ${index + 1}`} className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.03]" /><span className="absolute inset-0 bg-slate-950/0 transition group-hover:bg-slate-950/10" /><span className="absolute bottom-3 right-3 rounded-full bg-slate-950/70 px-3 py-1.5 text-xs font-bold text-white">View photo</span></button>)}
-      </div>
+    <div className="mt-7 space-y-6">
+      {images.map((image, index) => failedImageIds.includes(image.id) ? (
+        <div key={image.id} className="flex min-h-44 w-full max-w-xl items-center justify-center rounded-lg bg-slate-100 text-slate-400"><div className="text-center"><ImageIcon className="mx-auto h-8 w-8" /><p className="mt-2 text-xs font-semibold">Image unavailable</p></div></div>
+      ) : (
+        <button key={image.id} type="button" onClick={() => setSelectedIndex(index)} aria-label={`Open ${title} image ${index + 1}`} className="block w-fit max-w-full cursor-zoom-in text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"><img src={resolveAssetUrl(image.file_path)} alt={image.original_name || `${title} image ${index + 1}`} onError={() => setFailedImageIds((current) => [...current, image.id])} className="block h-auto max-h-[46rem] w-auto max-w-full object-contain" /></button>
+      ))}
       {selected && <div role="dialog" aria-modal="true" aria-label="Announcement photo viewer" className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/90 p-3 sm:p-8" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedIndex(null); }}><button type="button" onClick={() => setSelectedIndex(null)} aria-label="Close photo viewer" className="absolute right-4 top-4 z-10 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20"><X className="h-6 w-6" /></button>{images.length > 1 && <button type="button" onClick={() => setSelectedIndex((current) => current === null ? null : (current - 1 + images.length) % images.length)} aria-label="Previous photo" className="absolute left-3 z-10 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20 sm:left-6"><ChevronLeft className="h-7 w-7" /></button>}<img src={resolveAssetUrl(selected.file_path)} alt={selected.original_name || `${title} photo`} className="max-h-[88vh] max-w-full rounded-xl object-contain shadow-2xl" />{images.length > 1 && <button type="button" onClick={() => setSelectedIndex((current) => current === null ? null : (current + 1) % images.length)} aria-label="Next photo" className="absolute right-3 z-10 flex h-11 w-11 cursor-pointer items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/20 sm:right-6"><ChevronRight className="h-7 w-7" /></button>}<span className="absolute bottom-4 rounded-full bg-black/50 px-3 py-1 text-xs font-bold text-white">{(selectedIndex ?? 0) + 1} / {images.length}</span></div>}
     </div>
   );
@@ -206,8 +223,7 @@ export default function GraduateAnnouncements({ announcementId }: { announcement
   const [pagination, setPagination] = useState<Pagination>({ current_page: 1, per_page: 9, total: 0, last_page: 1 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [search, setSearch] = useState(() => searchParams.get('search') || '');
-  const [committedSearch, setCommittedSearch] = useState(() => searchParams.get('search') || '');
+  const committedSearch = searchParams.get('search') || '';
   const [category, setCategory] = useState(() => searchParams.get('category') || 'all');
   const [page, setPage] = useState(() => Math.max(1, Number(searchParams.get('page') || 1)));
 
@@ -253,11 +269,6 @@ export default function GraduateAnnouncements({ announcementId }: { announcement
   }, [announcementId, loadDetail, loadList]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => { setPage(1); setCommittedSearch(search.trim()); }, 350);
-    return () => window.clearTimeout(timer);
-  }, [search]);
-
-  useEffect(() => {
     if (announcementId) return;
     const next = new URLSearchParams();
     if (committedSearch) next.set('search', committedSearch);
@@ -266,7 +277,6 @@ export default function GraduateAnnouncements({ announcementId }: { announcement
     setSearchParams(next, { replace: true });
   }, [announcementId, category, committedSearch, page, setSearchParams]);
 
-  const totalPublished = useMemo(() => categoryCounts.reduce((total, item) => total + item.count, 0), [categoryCounts]);
   const openAnnouncement = (id: number) => navigate(`/graduate/announcements/${id}`);
   const handleCardKeyDown = (event: KeyboardEvent<HTMLElement>, id: number) => {
     if (event.key === 'Enter' || event.key === ' ') {
@@ -299,13 +309,6 @@ export default function GraduateAnnouncements({ announcementId }: { announcement
 
   return (
     <section className="space-y-5" aria-label="Announcements list">
-      <div className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-        <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_15rem]">
-          <label className="relative block"><span className="sr-only">Search announcements</span><Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search announcements..." className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-11 pr-4 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:bg-white" /></label>
-          <label><span className="sr-only">Filter by category</span><select value={category} onChange={(event) => { setCategory(event.target.value); setPage(1); }} className="h-11 w-full cursor-pointer rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-medium text-slate-700 outline-none transition focus:border-blue-500 focus:bg-white"><option value="all">All Categories ({totalPublished})</option>{categories.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label>
-        </div>
-      </div>
-
       {loading ? (
         <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3" aria-label="Loading announcements">{Array.from({ length: 6 }, (_, index) => <CardSkeleton key={index} />)}</div>
       ) : error ? (
@@ -346,31 +349,60 @@ function AnnouncementDetail({ announcement, categoryCounts, recent, loading, err
   onCategory: (category: string) => void;
 }) {
   if (loading) {
-    return <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]"><div className="overflow-hidden rounded-[30px] border border-slate-200 bg-white shadow-sm"><div className="aspect-[16/8] animate-pulse bg-slate-200" /><div className="space-y-5 p-6 sm:p-8"><div className="h-8 w-4/5 animate-pulse rounded bg-slate-200" /><div className="h-12 animate-pulse rounded bg-slate-100" /><div className="space-y-3">{Array.from({ length: 5 }, (_, index) => <div key={index} className="h-3 animate-pulse rounded bg-slate-100" />)}</div></div></div><div className="hidden space-y-5 lg:block"><div className="h-72 animate-pulse rounded-[28px] bg-white" /><div className="h-80 animate-pulse rounded-[28px] bg-white" /></div></div>;
+    return (
+      <div className="mx-auto grid max-w-6xl items-start gap-6 lg:grid-cols-[minmax(0,1fr)_19rem] lg:gap-8" aria-label="Loading announcement">
+        <div className="min-w-0">
+          <div className="aspect-[16/10] max-h-[28rem] animate-pulse rounded-lg bg-slate-200 sm:aspect-video" />
+          <div className="mt-5 h-8 w-4/5 animate-pulse rounded bg-slate-200" />
+          <div className="mt-4 h-9 w-3/5 animate-pulse rounded bg-slate-100" />
+          <div className="mt-6 space-y-3 border-t border-slate-200 pt-6">{Array.from({ length: 6 }, (_, index) => <div key={index} className={`h-3 animate-pulse rounded bg-slate-100 ${index === 5 ? 'w-3/4' : 'w-full'}`} />)}</div>
+        </div>
+        <div className="hidden space-y-8 lg:block"><div className="h-48 animate-pulse bg-white" /><div className="h-72 animate-pulse bg-white" /></div>
+      </div>
+    );
   }
   if (error || !announcement) {
-    return <div className="rounded-[28px] border border-red-200 bg-white px-6 py-16 text-center shadow-sm"><AlertCircle className="mx-auto h-11 w-11 text-red-500" /><h2 className="mt-4 text-xl font-bold text-slate-900">Announcement unavailable</h2><p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">{error || 'This announcement could not be found.'}</p><div className="mt-6 flex flex-wrap justify-center gap-3"><button type="button" onClick={onBack} className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50"><ArrowLeft className="h-4 w-4" /> All Announcements</button><button type="button" onClick={onRetry} className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-blue-800"><RotateCcw className="h-4 w-4" /> Try Again</button></div></div>;
+    return <div className="mx-auto max-w-3xl border-y border-red-200 bg-white px-6 py-14 text-center"><AlertCircle className="mx-auto h-11 w-11 text-red-500" /><h2 className="mt-4 text-xl font-bold text-slate-900">Announcement unavailable</h2><p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">{error || 'This announcement could not be found.'}</p><div className="mt-6 flex flex-wrap justify-center gap-3"><button type="button" onClick={onBack} className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50"><ArrowLeft className="h-4 w-4" /> All Announcements</button><button type="button" onClick={onRetry} className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-blue-700 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-blue-800"><RotateCcw className="h-4 w-4" /> Try Again</button></div></div>;
   }
 
   const paragraphs = announcement.content.split(/\n\s*\n/).map((paragraph) => paragraph.trim()).filter(Boolean);
+  const totalAnnouncements = categoryCounts.reduce((total, item) => total + item.count, 0);
   return (
-    <section className="space-y-4" aria-label="Announcement details">
-      <button type="button" onClick={onBack} className="inline-flex cursor-pointer items-center gap-2 rounded-xl px-1 py-1 text-sm font-bold text-blue-700 transition hover:text-blue-900"><ArrowLeft className="h-4 w-4" /> Back to Announcements</button>
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        <article className="min-w-0 overflow-hidden rounded-[30px] border border-slate-200 bg-white shadow-sm">
-          <div className="aspect-[16/8] max-h-[34rem] min-h-60 w-full overflow-hidden bg-slate-100 sm:min-h-80"><AnnouncementImage announcement={announcement} /></div>
-          <div className="p-5 sm:p-8 lg:p-10">
-            <div className="flex flex-wrap items-center gap-2"><span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1.5 text-xs font-bold text-blue-700"><Tag className="h-3.5 w-3.5" />{categoryLabel(announcement.category)}</span>{announcement.event_date && <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-3 py-1.5 text-xs font-bold text-amber-700"><CalendarDays className="h-3.5 w-3.5" />Event: {formatDate(announcement.event_date)}</span>}</div>
-            <h2 className="mt-5 break-words text-2xl font-extrabold leading-tight text-slate-950 sm:text-3xl lg:text-4xl">{announcement.title}</h2>
-            <div className="mt-6 flex flex-col gap-4 border-y border-slate-100 py-5 sm:flex-row sm:items-center sm:justify-between"><div className="flex min-w-0 items-center gap-3"><AuthorAvatar announcement={announcement} /><div className="min-w-0"><p className="truncate text-sm font-bold text-slate-900">{announcement.author_name}</p><p className="truncate text-xs text-slate-500">GradTrack Alumni Administration</p></div></div><span className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500"><Clock3 className="h-4 w-4 text-blue-600" />Posted {formatDate(announcement.published_at || announcement.created_at)}</span></div>
-            <div className="mt-8 space-y-6 text-[15px] leading-8 text-slate-700 sm:text-base">{paragraphs.length > 0 ? paragraphs.map((paragraph, index) => <p key={index} className="whitespace-pre-line break-words">{paragraph}</p>) : <p>{announcement.content}</p>}</div>
-            <AnnouncementGallery images={announcement.images || []} title={announcement.title} />
-          </div>
+    <section className="mx-auto max-w-6xl space-y-3" aria-label="Announcement details">
+      <button type="button" onClick={onBack} className="inline-flex cursor-pointer items-center gap-1.5 py-1 text-sm font-bold text-blue-700 transition hover:text-blue-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"><ArrowLeft className="h-4 w-4" /> Back to Announcements</button>
+      <div className="grid items-start gap-7 lg:grid-cols-[minmax(0,1fr)_19rem] lg:gap-8">
+        <article className="min-w-0">
+          <AnnouncementCoverImage announcement={announcement} />
+
+          <header className="mt-5 max-w-3xl">
+            <h2 title={announcement.title} className="break-words text-2xl font-extrabold leading-tight text-slate-950 sm:text-[1.65rem] sm:leading-[1.25] lg:overflow-hidden lg:text-ellipsis lg:whitespace-nowrap">{announcement.title}</h2>
+            <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-200 pb-4 text-xs font-medium text-slate-500">
+              <span className="inline-flex min-w-0 items-center gap-2"><AuthorAvatar announcement={announcement} size="sm" /><span className="max-w-48 truncate font-bold text-slate-800">{announcement.author_name}</span></span>
+              <span aria-hidden="true" className="hidden h-4 w-px bg-slate-300 sm:block" />
+              <span className="inline-flex items-center gap-1.5"><Clock3 className="h-3.5 w-3.5 text-blue-600" />{formatDate(announcement.published_at || announcement.created_at)}</span>
+              <span aria-hidden="true" className="hidden h-4 w-px bg-slate-300 sm:block" />
+              <span className="inline-flex items-center gap-1.5"><Tag className="h-3.5 w-3.5 text-blue-600" />{categoryLabel(announcement.category)}</span>
+              {announcement.event_date && <><span aria-hidden="true" className="hidden h-4 w-px bg-slate-300 sm:block" /><span className="inline-flex items-center gap-1.5"><CalendarDays className="h-3.5 w-3.5 text-amber-600" />Event {formatDate(announcement.event_date)}</span></>}
+            </div>
+          </header>
+
+          <div className="mt-6 max-w-3xl space-y-5 text-[15px] leading-7 text-slate-700 sm:text-base sm:leading-8">{paragraphs.length > 0 ? paragraphs.map((paragraph, index) => <p key={index} className="whitespace-pre-line break-words">{paragraph}</p>) : <p>{announcement.content}</p>}</div>
+          <div className="max-w-3xl"><AnnouncementArticleImages images={announcement.images || []} title={announcement.title} /></div>
         </article>
 
-        <aside className="space-y-5 lg:sticky lg:top-[calc(var(--graduate-portal-header-height)_+_1rem)]" aria-label="Announcement sidebar">
-          <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center gap-2"><Tag className="h-5 w-5 text-blue-700" /><h3 className="text-sm font-extrabold uppercase tracking-[0.12em] text-slate-900">Announcement Categories</h3></div><div className="mt-4 space-y-1.5"><button type="button" onClick={() => onCategory('all')} className="flex w-full cursor-pointer items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-slate-700 transition hover:bg-blue-50 hover:text-blue-700"><span>All Announcements</span><span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold">{categoryCounts.reduce((total, item) => total + item.count, 0)}</span></button>{categoryCounts.map((item) => <button key={item.category} type="button" onClick={() => onCategory(item.category)} className="flex w-full cursor-pointer items-center justify-between rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-slate-700 transition hover:bg-blue-50 hover:text-blue-700"><span className="min-w-0 truncate">{categoryLabel(item.category)}</span><span className="ml-3 rounded-full bg-blue-50 px-2 py-0.5 text-xs font-bold text-blue-700">{item.count}</span></button>)}</div></div>
-          <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-center gap-2"><Megaphone className="h-5 w-5 text-blue-700" /><h3 className="text-sm font-extrabold uppercase tracking-[0.12em] text-slate-900">Recent Announcements</h3></div>{recent.length === 0 ? <div className="py-8 text-center"><ImageIcon className="mx-auto h-8 w-8 text-slate-300" /><p className="mt-2 text-sm text-slate-400">No other announcements yet.</p></div> : <div className="mt-4 space-y-3">{recent.map((item) => <button key={item.id} type="button" onClick={() => onOpen(item.id)} className="group flex w-full cursor-pointer items-center gap-3 rounded-2xl border border-slate-100 p-2.5 text-left transition hover:border-blue-200 hover:bg-blue-50/50"><span className="h-16 w-16 shrink-0 overflow-hidden rounded-xl bg-slate-100"><AnnouncementImage announcement={item} compact /></span><span className="min-w-0 flex-1"><span className="line-clamp-2 text-xs font-bold leading-5 text-slate-800 transition group-hover:text-blue-700">{item.title}</span><span className="mt-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">{formatShortDate(item.published_at || item.created_at)}</span></span></button>)}</div>}</div>
+        <aside className="space-y-7 lg:sticky lg:top-[calc(var(--graduate-portal-header-height)_+_1rem)]" aria-label="Announcement sidebar">
+          <section aria-labelledby="announcement-categories-heading">
+            <div className="flex items-center gap-2 border-b-2 border-blue-700 pb-2.5"><Tag className="h-4 w-4 text-blue-700" /><h3 id="announcement-categories-heading" className="text-xs font-extrabold uppercase tracking-[0.12em] text-slate-900">Announcement Categories</h3></div>
+            <div className="divide-y divide-slate-100 border-b border-slate-200 bg-white">
+              <button type="button" onClick={() => onCategory('all')} className="flex w-full cursor-pointer items-center justify-between gap-3 px-3 py-2.5 text-left text-sm font-semibold text-slate-700 transition hover:bg-blue-50 hover:text-blue-700"><span>All Announcements</span><span className="min-w-6 rounded-full bg-slate-100 px-2 py-0.5 text-center text-[11px] font-bold text-slate-600">{totalAnnouncements}</span></button>
+              {categoryCounts.map((item) => <button key={item.category} type="button" onClick={() => onCategory(item.category)} className="flex w-full cursor-pointer items-center justify-between gap-3 px-3 py-2.5 text-left text-sm font-semibold text-slate-700 transition hover:bg-blue-50 hover:text-blue-700"><span className="min-w-0 truncate">{categoryLabel(item.category)}</span><span className="min-w-6 rounded-full bg-blue-50 px-2 py-0.5 text-center text-[11px] font-bold text-blue-700">{item.count}</span></button>)}
+            </div>
+          </section>
+
+          <section aria-labelledby="recent-announcements-heading">
+            <div className="flex items-center gap-2 border-b-2 border-blue-700 pb-2.5"><Megaphone className="h-4 w-4 text-blue-700" /><h3 id="recent-announcements-heading" className="text-xs font-extrabold uppercase tracking-[0.12em] text-slate-900">Recent Announcements</h3></div>
+            {recent.length === 0 ? <div className="border-b border-slate-200 bg-white py-7 text-center"><ImageIcon className="mx-auto h-7 w-7 text-slate-300" /><p className="mt-2 text-xs text-slate-400">No other announcements yet.</p></div> : <div className="divide-y divide-slate-100 border-b border-slate-200 bg-white">{recent.map((item) => <button key={item.id} type="button" onClick={() => onOpen(item.id)} className="group flex w-full cursor-pointer items-center gap-3 px-2 py-2.5 text-left transition hover:bg-blue-50/70"><span className="h-14 w-16 shrink-0 overflow-hidden rounded-md bg-slate-100"><AnnouncementImage announcement={item} compact /></span><span className="min-w-0 flex-1"><span className="line-clamp-2 text-xs font-bold leading-4 text-slate-800 transition group-hover:text-blue-700">{item.title}</span><span className="mt-1 block text-[10px] font-semibold uppercase tracking-wide text-slate-400">{formatShortDate(item.published_at || item.created_at)}</span></span></button>)}</div>}
+          </section>
         </aside>
       </div>
     </section>
