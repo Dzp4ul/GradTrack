@@ -46,9 +46,18 @@ function normalizedDbPort() {
   return port;
 }
 
+function normalizedDbTimezone() {
+  const timezone = String(process.env.DB_TIMEZONE || '+08:00').trim();
+  if (!/^[+-](0\d|1[0-4]):[0-5]\d$/.test(timezone)) {
+    throw new Error('DB_TIMEZONE must be a UTC offset such as +08:00');
+  }
+  return timezone;
+}
+
 const port = Number(process.env.REALTIME_PORT || 3001);
 const apiBaseUrl = (process.env.GRADTRACK_API_BASE_URL || 'http://localhost/GradTrack/backend').replace(/\/+$/, '');
 const authCheckUrl = process.env.REALTIME_AUTH_CHECK_URL || `${apiBaseUrl}/api/graduate-auth/check.php`;
+const dbTimezone = normalizedDbTimezone();
 const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || process.env.FRONTEND_URL || 'http://localhost:5173')
   .split(',')
   .map((origin) => origin.trim())
@@ -63,7 +72,19 @@ const pool = mysql.createPool({
   waitForConnections: true,
   connectionLimit: Number(process.env.REALTIME_DB_CONNECTION_LIMIT || 10),
   charset: 'utf8mb4',
-  timezone: process.env.DB_TIMEZONE || '+08:00',
+  timezone: dbTimezone,
+});
+
+// mysql2's `timezone` option controls JavaScript date conversion, but it does
+// not change MySQL's session timezone. Queue this as the first statement on
+// every pooled connection so NOW(), CURRENT_TIMESTAMP, and returned DATETIMEs
+// all use the same configured clock as the PHP API.
+pool.on('connection', (connection) => {
+  connection.query('SET time_zone = ?', [dbTimezone], (error) => {
+    if (error) {
+      console.error(`[Realtime] Unable to set database session timezone to ${dbTimezone}:`, error);
+    }
+  });
 });
 
 const onlineSocketsByGraduate = new Map();
@@ -74,6 +95,7 @@ const presenceOfflineGraceMs = Math.max(0, Number(process.env.REALTIME_PRESENCE_
 const presenceRecoveryGraceMs = Math.max(presenceOfflineGraceMs, Number(process.env.REALTIME_PRESENCE_RECOVERY_GRACE_MS || 5000));
 const pingInterval = Math.max(5000, Number(process.env.REALTIME_PING_INTERVAL_MS || 25000));
 const pingTimeout = Math.max(5000, Number(process.env.REALTIME_PING_TIMEOUT_MS || 20000));
+const sessionCookieName = String(process.env.PHP_SESSION_COOKIE_NAME || 'PHPSESSID').trim() || 'PHPSESSID';
 
 function socketRoom(roomId) {
   return `conversation:${roomId}`;
@@ -235,6 +257,13 @@ async function verifySchema() {
   await pool.query('SELECT graduate_id, last_active_at FROM graduate_presence WHERE 1 = 0');
 }
 
+async function verifyDatabaseTimezone() {
+  const [timezoneRows] = await pool.query('SELECT @@session.time_zone AS session_timezone');
+  if (String(timezoneRows[0]?.session_timezone || '') !== dbTimezone) {
+    throw new Error(`Realtime database session timezone is ${timezoneRows[0]?.session_timezone || 'unknown'}; expected ${dbTimezone}`);
+  }
+}
+
 async function authenticateSocket(socket) {
   const cookie = socket.handshake.headers.cookie || '';
   if (!cookie) {
@@ -294,6 +323,35 @@ function onlineSocketCount(graduateId) {
 
 function isGraduateOnline(graduateId) {
   return onlineSocketCount(graduateId) > 0;
+}
+
+function cookieValue(cookieHeader, name) {
+  const prefix = `${name}=`;
+  for (const part of String(cookieHeader || '').split(';')) {
+    const cookie = part.trim();
+    if (!cookie.startsWith(prefix)) continue;
+    try {
+      return decodeURIComponent(cookie.slice(prefix.length));
+    } catch {
+      return cookie.slice(prefix.length);
+    }
+  }
+  return '';
+}
+
+function disconnectSessionSockets(sessionId) {
+  if (!sessionId) return 0;
+  const sockets = Array.from(io.of('/').sockets.values()).filter(
+    (connectedSocket) => connectedSocket.data.sessionId === sessionId,
+  );
+
+  for (const connectedSocket of sockets) {
+    connectedSocket.data.explicitLogout = true;
+    connectedSocket.emit('session:revoked', { reason: 'logout' });
+    connectedSocket.disconnect(true);
+  }
+
+  return sockets.length;
 }
 
 function nextPresenceVersion(graduateId) {
@@ -757,6 +815,7 @@ const io = new Server(server, {
 
 io.use(async (socket, next) => {
   try {
+    socket.data.sessionId = cookieValue(socket.handshake.headers.cookie || '', sessionCookieName);
     socket.data.user = await authenticateSocket(socket);
     next();
   } catch (error) {
@@ -815,6 +874,23 @@ io.on('connection', (socket) => {
     } catch (error) {
       ack?.({ success: false, error: error.message || 'Unable to synchronize presence' });
     }
+  });
+
+  socket.on('session:logout', (_payload, ack) => {
+    const sessionId = socket.data.sessionId;
+    if (!sessionId) {
+      ack?.({ success: false, error: 'Authenticated session is unavailable' });
+      return;
+    }
+
+    const sessionSocketCount = Array.from(io.of('/').sockets.values()).filter(
+      (connectedSocket) => connectedSocket.data.sessionId === sessionId,
+    ).length;
+    ack?.({ success: true, disconnected_connections: sessionSocketCount });
+    setImmediate(() => {
+      const disconnectedConnections = disconnectSessionSockets(sessionId);
+      console.log(`[Realtime] Logged out session for user=${graduateId}; disconnected=${disconnectedConnections}`);
+    });
   });
 
   socket.on('conversation:leave', async (payload, ack) => {
@@ -899,7 +975,11 @@ io.on('connection', (socket) => {
     const offlineVersion = nextPresenceVersion(graduateId);
     cancelPendingOffline(graduateId);
     const isCleanDisconnect = reason === 'client namespace disconnect' || reason === 'server namespace disconnect';
-    const offlineGraceMs = isCleanDisconnect ? presenceOfflineGraceMs : presenceRecoveryGraceMs;
+    const offlineGraceMs = socket.data.explicitLogout
+      ? 0
+      : isCleanDisconnect
+        ? presenceOfflineGraceMs
+        : presenceRecoveryGraceMs;
     const timeout = setTimeout(() => {
       pendingOfflineTimersByGraduate.delete(graduateId);
       runInBackground('Unable to update disconnected graduate presence', async () => {
@@ -957,7 +1037,24 @@ async function shutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
   console.log(`Stopping GradTrack realtime server (${signal})`);
+
+  const connectedGraduateIds = Array.from(onlineSocketsByGraduate.keys());
+  if (connectedGraduateIds.length > 0) {
+    try {
+      await Promise.all(connectedGraduateIds.map((graduateId) => pool.query(
+        `INSERT INTO graduate_presence (graduate_id, last_active_at)
+         VALUES (?, NOW())
+         ON DUPLICATE KEY UPDATE last_active_at = NOW(), updated_at = NOW()`,
+        [graduateId],
+      )));
+    } catch (error) {
+      console.error('Unable to persist presence during realtime shutdown:', error);
+    }
+  }
+
   await new Promise((resolve) => io.close(resolve));
+  pendingOfflineTimersByGraduate.forEach((timeout) => clearTimeout(timeout));
+  pendingOfflineTimersByGraduate.clear();
   await pool.end();
   process.exit(0);
 }
@@ -971,6 +1068,7 @@ process.once('SIGINT', () => { void shutdown('SIGINT'); });
 process.once('SIGTERM', () => { void shutdown('SIGTERM'); });
 
 (autoMigrate ? ensureSchema() : verifySchema())
+  .then(() => verifyDatabaseTimezone())
   .then(() => {
     server.listen(port, () => {
       console.log(`[Realtime] Listening on http://localhost:${port}`);

@@ -154,7 +154,7 @@ function gradtrack_forum_chats_participants_by_room(PDO $db, array $roomIds): ar
             'program_code' => $row['program_code'] ?? null,
             'year_graduated' => $row['year_graduated'] !== null ? (int) $row['year_graduated'] : null,
             'profile_image_path' => $row['profile_image_path'] ?? null,
-            'last_active_at' => $row['last_active_at'] ?? null,
+            'last_active_at' => gradtrack_chat_datetime_iso($row['last_active_at'] ?? null),
             'is_online' => false,
         ];
     }
@@ -205,6 +205,9 @@ function gradtrack_forum_chats_rooms(PDO $db, int $currentGraduateId): array
         $room['last_message_sender_id'] = isset($room['last_message_sender_id']) ? (int) $room['last_message_sender_id'] : null;
         $room['last_message'] = gradtrack_chat_message_preview($room['last_message'] ?? null, $room['last_message_type'] ?? null);
         $room['unread_count'] = (int) ($room['unread_count'] ?? 0);
+        $room['created_at'] = gradtrack_chat_datetime_iso($room['created_at'] ?? null);
+        $room['updated_at'] = gradtrack_chat_datetime_iso($room['updated_at'] ?? null);
+        $room['last_message_at'] = gradtrack_chat_datetime_iso($room['last_message_at'] ?? null);
         $roomIds[] = $room['id'];
     }
     unset($room);

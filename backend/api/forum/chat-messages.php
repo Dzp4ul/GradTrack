@@ -135,6 +135,44 @@ function gradtrack_forum_chat_messages_fetch_one(PDO $db, int $messageId, int $c
     return gradtrack_chat_format_message($row, $currentGraduateId, $attachments[$messageId] ?? []);
 }
 
+function gradtrack_forum_chat_messages_attachment_client_id(string $clientMessageId): string
+{
+    $suffix = ':attachment';
+    if (strlen($clientMessageId) + strlen($suffix) <= 80) {
+        return $clientMessageId . $suffix;
+    }
+
+    return 'split:' . hash('sha256', $clientMessageId . $suffix);
+}
+
+function gradtrack_forum_chat_messages_fetch_client_batch(PDO $db, int $roomId, int $currentGraduateId, string $clientMessageId): array
+{
+    $attachmentClientMessageId = gradtrack_forum_chat_messages_attachment_client_id($clientMessageId);
+    $stmt = $db->prepare("SELECT id
+                          FROM forum_chat_messages
+                          WHERE room_id = :room_id
+                            AND graduate_id = :graduate_id
+                            AND client_message_id IN (:client_message_id, :attachment_client_message_id)
+                            AND deleted_at IS NULL
+                          ORDER BY id ASC");
+    $stmt->execute([
+        ':room_id' => $roomId,
+        ':graduate_id' => $currentGraduateId,
+        ':client_message_id' => $clientMessageId,
+        ':attachment_client_message_id' => $attachmentClientMessageId,
+    ]);
+
+    $messages = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $savedMessage = gradtrack_forum_chat_messages_fetch_one($db, (int) $row['id'], $currentGraduateId);
+        if ($savedMessage) {
+            $messages[] = $savedMessage;
+        }
+    }
+
+    return $messages;
+}
+
 function gradtrack_forum_chat_messages_insert(PDO $db, int $roomId, int $currentGraduateId, string $message, string $clientMessageId, array $attachmentIds): array
 {
     $message = gradtrack_chat_normalize_message($message);
@@ -155,23 +193,9 @@ function gradtrack_forum_chat_messages_insert(PDO $db, int $roomId, int $current
         gradtrack_forum_chat_messages_json_error(400, 'Valid client_message_id is required');
     }
 
-    $existingStmt = $db->prepare("SELECT id
-                                  FROM forum_chat_messages
-                                  WHERE room_id = :room_id
-                                    AND graduate_id = :graduate_id
-                                    AND client_message_id = :client_message_id
-                                  LIMIT 1");
-    $existingStmt->execute([
-        ':room_id' => $roomId,
-        ':graduate_id' => $currentGraduateId,
-        ':client_message_id' => $clientMessageId,
-    ]);
-    $existing = $existingStmt->fetch(PDO::FETCH_ASSOC);
-    if ($existing) {
-        $messageRow = gradtrack_forum_chat_messages_fetch_one($db, (int) $existing['id'], $currentGraduateId);
-        if ($messageRow) {
-            return $messageRow;
-        }
+    $existingMessages = gradtrack_forum_chat_messages_fetch_client_batch($db, $roomId, $currentGraduateId, $clientMessageId);
+    if (count($existingMessages) > 0) {
+        return $existingMessages;
     }
 
     $attachmentType = null;
@@ -200,85 +224,104 @@ function gradtrack_forum_chat_messages_insert(PDO $db, int $roomId, int $current
         $attachmentType = count($types) === 1 ? $types[0] : 'mixed';
     }
 
-    $messageType = 'text';
-    if ($message !== '' && count($attachmentIds) > 0) {
-        $messageType = 'mixed';
-    } elseif (count($attachmentIds) > 0) {
-        $messageType = $attachmentType === 'image' ? 'image' : 'file';
+    $hasAttachments = count($attachmentIds) > 0;
+    $attachmentMessageType = $attachmentType === 'image' ? 'image' : 'file';
+    $messageSpecs = [];
+
+    if ($message !== '' && $hasAttachments) {
+        $messageSpecs[] = [
+            'message' => $message,
+            'message_type' => 'text',
+            'client_message_id' => $clientMessageId,
+            'attachment_ids' => [],
+        ];
+        $messageSpecs[] = [
+            'message' => null,
+            'message_type' => $attachmentMessageType,
+            'client_message_id' => gradtrack_forum_chat_messages_attachment_client_id($clientMessageId),
+            'attachment_ids' => $attachmentIds,
+        ];
+    } else {
+        $messageSpecs[] = [
+            'message' => $message !== '' ? $message : null,
+            'message_type' => $hasAttachments ? $attachmentMessageType : 'text',
+            'client_message_id' => $clientMessageId,
+            'attachment_ids' => $attachmentIds,
+        ];
     }
 
-    $db->beginTransaction();
+    $ownsTransaction = !$db->inTransaction();
+    if ($ownsTransaction) {
+        $db->beginTransaction();
+    }
+    $messageIds = [];
 
     try {
         $insertStmt = $db->prepare("INSERT INTO forum_chat_messages (room_id, graduate_id, message, message_type, client_message_id)
                                     VALUES (:room_id, :graduate_id, :message, :message_type, :client_message_id)");
-        $insertStmt->execute([
-            ':room_id' => $roomId,
-            ':graduate_id' => $currentGraduateId,
-            ':message' => $message !== '' ? $message : null,
-            ':message_type' => $messageType,
-            ':client_message_id' => $clientMessageId,
-        ]);
-
-        $messageId = (int) $db->lastInsertId();
-
-        if (count($attachmentIds) > 0) {
-            $params = [
-                ':message_id' => $messageId,
+        foreach ($messageSpecs as $specIndex => $messageSpec) {
+            $insertStmt->execute([
                 ':room_id' => $roomId,
-                ':uploaded_by' => $currentGraduateId,
-            ];
-            $placeholders = gradtrack_chat_placeholders($attachmentIds, 'claim_attachment_id', $params);
-            $updateAttachmentStmt = $db->prepare("UPDATE forum_chat_message_attachments
-                                                  SET message_id = :message_id
-                                                  WHERE id IN ($placeholders)
-                                                    AND room_id = :room_id
-                                                    AND uploaded_by = :uploaded_by
-                                                    AND message_id IS NULL");
-            $updateAttachmentStmt->execute($params);
+                ':graduate_id' => $currentGraduateId,
+                ':message' => $messageSpec['message'],
+                ':message_type' => $messageSpec['message_type'],
+                ':client_message_id' => $messageSpec['client_message_id'],
+            ]);
 
-            if ($updateAttachmentStmt->rowCount() !== count($attachmentIds)) {
-                throw new RuntimeException('Failed to attach uploaded files to message');
+            $messageId = (int) $db->lastInsertId();
+            $messageIds[] = $messageId;
+            $specAttachmentIds = $messageSpec['attachment_ids'];
+
+            if (count($specAttachmentIds) > 0) {
+                $params = [
+                    ':message_id' => $messageId,
+                    ':room_id' => $roomId,
+                    ':uploaded_by' => $currentGraduateId,
+                ];
+                $placeholders = gradtrack_chat_placeholders($specAttachmentIds, 'claim_attachment_' . $specIndex, $params);
+                $updateAttachmentStmt = $db->prepare("UPDATE forum_chat_message_attachments
+                                                      SET message_id = :message_id
+                                                      WHERE id IN ($placeholders)
+                                                        AND room_id = :room_id
+                                                        AND uploaded_by = :uploaded_by
+                                                        AND message_id IS NULL");
+                $updateAttachmentStmt->execute($params);
+
+                if ($updateAttachmentStmt->rowCount() !== count($specAttachmentIds)) {
+                    throw new RuntimeException('Failed to attach uploaded files to message');
+                }
             }
         }
 
         $updateRoomStmt = $db->prepare('UPDATE forum_chat_rooms SET last_message_at = NOW(), updated_at = NOW() WHERE id = :room_id');
         $updateRoomStmt->execute([':room_id' => $roomId]);
 
-        $db->commit();
+        if ($ownsTransaction) {
+            $db->commit();
+        }
     } catch (Throwable $e) {
-        if ($db->inTransaction()) {
+        if ($ownsTransaction && $db->inTransaction()) {
             $db->rollBack();
         }
         if ($e instanceof PDOException && $e->getCode() === '23000') {
-            $duplicateStmt = $db->prepare("SELECT id
-                                           FROM forum_chat_messages
-                                           WHERE room_id = :room_id
-                                             AND graduate_id = :graduate_id
-                                             AND client_message_id = :client_message_id
-                                           LIMIT 1");
-            $duplicateStmt->execute([
-                ':room_id' => $roomId,
-                ':graduate_id' => $currentGraduateId,
-                ':client_message_id' => $clientMessageId,
-            ]);
-            $duplicate = $duplicateStmt->fetch(PDO::FETCH_ASSOC);
-            if ($duplicate) {
-                $duplicateMessage = gradtrack_forum_chat_messages_fetch_one($db, (int) $duplicate['id'], $currentGraduateId);
-                if ($duplicateMessage) {
-                    return $duplicateMessage;
-                }
+            $duplicateMessages = gradtrack_forum_chat_messages_fetch_client_batch($db, $roomId, $currentGraduateId, $clientMessageId);
+            if (count($duplicateMessages) > 0) {
+                return $duplicateMessages;
             }
         }
         throw $e;
     }
 
-    $messageRow = gradtrack_forum_chat_messages_fetch_one($db, $messageId, $currentGraduateId);
-    if (!$messageRow) {
-        throw new RuntimeException('Unable to load saved message');
+    $savedMessages = [];
+    foreach ($messageIds as $messageId) {
+        $messageRow = gradtrack_forum_chat_messages_fetch_one($db, $messageId, $currentGraduateId);
+        if (!$messageRow) {
+            throw new RuntimeException('Unable to load saved message');
+        }
+        $savedMessages[] = $messageRow;
     }
 
-    return $messageRow;
+    return $savedMessages;
 }
 
 function gradtrack_forum_chat_messages_mark_read(PDO $db, int $roomId, int $currentGraduateId, int $upToMessageId): array
@@ -342,7 +385,16 @@ function gradtrack_forum_chat_messages_mark_read(PDO $db, int $roomId, int $curr
         ':up_to_message_id' => $upToMessageId,
     ]);
 
-    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    return array_map(function ($row) {
+        return [
+            'id' => (int) $row['id'],
+            'read_at' => gradtrack_chat_datetime_iso($row['read_at'] ?? null),
+        ];
+    }, $stmt->fetchAll(PDO::FETCH_ASSOC));
+}
+
+if (defined('GRADTRACK_CHAT_MESSAGES_LIBRARY_ONLY') && GRADTRACK_CHAT_MESSAGES_LIBRARY_ONLY) {
+    return;
 }
 
 $database = new Database();
@@ -407,7 +459,8 @@ try {
             exit;
         }
 
-        $savedMessage = gradtrack_forum_chat_messages_insert($db, $roomId, $currentGraduateId, $message, $clientMessageId, $attachmentIds);
+        $savedMessages = gradtrack_forum_chat_messages_insert($db, $roomId, $currentGraduateId, $message, $clientMessageId, $attachmentIds);
+        $savedMessage = $savedMessages[count($savedMessages) - 1];
 
         echo json_encode([
             'success' => true,
@@ -415,6 +468,7 @@ try {
             'id' => (int) $savedMessage['id'],
             'data' => [
                 'message' => $savedMessage,
+                'messages' => $savedMessages,
             ],
         ]);
         exit;

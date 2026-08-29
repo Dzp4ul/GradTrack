@@ -11,6 +11,7 @@
     "dev:backend": "cd backend && php -S localhost:8000",
     "dev:realtime": "node backend/realtime/socket-server.js",
     "test:realtime": "node backend/tests/realtime_messaging_integration.js",
+    "test:message-split": "php backend/tests/chat_message_split_integration.php",
     "build:frontend": "cd frontend && npm run build",
     "deploy:backend": "cd backend && eb deploy",
     "deploy:frontend": "cd frontend && amplify publish",

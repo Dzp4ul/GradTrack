@@ -48,6 +48,7 @@ import RealtimeMessagingWorkspace, {
   ImagePreviewModal as ChatImagePreviewModal,
   MessageComposer,
   MessageList,
+  PresenceText,
 } from '../components/messaging/RealtimeMessagingWorkspace';
 import type {
   MessageAttachment,
@@ -393,39 +394,6 @@ function parseDate(value?: string | null) {
   if (!value) return null;
   const parsed = new Date(value.replace(' ', 'T'));
   return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-function isSameDay(first: Date, second: Date) {
-  return first.getFullYear() === second.getFullYear()
-    && first.getMonth() === second.getMonth()
-    && first.getDate() === second.getDate();
-}
-
-function formatShortTime(value?: string | null) {
-  const parsed = parseDate(value);
-  if (!parsed) return '';
-
-  return parsed.toLocaleTimeString(undefined, {
-    hour: 'numeric',
-    minute: '2-digit',
-  });
-}
-
-function formatConversationTime(value?: string | null) {
-  const parsed = parseDate(value);
-  if (!parsed) return '';
-
-  const today = new Date();
-  const yesterday = new Date();
-
-  if (isSameDay(parsed, today)) return formatShortTime(value);
-  yesterday.setDate(today.getDate() - 1);
-  if (isSameDay(parsed, yesterday)) return 'Yesterday';
-
-  return parsed.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-  });
 }
 
 function formatDateTime(value?: string | null) {
@@ -777,21 +745,6 @@ function getRoomSubtitle(room: ChatRoom, currentGraduateId: number) {
   return other?.program_code || 'Graduate';
 }
 
-function getChatPresenceLabel(participant?: ChatParticipant | null) {
-  if (!participant) return 'Offline';
-  if (participant.is_online) return 'Online';
-
-  const lastActive = parseDate(participant.last_active_at);
-  if (!lastActive) return 'Offline';
-
-  return `Last active ${formatConversationTime(participant.last_active_at)}`;
-}
-
-function getForumChatHeaderSubtitle(room: ChatRoom, currentGraduateId: number) {
-  if (room.is_group) return getRoomSubtitle(room, currentGraduateId);
-  return getChatPresenceLabel(getRoomOtherParticipants(room, currentGraduateId)[0]);
-}
-
 function getPortalHeading(tab: PortalTab) {
   if (tab === 'announcements') {
     return {
@@ -980,6 +933,8 @@ export default function GraduatePortal() {
   const chatNearBottomRef = useRef(true);
   const chatTypingStopTimeoutRef = useRef<number | null>(null);
   const chatTypingRoomIdRef = useRef<number | null>(null);
+  const chatTypingLastEmittedAtRef = useRef(0);
+  const chatConversationSurfaceOpenRef = useRef(false);
   const chatJoinedRoomIdRef = useRef<number | null>(null);
   const selectedRoomIdRef = useRef<number | null>(null);
   const previousSelectedRoomIdRef = useRef<number | null>(null);
@@ -1893,6 +1848,18 @@ export default function GraduatePortal() {
     selectedRoomIdRef.current = selectedRoomId;
   }, [selectedRoomId]);
 
+  const chatRealtimeEnabled = messagingAvailable;
+  const chatSurfaceOpen = messagingAvailable && ['community_forum', 'messages', 'group_chats'].includes(activeTab);
+  const chatConversationSurfaceOpen = messagingAvailable && (
+    activeTab === 'messages'
+    || activeTab === 'group_chats'
+    || (activeTab === 'community_forum' && forumChatWindowOpen)
+  );
+
+  useEffect(() => {
+    chatConversationSurfaceOpenRef.current = chatConversationSurfaceOpen;
+  }, [chatConversationSurfaceOpen]);
+
   useEffect(() => {
     const socket = chatSocketRef.current;
     const joinedRoomId = chatJoinedRoomIdRef.current;
@@ -1917,8 +1884,9 @@ export default function GraduatePortal() {
       socket.emit('typing:stop', { room_id: typingRoomId });
     }
     chatTypingRoomIdRef.current = null;
+    chatTypingLastEmittedAtRef.current = 0;
 
-    if (!selectedRoomId) {
+    if (!selectedRoomId || !chatConversationSurfaceOpen) {
       if (socket?.connected && joinedRoomId) {
         socket.emit('conversation:leave', { room_id: joinedRoomId });
       }
@@ -1943,14 +1911,11 @@ export default function GraduatePortal() {
         }
       })();
     }
-  }, [activeTab, loadRoomMessages, selectedRoomId]);
+  }, [activeTab, chatConversationSurfaceOpen, loadRoomMessages, selectedRoomId]);
 
   useEffect(() => {
     roomMessagesRef.current = roomMessages;
   }, [roomMessages]);
-
-  const chatRealtimeEnabled = messagingAvailable;
-  const chatSurfaceOpen = messagingAvailable && ['community_forum', 'messages', 'group_chats'].includes(activeTab);
 
   useEffect(() => {
     if (!currentGraduateId || !chatRealtimeEnabled) {
@@ -1981,7 +1946,7 @@ export default function GraduatePortal() {
         }
       });
       const roomId = selectedRoomIdRef.current;
-      if (roomId) {
+      if (roomId && chatConversationSurfaceOpenRef.current) {
         void emitWithAck(socket, 'conversation:join', { room_id: roomId }).then(async (response) => {
           if (!response.success || selectedRoomIdRef.current !== roomId) return;
           chatJoinedRoomIdRef.current = roomId;
@@ -1999,6 +1964,7 @@ export default function GraduatePortal() {
     const handleDisconnect = (reason: string) => {
       chatJoinedRoomIdRef.current = null;
       chatTypingRoomIdRef.current = null;
+      chatTypingLastEmittedAtRef.current = 0;
       setChatTypingUsers({});
       setChatConnectionStatus(socket.active ? 'reconnecting' : 'disconnected');
       if (import.meta.env.DEV) console.info(`[Realtime] Disconnected: ${reason}`);
@@ -2190,6 +2156,7 @@ export default function GraduatePortal() {
       chatSocketRef.current = null;
       chatJoinedRoomIdRef.current = null;
       chatTypingRoomIdRef.current = null;
+      chatTypingLastEmittedAtRef.current = 0;
     };
   }, [applyMessageDelivery, applyMessageRead, applyPresenceStatus, applyPresenceStatuses, chatRealtimeEnabled, currentGraduateId, loadChats, upsertConversation]);
 
@@ -2817,6 +2784,7 @@ export default function GraduatePortal() {
       socket.emit('typing:stop', { room_id: typingRoomId });
     }
     chatTypingRoomIdRef.current = null;
+    chatTypingLastEmittedAtRef.current = 0;
   };
 
   const handleChatDraftInput = (value: string) => {
@@ -2832,14 +2800,18 @@ export default function GraduatePortal() {
       return;
     }
 
-    if (chatTypingRoomIdRef.current !== roomId) {
-      if (chatTypingRoomIdRef.current) {
+    const shouldStartTyping = chatTypingRoomIdRef.current !== roomId;
+    const shouldRefreshTyping = Date.now() - chatTypingLastEmittedAtRef.current >= 1000;
+    if (shouldStartTyping || shouldRefreshTyping) {
+      if (shouldStartTyping && chatTypingRoomIdRef.current) {
         stopChatTyping(chatTypingRoomIdRef.current);
       }
       chatTypingRoomIdRef.current = roomId;
+      chatTypingLastEmittedAtRef.current = Date.now();
       void emitWithAck(socket, 'typing:start', { room_id: roomId }).then((response) => {
         if (!response.success && chatTypingRoomIdRef.current === roomId) {
           chatTypingRoomIdRef.current = null;
+          chatTypingLastEmittedAtRef.current = 0;
         }
       });
     }
@@ -2951,24 +2923,34 @@ export default function GraduatePortal() {
       body: JSON.stringify(payload),
     });
 
-    const savedMessage = response.data?.message as ChatMessage | undefined;
-    if (!savedMessage) {
+    const savedMessages = Array.isArray(response.data?.messages)
+      ? (response.data.messages as ChatMessage[])
+      : response.data?.message
+        ? [response.data.message as ChatMessage]
+        : [];
+    if (savedMessages.length === 0) {
       throw new Error(response.error || 'Unable to send message');
     }
 
     const socket = chatSocketRef.current;
+    const canonicalMessages: ChatMessage[] = [];
     if (socket?.connected) {
-      const publishResponse = await emitWithAck<{ message?: ChatMessage }>(socket, 'message:publish', {
-        room_id: savedMessage.room_id,
-        message_id: savedMessage.id,
-      }, 5000);
-      if (publishResponse.success && publishResponse.message) {
-        return publishResponse.message;
+      for (const savedMessage of savedMessages) {
+        const publishResponse = await emitWithAck<{ message?: ChatMessage }>(socket, 'message:publish', {
+          room_id: savedMessage.room_id,
+          message_id: savedMessage.id,
+        }, 5000);
+        if (publishResponse.success && publishResponse.message) {
+          canonicalMessages.push(publishResponse.message);
+          continue;
+        }
+        canonicalMessages.push(savedMessage);
+        console.warn(`[Realtime] Saved message ${savedMessage.id} could not be published immediately: ${publishResponse.error || 'Unknown error'}`);
       }
-      console.warn(`[Realtime] Saved message ${savedMessage.id} could not be published immediately: ${publishResponse.error || 'Unknown error'}`);
+      return canonicalMessages;
     }
 
-    return savedMessage;
+    return savedMessages;
   };
 
   const handleSendMessage = async (event?: FormEvent<HTMLFormElement>, retryMessage?: ChatMessage) => {
@@ -3046,28 +3028,29 @@ export default function GraduatePortal() {
         ? existingAttachmentIds
         : (uploadedAttachment ? [uploadedAttachment.id] : []);
 
-      const savedMessage = await sendMessageToServer({
+      const savedMessages = await sendMessageToServer({
         room_id: roomId,
         message,
         client_message_id: clientMessageId,
         attachment_ids: attachmentIds,
       });
 
-      const normalized = normalizeChatMessage(savedMessage, currentGraduateId);
+      const normalizedMessages = savedMessages.map((savedMessage) => normalizeChatMessage(savedMessage, currentGraduateId));
+      const newestMessage = normalizedMessages[normalizedMessages.length - 1];
       if (selectedRoomIdRef.current === roomId) {
-        const nextMessages = mergeChatMessages(roomMessagesRef.current, [normalized]);
+        const nextMessages = mergeChatMessages(roomMessagesRef.current, normalizedMessages);
         setRoomMessages(nextMessages);
         roomMessagesRef.current = nextMessages;
       }
       setRooms((current) => sortChatRooms(current.map((room) => (
-        room.id === normalized.room_id
+        room.id === newestMessage.room_id
           ? {
               ...room,
-              last_message: getChatMessagePreview(normalized),
-              last_message_type: normalized.message_type || 'text',
-              last_message_at: normalized.created_at,
-              last_message_sender_id: normalized.graduate_id,
-              updated_at: normalized.created_at,
+              last_message: getChatMessagePreview(newestMessage),
+              last_message_type: newestMessage.message_type || 'text',
+              last_message_at: newestMessage.created_at,
+              last_message_sender_id: newestMessage.graduate_id,
+              updated_at: newestMessage.created_at,
               unread_count: 0,
             }
           : room
@@ -3613,6 +3596,10 @@ export default function GraduatePortal() {
   const selectedForumChatRecipient = selectedForumChatRoom
     ? getRoomOtherParticipants(selectedForumChatRoom, currentGraduateId)[0] || selectedForumChatRoom.participants[0] || null
     : null;
+
+  useEffect(() => {
+    setChatPreviewAttachment(null);
+  }, [activeTab, location.key, selectedRoomId]);
 
   return (
     <div className="min-h-screen overflow-x-clip bg-[#f4f6fb] text-slate-900" style={graduatePortalLayoutStyle}>
@@ -4461,7 +4448,11 @@ export default function GraduatePortal() {
                 </div>
                 <div className="min-w-0">
                   <p className="truncate font-semibold text-slate-900 transition hover:text-blue-700">{getRoomLabel(selectedForumChatRoom, currentGraduateId)}</p>
-                  <p className="truncate text-xs text-slate-500">{getForumChatHeaderSubtitle(selectedForumChatRoom, currentGraduateId)}</p>
+                  <p className="truncate text-xs text-slate-500">
+                    {selectedForumChatRoom.is_group
+                      ? getRoomSubtitle(selectedForumChatRoom, currentGraduateId)
+                      : <PresenceText participant={selectedForumChatRecipient} />}
+                  </p>
                 </div>
               </button>
             ) : (

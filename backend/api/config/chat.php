@@ -2,6 +2,38 @@
 
 require_once __DIR__ . '/forum.php';
 
+if (!function_exists('gradtrack_chat_datetime_iso')) {
+    function gradtrack_chat_datetime_iso($value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if ($value instanceof DateTimeInterface) {
+            return $value->format(DateTimeInterface::ATOM);
+        }
+
+        $rawTimezone = trim(function_exists('gradtrack_env') ? (string) gradtrack_env('DB_TIMEZONE', '+08:00') : '+08:00');
+        try {
+            $databaseTimezone = new DateTimeZone($rawTimezone);
+        } catch (Throwable $e) {
+            $databaseTimezone = new DateTimeZone('Asia/Manila');
+        }
+
+        $rawValue = trim((string) $value);
+        $date = DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', $rawValue, $databaseTimezone);
+        if (!$date) {
+            try {
+                $date = new DateTimeImmutable($rawValue, $databaseTimezone);
+            } catch (Throwable $e) {
+                return $rawValue;
+            }
+        }
+
+        return $date->format(DateTimeInterface::ATOM);
+    }
+}
+
 if (!function_exists('gradtrack_chat_column_exists')) {
     function gradtrack_chat_column_exists(PDO $db, string $table, string $column): bool
     {
@@ -259,6 +291,9 @@ if (!function_exists('gradtrack_chat_require_room_member')) {
         $room['id'] = (int) $room['id'];
         $room['created_by'] = (int) $room['created_by'];
         $room['is_group'] = (int) ($room['is_group'] ?? 0) === 1;
+        $room['created_at'] = gradtrack_chat_datetime_iso($room['created_at'] ?? null);
+        $room['updated_at'] = gradtrack_chat_datetime_iso($room['updated_at'] ?? null);
+        $room['last_message_at'] = gradtrack_chat_datetime_iso($room['last_message_at'] ?? null);
 
         return $room;
     }
@@ -291,7 +326,7 @@ if (!function_exists('gradtrack_chat_participants')) {
                 'program_code' => $row['program_code'] ?? null,
                 'year_graduated' => $row['year_graduated'] !== null ? (int) $row['year_graduated'] : null,
                 'profile_image_path' => $row['profile_image_path'] ?? null,
-                'last_active_at' => $row['last_active_at'] ?? null,
+                'last_active_at' => gradtrack_chat_datetime_iso($row['last_active_at'] ?? null),
                 'is_online' => false,
             ];
         }
@@ -314,7 +349,7 @@ if (!function_exists('gradtrack_chat_format_attachment')) {
             'mime_type' => (string) $row['mime_type'],
             'file_size' => (int) $row['file_size'],
             'attachment_type' => (string) $row['attachment_type'],
-            'created_at' => $row['created_at'] ?? null,
+            'created_at' => gradtrack_chat_datetime_iso($row['created_at'] ?? null),
             'url' => 'api/forum/chat-attachments.php?id=' . $id,
             'download_url' => 'api/forum/chat-attachments.php?id=' . $id . '&download=1',
         ];
@@ -362,10 +397,10 @@ if (!function_exists('gradtrack_chat_format_message')) {
             'message' => (string) ($row['message'] ?? ''),
             'message_type' => (string) ($row['message_type'] ?? 'text'),
             'client_message_id' => $row['client_message_id'] ?? null,
-            'created_at' => $row['created_at'],
-            'updated_at' => $row['updated_at'] ?? $row['created_at'],
-            'delivered_at' => $row['delivered_at'] ?? null,
-            'read_at' => $row['read_at'] ?? null,
+            'created_at' => gradtrack_chat_datetime_iso($row['created_at'] ?? null),
+            'updated_at' => gradtrack_chat_datetime_iso($row['updated_at'] ?? $row['created_at'] ?? null),
+            'delivered_at' => gradtrack_chat_datetime_iso($row['delivered_at'] ?? null),
+            'read_at' => gradtrack_chat_datetime_iso($row['read_at'] ?? null),
             'sender_name' => trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? '')) ?: 'Graduate',
             'sender_program_code' => $row['sender_program_code'] ?? null,
             'sender_profile_image_path' => $row['sender_profile_image_path'] ?? null,

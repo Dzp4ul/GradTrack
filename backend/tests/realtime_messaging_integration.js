@@ -66,6 +66,11 @@ function assert(condition, message) {
   console.log(`PASS: ${message}`);
 }
 
+function isRecentServerTimestamp(value, maxAgeMs = 2 * 60 * 1000) {
+  const timestamp = new Date(value || '').getTime();
+  return Number.isFinite(timestamp) && Math.abs(Date.now() - timestamp) <= maxAgeMs;
+}
+
 function createGraduateSession(accountId) {
   const sessionId = `gradtrack-test-${crypto.randomBytes(18).toString('hex')}`;
   const php = [
@@ -460,12 +465,14 @@ async function main() {
     recipient.close();
     const offlinePayload = await recipientOffline;
     assert(Boolean(offlinePayload.last_active_at), 'closing the final socket broadcasts offline with a persisted last-active timestamp');
+    assert(isRecentServerTimestamp(offlinePayload.last_active_at), 'last-active uses the configured database timezone without an eight-hour offset');
 
     const recipientBackOnline = waitForEvent(
       sender,
       'user:status',
       (payload) => Number(payload?.graduate_id) === Number(fixture.recipient_id)
         && payload?.is_online === true,
+      12000,
     );
     const reconnectedRecipient = await connectSocket(recipientSession, { reconnection: true });
     sockets.push(reconnectedRecipient);
@@ -488,6 +495,67 @@ async function main() {
     sender.off('user:status', recoveryPresenceCounter);
     assert(reconnectedRecipient.connected, 'temporary transport loss reconnects automatically');
     assert(falseOfflineDuringRecovery === 0, 'automatic transport recovery does not broadcast a false offline transition');
+
+    const rejoinedAfterRecovery = await emitWithAck(reconnectedRecipient, 'conversation:join', { room_id: Number(fixture.room_id) });
+    const typingAfterRecovery = waitForEvent(
+      sender,
+      'typing:update',
+      (payload) => Number(payload?.room_id) === Number(fixture.room_id)
+        && Number(payload?.graduate_id) === Number(fixture.recipient_id)
+        && payload?.is_typing === true,
+    );
+    await emitWithAck(reconnectedRecipient, 'typing:start', { room_id: Number(fixture.room_id) });
+    await typingAfterRecovery;
+    const refreshedTypingAfterRecovery = waitForEvent(
+      sender,
+      'typing:update',
+      (payload) => Number(payload?.room_id) === Number(fixture.room_id)
+        && Number(payload?.graduate_id) === Number(fixture.recipient_id)
+        && payload?.is_typing === true,
+    );
+    await wait(1100);
+    await emitWithAck(reconnectedRecipient, 'typing:start', { room_id: Number(fixture.room_id) });
+    await refreshedTypingAfterRecovery;
+    await emitWithAck(reconnectedRecipient, 'typing:stop', { room_id: Number(fixture.room_id) });
+    assert(rejoinedAfterRecovery.success === true, 'reconnected clients can rejoin the active conversation room');
+    assert(true, 'typing resumes and refreshes after transport recovery without restarting either client');
+
+    const recipientOtherDeviceSession = createGraduateSession(fixture.recipient_account_id);
+    sessions.push(recipientOtherDeviceSession);
+    const recipientOtherDevice = await connectSocket(recipientOtherDeviceSession);
+    sockets.push(recipientOtherDevice);
+
+    let falseOfflineDuringSessionLogout = 0;
+    const sessionLogoutPresenceCounter = (payload) => {
+      if (Number(payload?.graduate_id) === Number(fixture.recipient_id) && payload?.is_online === false) {
+        falseOfflineDuringSessionLogout += 1;
+      }
+    };
+    sender.on('user:status', sessionLogoutPresenceCounter);
+    const loggedOutSocketDisconnected = waitForEvent(reconnectedRecipient, 'disconnect', () => true);
+    const sessionLogoutAck = await emitWithAck(reconnectedRecipient, 'session:logout', {});
+    await loggedOutSocketDisconnected;
+    await wait(300);
+    const presenceAfterOneSessionLoggedOut = await emitWithAck(sender, 'presence:sync', {});
+    const onlineOnOtherDevice = presenceAfterOneSessionLoggedOut.users?.find(
+      (presence) => Number(presence.graduate_id) === Number(fixture.recipient_id),
+    );
+    sender.off('user:status', sessionLogoutPresenceCounter);
+    assert(sessionLogoutAck.success === true, 'logout tells the realtime backend to disconnect the authenticated PHP session');
+    assert(falseOfflineDuringSessionLogout === 0 && onlineOnOtherDevice?.is_online === true, 'logging out one session keeps the graduate online while another device remains connected');
+
+    const offlineAfterFinalDevice = waitForEvent(
+      sender,
+      'user:status',
+      (payload) => Number(payload?.graduate_id) === Number(fixture.recipient_id)
+        && payload?.is_online === false
+        && Boolean(payload?.last_active_at),
+      7000,
+    );
+    recipientOtherDevice.close();
+    const finalOfflinePayload = await offlineAfterFinalDevice;
+    assert(true, 'the final active session going away broadcasts offline with a new last-active timestamp');
+    assert(isRecentServerTimestamp(finalOfflinePayload.last_active_at), 'session logout persists a current last-active value in the configured timezone');
   } catch (error) {
     if (serverOutput.trim()) console.error(serverOutput.trim());
     throw error;

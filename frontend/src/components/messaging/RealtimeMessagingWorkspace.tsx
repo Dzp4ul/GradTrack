@@ -1,4 +1,5 @@
-import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, KeyboardEvent, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   AlertCircle,
   ArrowLeft,
@@ -6,6 +7,7 @@ import {
   CheckCheck,
   Download,
   FileText,
+  ImageOff,
   Loader2,
   Paperclip,
   Plus,
@@ -152,10 +154,14 @@ function formatLastActiveTime(value?: string | null) {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
 
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (isSameDay(parsed, yesterday)) return `yesterday at ${formatShortTime(value)}`;
+
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days} day${days === 1 ? '' : 's'} ago`;
 
-  return formatConversationTime(value);
+  return `${parsed.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: parsed.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' })} at ${formatShortTime(value)}`;
 }
 
 function formatBytes(value?: number | null) {
@@ -190,6 +196,18 @@ function getPresenceLabel(participant: MessagingParticipant | null) {
   const lastActive = parseDate(participant.last_active_at);
   if (!lastActive) return 'Offline';
   return `Last active ${formatLastActiveTime(participant.last_active_at)}`;
+}
+
+function PresenceText({ participant }: { participant?: MessagingParticipant | null }) {
+  const [, updateClock] = useState(0);
+
+  useEffect(() => {
+    if (!participant?.last_active_at || participant.is_online) return undefined;
+    const interval = window.setInterval(() => updateClock((current) => current + 1), 30000);
+    return () => window.clearInterval(interval);
+  }, [participant?.is_online, participant?.last_active_at]);
+
+  return <>{getPresenceLabel(participant || null)}</>;
 }
 
 function safePreview(value?: string | null) {
@@ -403,14 +421,6 @@ function ChatHeader({
   const recipient = getRecipient(room, currentGraduateId);
   const label = room ? getRoomLabel(room, currentGraduateId) : 'Select a conversation';
   const canOpenRecipient = !!room && !room.is_group && !!recipient?.graduate_id && recipient.graduate_id !== currentGraduateId;
-  const [, updatePresenceClock] = useState(0);
-
-  useEffect(() => {
-    if (!recipient?.last_active_at || recipient.is_online) return undefined;
-    const interval = window.setInterval(() => updatePresenceClock((current) => current + 1), 30000);
-    return () => window.clearInterval(interval);
-  }, [recipient?.is_online, recipient?.last_active_at]);
-
   const handleIdentityClick = () => {
     if (canOpenRecipient && onOpenProfile) {
       onOpenProfile(recipient?.graduate_id);
@@ -430,7 +440,7 @@ function ChatHeader({
           </button>
           <div className="min-w-0">
             <button type="button" onClick={handleIdentityClick} disabled={!canOpenRecipient} className="max-w-full truncate text-left text-base font-bold text-slate-900 transition hover:text-blue-700 disabled:cursor-default disabled:hover:text-slate-900">{label}</button>
-            <p className="truncate text-xs font-semibold text-slate-500">{getPresenceLabel(recipient)}</p>
+            <p className="truncate text-xs font-semibold text-slate-500"><PresenceText participant={recipient} /></p>
           </div>
         </>
       ) : (
@@ -470,17 +480,34 @@ function AttachmentTile({
 }) {
   const url = resolveAssetUrl(attachment.url);
   const downloadUrl = resolveAssetUrl(attachment.download_url);
+  const [imageFailed, setImageFailed] = useState(false);
 
   if (attachment.attachment_type === 'image') {
+    if (imageFailed || !url) {
+      return (
+        <div className="flex h-32 w-56 max-w-[78vw] flex-col items-center justify-center gap-2 rounded-lg border border-slate-200 bg-slate-100 px-4 text-center text-xs font-semibold text-slate-500" role="img" aria-label={`${attachment.original_name} could not be loaded`}>
+          <ImageOff className="h-7 w-7" />
+          <span>Image unavailable</span>
+        </div>
+      );
+    }
+
     return (
-      <button type="button" onClick={() => onImageOpen(attachment)} className="mt-2 block overflow-hidden rounded-lg border border-white/20 bg-black/10 text-left" aria-label={`Open ${attachment.original_name}`}>
-        <img src={url} alt={attachment.original_name} className="max-h-64 w-full object-cover" />
+      <button type="button" onClick={() => onImageOpen(attachment)} className="block max-w-[78vw] overflow-hidden rounded-lg border border-slate-200 bg-white p-1 text-left shadow-sm transition hover:border-blue-300 focus:outline-none focus:ring-2 focus:ring-blue-500 sm:max-w-sm" aria-label={`Open ${attachment.original_name}`}>
+        <img
+          src={url}
+          alt={attachment.original_name}
+          loading="lazy"
+          decoding="async"
+          onError={() => setImageFailed(true)}
+          className="block h-auto max-h-72 w-auto max-w-full rounded-md object-contain"
+        />
       </button>
     );
   }
 
   return (
-    <a href={downloadUrl} className="mt-2 flex items-center gap-3 rounded-lg border border-slate-200 bg-white/70 px-3 py-2 text-slate-700 transition hover:bg-white" download>
+    <a href={downloadUrl} className="flex w-72 max-w-[78vw] items-center gap-3 rounded-lg border border-slate-200 bg-white px-3 py-3 text-slate-700 shadow-sm transition hover:border-blue-300 hover:bg-slate-50" download>
       <FileText className="h-5 w-5 shrink-0 text-blue-700" />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-bold">{attachment.original_name}</span>
@@ -505,31 +532,47 @@ function MessageBubble({
   onOpenProfile?: (graduateId?: number | null) => void;
 }) {
   const isMine = message.is_mine;
+  const attachments = message.attachments || [];
+  const hasText = message.message.trim().length > 0;
+  const metadataClass = isMine ? 'justify-end text-slate-500' : 'text-slate-400';
+
+  const senderLink = !isMine ? (
+    <button type="button" onClick={() => onOpenProfile?.(message.graduate_id)} className="mb-1 block text-left text-xs font-bold text-slate-500 transition hover:text-blue-700">
+      {message.sender_name}
+    </button>
+  ) : null;
 
   return (
     <div className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
-      <div className={`max-w-[82%] sm:max-w-[72%] ${isMine ? 'items-end' : 'items-start'}`}>
-        <div className={`rounded-lg px-4 py-3 text-sm shadow-sm ${
-          isMine
-            ? message.status === 'failed'
-              ? 'border border-rose-200 bg-rose-50 text-rose-800'
-              : 'bg-blue-700 text-white'
-            : 'border border-slate-200 bg-white text-slate-800'
-        }`}>
-          {!isMine && (
-            <button type="button" onClick={() => onOpenProfile?.(message.graduate_id)} className="mb-1 block text-left text-xs font-bold text-slate-500 transition hover:text-blue-700">
-              {message.sender_name}
-            </button>
-          )}
-          {message.message && <p className="whitespace-pre-wrap break-words leading-6">{message.message}</p>}
-          {(message.attachments || []).map((attachment) => (
-            <AttachmentTile key={attachment.id} attachment={attachment} resolveAssetUrl={resolveAssetUrl} onImageOpen={onImageOpen} />
-          ))}
-          <div className={`mt-2 flex items-center gap-1 text-[11px] ${isMine ? 'justify-end text-blue-100' : 'text-slate-400'}`}>
-            <span>{formatShortTime(message.created_at)}</span>
-            {isMine && <StatusIcon message={message} />}
+      <div className={`flex max-w-[82%] flex-col gap-2 sm:max-w-[72%] ${isMine ? 'items-end' : 'items-start'}`}>
+        {hasText && (
+          <div className={`rounded-lg px-4 py-3 text-sm shadow-sm ${
+            isMine
+              ? message.status === 'failed'
+                ? 'border border-rose-200 bg-rose-50 text-rose-800'
+                : 'bg-blue-700 text-white'
+              : 'border border-slate-200 bg-white text-slate-800'
+          }`}>
+            {senderLink}
+            <p className="whitespace-pre-wrap break-words leading-6">{message.message}</p>
+            <div className={`mt-2 flex items-center gap-1 text-[11px] ${isMine ? 'justify-end text-blue-100' : 'text-slate-400'}`}>
+              <span>{formatShortTime(message.created_at)}</span>
+              {isMine && <StatusIcon message={message} />}
+            </div>
           </div>
-        </div>
+        )}
+
+        {attachments.map((attachment, index) => (
+          <div key={attachment.id} className={`flex max-w-full flex-col ${isMine ? 'items-end' : 'items-start'}`}>
+            {!hasText && index === 0 && senderLink}
+            <AttachmentTile attachment={attachment} resolveAssetUrl={resolveAssetUrl} onImageOpen={onImageOpen} />
+            <div className={`mt-1 flex items-center gap-1 px-1 text-[11px] ${metadataClass}`}>
+              <span>{formatShortTime(message.created_at)}</span>
+              {isMine && <StatusIcon message={message} />}
+            </div>
+          </div>
+        ))}
+
         {message.status === 'failed' && (
           <button type="button" onClick={() => onRetry(message)} className="mt-1 inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-bold text-rose-700 hover:bg-rose-50">
             <RefreshCw className="h-3 w-3" />
@@ -593,7 +636,11 @@ function MessageList({
   onOpenProfile?: (graduateId?: number | null) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
   const preserveScrollRef = useRef<{ height: number; top: number } | null>(null);
+  const positionedRoomRef = useRef<number | null>(null);
+  const stickToBottomRef = useRef(true);
+  const resizeFrameRef = useRef<number | null>(null);
 
   const items = useMemo(() => {
     const output: Array<{ type: 'date'; id: string; label: string } | { type: 'message'; id: string; message: MessagingMessage }> = [];
@@ -615,6 +662,7 @@ function MessageList({
     const element = scrollRef.current;
     if (!element) return;
     const nearBottom = element.scrollHeight - element.scrollTop - element.clientHeight < 96;
+    stickToBottomRef.current = nearBottom;
     onNearBottomChange(nearBottom);
 
     if (element.scrollTop < 48 && hasMoreOlder && !loadingOlder) {
@@ -635,6 +683,62 @@ function MessageList({
     onNearBottomChange(element.scrollHeight - element.scrollTop - element.clientHeight < 96);
   }, [messages.length, onNearBottomChange]);
 
+  useLayoutEffect(() => {
+    const element = scrollRef.current;
+    if (!room) {
+      positionedRoomRef.current = null;
+      stickToBottomRef.current = true;
+      return undefined;
+    }
+
+    if (positionedRoomRef.current !== room.id) {
+      stickToBottomRef.current = true;
+    }
+    if (!element || loading) return undefined;
+
+    // Initial smooth scrolling can be interrupted by rerenders or image
+    // decoding. Position synchronously, then confirm after browser layout.
+    element.scrollTop = element.scrollHeight;
+    positionedRoomRef.current = room.id;
+    stickToBottomRef.current = true;
+    onNearBottomChange(true);
+
+    const frame = window.requestAnimationFrame(() => {
+      if (scrollRef.current && positionedRoomRef.current === room.id) {
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [loading, onNearBottomChange, room?.id]);
+
+  useEffect(() => {
+    const element = scrollRef.current;
+    const content = contentRef.current;
+    if (!element || !content || !room || loading || typeof ResizeObserver === 'undefined') return undefined;
+
+    const observer = new ResizeObserver(() => {
+      if (!stickToBottomRef.current || positionedRoomRef.current !== room.id) return;
+      if (resizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeFrameRef.current);
+      }
+      resizeFrameRef.current = window.requestAnimationFrame(() => {
+        resizeFrameRef.current = null;
+        if (scrollRef.current && stickToBottomRef.current && positionedRoomRef.current === room.id) {
+          scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+        }
+      });
+    });
+    observer.observe(content);
+
+    return () => {
+      observer.disconnect();
+      if (resizeFrameRef.current !== null) {
+        window.cancelAnimationFrame(resizeFrameRef.current);
+        resizeFrameRef.current = null;
+      }
+    };
+  }, [loading, room?.id]);
+
   useEffect(() => {
     const element = scrollRef.current;
     if (!element) return;
@@ -648,7 +752,7 @@ function MessageList({
       return;
     }
 
-    if (!newMessageAvailable) {
+    if (!newMessageAvailable && stickToBottomRef.current && positionedRoomRef.current === room?.id) {
       requestAnimationFrame(() => {
         element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' });
       });
@@ -661,6 +765,7 @@ function MessageList({
 
     const distanceFromBottom = element.scrollHeight - element.scrollTop - element.clientHeight;
     if (distanceFromBottom < 160) {
+      stickToBottomRef.current = true;
       requestAnimationFrame(() => {
         element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' });
       });
@@ -670,45 +775,47 @@ function MessageList({
   return (
     <div className="relative min-h-0 flex-1 bg-[#f8fafc]">
       <div ref={scrollRef} onScroll={handleScroll} className="h-full overflow-y-auto px-4 py-5">
-        {loading ? (
-          <div className="space-y-4">
+        <div ref={contentRef} className="min-h-full">
+          {loading ? (
+            <div className="space-y-4">
             {[0, 1, 2].map((item) => (
               <div key={item} className={`flex ${item % 2 ? 'justify-end' : 'justify-start'}`}>
                 <div className="h-16 w-2/3 animate-pulse rounded-lg bg-slate-200" />
               </div>
             ))}
-          </div>
-        ) : !room ? (
-          <div className="flex h-full items-center justify-center px-6 text-center text-sm text-slate-500">
-            Pick a conversation to read and send messages.
-          </div>
-        ) : messages.length === 0 ? (
-          <div className="flex h-full flex-col justify-center gap-4 px-6">
-            <div className="rounded-lg border border-dashed border-slate-300 bg-white px-5 py-8 text-center text-sm text-slate-500">
-              No messages yet. Say hello and start the conversation.
             </div>
-            <TypingIndicator names={typingNames} />
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {hasMoreOlder && (
-              <div className="flex justify-center">
-                <button type="button" onClick={() => void handleLoadOlder()} disabled={loadingOlder} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-60">
-                  {loadingOlder && <Loader2 className="h-3 w-3 animate-spin" />}
-                  Load older
-                </button>
+          ) : !room ? (
+            <div className="flex min-h-full items-center justify-center px-6 text-center text-sm text-slate-500">
+              Pick a conversation to read and send messages.
+            </div>
+          ) : messages.length === 0 ? (
+            <div className="flex min-h-full flex-col justify-center gap-4 px-6">
+              <div className="rounded-lg border border-dashed border-slate-300 bg-white px-5 py-8 text-center text-sm text-slate-500">
+                No messages yet. Say hello and start the conversation.
               </div>
-            )}
-            {items.map((item) => item.type === 'date' ? (
-              <div key={item.id} className="flex justify-center">
-                <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-500 shadow-sm">{item.label}</span>
-              </div>
-            ) : (
-              <MessageBubble key={item.id} message={item.message} resolveAssetUrl={resolveAssetUrl} onRetry={onRetryMessage} onImageOpen={onImageOpen} onOpenProfile={onOpenProfile} />
-            ))}
-            <TypingIndicator names={typingNames} />
-          </div>
-        )}
+              <TypingIndicator names={typingNames} />
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {hasMoreOlder && (
+                <div className="flex justify-center">
+                  <button type="button" onClick={() => void handleLoadOlder()} disabled={loadingOlder} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-60">
+                    {loadingOlder && <Loader2 className="h-3 w-3 animate-spin" />}
+                    Load older
+                  </button>
+                </div>
+              )}
+              {items.map((item) => item.type === 'date' ? (
+                <div key={item.id} className="flex justify-center">
+                  <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-500 shadow-sm">{item.label}</span>
+                </div>
+              ) : (
+                <MessageBubble key={item.id} message={item.message} resolveAssetUrl={resolveAssetUrl} onRetry={onRetryMessage} onImageOpen={onImageOpen} onOpenProfile={onOpenProfile} />
+              ))}
+              <TypingIndicator names={typingNames} />
+            </div>
+          )}
+        </div>
       </div>
 
       {newMessageAvailable && (
@@ -717,6 +824,7 @@ function MessageList({
           onClick={() => {
             const element = scrollRef.current;
             if (element) {
+              stickToBottomRef.current = true;
               element.scrollTo({ top: element.scrollHeight, behavior: 'smooth' });
             }
             onScrollToNewest();
@@ -928,22 +1036,92 @@ function ImagePreviewModal({
   resolveAssetUrl: (path?: string | null) => string;
   onClose: () => void;
 }) {
-  return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 px-4 py-6" role="dialog" aria-modal="true">
-      <button type="button" onClick={onClose} className="absolute right-4 top-4 inline-flex h-11 w-11 items-center justify-center rounded-lg bg-white/10 text-white hover:bg-white/20" aria-label="Close image preview">
-        <X className="h-6 w-6" />
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  const [imageFailed, setImageFailed] = useState(false);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousBodyPaddingRight = document.body.style.paddingRight;
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+
+    document.body.style.overflow = 'hidden';
+    if (scrollbarWidth > 0) {
+      document.body.style.paddingRight = `${scrollbarWidth}px`;
+    }
+    closeButtonRef.current?.focus();
+
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      onCloseRef.current();
+    };
+    const handleNavigation = () => onCloseRef.current();
+
+    document.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('popstate', handleNavigation);
+    window.addEventListener('pagehide', handleNavigation);
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('popstate', handleNavigation);
+      window.removeEventListener('pagehide', handleNavigation);
+      document.body.style.overflow = previousBodyOverflow;
+      document.body.style.paddingRight = previousBodyPaddingRight;
+      previousFocus?.focus();
+    };
+  }, []);
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-black/85 px-3 py-16 backdrop-blur-sm sm:px-6"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Image preview: ${attachment.original_name}`}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <button
+        ref={closeButtonRef}
+        type="button"
+        onClick={onClose}
+        className="fixed right-3 top-3 z-[101] inline-flex h-12 w-12 items-center justify-center rounded-full border border-white/40 bg-black/70 text-white shadow-xl transition hover:bg-white hover:text-slate-950 focus:outline-none focus:ring-2 focus:ring-white sm:right-6 sm:top-6"
+        aria-label="Close image preview"
+        title="Close (Esc)"
+      >
+        <X className="h-7 w-7" />
       </button>
-      <div className="max-h-full max-w-5xl">
-        <img src={resolveAssetUrl(attachment.url)} alt={attachment.original_name} className="max-h-[82vh] rounded-lg object-contain" />
-        <div className="mt-3 flex items-center justify-between gap-3 text-sm text-white">
-          <span className="truncate">{attachment.original_name}</span>
-          <a href={resolveAssetUrl(attachment.download_url)} className="inline-flex items-center gap-2 rounded-lg bg-white px-3 py-2 font-bold text-slate-900" download>
+
+      <div className="flex max-h-full w-full max-w-6xl flex-col items-center" onClick={(event) => event.stopPropagation()}>
+        {imageFailed ? (
+          <div className="flex h-72 w-full max-w-xl flex-col items-center justify-center gap-3 rounded-xl border border-white/20 bg-white/10 px-6 text-center text-white">
+            <ImageOff className="h-10 w-10" />
+            <p className="font-semibold">This image could not be loaded.</p>
+          </div>
+        ) : (
+          <img
+            src={resolveAssetUrl(attachment.url)}
+            alt={attachment.original_name}
+            onError={() => setImageFailed(true)}
+            className="block h-auto max-h-[calc(100vh-10rem)] w-auto max-w-full rounded-xl object-contain shadow-2xl"
+          />
+        )}
+        <div className="mt-3 flex w-full max-w-5xl flex-col items-stretch justify-between gap-3 text-sm text-white sm:flex-row sm:items-center">
+          <span className="min-w-0 truncate text-center sm:text-left">{attachment.original_name}</span>
+          <a href={resolveAssetUrl(attachment.download_url)} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-white px-3 py-2 font-bold text-slate-900 transition hover:bg-slate-100" download>
             <Download className="h-4 w-4" />
             Download
           </a>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -1133,6 +1311,10 @@ export default function RealtimeMessagingWorkspace({
 }: RealtimeMessagingWorkspaceProps) {
   const [previewAttachment, setPreviewAttachment] = useState<MessageAttachment | null>(null);
 
+  useEffect(() => {
+    setPreviewAttachment(null);
+  }, [selectedRoomId]);
+
   return (
     <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
       <div className="grid h-[calc(100vh-170px)] min-h-[620px] grid-cols-1 lg:grid-cols-[360px_minmax(0,1fr)]">
@@ -1218,5 +1400,6 @@ export {
   MessageComposer,
   MessageList,
   NewConversationModal,
+  PresenceText,
   TypingIndicator,
 };

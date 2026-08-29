@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { API_ENDPOINTS } from '../config/api';
+import { notifyRealtimeChatLogout } from '../services/realtimeChat';
 
 export interface GraduateUser {
   account_id: number;
@@ -87,6 +88,7 @@ export function GraduateAuthProvider({ children }: { children: React.ReactNode }
 
   const logout = async () => {
     try {
+      await notifyRealtimeChatLogout();
       await fetch(API_ENDPOINTS.GRADUATE_AUTH.LOGOUT, {
         method: 'POST',
         credentials: 'include',

@@ -36,6 +36,19 @@ export function destroyRealtimeChatSocket(socket?: Socket | null): void {
   realtimeChatSocket = null;
 }
 
+export async function notifyRealtimeChatLogout(): Promise<void> {
+  const socket = realtimeChatSocket;
+  if (!socket) return;
+
+  try {
+    if (socket.connected) {
+      await emitWithAck(socket, 'session:logout', {}, 1500);
+    }
+  } finally {
+    destroyRealtimeChatSocket(socket);
+  }
+}
+
 export function emitWithAck<T = unknown>(
   socket: Socket,
   eventName: string,

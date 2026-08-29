@@ -86,7 +86,11 @@ try {
             gradtrack_chat_attachments_json_error(400, 'attachment is required');
         }
 
-        $validated = gradtrack_chat_validate_attachment_file((array) $_FILES['attachment']);
+        try {
+            $validated = gradtrack_chat_validate_attachment_file((array) $_FILES['attachment']);
+        } catch (RuntimeException $e) {
+            gradtrack_chat_attachments_json_error(400, $e->getMessage());
+        }
         $storedName = uniqid('chat_', true) . '.' . $validated['extension'];
         $roomDir = gradtrack_chat_upload_room_dir($roomId);
         gradtrack_chat_create_dir($roomDir);
