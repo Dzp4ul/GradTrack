@@ -8,8 +8,12 @@ export type SocketAck<T = unknown> = {
   error?: string;
 } & T;
 
-export function createRealtimeChatSocket(): Socket {
-  return io(REALTIME_URL, {
+let realtimeChatSocket: Socket | null = null;
+
+export function getRealtimeChatSocket(): Socket {
+  if (realtimeChatSocket) return realtimeChatSocket;
+
+  realtimeChatSocket = io(REALTIME_URL, {
     autoConnect: false,
     withCredentials: true,
     reconnection: true,
@@ -18,7 +22,18 @@ export function createRealtimeChatSocket(): Socket {
     reconnectionDelayMax: 5000,
     timeout: 10000,
     transports: ['websocket', 'polling'],
+    tryAllTransports: true,
+    upgrade: true,
+    rememberUpgrade: true,
   });
+
+  return realtimeChatSocket;
+}
+
+export function destroyRealtimeChatSocket(socket?: Socket | null): void {
+  if (!realtimeChatSocket || (socket && socket !== realtimeChatSocket)) return;
+  realtimeChatSocket.disconnect();
+  realtimeChatSocket = null;
 }
 
 export function emitWithAck<T = unknown>(

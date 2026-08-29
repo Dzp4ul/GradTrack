@@ -65,7 +65,7 @@ import GraduateAnnouncements from '../components/graduate/GraduateAnnouncements'
 import { useGraduateAuth } from '../contexts/GraduateAuthContext';
 import type { GraduateUser } from '../contexts/GraduateAuthContext';
 import { useSystemSettings } from '../contexts/SystemSettingsContext';
-import { createRealtimeChatSocket, emitWithAck } from '../services/realtimeChat';
+import { destroyRealtimeChatSocket, emitWithAck, getRealtimeChatSocket } from '../services/realtimeChat';
 import type { RealtimeChatStatus } from '../services/realtimeChat';
 
 type PortalTab = 'announcements' | 'dashboard' | 'community_forum' | 'messages' | 'group_chats' | 'jobs' | 'job_posting' | 'my_profile';
@@ -158,6 +158,40 @@ interface ReportTarget {
 type ChatParticipant = MessagingParticipant;
 type ChatRoom = MessagingRoom;
 type ChatMessage = MessagingMessage;
+
+interface ChatPresenceStatus {
+  graduate_id: number;
+  is_online: boolean;
+  last_active_at?: string | null;
+}
+
+function mergeKnownPresenceIntoParticipant(
+  participant: ChatParticipant,
+  presenceByGraduate: Map<number, ChatPresenceStatus>,
+): ChatParticipant {
+  const status = presenceByGraduate.get(participant.graduate_id);
+  if (!status) return participant;
+
+  return {
+    ...participant,
+    is_online: status.is_online,
+    last_active_at: status.is_online
+      ? (participant.last_active_at ?? status.last_active_at ?? null)
+      : (status.last_active_at ?? participant.last_active_at ?? null),
+  };
+}
+
+function mergeKnownPresenceIntoRoom(
+  room: ChatRoom,
+  presenceByGraduate: Map<number, ChatPresenceStatus>,
+): ChatRoom {
+  return {
+    ...room,
+    participants: room.participants.map((participant) => (
+      mergeKnownPresenceIntoParticipant(participant, presenceByGraduate)
+    )),
+  };
+}
 
 interface JobPost {
   id: number;
@@ -950,6 +984,7 @@ export default function GraduatePortal() {
   const selectedRoomIdRef = useRef<number | null>(null);
   const previousSelectedRoomIdRef = useRef<number | null>(null);
   const roomMessagesRef = useRef<ChatMessage[]>([]);
+  const chatPresenceByGraduateRef = useRef<Map<number, ChatPresenceStatus>>(new Map());
   const retryAttachmentsRef = useRef<Record<string, SelectedAttachment>>({});
   const chatSelectedAttachmentRef = useRef<SelectedAttachment | null>(null);
   const chatTypingExpiryTimeoutsRef = useRef<Map<string, number>>(new Map());
@@ -1201,8 +1236,12 @@ export default function GraduatePortal() {
 
   const loadChats = useCallback(async () => {
     const response = await authenticatedFetch(API_ENDPOINTS.FORUM.CHATS);
-    const roomList = sortChatRooms(Array.isArray(response.data?.rooms) ? (response.data.rooms as ChatRoom[]) : []);
-    const directoryList = Array.isArray(response.data?.directory) ? (response.data.directory as ChatParticipant[]) : [];
+    const roomList = sortChatRooms(
+      (Array.isArray(response.data?.rooms) ? (response.data.rooms as ChatRoom[]) : [])
+        .map((room) => mergeKnownPresenceIntoRoom(room, chatPresenceByGraduateRef.current)),
+    );
+    const directoryList = (Array.isArray(response.data?.directory) ? (response.data.directory as ChatParticipant[]) : [])
+      .map((participant) => mergeKnownPresenceIntoParticipant(participant, chatPresenceByGraduateRef.current));
 
     setRooms(roomList);
     setDirectory(directoryList);
@@ -1296,7 +1335,8 @@ export default function GraduatePortal() {
         const serverMessages = Array.isArray(response.data?.messages)
           ? (response.data.messages as ChatMessage[]).map((message) => normalizeChatMessage(message, currentGraduateId))
           : [];
-        setActiveRoom((response.data?.room as ChatRoom | undefined) || null);
+        const responseRoom = response.data?.room as ChatRoom | undefined;
+        setActiveRoom(responseRoom ? mergeKnownPresenceIntoRoom(responseRoom, chatPresenceByGraduateRef.current) : null);
         setRoomMessages((current) => {
           const pendingForRoom = current.filter((message) => (
             message.room_id === roomId
@@ -1450,27 +1490,60 @@ export default function GraduatePortal() {
   const upsertConversation = useCallback((conversation?: ChatRoom | null) => {
     if (!conversation) return;
 
+    conversation.participants.forEach((participant) => {
+      if (typeof participant.is_online !== 'boolean') return;
+      const previous = chatPresenceByGraduateRef.current.get(participant.graduate_id);
+      chatPresenceByGraduateRef.current.set(participant.graduate_id, {
+        graduate_id: participant.graduate_id,
+        is_online: participant.is_online,
+        last_active_at: participant.is_online
+          ? (previous?.last_active_at ?? participant.last_active_at ?? null)
+          : (participant.last_active_at ?? previous?.last_active_at ?? null),
+      });
+    });
+    const synchronizedConversation = mergeKnownPresenceIntoRoom(conversation, chatPresenceByGraduateRef.current);
+
     setRooms((current) => {
-      const exists = current.some((room) => room.id === conversation.id);
+      const exists = current.some((room) => room.id === synchronizedConversation.id);
       const next = exists
-        ? current.map((room) => (room.id === conversation.id ? { ...room, ...conversation } : room))
-        : [conversation, ...current];
+        ? current.map((room) => (room.id === synchronizedConversation.id ? { ...room, ...synchronizedConversation } : room))
+        : [synchronizedConversation, ...current];
       return sortChatRooms(next);
     });
 
-    setActiveRoom((current) => (current?.id === conversation.id ? { ...current, ...conversation } : current));
+    setActiveRoom((current) => (
+      current?.id === synchronizedConversation.id ? { ...current, ...synchronizedConversation } : current
+    ));
   }, []);
 
-  const applyPresenceStatus = useCallback((status: { graduate_id: number; is_online: boolean; last_active_at?: string | null }) => {
-    const updateParticipant = (participant: ChatParticipant) =>
-      participant.graduate_id === status.graduate_id
-        ? { ...participant, is_online: status.is_online, last_active_at: status.last_active_at ?? participant.last_active_at }
-        : participant;
+  const applyPresenceStatuses = useCallback((statuses: ChatPresenceStatus[]) => {
+    if (!Array.isArray(statuses) || statuses.length === 0) return;
+
+    statuses.forEach((status) => {
+      const graduateId = Number(status.graduate_id || 0);
+      if (!graduateId) return;
+      const previous = chatPresenceByGraduateRef.current.get(graduateId);
+      chatPresenceByGraduateRef.current.set(graduateId, {
+        graduate_id: graduateId,
+        is_online: Boolean(status.is_online),
+        last_active_at: status.is_online
+          ? (previous?.last_active_at ?? status.last_active_at ?? null)
+          : (status.last_active_at ?? previous?.last_active_at ?? null),
+      });
+    });
+
+    const updateParticipant = (participant: ChatParticipant) => (
+      mergeKnownPresenceIntoParticipant(participant, chatPresenceByGraduateRef.current)
+    );
 
     setRooms((current) => current.map((room) => ({ ...room, participants: room.participants.map(updateParticipant) })));
     setDirectory((current) => current.map(updateParticipant));
     setActiveRoom((current) => current ? { ...current, participants: current.participants.map(updateParticipant) } : current);
   }, []);
+
+  const applyPresenceStatus = useCallback((status: ChatPresenceStatus) => {
+    applyPresenceStatuses([status]);
+  }, [applyPresenceStatuses]);
 
   const applyMessageDelivery = useCallback((payload: { messages?: Array<{ id: number; delivered_at?: string | null }> }) => {
     const deliveredById = new Map((payload.messages || []).map((message) => [Number(message.id), message.delivered_at || new Date().toISOString()]));
@@ -1876,24 +1949,37 @@ export default function GraduatePortal() {
     roomMessagesRef.current = roomMessages;
   }, [roomMessages]);
 
-  const chatFeatureOpen = messagingAvailable && ['community_forum', 'messages', 'group_chats'].includes(activeTab);
+  const chatRealtimeEnabled = messagingAvailable;
+  const chatSurfaceOpen = messagingAvailable && ['community_forum', 'messages', 'group_chats'].includes(activeTab);
 
   useEffect(() => {
-    if (!currentGraduateId || !chatFeatureOpen) {
+    if (!currentGraduateId || !chatRealtimeEnabled) {
       setChatConnectionStatus('disconnected');
       return undefined;
     }
 
-    const socket = createRealtimeChatSocket();
+    const socket = getRealtimeChatSocket();
     let hasConnectedOnce = false;
+    let manualReconnectTimeout: number | null = null;
     const typingExpiryTimeouts = chatTypingExpiryTimeoutsRef.current;
     chatSocketRef.current = socket;
     setChatConnectionStatus('connecting');
+    if (import.meta.env.DEV) console.info('[Realtime] Connecting...');
 
     const handleConnect = () => {
+      if (manualReconnectTimeout !== null) {
+        window.clearTimeout(manualReconnectTimeout);
+        manualReconnectTimeout = null;
+      }
       const isReconnect = hasConnectedOnce;
       hasConnectedOnce = true;
       setChatConnectionStatus('connected');
+      if (import.meta.env.DEV) console.info(`[Realtime] Connected: ${socket.id}`);
+      void emitWithAck<{ users?: ChatPresenceStatus[] }>(socket, 'presence:sync', {}).then((response) => {
+        if (response.success && Array.isArray(response.users)) {
+          applyPresenceStatuses(response.users);
+        }
+      });
       const roomId = selectedRoomIdRef.current;
       if (roomId) {
         void emitWithAck(socket, 'conversation:join', { room_id: roomId }).then(async (response) => {
@@ -1905,24 +1991,31 @@ export default function GraduatePortal() {
         });
       }
       if (isReconnect) {
+        if (import.meta.env.DEV) console.info('[Realtime] Reconnected; synchronizing conversations and missed messages.');
         void loadChats();
       }
     };
 
-    const handleDisconnect = () => {
+    const handleDisconnect = (reason: string) => {
       chatJoinedRoomIdRef.current = null;
       chatTypingRoomIdRef.current = null;
       setChatTypingUsers({});
       setChatConnectionStatus(socket.active ? 'reconnecting' : 'disconnected');
+      if (import.meta.env.DEV) console.info(`[Realtime] Disconnected: ${reason}`);
     };
 
     const handleConnectError = (error: Error) => {
-      if (/authentication required|origin is not allowed/i.test(error.message)) {
-        setChatConnectionStatus('error');
-        socket.disconnect();
-        return;
+      setChatConnectionStatus('reconnecting');
+      console.warn(`[Realtime] Connection failed: ${error.message}`);
+      if (!socket.active && manualReconnectTimeout === null) {
+        manualReconnectTimeout = window.setTimeout(() => {
+          manualReconnectTimeout = null;
+          if (chatSocketRef.current === socket && !socket.connected) {
+            if (import.meta.env.DEV) console.info('[Realtime] Retrying rejected connection...');
+            socket.connect();
+          }
+        }, 3000);
       }
-      setChatConnectionStatus(socket.active ? 'reconnecting' : 'error');
     };
 
     const updateRoomPreview = (message: ChatMessage) => {
@@ -1955,6 +2048,7 @@ export default function GraduatePortal() {
     const handleMessageNew = (payload: { message?: ChatMessage }) => {
       if (!payload.message) return;
       const incoming = normalizeChatMessage(payload.message, currentGraduateId);
+      if (import.meta.env.DEV) console.info(`[Realtime] Message received: ${incoming.id}`);
       updateRoomPreview(incoming);
       removeTypingUser(incoming.room_id, incoming.graduate_id);
       if (selectedRoomIdRef.current !== incoming.room_id) return;
@@ -2038,7 +2132,14 @@ export default function GraduatePortal() {
       }));
     };
 
-    const handleReconnectAttempt = () => setChatConnectionStatus('reconnecting');
+    const handlePresenceSnapshot = (payload: { users?: ChatPresenceStatus[] }) => {
+      if (Array.isArray(payload.users)) applyPresenceStatuses(payload.users);
+    };
+
+    const handleReconnectAttempt = () => {
+      setChatConnectionStatus('reconnecting');
+      if (import.meta.env.DEV) console.info('[Realtime] Reconnecting...');
+    };
 
     socket.on('connect', handleConnect);
     socket.on('disconnect', handleDisconnect);
@@ -2052,6 +2153,7 @@ export default function GraduatePortal() {
     socket.on('conversation:updated', handleConversationUpdated);
     socket.on('unread-count:updated', handleUnreadUpdated);
     socket.on('user:status', applyPresenceStatus);
+    socket.on('presence:snapshot', handlePresenceSnapshot);
     socket.io.on('reconnect_attempt', handleReconnectAttempt);
     socket.connect();
 
@@ -2063,6 +2165,10 @@ export default function GraduatePortal() {
       if (chatTypingStopTimeoutRef.current) {
         window.clearTimeout(chatTypingStopTimeoutRef.current);
         chatTypingStopTimeoutRef.current = null;
+      }
+      if (manualReconnectTimeout !== null) {
+        window.clearTimeout(manualReconnectTimeout);
+        manualReconnectTimeout = null;
       }
       typingExpiryTimeouts.forEach((timeoutId) => window.clearTimeout(timeoutId));
       typingExpiryTimeouts.clear();
@@ -2078,16 +2184,17 @@ export default function GraduatePortal() {
       socket.off('conversation:updated', handleConversationUpdated);
       socket.off('unread-count:updated', handleUnreadUpdated);
       socket.off('user:status', applyPresenceStatus);
+      socket.off('presence:snapshot', handlePresenceSnapshot);
       socket.io.off('reconnect_attempt', handleReconnectAttempt);
-      socket.disconnect();
+      destroyRealtimeChatSocket(socket);
       chatSocketRef.current = null;
       chatJoinedRoomIdRef.current = null;
       chatTypingRoomIdRef.current = null;
     };
-  }, [applyMessageDelivery, applyMessageRead, applyPresenceStatus, chatFeatureOpen, currentGraduateId, loadChats, upsertConversation]);
+  }, [applyMessageDelivery, applyMessageRead, applyPresenceStatus, applyPresenceStatuses, chatRealtimeEnabled, currentGraduateId, loadChats, upsertConversation]);
 
   useEffect(() => {
-    if (!chatFeatureOpen || chatConnectionStatus === 'connected') return undefined;
+    if (!chatSurfaceOpen || chatConnectionStatus === 'connected') return undefined;
 
     const roomInterval = window.setInterval(() => {
       void loadChats();
@@ -2104,7 +2211,7 @@ export default function GraduatePortal() {
       window.clearInterval(roomInterval);
       window.clearInterval(messageInterval);
     };
-  }, [chatConnectionStatus, chatFeatureOpen, loadChats, loadMissedRoomMessages]);
+  }, [chatConnectionStatus, chatSurfaceOpen, loadChats, loadMissedRoomMessages]);
 
   useEffect(() => {
     if (activeTab === 'messages') return;
@@ -2839,35 +2946,29 @@ export default function GraduatePortal() {
     client_message_id: string;
     attachment_ids: number[];
   }) => {
-    const sendViaHttp = async () => {
-      const response = await authenticatedFetch(API_ENDPOINTS.FORUM.CHAT_MESSAGES, {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      });
+    const response = await authenticatedFetch(API_ENDPOINTS.FORUM.CHAT_MESSAGES, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
 
-      const savedMessage = response.data?.message as ChatMessage | undefined;
-      if (!savedMessage) {
-        throw new Error(response.error || 'Unable to send message');
-      }
-
-      return savedMessage;
-    };
-
-    const socket = chatSocketRef.current;
-    if (socket?.connected) {
-      const response = await emitWithAck<{ message?: ChatMessage }>(socket, 'message:send', payload, 5000);
-      if (response.success && response.message) {
-        return response.message;
-      }
-
-      if (response.error === 'Realtime server did not respond') {
-        return sendViaHttp();
-      }
-
+    const savedMessage = response.data?.message as ChatMessage | undefined;
+    if (!savedMessage) {
       throw new Error(response.error || 'Unable to send message');
     }
 
-    return sendViaHttp();
+    const socket = chatSocketRef.current;
+    if (socket?.connected) {
+      const publishResponse = await emitWithAck<{ message?: ChatMessage }>(socket, 'message:publish', {
+        room_id: savedMessage.room_id,
+        message_id: savedMessage.id,
+      }, 5000);
+      if (publishResponse.success && publishResponse.message) {
+        return publishResponse.message;
+      }
+      console.warn(`[Realtime] Saved message ${savedMessage.id} could not be published immediately: ${publishResponse.error || 'Unknown error'}`);
+    }
+
+    return savedMessage;
   };
 
   const handleSendMessage = async (event?: FormEvent<HTMLFormElement>, retryMessage?: ChatMessage) => {
@@ -3479,6 +3580,7 @@ export default function GraduatePortal() {
           }}
           onBackToList={() => setChatMobileConversationOpen(false)}
           onDraftChange={handleChatDraftInput}
+          onTypingStop={() => stopChatTyping()}
           onSend={handleSendMessage}
           onRetryMessage={handleRetryMessage}
           onLoadOlder={loadOlderRoomMessages}
@@ -4394,6 +4496,7 @@ export default function GraduatePortal() {
               disabled={!selectedForumChatReady || roomLoading}
               selectedAttachment={chatSelectedAttachment}
               onDraftChange={handleChatDraftInput}
+              onTypingStop={() => stopChatTyping()}
               onSend={handleSendMessage}
               onAttachmentSelected={handleChatAttachmentSelected}
               onRemoveAttachment={removeChatAttachment}

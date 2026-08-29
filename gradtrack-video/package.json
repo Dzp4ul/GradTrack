@@ -1,0 +1,24 @@
+{
+  "name": "gradtrack-graduate-demo-video",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Editable Remotion source for the GradTrack graduate/alumni promotional walkthrough.",
+  "scripts": {
+    "studio": "remotion studio src/index.ts",
+    "render": "remotion render src/index.ts GradTrackGraduateDemo output/gradtrack-graduate-demo.mp4 --codec=h264 --crf=18 --pixel-format=yuv420p --overwrite",
+    "render:preview": "remotion render src/index.ts GradTrackGraduateDemo output/gradtrack-graduate-demo-preview.mp4 --codec=h264 --crf=26 --pixel-format=yuv420p --scale=0.5 --overwrite",
+    "still": "remotion still src/index.ts GradTrackGraduateDemo output/preview.png --frame=1800 --overwrite",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.518",
+    "@remotion/renderer": "4.0.518",
+    "@types/react": "18.3.5",
+    "@types/react-dom": "18.3.0",
+    "lucide-react": "0.344.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.518",
+    "typescript": "5.5.3"
+  }
+}

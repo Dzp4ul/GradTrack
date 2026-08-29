@@ -58,6 +58,7 @@ interface RealtimeMessagingWorkspaceProps {
   onSelectRoom: (roomId: number) => void;
   onBackToList: () => void;
   onDraftChange: (value: string) => void;
+  onTypingStop: () => void;
   onSend: (event?: FormEvent<HTMLFormElement>) => void;
   onRetryMessage: (message: MessagingMessage) => void;
   onLoadOlder: () => Promise<void> | void;
@@ -138,6 +139,25 @@ function formatConversationTime(value?: string | null) {
   });
 }
 
+function formatLastActiveTime(value?: string | null) {
+  const parsed = parseDate(value);
+  if (!parsed) return '';
+
+  const seconds = Math.max(0, Math.floor((Date.now() - parsed.getTime()) / 1000));
+  if (seconds < 60) return 'just now';
+
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
+
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days} day${days === 1 ? '' : 's'} ago`;
+
+  return formatConversationTime(value);
+}
+
 function formatBytes(value?: number | null) {
   if (!value || value <= 0) return '';
   if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
@@ -169,7 +189,7 @@ function getPresenceLabel(participant: MessagingParticipant | null) {
   if (participant.is_online) return 'Online';
   const lastActive = parseDate(participant.last_active_at);
   if (!lastActive) return 'Offline';
-  return `Last active ${formatConversationTime(participant.last_active_at)}`;
+  return `Last active ${formatLastActiveTime(participant.last_active_at)}`;
 }
 
 function safePreview(value?: string | null) {
@@ -383,6 +403,14 @@ function ChatHeader({
   const recipient = getRecipient(room, currentGraduateId);
   const label = room ? getRoomLabel(room, currentGraduateId) : 'Select a conversation';
   const canOpenRecipient = !!room && !room.is_group && !!recipient?.graduate_id && recipient.graduate_id !== currentGraduateId;
+  const [, updatePresenceClock] = useState(0);
+
+  useEffect(() => {
+    if (!recipient?.last_active_at || recipient.is_online) return undefined;
+    const interval = window.setInterval(() => updatePresenceClock((current) => current + 1), 30000);
+    return () => window.clearInterval(interval);
+  }, [recipient?.is_online, recipient?.last_active_at]);
+
   const handleIdentityClick = () => {
     if (canOpenRecipient && onOpenProfile) {
       onOpenProfile(recipient?.graduate_id);
@@ -755,6 +783,7 @@ function MessageComposer({
   disabled,
   selectedAttachment,
   onDraftChange,
+  onTypingStop,
   onSend,
   onAttachmentSelected,
   onRemoveAttachment,
@@ -764,6 +793,7 @@ function MessageComposer({
   disabled: boolean;
   selectedAttachment: SelectedAttachment | null;
   onDraftChange: (value: string) => void;
+  onTypingStop?: () => void;
   onSend: (event?: FormEvent<HTMLFormElement>) => void;
   onAttachmentSelected: (file: File) => void;
   onRemoveAttachment: () => void;
@@ -867,6 +897,7 @@ function MessageComposer({
           value={draft}
           disabled={disabled}
           onChange={(event) => onDraftChange(event.target.value)}
+          onBlur={onTypingStop}
           onKeyDown={handleKeyDown}
           rows={1}
           maxLength={5000}
@@ -1085,6 +1116,7 @@ export default function RealtimeMessagingWorkspace({
   onSelectRoom,
   onBackToList,
   onDraftChange,
+  onTypingStop,
   onSend,
   onRetryMessage,
   onLoadOlder,
@@ -1124,7 +1156,7 @@ export default function RealtimeMessagingWorkspace({
           {(connectionStatus === 'reconnecting' || connectionStatus === 'error') && (
             <div className="flex items-center justify-center gap-2 border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800" role="status">
               {connectionStatus === 'reconnecting' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-              {connectionStatus === 'reconnecting' ? 'Reconnecting…' : 'Realtime unavailable. Messages will sync automatically.'}
+              {connectionStatus === 'reconnecting' ? 'Reconnecting...' : 'Realtime unavailable. Messages will sync automatically.'}
             </div>
           )}
           <MessageList
@@ -1148,6 +1180,7 @@ export default function RealtimeMessagingWorkspace({
             disabled={!activeRoom}
             selectedAttachment={selectedAttachment}
             onDraftChange={onDraftChange}
+            onTypingStop={onTypingStop}
             onSend={onSend}
             onAttachmentSelected={onAttachmentSelected}
             onRemoveAttachment={onRemoveAttachment}

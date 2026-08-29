@@ -4,7 +4,7 @@ const { Server } = require('socket.io');
 const mysql = require('mysql2/promise');
 const dotenv = require('dotenv');
 
-dotenv.config({ path: path.resolve(__dirname, '../.env'), quiet: true, override: true });
+dotenv.config({ path: path.resolve(__dirname, '../.env'), quiet: true, override: false });
 
 function requiredEnv(name) {
   const value = String(process.env[name] || '').trim();
@@ -67,7 +67,13 @@ const pool = mysql.createPool({
 });
 
 const onlineSocketsByGraduate = new Map();
+const pendingOfflineTimersByGraduate = new Map();
+const presenceVersionByGraduate = new Map();
 const autoMigrate = String(process.env.REALTIME_AUTO_MIGRATE || '').toLowerCase() === 'true';
+const presenceOfflineGraceMs = Math.max(0, Number(process.env.REALTIME_PRESENCE_OFFLINE_GRACE_MS || 1500));
+const presenceRecoveryGraceMs = Math.max(presenceOfflineGraceMs, Number(process.env.REALTIME_PRESENCE_RECOVERY_GRACE_MS || 5000));
+const pingInterval = Math.max(5000, Number(process.env.REALTIME_PING_INTERVAL_MS || 25000));
+const pingTimeout = Math.max(5000, Number(process.env.REALTIME_PING_TIMEOUT_MS || 20000));
 
 function socketRoom(roomId) {
   return `conversation:${roomId}`;
@@ -75,13 +81,6 @@ function socketRoom(roomId) {
 
 function userRoom(graduateId) {
   return `graduate:${graduateId}`;
-}
-
-function normalizeMessage(value) {
-  return String(value ?? '')
-    .replace(/\r\n?/g, '\n')
-    .replace(/[\u0000\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
-    .trim();
 }
 
 function isAllowedOrigin(origin) {
@@ -244,7 +243,11 @@ async function authenticateSocket(socket) {
 
   const response = await fetch(authCheckUrl, {
     method: 'GET',
-    headers: { Cookie: cookie },
+    headers: {
+      Accept: 'application/json',
+      Cookie: cookie,
+    },
+    cache: 'no-store',
     signal: AbortSignal.timeout(5000),
   });
   const data = await response.json();
@@ -264,17 +267,6 @@ async function getRoomParticipants(roomId) {
     [roomId],
   );
   return rows.map((row) => Number(row.graduate_id));
-}
-
-async function getRoomIdsForUser(graduateId) {
-  const [rows] = await pool.query(
-    `SELECT room_id
-       FROM forum_chat_members
-      WHERE graduate_id = ?`,
-    [graduateId],
-  );
-
-  return rows.map((row) => Number(row.room_id));
 }
 
 async function requireRoomMember(roomId, graduateId) {
@@ -302,6 +294,22 @@ function onlineSocketCount(graduateId) {
 
 function isGraduateOnline(graduateId) {
   return onlineSocketCount(graduateId) > 0;
+}
+
+function nextPresenceVersion(graduateId) {
+  const normalizedGraduateId = Number(graduateId);
+  const nextVersion = (presenceVersionByGraduate.get(normalizedGraduateId) || 0) + 1;
+  presenceVersionByGraduate.set(normalizedGraduateId, nextVersion);
+  return nextVersion;
+}
+
+function cancelPendingOffline(graduateId) {
+  const normalizedGraduateId = Number(graduateId);
+  const timeout = pendingOfflineTimersByGraduate.get(normalizedGraduateId);
+  if (!timeout) return false;
+  clearTimeout(timeout);
+  pendingOfflineTimersByGraduate.delete(normalizedGraduateId);
+  return true;
 }
 
 async function getMessageAttachments(messageIds) {
@@ -495,18 +503,6 @@ async function emitConversationUpdated(roomId) {
   }));
 }
 
-async function emitInitialConversationState(graduateId) {
-  const roomIds = await getRoomIdsForUser(graduateId);
-  for (const roomId of roomIds) {
-    const conversation = await getConversationForViewer(roomId, graduateId);
-    if (conversation) {
-      io.to(userRoom(graduateId)).emit('conversation:updated', { conversation });
-    }
-  }
-
-  io.to(userRoom(graduateId)).emit('unread-count:updated', await getUnreadSummary(graduateId));
-}
-
 async function emitUserStatus(graduateId, isOnline) {
   const [presenceRows] = await pool.query(
     'SELECT last_active_at FROM graduate_presence WHERE graduate_id = ? LIMIT 1',
@@ -531,6 +527,23 @@ async function emitUserStatus(graduateId, isOnline) {
   }
 }
 
+async function getPresenceSnapshot(graduateId) {
+  const [rows] = await pool.query(
+    `SELECT DISTINCT visible_members.graduate_id, gp.last_active_at
+       FROM forum_chat_members mine
+       JOIN forum_chat_members visible_members ON visible_members.room_id = mine.room_id
+       LEFT JOIN graduate_presence gp ON gp.graduate_id = visible_members.graduate_id
+      WHERE mine.graduate_id = ?`,
+    [graduateId],
+  );
+
+  return rows.map((row) => ({
+    graduate_id: Number(row.graduate_id),
+    is_online: isGraduateOnline(row.graduate_id),
+    last_active_at: row.last_active_at || null,
+  }));
+}
+
 function runInBackground(label, task) {
   void Promise.resolve()
     .then(task)
@@ -540,13 +553,14 @@ function runInBackground(label, task) {
 }
 
 function emitTypingStopped(socket, roomId, graduateId) {
-  if (!roomId) return;
+  if (!roomId || Number(socket.data.typingConversationId || 0) !== Number(roomId)) return;
   socket.to(socketRoom(roomId)).emit('typing:update', {
     room_id: roomId,
     graduate_id: graduateId,
     is_typing: false,
   });
   socket.data.typingConversationId = null;
+  console.log(`[Realtime] Typing stopped: user=${graduateId} room=${roomId}`);
 }
 
 function emitSavedMessage(roomId, participantIds, message) {
@@ -558,6 +572,34 @@ function emitSavedMessage(roomId, participantIds, message) {
   // Socket.IO treats multiple target rooms as a union, so a socket that is in
   // both its user room and the active conversation receives this event once.
   io.to(targetRooms).emit('message:new', { message });
+}
+
+async function publishPersistedMessage(roomId, messageId, graduateId) {
+  await requireRoomMember(roomId, graduateId);
+  let message = await fetchMessage(messageId);
+  if (!message || Number(message.room_id) !== roomId || Number(message.graduate_id) !== graduateId) {
+    throw new Error('Saved message not found');
+  }
+
+  const participantIds = await getRoomParticipants(roomId);
+  const recipientIds = participantIds.filter((participantId) => participantId !== graduateId);
+  if (!message.delivered_at && recipientIds.length > 0 && recipientIds.every((participantId) => isGraduateOnline(participantId))) {
+    await pool.query(
+      `UPDATE forum_chat_messages
+          SET delivered_at = COALESCE(delivered_at, NOW())
+        WHERE id = ?
+          AND room_id = ?
+          AND graduate_id = ?`,
+      [messageId, roomId, graduateId],
+    );
+    message = await fetchMessage(messageId);
+  }
+
+  emitSavedMessage(roomId, participantIds, message);
+  io.to(userRoom(graduateId)).emit('message:confirmed', { room_id: roomId, message });
+  console.log(`[Realtime] Message emitted: ${message.id} room=${roomId}`);
+  runInBackground('Unable to update conversation after published message', () => emitConversationUpdated(roomId));
+  return message;
 }
 
 async function markDelivered(roomId, graduateId) {
@@ -593,20 +635,6 @@ async function markDelivered(roomId, graduateId) {
     await connection.commit();
   } catch (error) {
     await connection.rollback();
-    if (error?.code === 'ER_DUP_ENTRY') {
-      const [existingRows] = await connection.query(
-        `SELECT id
-           FROM forum_chat_messages
-          WHERE room_id = ?
-            AND graduate_id = ?
-            AND client_message_id = ?
-          LIMIT 1`,
-        [roomId, senderId, clientMessageId],
-      );
-      if (existingRows.length) {
-        return fetchMessage(Number(existingRows[0].id));
-      }
-    }
     throw error;
   } finally {
     connection.release();
@@ -621,108 +649,6 @@ async function markDelivered(roomId, graduateId) {
       delivered_at: row.delivered_at,
     })),
   });
-}
-
-async function saveMessage({ roomId, senderId, messageText, clientMessageId, attachmentIds }) {
-  const cleanMessage = normalizeMessage(messageText);
-  const normalizedAttachmentIds = [...new Set((attachmentIds || []).map(Number).filter((id) => id > 0))];
-
-  if (cleanMessage.length > 5000) {
-    throw new Error('Message is too long');
-  }
-  if (!cleanMessage && normalizedAttachmentIds.length === 0) {
-    throw new Error('Message or attachment is required');
-  }
-  if (!clientMessageId || String(clientMessageId).length > 80 || !/^[a-zA-Z0-9._:-]+$/.test(String(clientMessageId))) {
-    throw new Error('Valid client_message_id is required');
-  }
-
-  const connection = await pool.getConnection();
-  try {
-    await connection.beginTransaction();
-    const [existingRows] = await connection.query(
-      `SELECT id
-         FROM forum_chat_messages
-        WHERE room_id = ?
-          AND graduate_id = ?
-          AND client_message_id = ?
-        LIMIT 1`,
-      [roomId, senderId, clientMessageId],
-    );
-
-    if (existingRows.length) {
-      await connection.commit();
-      return fetchMessage(Number(existingRows[0].id));
-    }
-
-    const [memberRows] = await connection.query(
-      'SELECT graduate_id FROM forum_chat_members WHERE room_id = ?',
-      [roomId],
-    );
-    const participantIds = memberRows.map((row) => Number(row.graduate_id));
-    if (!participantIds.includes(senderId)) {
-      throw new Error('Chat room not found');
-    }
-
-    let attachmentType = null;
-    if (normalizedAttachmentIds.length > 0) {
-      const [attachmentRows] = await connection.query(
-        `SELECT id, attachment_type
-           FROM forum_chat_message_attachments
-          WHERE id IN (?)
-            AND room_id = ?
-            AND uploaded_by = ?
-            AND message_id IS NULL`,
-        [normalizedAttachmentIds, roomId, senderId],
-      );
-
-      if (attachmentRows.length !== normalizedAttachmentIds.length) {
-        throw new Error('One or more attachments are unavailable');
-      }
-
-      const types = [...new Set(attachmentRows.map((row) => row.attachment_type))];
-      attachmentType = types.length === 1 ? types[0] : 'mixed';
-    }
-
-    let messageType = 'text';
-    if (cleanMessage && normalizedAttachmentIds.length > 0) messageType = 'mixed';
-    else if (normalizedAttachmentIds.length > 0) messageType = attachmentType === 'image' ? 'image' : 'file';
-
-    const recipientIds = participantIds.filter((id) => id !== senderId);
-    const deliveredAt = recipientIds.length > 0 && recipientIds.every((id) => isGraduateOnline(id)) ? new Date() : null;
-
-    const [insertResult] = await connection.query(
-      `INSERT INTO forum_chat_messages (room_id, graduate_id, message, message_type, client_message_id, delivered_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [roomId, senderId, cleanMessage || null, messageType, clientMessageId, deliveredAt],
-    );
-    const messageId = Number(insertResult.insertId);
-
-    if (normalizedAttachmentIds.length > 0) {
-      const [claimResult] = await connection.query(
-        `UPDATE forum_chat_message_attachments
-            SET message_id = ?
-          WHERE id IN (?)
-            AND room_id = ?
-            AND uploaded_by = ?
-            AND message_id IS NULL`,
-        [messageId, normalizedAttachmentIds, roomId, senderId],
-      );
-
-      if (claimResult.affectedRows !== normalizedAttachmentIds.length) {
-        throw new Error('Failed to attach uploaded files to message');
-      }
-    }
-
-    await connection.query('UPDATE forum_chat_rooms SET last_message_at = NOW(), updated_at = NOW() WHERE id = ?', [roomId]);
-    await connection.commit();
-    return fetchMessage(messageId);
-  } catch (error) {
-    await connection.rollback();
-    throw error;
-  } finally {
-    connection.release();
-  }
 }
 
 async function markRead(roomId, graduateId, upToMessageId) {
@@ -802,7 +728,7 @@ async function markRead(roomId, graduateId, upToMessageId) {
 const server = http.createServer((request, response) => {
   if (request.url === '/health') {
     response.writeHead(200, { 'Content-Type': 'application/json' });
-    response.end(JSON.stringify({ ok: true }));
+    response.end(JSON.stringify({ ok: true, service: 'gradtrack-realtime' }));
     return;
   }
 
@@ -825,6 +751,8 @@ const io = new Server(server, {
     maxDisconnectionDuration: 2 * 60 * 1000,
     skipMiddlewares: false,
   },
+  pingInterval,
+  pingTimeout,
 });
 
 io.use(async (socket, next) => {
@@ -832,20 +760,26 @@ io.use(async (socket, next) => {
     socket.data.user = await authenticateSocket(socket);
     next();
   } catch (error) {
+    console.warn(`[Realtime] Authentication failed for socket ${socket.id}: ${error.message || 'Unknown error'}`);
     next(error);
   }
 });
 
 io.on('connection', (socket) => {
   const graduateId = Number(socket.data.user.graduate_id);
+  const resumedBeforeOffline = cancelPendingOffline(graduateId);
+  nextPresenceVersion(graduateId);
   const existingSet = onlineSocketsByGraduate.get(graduateId) || new Set();
-  const wasOffline = existingSet.size === 0;
+  const wasOffline = existingSet.size === 0 && !resumedBeforeOffline;
   existingSet.add(socket.id);
   onlineSocketsByGraduate.set(graduateId, existingSet);
   socket.data.activeConversationId = null;
   socket.data.typingConversationId = null;
   socket.data.joinRequestNumber = 0;
   socket.join(userRoom(graduateId));
+  console.log(`[Realtime] Connected: ${socket.id}`);
+  console.log(`[Realtime] Authenticated user: ${graduateId}`);
+  console.log(`[Realtime] Joined user room: ${userRoom(graduateId)}`);
 
   // Register all event handlers before non-critical presence/sidebar queries.
   // A freshly connected client can join and send without waiting for that work.
@@ -875,6 +809,14 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('presence:sync', async (_payload, ack) => {
+    try {
+      ack?.({ success: true, users: await getPresenceSnapshot(graduateId) });
+    } catch (error) {
+      ack?.({ success: false, error: error.message || 'Unable to synchronize presence' });
+    }
+  });
+
   socket.on('conversation:leave', async (payload, ack) => {
     socket.data.joinRequestNumber = Number(socket.data.joinRequestNumber || 0) + 1;
     const requestedRoomId = Number(payload?.room_id || payload?.conversation_id || 0);
@@ -889,43 +831,8 @@ io.on('connection', (socket) => {
     ack?.({ success: true });
   });
 
-  socket.on('message:send', async (payload, ack) => {
-    const startedAt = Date.now();
-    const roomId = Number(payload?.room_id || payload?.conversation_id || 0);
-    const clientMessageId = String(payload?.client_message_id || '');
-
-    try {
-      await requireRoomMember(roomId, graduateId);
-      if (Number(socket.data.typingConversationId || 0) === roomId) {
-        emitTypingStopped(socket, roomId, graduateId);
-      }
-
-      const message = await saveMessage({
-        roomId,
-        senderId: graduateId,
-        messageText: payload?.message ?? payload?.message_text ?? '',
-        clientMessageId,
-        attachmentIds: Array.isArray(payload?.attachment_ids) ? payload.attachment_ids : [],
-      });
-      const participantIds = await getRoomParticipants(roomId);
-
-      emitSavedMessage(roomId, participantIds, message);
-      io.to(userRoom(graduateId)).emit('message:confirmed', { room_id: roomId, message });
-      ack?.({ success: true, message });
-
-      runInBackground('Unable to update conversation after saved message', () => emitConversationUpdated(roomId));
-
-      const elapsedMs = Date.now() - startedAt;
-      if (elapsedMs > 1500) {
-        console.warn(`message:send saved slowly (${elapsedMs}ms) room=${roomId} sender=${graduateId}`);
-      }
-    } catch (error) {
-      const publicError = error?.code ? 'Unable to send message' : (error.message || 'Unable to send message');
-      console.error('message:send failed:', error);
-      const failure = { room_id: roomId, client_message_id: clientMessageId, error: publicError };
-      io.to(userRoom(graduateId)).emit('message:failed', failure);
-      ack?.({ success: false, error: publicError });
-    }
+  socket.on('message:send', (_payload, ack) => {
+    ack?.({ success: false, error: 'Save messages through the authenticated REST API before publication' });
   });
 
   socket.on('message:read', async (payload, ack) => {
@@ -959,6 +866,7 @@ io.on('connection', (socket) => {
         name: socket.data.user.full_name,
         is_typing: true,
       });
+      console.log(`[Realtime] Typing started: user=${graduateId} room=${roomId}`);
       ack?.({ success: true });
     } catch (error) {
       ack?.({ success: false, error: error.message || 'Unable to send typing event' });
@@ -980,34 +888,65 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('disconnect', () => {
+  socket.on('disconnect', (reason) => {
+    console.log(`[Realtime] Disconnected: ${socket.id} user=${graduateId} reason=${reason}`);
     const sockets = onlineSocketsByGraduate.get(graduateId);
     if (!sockets) return;
     sockets.delete(socket.id);
     if (sockets.size > 0) return;
 
     onlineSocketsByGraduate.delete(graduateId);
-    runInBackground('Unable to update disconnected graduate presence', async () => {
-      await pool.query(
-        `INSERT INTO graduate_presence (graduate_id, last_active_at)
-         VALUES (?, NOW())
-         ON DUPLICATE KEY UPDATE last_active_at = NOW(), updated_at = NOW()`,
-        [graduateId],
-      );
-      await emitUserStatus(graduateId, false);
-    });
+    const offlineVersion = nextPresenceVersion(graduateId);
+    cancelPendingOffline(graduateId);
+    const isCleanDisconnect = reason === 'client namespace disconnect' || reason === 'server namespace disconnect';
+    const offlineGraceMs = isCleanDisconnect ? presenceOfflineGraceMs : presenceRecoveryGraceMs;
+    const timeout = setTimeout(() => {
+      pendingOfflineTimersByGraduate.delete(graduateId);
+      runInBackground('Unable to update disconnected graduate presence', async () => {
+        if (isGraduateOnline(graduateId) || presenceVersionByGraduate.get(graduateId) !== offlineVersion) return;
+        await pool.query(
+          `INSERT INTO graduate_presence (graduate_id, last_active_at)
+           VALUES (?, NOW())
+           ON DUPLICATE KEY UPDATE last_active_at = NOW(), updated_at = NOW()`,
+          [graduateId],
+        );
+        if (isGraduateOnline(graduateId) || presenceVersionByGraduate.get(graduateId) !== offlineVersion) return;
+        await emitUserStatus(graduateId, false);
+        console.log(`[Realtime] User offline: ${graduateId}`);
+      });
+    }, offlineGraceMs);
+    pendingOfflineTimersByGraduate.set(graduateId, timeout);
+  });
+
+  socket.on('message:publish', async (payload, ack) => {
+    const roomId = Number(payload?.room_id || payload?.conversation_id || 0);
+    const messageId = Number(payload?.message_id || payload?.id || 0);
+    try {
+      if (!roomId || !messageId) throw new Error('room_id and message_id are required');
+      if (Number(socket.data.typingConversationId || 0) === roomId) {
+        emitTypingStopped(socket, roomId, graduateId);
+      }
+      const message = await publishPersistedMessage(roomId, messageId, graduateId);
+      ack?.({ success: true, message });
+    } catch (error) {
+      const publicError = error?.code ? 'Unable to publish message' : (error.message || 'Unable to publish message');
+      console.error('message:publish failed:', error);
+      ack?.({ success: false, error: publicError });
+    }
   });
 
   runInBackground('Unable to initialize connected graduate presence', async () => {
     await pool.query(
       `INSERT INTO graduate_presence (graduate_id, last_active_at)
-       VALUES (?, NOW())
+       VALUES (?, NULL)
        ON DUPLICATE KEY UPDATE updated_at = NOW()`,
       [graduateId],
     );
     if (wasOffline) {
       await emitUserStatus(graduateId, true);
+      console.log(`[Realtime] User online: ${graduateId}`);
     }
+    socket.emit('presence:snapshot', { users: await getPresenceSnapshot(graduateId) });
     io.to(userRoom(graduateId)).emit('unread-count:updated', await getUnreadSummary(graduateId));
   });
 });
@@ -1034,7 +973,9 @@ process.once('SIGTERM', () => { void shutdown('SIGTERM'); });
 (autoMigrate ? ensureSchema() : verifySchema())
   .then(() => {
     server.listen(port, () => {
-      console.log(`GradTrack realtime server listening on http://localhost:${port}`);
+      console.log(`[Realtime] Listening on http://localhost:${port}`);
+      console.log(`[Realtime] Authentication endpoint: ${authCheckUrl}`);
+      console.log(`[Realtime] Allowed origins: ${allowedOrigins.join(', ')}`);
     });
   })
   .catch((error) => {
