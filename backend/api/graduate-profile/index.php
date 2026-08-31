@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
+require_once __DIR__ . '/../config/graduate_profile.php';
 require_once __DIR__ . '/../config/storage.php';
 
 function gradtrack_profile_upload_root(): string
@@ -781,11 +782,31 @@ function gradtrack_profile_survey_data(PDO $db, array $user): ?array
     $questions = $questionStmt->fetchAll(PDO::FETCH_ASSOC);
     $questionKeyMap = gradtrack_profile_build_question_key_map($questions, $decodedResponses);
 
+    $directAddressField = gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'current_address', 'Current Address', [], [['current', 'address'], ['residential', 'address'], ['home', 'address']]);
+    $regionField = gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'region', 'Region', [], [['region']]);
+    $provinceField = gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'province', 'Province', [], [['province']]);
+    $cityField = gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'city_municipality', 'City / Municipality', [], [['city'], ['municipality']]);
+    $barangayField = gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'barangay', 'Barangay', [], [['barangay']]);
+    $currentLocation = gradtrack_profile_field_value($directAddressField);
+    if ($currentLocation === null) {
+        $locationParts = [];
+        foreach ([$barangayField, $cityField, $provinceField, $regionField] as $locationField) {
+            $locationPart = gradtrack_profile_field_value($locationField);
+            $looksLikeContactValue = $locationPart !== null
+                && (strpos($locationPart, '@') !== false || preg_match('/^[+0-9() .-]{7,}$/', $locationPart));
+            if ($locationPart !== null && !$looksLikeContactValue && !in_array($locationPart, $locationParts, true)) {
+                $locationParts[] = $locationPart;
+            }
+        }
+        $currentLocation = !empty($locationParts) ? implode(', ', $locationParts) : null;
+    }
+
     $personalFields = gradtrack_profile_compact_fields([
         gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'birthday', 'Birthday', [], [['birthday'], ['birth date'], ['date of birth']]),
         gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'civil_status', 'Civil Status', [], [['civil status']]),
         gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'sex', 'Sex / Gender', [], [['sex'], ['gender']]),
         gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'telephone', 'Telephone / Contact Number', [], [['telephone'], ['contact number'], ['contact no']]),
+        gradtrack_profile_make_field('current_location', 'Current Location', $currentLocation),
         gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'language', 'Language', [], [['language']]),
         gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'interests', 'Interests', [], [['interest']]),
         gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'social_media', 'Facebook / Social Media', [], [['facebook'], ['social media'], ['linkedin']]),
@@ -927,6 +948,7 @@ try {
     $user = gradtrack_require_graduate_auth($db);
     $accountId = (int) $user['account_id'];
     $graduateId = (int) $user['graduate_id'];
+    gradtrack_ensure_graduate_profile_table($db);
 
     if ($method === 'GET') {
         $currentUser = gradtrack_current_graduate_user($db);
@@ -947,11 +969,15 @@ try {
             exit;
         }
 
+        $surveyProfile = gradtrack_profile_survey_data($db, $profileUser);
+        $editableProfile = gradtrack_editable_profile_ensure($db, $profileUser, $surveyProfile);
+
         echo json_encode([
             'success' => true,
             'data' => [
                 'user' => $isSelf ? $profileUser : gradtrack_profile_public_visibility($profileUser),
-                'survey_profile' => gradtrack_profile_survey_data($db, $profileUser),
+                'profile' => $editableProfile,
+                'survey_profile' => $surveyProfile,
                 'is_self' => $isSelf,
                 'viewer_graduate_id' => $graduateId,
             ],
@@ -960,36 +986,12 @@ try {
     }
 
     if ($method === 'POST') {
-        $firstName = isset($_POST['first_name']) ? trim((string) $_POST['first_name']) : (string) ($user['first_name'] ?? '');
-        $middleName = isset($_POST['middle_name']) ? trim((string) $_POST['middle_name']) : (string) ($user['middle_name'] ?? '');
-        $lastName = isset($_POST['last_name']) ? trim((string) $_POST['last_name']) : (string) ($user['last_name'] ?? '');
-        $email = isset($_POST['email']) ? trim((string) $_POST['email']) : (string) ($user['email'] ?? '');
-        $phone = isset($_POST['phone']) ? trim((string) $_POST['phone']) : (string) ($user['phone'] ?? '');
-        $address = isset($_POST['address']) ? trim((string) $_POST['address']) : (string) ($user['address'] ?? '');
+        $surveyProfile = gradtrack_profile_survey_data($db, $user);
+        gradtrack_editable_profile_ensure($db, $user, $surveyProfile);
+        $updateProfile = isset($_POST['update_profile'])
+            && in_array(strtolower((string) $_POST['update_profile']), ['1', 'true', 'yes'], true);
         $currentPassword = isset($_POST['current_password']) ? (string) $_POST['current_password'] : '';
         $password = isset($_POST['password']) ? (string) $_POST['password'] : '';
-
-        if ($firstName === '' || $lastName === '' || $email === '') {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'first_name, last_name, and email are required']);
-            exit;
-        }
-
-        if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'Invalid email format']);
-            exit;
-        }
-
-        $dupStmt = $db->prepare('SELECT id FROM graduate_accounts WHERE email = :email AND id <> :account_id LIMIT 1');
-        $dupStmt->bindParam(':email', $email);
-        $dupStmt->bindParam(':account_id', $accountId);
-        $dupStmt->execute();
-        if ($dupStmt->fetch(PDO::FETCH_ASSOC)) {
-            http_response_code(409);
-            echo json_encode(['success' => false, 'error' => 'Email is already in use by another account']);
-            exit;
-        }
 
         if ($password !== '') {
             if ($currentPassword === '') {
@@ -1018,27 +1020,9 @@ try {
 
         $db->beginTransaction();
 
-        $updateGraduate = $db->prepare('UPDATE graduates
-                                        SET first_name = :first_name,
-                                            middle_name = :middle_name,
-                                            last_name = :last_name,
-                                            email = :email,
-                                            phone = :phone,
-                                            address = :address
-                                        WHERE id = :graduate_id');
-        $updateGraduate->bindParam(':first_name', $firstName);
-        $updateGraduate->bindParam(':middle_name', $middleName);
-        $updateGraduate->bindParam(':last_name', $lastName);
-        $updateGraduate->bindParam(':email', $email);
-        $updateGraduate->bindParam(':phone', $phone);
-        $updateGraduate->bindParam(':address', $address);
-        $updateGraduate->bindParam(':graduate_id', $graduateId);
-        $updateGraduate->execute();
-
-        $updateAccount = $db->prepare('UPDATE graduate_accounts SET email = :email WHERE id = :account_id');
-        $updateAccount->bindParam(':email', $email);
-        $updateAccount->bindParam(':account_id', $accountId);
-        $updateAccount->execute();
+        if ($updateProfile) {
+            gradtrack_editable_profile_update($db, $accountId, $_POST);
+        }
 
         if ($password !== '') {
             $hashed = password_hash($password, PASSWORD_DEFAULT);
@@ -1083,12 +1067,16 @@ try {
         }
 
         $currentUser = gradtrack_current_graduate_user($db);
+        $currentSurveyProfile = $currentUser ? gradtrack_profile_survey_data($db, $currentUser) : null;
         echo json_encode([
             'success' => true,
             'message' => 'Profile updated successfully',
             'data' => [
                 'user' => $currentUser,
-                'survey_profile' => $currentUser ? gradtrack_profile_survey_data($db, $currentUser) : null,
+                'profile' => gradtrack_editable_profile_find($db, $accountId),
+                'survey_profile' => $currentSurveyProfile,
+                'is_self' => true,
+                'viewer_graduate_id' => $graduateId,
             ],
         ]);
         exit;

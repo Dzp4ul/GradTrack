@@ -4,7 +4,6 @@ import { useLocation, useNavigate, useParams, useSearchParams } from 'react-rout
 import {
   Award,
   Briefcase,
-  BookOpen,
   Building2,
   CalendarDays,
   Camera,
@@ -256,14 +255,47 @@ interface ProfileFormState {
   middle_name: string;
   last_name: string;
   email: string;
-  phone: string;
-  address: string;
+  phone_number: string;
+  birthday: string;
+  civil_status: string;
+  sex_gender: string;
+  program_course: string;
+  graduation_year: string;
+  current_location: string;
+  job_title: string;
+  company_name: string;
+  employment_location: string;
+  professional_status: string;
+  start_date: string;
   current_password: string;
   password: string;
   confirm_password: string;
 }
 
-type ProfileEditSection = 'basic' | 'employment' | 'education' | 'trainings' | 'photo' | 'cover' | 'security';
+type ProfileEditSection = 'basic' | 'employment' | 'education' | 'photo' | 'cover' | 'security';
+
+interface GraduateEditableProfile {
+  id: number;
+  graduate_account_id: number;
+  first_name: string;
+  middle_name?: string | null;
+  last_name: string;
+  phone_number?: string | null;
+  birthday?: string | null;
+  civil_status?: string | null;
+  sex_gender?: string | null;
+  program_course?: string | null;
+  graduation_year?: number | null;
+  current_location?: string | null;
+  job_title?: string | null;
+  company_name?: string | null;
+  employment_location?: string | null;
+  professional_status?: string | null;
+  start_date?: string | null;
+  initialized_from_survey_response_id?: number | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
 
 interface GraduateProfileField {
   key: string;
@@ -318,6 +350,7 @@ interface GraduateSurveyProfile {
 
 interface GraduateProfilePayload {
   user?: GraduateUser | null;
+  profile?: GraduateEditableProfile | null;
   survey_profile?: GraduateSurveyProfile | null;
   is_self?: boolean;
   viewer_graduate_id?: number;
@@ -355,7 +388,6 @@ const profileEditSections: Array<{ key: ProfileEditSection; label: string; icon:
   { key: 'basic', label: 'Basic Profile', icon: Contact },
   { key: 'employment', label: 'Employment', icon: Briefcase },
   { key: 'education', label: 'Education', icon: GraduationCap },
-  { key: 'trainings', label: 'Trainings', icon: Award },
   { key: 'photo', label: 'Profile Photo', icon: Camera },
   { key: 'cover', label: 'Cover Photo', icon: ImagePlus },
   { key: 'security', label: 'Security', icon: ShieldCheck },
@@ -466,8 +498,16 @@ function getBatchLabel(year?: number | null) {
   return year ? `Batch ${year}` : '';
 }
 
-function buildProfileLocation(user?: GraduateUser | null, survey?: GraduateSurveyProfile | null) {
-  return user?.address || survey?.work?.summary?.location || '';
+function buildProfileLocation(
+  profile?: GraduateEditableProfile | null,
+  user?: GraduateUser | null,
+  survey?: GraduateSurveyProfile | null,
+) {
+  if (profile) {
+    return profile.current_location || '';
+  }
+
+  return user?.address || getProfileFieldValue(survey?.personal?.fields, 'current_location') || '';
 }
 
 function getGraduateFullName(user?: GraduateUser | null) {
@@ -476,6 +516,33 @@ function getGraduateFullName(user?: GraduateUser | null) {
     user?.middle_name,
     user?.last_name,
   ].filter((part) => hasDisplayValue(part)).join(' ') || user?.full_name || 'Graduate User';
+}
+
+function createProfileForm(
+  profile?: GraduateEditableProfile | null,
+  user?: GraduateUser | null,
+): ProfileFormState {
+  return {
+    first_name: profile?.first_name || user?.first_name || '',
+    middle_name: profile?.middle_name || user?.middle_name || '',
+    last_name: profile?.last_name || user?.last_name || '',
+    email: user?.email || '',
+    phone_number: profile?.phone_number || '',
+    birthday: profile?.birthday || '',
+    civil_status: profile?.civil_status || '',
+    sex_gender: profile?.sex_gender || '',
+    program_course: profile?.program_course || '',
+    graduation_year: profile?.graduation_year ? String(profile.graduation_year) : '',
+    current_location: profile?.current_location || '',
+    job_title: profile?.job_title || '',
+    company_name: profile?.company_name || '',
+    employment_location: profile?.employment_location || '',
+    professional_status: profile?.professional_status || '',
+    start_date: profile?.start_date || '',
+    current_password: '',
+    password: '',
+    confirm_password: '',
+  };
 }
 
 function getPortalNavOpenWidth(label: string) {
@@ -833,17 +900,7 @@ export default function GraduatePortal() {
   const [coverImageFile, setCoverImageFile] = useState<File | null>(null);
   const [coverImagePreview, setCoverImagePreview] = useState('');
   const [coverRemoveRequested, setCoverRemoveRequested] = useState(false);
-  const [profileForm, setProfileForm] = useState<ProfileFormState>({
-    first_name: '',
-    middle_name: '',
-    last_name: '',
-    email: '',
-    phone: '',
-    address: '',
-    current_password: '',
-    password: '',
-    confirm_password: '',
-  });
+  const [profileForm, setProfileForm] = useState<ProfileFormState>(() => createProfileForm(null, user));
   const [ratingSummary, setRatingSummary] = useState<AlumniRating | null>(null);
 
   const [forumPosts, setForumPosts] = useState<ForumPost[]>([]);
@@ -959,7 +1016,28 @@ export default function GraduatePortal() {
   const currentGraduateId = user?.graduate_id ?? 0;
   const profileTargetGraduateId = isCommunityProfileRoute ? routeProfileGraduateId : currentGraduateId;
   const isViewingOwnProfile = profileTargetGraduateId > 0 && profileTargetGraduateId === currentGraduateId;
-  const profileUser = profileDetails?.user || (isViewingOwnProfile ? user : null);
+  const profileRecord = profileDetails?.profile || null;
+  const profileBaseUser = profileDetails?.user || (isViewingOwnProfile ? user : null);
+  const profileUser = useMemo<GraduateUser | null>(() => {
+    if (!profileBaseUser) return null;
+    if (!profileRecord) return profileBaseUser;
+
+    const fullName = [profileRecord.first_name, profileRecord.middle_name, profileRecord.last_name]
+      .filter((part) => hasDisplayValue(part))
+      .join(' ');
+
+    return {
+      ...profileBaseUser,
+      first_name: profileRecord.first_name,
+      middle_name: profileRecord.middle_name,
+      last_name: profileRecord.last_name,
+      full_name: fullName || profileBaseUser.full_name,
+      phone: profileRecord.phone_number,
+      address: profileRecord.current_location,
+      program_name: profileRecord.program_course,
+      year_graduated: profileRecord.graduation_year,
+    };
+  }, [profileBaseUser, profileRecord]);
   const profileSurvey = profileDetails?.survey_profile || null;
   const profilePersonalFields = profileSurvey?.personal?.fields || [];
   const profileWorkFields = profileSurvey?.work?.fields || [];
@@ -974,7 +1052,7 @@ export default function GraduatePortal() {
   const profileCoverImageUrl = isViewingOwnProfile
     ? (coverRemoveRequested ? '' : (coverImagePreview || currentCoverImageUrl))
     : currentCoverImageUrl;
-  const profileJobTitle = profileSurvey?.work?.summary?.current_job_title || '';
+  const profileJobTitle = profileRecord?.job_title || '';
   const profilePosts = isViewingOwnProfile ? myForumPosts : profileForumPosts;
   const canPostJobs = !!ratingSummary?.permissions?.can_post_jobs;
   const communityAvailable = isEnabled('community_available', true);
@@ -1791,18 +1869,8 @@ export default function GraduatePortal() {
   }, [activeTab, directRooms, groupRooms]);
 
   useEffect(() => {
-    setProfileForm({
-      first_name: profileUser?.first_name || '',
-      middle_name: profileUser?.middle_name || '',
-      last_name: profileUser?.last_name || '',
-      email: profileUser?.email || '',
-      phone: profileUser?.phone || '',
-      address: profileUser?.address || '',
-      current_password: '',
-      password: '',
-      confirm_password: '',
-    });
-  }, [profileUser?.address, profileUser?.email, profileUser?.first_name, profileUser?.last_name, profileUser?.middle_name, profileUser?.phone]);
+    setProfileForm(createProfileForm(profileRecord, profileUser));
+  }, [profileRecord, profileUser]);
 
   useEffect(() => {
     if (!profileImageFile) {
@@ -3360,29 +3428,21 @@ export default function GraduatePortal() {
   const cancelProfileEditing = () => {
     setProfileEditOpen(false);
     resetProfileEditorFiles();
-    setProfileForm({
-      first_name: profileUser?.first_name || '',
-      middle_name: profileUser?.middle_name || '',
-      last_name: profileUser?.last_name || '',
-      email: profileUser?.email || '',
-      phone: profileUser?.phone || '',
-      address: profileUser?.address || '',
-      current_password: '',
-      password: '',
-      confirm_password: '',
-    });
+    setProfileForm(createProfileForm(profileRecord, profileUser));
   };
 
   const submitProfileUpdate = async ({
     profileFile = profileImageFile,
     coverFile = coverImageFile,
     removeCover = coverRemoveRequested,
+    includeProfileFields = false,
     includePassword = false,
     closeEditor = false,
   }: {
     profileFile?: File | null;
     coverFile?: File | null;
     removeCover?: boolean;
+    includeProfileFields?: boolean;
     includePassword?: boolean;
     closeEditor?: boolean;
   } = {}) => {
@@ -3392,12 +3452,24 @@ export default function GraduatePortal() {
     }
 
     const formData = new FormData();
-    formData.append('first_name', profileForm.first_name.trim());
-    formData.append('middle_name', profileForm.middle_name.trim());
-    formData.append('last_name', profileForm.last_name.trim());
-    formData.append('email', profileForm.email.trim());
-    formData.append('phone', profileForm.phone.trim());
-    formData.append('address', profileForm.address.trim());
+    if (includeProfileFields) {
+      formData.append('update_profile', '1');
+      formData.append('first_name', profileForm.first_name.trim());
+      formData.append('middle_name', profileForm.middle_name.trim());
+      formData.append('last_name', profileForm.last_name.trim());
+      formData.append('phone_number', profileForm.phone_number.trim());
+      formData.append('birthday', profileForm.birthday);
+      formData.append('civil_status', profileForm.civil_status.trim());
+      formData.append('sex_gender', profileForm.sex_gender.trim());
+      formData.append('program_course', profileForm.program_course.trim());
+      formData.append('graduation_year', profileForm.graduation_year.trim());
+      formData.append('current_location', profileForm.current_location.trim());
+      formData.append('job_title', profileForm.job_title.trim());
+      formData.append('company_name', profileForm.company_name.trim());
+      formData.append('employment_location', profileForm.employment_location.trim());
+      formData.append('professional_status', profileForm.professional_status.trim());
+      formData.append('start_date', profileForm.start_date);
+    }
 
     if (includePassword && profileForm.password.trim() !== '') {
       formData.append('current_password', profileForm.current_password);
@@ -3509,6 +3581,36 @@ export default function GraduatePortal() {
   const handleProfileSave = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
+    if (profileEditSection !== 'security') {
+      if (!profileForm.first_name.trim() || !profileForm.last_name.trim()) {
+        notify('warning', 'First name and last name are required.', 'My Profile');
+        return;
+      }
+
+      if (profileForm.phone_number.trim() && !/^[0-9+()\-.\s]+$/.test(profileForm.phone_number.trim())) {
+        notify('warning', 'Phone number contains unsupported characters.', 'My Profile');
+        return;
+      }
+
+      if (profileForm.graduation_year.trim()) {
+        const graduationYear = Number(profileForm.graduation_year);
+        const maximumYear = new Date().getFullYear() + 1;
+        if (!Number.isInteger(graduationYear) || graduationYear < 1900 || graduationYear > maximumYear) {
+          notify('warning', `Graduation year must be between 1900 and ${maximumYear}.`, 'My Profile');
+          return;
+        }
+      }
+
+      const today = new Date();
+      today.setHours(23, 59, 59, 999);
+      for (const [label, value] of [['Birthday', profileForm.birthday], ['Start date', profileForm.start_date]]) {
+        if (value && new Date(`${value}T00:00:00`) > today) {
+          notify('warning', `${label} cannot be in the future.`, 'My Profile');
+          return;
+        }
+      }
+    }
+
     const changingPassword = profileForm.password.trim() !== '' || profileForm.confirm_password.trim() !== '';
 
     if (changingPassword && !profileForm.current_password) {
@@ -3526,7 +3628,11 @@ export default function GraduatePortal() {
       return;
     }
 
-    await submitProfileUpdate({ includePassword: changingPassword, closeEditor: true });
+    await submitProfileUpdate({
+      includeProfileFields: profileEditSection !== 'security',
+      includePassword: changingPassword,
+      closeEditor: true,
+    });
   };
 
   const handleLogout = () => {
@@ -4441,6 +4547,7 @@ export default function GraduatePortal() {
                   ) : (
                     <ProfileWorkspace
                       user={profileUser}
+                      profile={profileRecord}
                       survey={profileSurvey}
                       personalFields={profilePersonalFields}
                       workFields={profileWorkFields}
@@ -4734,10 +4841,6 @@ export default function GraduatePortal() {
           activeSection={profileEditSection}
           user={profileUser}
           survey={profileSurvey}
-          workFields={profileWorkFields}
-          educationFields={profileEducationFields}
-          graduateStudyFields={profileGraduateStudyFields}
-          trainings={profileTrainings}
           form={profileForm}
           inputClassName={profileInputClass}
           profileImageUrl={profileImageUrl}
@@ -5094,6 +5197,7 @@ export default function GraduatePortal() {
 
 function ProfileWorkspace({
   user,
+  profile,
   survey,
   personalFields,
   workFields,
@@ -5124,6 +5228,7 @@ function ProfileWorkspace({
   onOpenProfile,
 }: {
   user?: GraduateUser | null;
+  profile?: GraduateEditableProfile | null;
   survey?: GraduateSurveyProfile | null;
   personalFields: GraduateProfileField[];
   workFields: GraduateProfileField[];
@@ -5159,6 +5264,7 @@ function ProfileWorkspace({
     <div className="space-y-6">
       <ProfileIdentityPanel
         user={user}
+        profile={profile}
         survey={survey}
         profileImageUrl={profileImageUrl}
         coverImageUrl={coverImageUrl}
@@ -5178,6 +5284,7 @@ function ProfileWorkspace({
 
       <ProfileSummaryPanel
         user={user}
+        profile={profile}
         survey={survey}
         personalFields={personalFields}
         workFields={workFields}
@@ -5216,6 +5323,7 @@ function ProfileWorkspace({
 
 function ProfileIdentityPanel({
   user,
+  profile,
   survey,
   profileImageUrl,
   coverImageUrl,
@@ -5233,6 +5341,7 @@ function ProfileIdentityPanel({
   onMessage,
 }: {
   user?: GraduateUser | null;
+  profile?: GraduateEditableProfile | null;
   survey?: GraduateSurveyProfile | null;
   profileImageUrl: string;
   coverImageUrl: string;
@@ -5250,11 +5359,13 @@ function ProfileIdentityPanel({
   onMessage: () => void;
 }) {
   const fullName = getGraduateFullName(user);
-  const program = user?.program_name || user?.program_code || '';
-  const batch = getBatchLabel(user?.year_graduated);
-  const location = buildProfileLocation(user, survey);
-  const employmentStatus = survey?.work?.summary?.employment_status || '';
-  const company = survey?.work?.summary?.company || '';
+  const program = profile ? (profile.program_course || '') : (user?.program_name || user?.program_code || '');
+  const batch = getBatchLabel(profile ? profile.graduation_year : user?.year_graduated);
+  const location = buildProfileLocation(profile, user, survey);
+  const employmentStatus = profile
+    ? (profile.professional_status || '')
+    : (survey?.work?.summary?.employment_status || '');
+  const company = profile ? (profile.company_name || '') : (survey?.work?.summary?.company || '');
   const headline = [jobTitle || employmentStatus, company].filter(hasDisplayValue).join(' at ');
   const metaItems = [program, batch, jobTitle || employmentStatus].filter(hasDisplayValue);
   const isVerified = user?.alumni_verification_status === 'approved';
@@ -5401,6 +5512,7 @@ function formatProfileDateValue(value?: string | null) {
 
 function ProfileSummaryPanel({
   user,
+  profile,
   survey,
   personalFields,
   workFields,
@@ -5409,6 +5521,7 @@ function ProfileSummaryPanel({
   onEdit,
 }: {
   user?: GraduateUser | null;
+  profile?: GraduateEditableProfile | null;
   survey?: GraduateSurveyProfile | null;
   personalFields: GraduateProfileField[];
   workFields: GraduateProfileField[];
@@ -5418,33 +5531,33 @@ function ProfileSummaryPanel({
 }) {
   return (
     <div className="grid gap-5 lg:grid-cols-3">
-      <ProfileContactsCard user={user} survey={survey} personalFields={personalFields} canEdit={canEdit} onEdit={onEdit} />
-      <ProfileInformationCard user={user} personalFields={personalFields} educationFields={educationFields} />
-      <ProfileWorkCard survey={survey} fields={workFields} onEdit={canEdit ? () => onEdit('employment') : undefined} />
+      <ProfileContactsCard user={user} profile={profile} survey={survey} personalFields={personalFields} canEdit={canEdit} onEdit={onEdit} />
+      <ProfileInformationCard user={user} profile={profile} personalFields={personalFields} educationFields={educationFields} />
+      <ProfileWorkCard profile={profile} survey={survey} fields={workFields} onEdit={canEdit ? () => onEdit('employment') : undefined} />
     </div>
   );
 }
 
 function ProfileContactsCard({
   user,
+  profile,
   survey,
   personalFields,
   canEdit,
   onEdit,
 }: {
   user?: GraduateUser | null;
+  profile?: GraduateEditableProfile | null;
   survey?: GraduateSurveyProfile | null;
   personalFields: GraduateProfileField[];
   canEdit: boolean;
   onEdit: (section?: ProfileEditSection) => void;
 }) {
-  const socialMedia = getProfileFieldValue(personalFields, 'social_media');
   const surveyTelephone = getProfileFieldValue(personalFields, 'telephone');
   const rows = [
     { icon: Mail, label: 'Email Address', value: user?.email },
-    { icon: Phone, label: 'Phone Number', value: user?.phone || surveyTelephone },
-    ...(hasDisplayValue(socialMedia) ? [{ icon: Users, label: 'Facebook / Social Media', value: socialMedia }] : []),
-    { icon: MapPin, label: 'Current Location', value: buildProfileLocation(user, survey) },
+    { icon: Phone, label: 'Phone Number', value: profile ? profile.phone_number : (user?.phone || surveyTelephone) },
+    { icon: MapPin, label: 'Current Location', value: buildProfileLocation(profile, user, survey) },
   ];
 
   return (
@@ -5461,24 +5574,22 @@ function ProfileContactsCard({
 
 function ProfileInformationCard({
   user,
+  profile,
   personalFields,
   educationFields,
 }: {
   user?: GraduateUser | null;
+  profile?: GraduateEditableProfile | null;
   personalFields: GraduateProfileField[];
   educationFields: GraduateProfileField[];
 }) {
-  const language = getProfileFieldValue(personalFields, 'language');
-  const interests = getProfileFieldValue(personalFields, 'interests');
   const rows = [
     { icon: User, label: 'Full Name', value: getGraduateFullName(user) },
-    { icon: CalendarDays, label: 'Birthday', value: formatProfileDateValue(getProfileFieldValue(personalFields, 'birthday')) },
-    { icon: Contact, label: 'Civil Status', value: getProfileFieldValue(personalFields, 'civil_status') },
-    { icon: User, label: 'Sex / Gender', value: getProfileFieldValue(personalFields, 'sex') },
-    ...(hasDisplayValue(language) ? [{ icon: BookOpen, label: 'Language', value: language }] : []),
-    ...(hasDisplayValue(interests) ? [{ icon: Award, label: 'Interests', value: interests }] : []),
-    { icon: GraduationCap, label: 'Program / Course', value: getProfileFieldValue(educationFields, 'degree_program') || user?.program_name || user?.program_code },
-    { icon: CalendarDays, label: 'Graduation Year / Batch', value: getProfileFieldValue(educationFields, 'year_graduated') || (user?.year_graduated ? String(user.year_graduated) : '') },
+    { icon: CalendarDays, label: 'Birthday', value: formatProfileDateValue(profile ? profile.birthday : getProfileFieldValue(personalFields, 'birthday')) },
+    { icon: Contact, label: 'Civil Status', value: profile ? profile.civil_status : getProfileFieldValue(personalFields, 'civil_status') },
+    { icon: User, label: 'Sex / Gender', value: profile ? profile.sex_gender : getProfileFieldValue(personalFields, 'sex') },
+    { icon: GraduationCap, label: 'Program / Course', value: profile ? profile.program_course : (getProfileFieldValue(educationFields, 'degree_program') || user?.program_name || user?.program_code) },
+    { icon: CalendarDays, label: 'Graduation Year / Batch', value: profile ? profile.graduation_year : (getProfileFieldValue(educationFields, 'year_graduated') || (user?.year_graduated ? String(user.year_graduated) : '')) },
   ];
 
   return (
@@ -5528,7 +5639,7 @@ function ProfileSupplementaryDetails({
           <ProfileEducationCard user={user} fields={educationFields} graduateStudyFields={graduateStudyFields} compact />
         )}
         {trainings.length > 0 && (
-          <ProfileTrainingsSection trainings={trainings.slice(0, 3)} compact onEdit={canEdit ? () => onEdit('trainings') : undefined} />
+          <ProfileTrainingsSection trainings={trainings.slice(0, 3)} compact />
         )}
       </div>
     </section>
@@ -5564,42 +5675,32 @@ function ProfileCardHeader({
 }
 
 function ProfileWorkCard({
+  profile,
   survey,
   fields,
   onEdit,
 }: {
+  profile?: GraduateEditableProfile | null;
   survey?: GraduateSurveyProfile | null;
   fields: GraduateProfileField[];
   onEdit?: () => void;
 }) {
-  const isEmployed = survey?.work?.is_employed;
   const summary = survey?.work?.summary;
-  const status = summary?.employment_status || getProfileFieldValue(fields, 'employment_status');
-  const jobTitle = summary?.current_job_title || getProfileFieldValue(fields, 'current_job_title');
-  const company = summary?.company || getProfileFieldValue(fields, 'company');
-  const fixedKeys = new Set([
-    'employment_status',
-    'current_job_title',
-    'company',
-    'employment_type',
-    'date_started',
-    'company_location',
-    'job_related_to_program',
-    'industry',
-    'skills_used',
-  ]);
+  const status = profile ? profile.professional_status : (summary?.employment_status || getProfileFieldValue(fields, 'employment_status'));
+  const jobTitle = profile ? profile.job_title : (summary?.current_job_title || getProfileFieldValue(fields, 'current_job_title'));
+  const company = profile ? profile.company_name : (summary?.company || getProfileFieldValue(fields, 'company'));
+  const normalizedStatus = String(status || '').trim().toLowerCase();
+  const isEmployed = profile
+    ? (normalizedStatus.includes('not employed') || normalizedStatus.includes('unemployed')
+        ? false
+        : (normalizedStatus.includes('employed') || normalizedStatus.includes('freelance') ? true : null))
+    : survey?.work?.is_employed;
   const rows = [
-    { icon: CheckCircle2, label: 'Employment Status', value: status },
     { icon: Briefcase, label: 'Current Position / Job Title', value: jobTitle },
     { icon: Building2, label: 'Company Name', value: company },
-    { icon: MapPin, label: 'Employment Location', value: summary?.location || getProfileFieldValue(fields, 'company_location') },
-    { icon: GraduationCap, label: 'Job Relevance to Degree', value: summary?.job_related_to_program || getProfileFieldValue(fields, 'job_related_to_program') },
-    { icon: Award, label: 'Skills Used', value: summary?.skills_used || getProfileFieldValue(fields, 'skills_used') },
-    { icon: Briefcase, label: 'Employment Type', value: summary?.employment_type || getProfileFieldValue(fields, 'employment_type') },
-    { icon: Building2, label: 'Industry', value: summary?.industry || getProfileFieldValue(fields, 'industry') },
-    { icon: CalendarDays, label: 'Start Date', value: summary?.start_date || getProfileFieldValue(fields, 'date_started') },
+    { icon: MapPin, label: 'Employment Location', value: profile ? profile.employment_location : (summary?.location || getProfileFieldValue(fields, 'company_location')) },
+    { icon: CalendarDays, label: 'Start Date', value: formatProfileDateValue(profile ? profile.start_date : (summary?.start_date || getProfileFieldValue(fields, 'date_started'))) },
   ];
-  const extraFields = fields.filter((field) => !fixedKeys.has(field.key));
   const statusClass = isEmployed === false
     ? 'border-amber-200 bg-amber-50 text-amber-700'
     : isEmployed === true
@@ -5615,16 +5716,10 @@ function ProfileWorkCard({
       </div>
 
       <div className="mt-5 space-y-4">
-        {rows.slice(1).map((row) => (
+        {rows.map((row) => (
           <ProfileInfoRow key={row.label} icon={row.icon} label={row.label} value={formatProfileValue(row.value)} />
         ))}
       </div>
-
-      {extraFields.length > 0 && (
-        <div className="mt-5 border-t border-slate-100 pt-4">
-          <ProfileFieldList fields={extraFields} />
-        </div>
-      )}
     </section>
   );
 }
@@ -5682,23 +5777,6 @@ function GraduateStudiesSummary({ fields }: { fields: GraduateProfileField[] }) 
         {earnedUnits && earnedUnits !== '0' && <p className="mt-2 text-xs font-semibold text-slate-500">Earned units: {earnedUnits}</p>}
       </div>
     </div>
-  );
-}
-
-function ProfileGraduateStudiesCard({ fields }: { fields: GraduateProfileField[] }) {
-  const hasFurtherStudies = hasDisplayValue(getProfileFieldValue(fields, 'graduate_program')) || hasDisplayValue(getProfileFieldValue(fields, 'college_university'));
-
-  return (
-    <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-      <ProfileCardHeader icon={BookOpen} title="Further Studies" />
-      {hasFurtherStudies ? (
-        <div className="mt-5">
-          <GraduateStudiesSummary fields={fields} />
-        </div>
-      ) : (
-        <ProfileEmptyState icon={BookOpen} message="No further education information available." />
-      )}
-    </section>
   );
 }
 
@@ -5924,25 +6002,6 @@ function ProfileMiniLine({
   );
 }
 
-function ProfileFieldList({
-  fields,
-  className = '',
-}: {
-  fields: GraduateProfileField[];
-  className?: string;
-}) {
-  return (
-    <div className={`grid gap-3 ${className}`}>
-      {fields.map((field) => (
-        <div key={`${field.key}-${field.question_id || field.label}`} className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{field.label}</p>
-          <p className="mt-1 whitespace-pre-line text-sm font-semibold leading-6 text-slate-700">{field.value}</p>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function ProfileEmptyState({
   icon: Icon,
   message,
@@ -5962,7 +6021,7 @@ function ProfileSkeleton() {
   return (
     <div className="space-y-6">
       <div className="animate-pulse rounded-[28px] border border-slate-200 bg-white shadow-sm">
-        <div className="h-52 rounded-t-[28px] bg-slate-200 sm:h-64 lg:h-72" />
+        <div className="h-64 rounded-t-[28px] bg-slate-200 sm:h-80 lg:h-96" />
         <div className="px-6 pb-6 pt-20">
           <div className="-mt-32 h-28 w-28 rounded-full border-4 border-white bg-slate-100" />
           <div className="mt-5 h-8 max-w-sm rounded-full bg-slate-100" />
@@ -5990,10 +6049,6 @@ function ProfileEditModal({
   activeSection,
   user,
   survey,
-  workFields,
-  educationFields,
-  graduateStudyFields,
-  trainings,
   form,
   inputClassName,
   profileImageUrl,
@@ -6010,10 +6065,6 @@ function ProfileEditModal({
   activeSection: ProfileEditSection;
   user?: GraduateUser | null;
   survey?: GraduateSurveyProfile | null;
-  workFields: GraduateProfileField[];
-  educationFields: GraduateProfileField[];
-  graduateStudyFields: GraduateProfileField[];
-  trainings: GraduateTrainingEntry[];
   form: ProfileFormState;
   inputClassName: string;
   profileImageUrl: string;
@@ -6027,7 +6078,8 @@ function ProfileEditModal({
   onChangeCoverPhoto: () => void;
   onRemoveCoverPhoto: () => void;
 }) {
-  const canSubmit = activeSection === 'basic' || activeSection === 'security';
+  const canSubmit = ['basic', 'employment', 'education', 'security'].includes(activeSection);
+  const professionalStatusOptions = ['Currently Employed', 'Self-Employed', 'Freelance', 'Not Employed'];
 
   return (
     <div className="fixed inset-0 z-[65] flex items-center justify-center bg-slate-950/60 px-4 py-6">
@@ -6068,47 +6120,91 @@ function ProfileEditModal({
           <div className="min-h-0 overflow-y-auto px-6 py-5">
             {activeSection === 'basic' && (
               <div className="space-y-4">
+                <div className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-800">
+                  Changes here update your GradTrack profile only. Your submitted tracer survey remains unchanged.
+                </div>
                 <div className="grid gap-4 md:grid-cols-3">
                   <Field label="First Name" required>
-                    <input value={form.first_name} onChange={(event) => onFormChange((current) => ({ ...current, first_name: event.target.value }))} className={inputClassName} />
+                    <input required maxLength={50} value={form.first_name} onChange={(event) => onFormChange((current) => ({ ...current, first_name: event.target.value }))} className={inputClassName} />
                   </Field>
                   <Field label="Middle Name">
-                    <input value={form.middle_name} onChange={(event) => onFormChange((current) => ({ ...current, middle_name: event.target.value }))} className={inputClassName} />
+                    <input maxLength={100} value={form.middle_name} onChange={(event) => onFormChange((current) => ({ ...current, middle_name: event.target.value }))} className={inputClassName} />
                   </Field>
                   <Field label="Last Name" required>
-                    <input value={form.last_name} onChange={(event) => onFormChange((current) => ({ ...current, last_name: event.target.value }))} className={inputClassName} />
+                    <input required maxLength={50} value={form.last_name} onChange={(event) => onFormChange((current) => ({ ...current, last_name: event.target.value }))} className={inputClassName} />
                   </Field>
                 </div>
                 <div className="grid gap-4 md:grid-cols-2">
-                  <Field label="Email Address" required>
-                    <input type="email" value={form.email} onChange={(event) => onFormChange((current) => ({ ...current, email: event.target.value }))} className={inputClassName} />
+                  <Field label="Email Address">
+                    <input type="email" value={form.email} readOnly className={`${inputClassName} cursor-not-allowed bg-slate-100 text-slate-500`} />
                   </Field>
                   <Field label="Phone Number">
-                    <input value={form.phone} onChange={(event) => onFormChange((current) => ({ ...current, phone: event.target.value }))} className={inputClassName} />
+                    <input inputMode="tel" maxLength={30} value={form.phone_number} onChange={(event) => onFormChange((current) => ({ ...current, phone_number: event.target.value }))} className={inputClassName} />
                   </Field>
                 </div>
-                <Field label="Address">
-                  <textarea value={form.address} onChange={(event) => onFormChange((current) => ({ ...current, address: event.target.value }))} rows={4} className={inputClassName} />
+                <div className="grid gap-4 md:grid-cols-3">
+                  <Field label="Birthday">
+                    <input type="date" value={form.birthday} onChange={(event) => onFormChange((current) => ({ ...current, birthday: event.target.value }))} className={inputClassName} />
+                  </Field>
+                  <Field label="Civil Status">
+                    <input maxLength={50} value={form.civil_status} onChange={(event) => onFormChange((current) => ({ ...current, civil_status: event.target.value }))} className={inputClassName} />
+                  </Field>
+                  <Field label="Sex / Gender">
+                    <input maxLength={50} value={form.sex_gender} onChange={(event) => onFormChange((current) => ({ ...current, sex_gender: event.target.value }))} className={inputClassName} />
+                  </Field>
+                </div>
+                <Field label="Current Location">
+                  <textarea maxLength={500} value={form.current_location} onChange={(event) => onFormChange((current) => ({ ...current, current_location: event.target.value }))} rows={3} className={inputClassName} />
                 </Field>
               </div>
             )}
 
             {activeSection === 'employment' && (
               <div className="space-y-5">
-                <ProfileWorkCard survey={survey} fields={workFields} />
+                <div className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-800">
+                  These values are shown on My Profile and are stored separately from your tracer survey employment answers.
+                </div>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Field label="Professional Status">
+                    <select value={form.professional_status} onChange={(event) => onFormChange((current) => ({ ...current, professional_status: event.target.value }))} className={inputClassName}>
+                      <option value="">Select status</option>
+                      {form.professional_status && !professionalStatusOptions.includes(form.professional_status) && (
+                        <option value={form.professional_status}>{form.professional_status}</option>
+                      )}
+                      {professionalStatusOptions.map((status) => <option key={status} value={status}>{status}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Start Date">
+                    <input type="date" value={form.start_date} onChange={(event) => onFormChange((current) => ({ ...current, start_date: event.target.value }))} className={inputClassName} />
+                  </Field>
+                  <Field label="Current Position / Job Title">
+                    <input maxLength={200} value={form.job_title} onChange={(event) => onFormChange((current) => ({ ...current, job_title: event.target.value }))} className={inputClassName} />
+                  </Field>
+                  <Field label="Company Name">
+                    <input maxLength={200} value={form.company_name} onChange={(event) => onFormChange((current) => ({ ...current, company_name: event.target.value }))} className={inputClassName} />
+                  </Field>
+                </div>
+                <Field label="Employment Location">
+                  <input maxLength={255} value={form.employment_location} onChange={(event) => onFormChange((current) => ({ ...current, employment_location: event.target.value }))} className={inputClassName} />
+                </Field>
                 <SurveySourceCard survey={survey} />
               </div>
             )}
 
             {activeSection === 'education' && (
               <div className="space-y-5">
-                <ProfileEducationCard user={user} fields={educationFields} graduateStudyFields={graduateStudyFields} onEdit={() => onSectionChange('education')} />
-                <ProfileGraduateStudiesCard fields={graduateStudyFields} />
+                <div className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-800">
+                  Profile education changes do not modify the program and graduation year submitted in your tracer survey.
+                </div>
+                <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_180px]">
+                  <Field label="Program / Course">
+                    <input maxLength={180} value={form.program_course} onChange={(event) => onFormChange((current) => ({ ...current, program_course: event.target.value }))} className={inputClassName} />
+                  </Field>
+                  <Field label="Graduation Year / Batch">
+                    <input type="number" min={1900} max={new Date().getFullYear() + 1} value={form.graduation_year} onChange={(event) => onFormChange((current) => ({ ...current, graduation_year: event.target.value }))} className={inputClassName} />
+                  </Field>
+                </div>
               </div>
-            )}
-
-            {activeSection === 'trainings' && (
-              <ProfileTrainingsSection trainings={trainings} onEdit={() => onSectionChange('trainings')} />
             )}
 
             {activeSection === 'photo' && (
