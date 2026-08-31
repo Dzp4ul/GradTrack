@@ -79,7 +79,7 @@ function gradtrack_forum_chats_validate_participants(PDO $db, array $participant
             'full_name' => trim((string) ($row['full_name'] ?? '')) ?: 'Graduate',
             'program_code' => $row['program_code'] ?? null,
             'year_graduated' => $row['year_graduated'] !== null ? (int) $row['year_graduated'] : null,
-            'profile_image_path' => $row['profile_image_path'] ?? null,
+            'profile_image_path' => gradtrack_storage_access_reference($row['profile_image_path'] ?? null),
         ];
     }
 
@@ -109,7 +109,7 @@ function gradtrack_forum_chats_directory(PDO $db, int $currentGraduateId): array
             'full_name' => trim((string) ($row['full_name'] ?? '')) ?: 'Graduate',
             'program_code' => $row['program_code'] ?? null,
             'year_graduated' => $row['year_graduated'] !== null ? (int) $row['year_graduated'] : null,
-            'profile_image_path' => $row['profile_image_path'] ?? null,
+            'profile_image_path' => gradtrack_storage_access_reference($row['profile_image_path'] ?? null),
         ];
     }
 
@@ -153,7 +153,7 @@ function gradtrack_forum_chats_participants_by_room(PDO $db, array $roomIds): ar
             'full_name' => trim((string) ($row['full_name'] ?? '')) ?: 'Graduate',
             'program_code' => $row['program_code'] ?? null,
             'year_graduated' => $row['year_graduated'] !== null ? (int) $row['year_graduated'] : null,
-            'profile_image_path' => $row['profile_image_path'] ?? null,
+            'profile_image_path' => gradtrack_storage_access_reference($row['profile_image_path'] ?? null),
             'last_active_at' => gradtrack_chat_datetime_iso($row['last_active_at'] ?? null),
             'is_online' => false,
         ];

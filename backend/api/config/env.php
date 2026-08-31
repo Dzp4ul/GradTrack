@@ -28,7 +28,7 @@ if (!function_exists('gradtrack_parse_env_value')) {
 }
 
 if (!function_exists('gradtrack_load_env_file')) {
-    function gradtrack_load_env_file(bool $overrideExisting = true): void
+    function gradtrack_load_env_file(bool $overrideExisting = false): void
     {
         $envFile = gradtrack_env_file_path();
 
@@ -91,4 +91,3 @@ if (!function_exists('gradtrack_env')) {
         return $value;
     }
 }
-

@@ -80,6 +80,7 @@ function gradtrack_forum_posts_normalize_row(array $row): array
     $row['media_count'] = isset($row['media_count']) ? (int) $row['media_count'] : count($row['media']);
     $row['is_liked'] = !empty($row['is_liked']);
     $row['author_name'] = trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? ''));
+    $row['author_profile_image_path'] = gradtrack_storage_access_reference($row['author_profile_image_path'] ?? null);
 
     return $row;
 }
@@ -239,20 +240,34 @@ try {
             }
         }
 
-        $stmt = $db->prepare("INSERT INTO forum_posts (graduate_id, title, content, category, status)
-                              VALUES (:graduate_id, :title, :content, :category, 'approved')");
-        $stmt->execute([
-            ':graduate_id' => (int) $user['graduate_id'],
-            ':title' => $title,
-            ':content' => $content,
-            ':category' => $category,
-        ]);
+        $newMediaReferences = [];
+        $db->beginTransaction();
+        try {
+            $stmt = $db->prepare("INSERT INTO forum_posts (graduate_id, title, content, category, status)
+                                  VALUES (:graduate_id, :title, :content, :category, 'approved')");
+            $stmt->execute([
+                ':graduate_id' => (int) $user['graduate_id'],
+                ':title' => $title,
+                ':content' => $content,
+                ':category' => $category,
+            ]);
 
-        $postId = (int) $db->lastInsertId();
-        $mediaFiles = gradtrack_forum_uploaded_media_files($_FILES);
-        if (count($mediaFiles) > 0) {
-            gradtrack_forum_save_post_media_records($db, $postId, $mediaFiles);
-            gradtrack_forum_sync_legacy_post_media_columns($db, $postId);
+            $postId = (int) $db->lastInsertId();
+            $mediaFiles = gradtrack_forum_uploaded_media_files($_FILES);
+            if (count($mediaFiles) > 0) {
+                $savedMedia = gradtrack_forum_save_post_media_records($db, $postId, $mediaFiles);
+                $newMediaReferences = array_column($savedMedia, 'file_path');
+                gradtrack_forum_sync_legacy_post_media_columns($db, $postId);
+            }
+            $db->commit();
+        } catch (Throwable $createError) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            foreach (array_unique($newMediaReferences) as $newMediaReference) {
+                gradtrack_storage_delete_quietly($newMediaReference);
+            }
+            throw $createError;
         }
 
         // Audit Trail: call logAuditTrail() after a community forum post is successfully created.
@@ -318,31 +333,51 @@ try {
         $mediaFiles = gradtrack_forum_uploaded_media_files($_FILES);
         $hasNewMedia = count($mediaFiles) > 0;
 
-        if ($clearMedia || $hasNewMedia) {
-            gradtrack_forum_remove_post_media_files($db, $postId);
-        }
+        $oldMediaReferences = [];
+        $newMediaReferences = [];
+        $db->beginTransaction();
+        try {
+            if ($clearMedia || $hasNewMedia) {
+                $oldMediaReferences = gradtrack_forum_remove_post_media_files($db, $postId, false);
+            }
 
-        if ($hasNewMedia) {
-            gradtrack_forum_save_post_media_records($db, $postId, $mediaFiles);
-            gradtrack_forum_sync_legacy_post_media_columns($db, $postId);
-        }
+            if ($hasNewMedia) {
+                $savedMedia = gradtrack_forum_save_post_media_records($db, $postId, $mediaFiles);
+                $newMediaReferences = array_column($savedMedia, 'file_path');
+                gradtrack_forum_sync_legacy_post_media_columns($db, $postId);
+            }
 
-        $updateSql = "UPDATE forum_posts
+            $updateSql = "UPDATE forum_posts
                       SET title = :title,
                           content = :content,
                           category = :category,
                           status = 'pending',
                           updated_at = NOW()";
-        $params = [
+            $params = [
             ':title' => $title,
             ':content' => $content,
             ':category' => $category,
             ':id' => $postId,
         ];
 
-        $updateSql .= ' WHERE id = :id';
-        $updateStmt = $db->prepare($updateSql);
-        $updateStmt->execute($params);
+            $updateSql .= ' WHERE id = :id';
+            $updateStmt = $db->prepare($updateSql);
+            $updateStmt->execute($params);
+            $db->commit();
+        } catch (Throwable $updateError) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            foreach (array_unique($newMediaReferences) as $newMediaReference) {
+                gradtrack_storage_delete_quietly($newMediaReference);
+            }
+            throw $updateError;
+        }
+        foreach (array_unique($oldMediaReferences) as $oldMediaReference) {
+            if (!in_array($oldMediaReference, $newMediaReferences, true)) {
+                gradtrack_storage_delete_quietly($oldMediaReference);
+            }
+        }
 
         // Audit Trail: call logAuditTrail() after a community forum post is successfully updated.
         logAuditTrail(
@@ -386,9 +421,21 @@ try {
             gradtrack_forum_posts_json_error(403, 'You can only delete your own forum posts');
         }
 
-        gradtrack_forum_remove_post_media_files($db, $postId);
-        $deleteStmt = $db->prepare('DELETE FROM forum_posts WHERE id = :id');
-        $deleteStmt->execute([':id' => $postId]);
+        $db->beginTransaction();
+        try {
+            $deletedMediaReferences = gradtrack_forum_remove_post_media_files($db, $postId, false);
+            $deleteStmt = $db->prepare('DELETE FROM forum_posts WHERE id = :id');
+            $deleteStmt->execute([':id' => $postId]);
+            $db->commit();
+        } catch (Throwable $deleteError) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            throw $deleteError;
+        }
+        foreach (array_unique($deletedMediaReferences) as $deletedMediaReference) {
+            gradtrack_storage_delete_quietly($deletedMediaReference);
+        }
 
         // Audit Trail: call logAuditTrail() after a community forum post is successfully deleted.
         logAuditTrail(

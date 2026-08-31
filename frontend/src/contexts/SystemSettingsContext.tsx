@@ -68,6 +68,9 @@ export function resolveSystemAssetUrl(path?: string | null, fallback = '') {
   if (!value) return '';
   if (/^(https?:|blob:|data:)/i.test(value)) return value;
   if (value.startsWith('/')) return value;
+  if (value.startsWith('system/branding/')) {
+    return `${API_ENDPOINTS.SETTINGS}?scope=asset&path=${encodeURIComponent(value)}`;
+  }
   return `${API_BASE_URL}/${value.replace(/^\/+/, '')}`;
 }
 

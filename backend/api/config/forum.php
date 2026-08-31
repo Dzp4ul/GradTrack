@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/storage.php';
 
 if (!function_exists('gradtrack_forum_categories')) {
     function gradtrack_forum_categories(): array
@@ -135,14 +136,7 @@ if (!function_exists('gradtrack_forum_abs_path_from_rel')) {
 if (!function_exists('gradtrack_forum_remove_post_file')) {
     function gradtrack_forum_remove_post_file(?string $relativePath): void
     {
-        if (!$relativePath) {
-            return;
-        }
-
-        $absolutePath = gradtrack_forum_abs_path_from_rel($relativePath);
-        if (is_file($absolutePath)) {
-            @unlink($absolutePath);
-        }
+        gradtrack_storage_delete_quietly($relativePath);
     }
 }
 
@@ -248,28 +242,49 @@ if (!function_exists('gradtrack_forum_save_post_media')) {
             throw new RuntimeException("Forum {$label} must be {$maxMb} MB or smaller");
         }
 
-        $originalName = (string) ($file['name'] ?? 'forum-media');
-        $safeName = gradtrack_forum_sanitize_filename($originalName);
-        $extension = strtolower((string) pathinfo($safeName, PATHINFO_EXTENSION));
-        $allowedExtensions = $config['media_type'] === 'video'
-            ? ['mp4', 'webm', 'ogg', 'ogv', 'mov']
-            : ['jpg', 'jpeg', 'png', 'webp', 'gif'];
-        if (!in_array($extension, $allowedExtensions, true)) {
-            $extension = (string) $config['extension'];
+        $originalName = gradtrack_storage_safe_download_name((string) ($file['name'] ?? 'forum-media'));
+        if (gradtrack_storage_filename_has_dangerous_segment($originalName)) {
+            throw new RuntimeException('The forum media filename is not allowed.');
+        }
+        $originalExtension = strtolower((string) pathinfo($originalName, PATHINFO_EXTENSION));
+        $allowedExtensions = [
+            'image/jpeg' => ['jpg', 'jpeg'],
+            'image/png' => ['png'],
+            'image/webp' => ['webp'],
+            'image/gif' => ['gif'],
+            'video/mp4' => ['mp4'],
+            'video/webm' => ['webm'],
+            'video/ogg' => ['ogv'],
+            'video/quicktime' => ['mov'],
+        ];
+        if (!in_array($originalExtension, $allowedExtensions[$mimeType], true)) {
+            throw new RuntimeException('The forum media extension does not match its contents.');
         }
 
-        $storedName = uniqid('forum_', true) . '.' . $extension;
-        $postDir = gradtrack_forum_upload_post_dir($postId);
-        gradtrack_forum_create_dir($postDir);
-
-        $destinationPath = $postDir . DIRECTORY_SEPARATOR . $storedName;
-        if (!move_uploaded_file($tmpPath, $destinationPath)) {
-            throw new RuntimeException('Failed to save forum media');
+        if ($config['media_type'] === 'image') {
+            $dimensions = @getimagesize($tmpPath);
+            if ($dimensions === false) {
+                throw new RuntimeException('The forum image is malformed or unsupported.');
+            }
+            if ((int) $dimensions[0] > 8192 || (int) $dimensions[1] > 8192) {
+                throw new RuntimeException('Forum images must not exceed 8192 pixels on either side.');
+            }
         }
+
+        $storedName = gradtrack_storage_uuid_filename((string) $config['extension']);
+        $legacyPath = gradtrack_forum_relative_media_path($postId, $storedName);
+        $mediaFolder = $config['media_type'] === 'video' ? 'videos' : 'images';
+        $storageResult = gradtrack_storage_put_file(
+            $tmpPath,
+            'media/community-forum/posts/' . $postId . '/' . $mediaFolder . '/' . $storedName,
+            $legacyPath,
+            $mimeType,
+            ['category' => 'forum-' . $config['media_type']]
+        );
 
         return [
             'media_type' => (string) $config['media_type'],
-            'file_path' => gradtrack_forum_relative_media_path($postId, $storedName),
+            'file_path' => (string) $storageResult['reference'],
             'original_name' => $originalName,
             'mime_type' => $mimeType,
             'file_size_bytes' => $fileSize,
@@ -377,6 +392,11 @@ if (!function_exists('gradtrack_forum_post_media_by_post_ids')) {
             $row['post_id'] = $postId;
             $row['file_size_bytes'] = isset($row['file_size_bytes']) ? (int) $row['file_size_bytes'] : null;
             $row['sort_order'] = isset($row['sort_order']) ? (int) $row['sort_order'] : 0;
+            $row['file_path'] = gradtrack_storage_access_reference(
+                $row['file_path'] ?? null,
+                $row['original_name'] ?? null,
+                $row['mime_type'] ?? null
+            );
             $grouped[$postId][] = $row;
         }
 
@@ -406,7 +426,11 @@ if (!function_exists('gradtrack_forum_attach_media_to_posts')) {
                     'id' => 0,
                     'post_id' => $postId,
                     'media_type' => strpos($mimeType, 'video/') === 0 ? 'video' : 'image',
-                    'file_path' => $post['image_path'],
+                    'file_path' => gradtrack_storage_access_reference(
+                        $post['image_path'],
+                        $post['image_original_name'] ?? null,
+                        $post['image_mime_type'] ?? null
+                    ),
                     'original_name' => $post['image_original_name'] ?? null,
                     'mime_type' => $post['image_mime_type'] ?? null,
                     'file_size_bytes' => isset($post['image_file_size_bytes']) ? (int) $post['image_file_size_bytes'] : null,
@@ -433,7 +457,7 @@ if (!function_exists('gradtrack_forum_attach_media_to_posts')) {
 }
 
 if (!function_exists('gradtrack_forum_remove_post_media_files')) {
-    function gradtrack_forum_remove_post_media_files(PDO $db, int $postId): void
+    function gradtrack_forum_remove_post_media_files(PDO $db, int $postId, bool $deleteObjects = true): array
     {
         $paths = [];
 
@@ -457,8 +481,11 @@ if (!function_exists('gradtrack_forum_remove_post_media_files')) {
             $paths[] = (string) $legacy['image_path'];
         }
 
-        foreach (array_unique($paths) as $path) {
-            gradtrack_forum_remove_post_file($path);
+        $paths = array_values(array_unique($paths));
+        if ($deleteObjects) {
+            foreach ($paths as $path) {
+                gradtrack_forum_remove_post_file($path);
+            }
         }
 
         $clearStmt = $db->prepare("UPDATE forum_posts
@@ -468,6 +495,7 @@ if (!function_exists('gradtrack_forum_remove_post_media_files')) {
                                        image_file_size_bytes = NULL
                                    WHERE id = :id");
         $clearStmt->execute([':id' => $postId]);
+        return $paths;
     }
 }
 

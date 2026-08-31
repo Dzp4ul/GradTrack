@@ -205,7 +205,7 @@ function gradtrack_forum_chat_messages_insert(PDO $db, int $roomId, int $current
             ':uploaded_by' => $currentGraduateId,
         ];
         $placeholders = gradtrack_chat_placeholders($attachmentIds, 'attachment_id', $params);
-        $attachmentStmt = $db->prepare("SELECT id, attachment_type
+        $attachmentStmt = $db->prepare("SELECT id, attachment_type, storage_path, stored_name
                                         FROM forum_chat_message_attachments
                                         WHERE id IN ($placeholders)
                                           AND room_id = :room_id
@@ -255,8 +255,56 @@ function gradtrack_forum_chat_messages_insert(PDO $db, int $roomId, int $current
         $db->beginTransaction();
     }
     $messageIds = [];
+    $storagePromotions = [];
+
+    if ($ownsTransaction && gradtrack_storage_uses_s3() && !empty($attachmentRows)) {
+        try {
+            foreach ($attachmentRows as $attachmentRow) {
+                $sourceReference = (string) ($attachmentRow['storage_path'] ?? '');
+                if (strpos($sourceReference, 'staging/chat/') !== 0) {
+                    continue;
+                }
+                $storedExtension = strtolower((string) pathinfo((string) $attachmentRow['stored_name'], PATHINFO_EXTENSION));
+                $destinationReference = 'private/chat/rooms/' . $roomId . '/attachments/'
+                    . gradtrack_storage_uuid_filename($storedExtension);
+                $destinationReference = gradtrack_storage_copy($sourceReference, $destinationReference);
+                $storagePromotions[(int) $attachmentRow['id']] = [
+                    'source' => $sourceReference,
+                    'destination' => $destinationReference,
+                ];
+            }
+        } catch (Throwable $promotionError) {
+            foreach ($storagePromotions as $promotion) {
+                gradtrack_storage_delete_quietly($promotion['destination']);
+            }
+            if ($ownsTransaction && $db->inTransaction()) {
+                $db->rollBack();
+            }
+            throw $promotionError;
+        }
+    }
 
     try {
+        if (!empty($storagePromotions)) {
+            $updateStorageStmt = $db->prepare("UPDATE forum_chat_message_attachments
+                                               SET storage_path = :storage_path
+                                               WHERE id = :id
+                                                 AND room_id = :room_id
+                                                 AND uploaded_by = :uploaded_by
+                                                 AND message_id IS NULL");
+            foreach ($storagePromotions as $attachmentId => $promotion) {
+                $updateStorageStmt->execute([
+                    ':storage_path' => $promotion['destination'],
+                    ':id' => $attachmentId,
+                    ':room_id' => $roomId,
+                    ':uploaded_by' => $currentGraduateId,
+                ]);
+                if ($updateStorageStmt->rowCount() !== 1) {
+                    throw new RuntimeException('Failed to promote an uploaded chat attachment.');
+                }
+            }
+        }
+
         $insertStmt = $db->prepare("INSERT INTO forum_chat_messages (room_id, graduate_id, message, message_type, client_message_id)
                                     VALUES (:room_id, :graduate_id, :message, :message_type, :client_message_id)");
         foreach ($messageSpecs as $specIndex => $messageSpec) {
@@ -303,6 +351,9 @@ function gradtrack_forum_chat_messages_insert(PDO $db, int $roomId, int $current
         if ($ownsTransaction && $db->inTransaction()) {
             $db->rollBack();
         }
+        foreach ($storagePromotions as $promotion) {
+            gradtrack_storage_delete_quietly($promotion['destination']);
+        }
         if ($e instanceof PDOException && $e->getCode() === '23000') {
             $duplicateMessages = gradtrack_forum_chat_messages_fetch_client_batch($db, $roomId, $currentGraduateId, $clientMessageId);
             if (count($duplicateMessages) > 0) {
@@ -310,6 +361,10 @@ function gradtrack_forum_chat_messages_insert(PDO $db, int $roomId, int $current
             }
         }
         throw $e;
+    }
+
+    foreach ($storagePromotions as $promotion) {
+        gradtrack_storage_delete_quietly($promotion['source']);
     }
 
     $savedMessages = [];

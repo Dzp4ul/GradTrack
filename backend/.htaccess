@@ -6,7 +6,9 @@ Header always set X-XSS-Protection "1; mode=block"
 # Disable directory browsing
 Options -Indexes
 
-# PHP settings
-php_flag display_errors Off
-php_value upload_max_filesize 10M
-php_value post_max_size 10M
+# PHP settings for Apache module deployments. CGI/FastCGI reads .user.ini.
+<IfModule php_module>
+    php_flag display_errors Off
+    php_value upload_max_filesize 64M
+    php_value post_max_size 512M
+</IfModule>

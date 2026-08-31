@@ -60,7 +60,61 @@ function gradtrack_settings_normalize_update_payload(array $payload): array
     return $normalized;
 }
 
+function gradtrack_settings_prepare_branding_promotions(array $incomingSettings, array $currentSettings): array
+{
+    $typeMap = gradtrack_system_upload_type_map();
+    $prefixMap = gradtrack_system_branding_final_prefix_map();
+    $promotions = [];
+
+    foreach ($typeMap as $imageType => $settingKey) {
+        if (!array_key_exists($settingKey, $incomingSettings)) continue;
+
+        $reference = trim((string) $incomingSettings[$settingKey]);
+        $stagingPrefix = 'staging/system-branding/' . $imageType . '/';
+        if (strpos($reference, $stagingPrefix) === 0) {
+            $fileName = basename($reference);
+            if (!preg_match('/^[a-f0-9-]+\.(jpg|png|webp|gif|ico)$/', $fileName)) {
+                throw new InvalidArgumentException('Invalid staged branding object.');
+            }
+            $destination = $prefixMap[$imageType] . '/' . $fileName;
+            gradtrack_storage_copy($reference, $destination);
+            $incomingSettings[$settingKey] = $destination;
+            $promotions[] = [
+                'source' => $reference,
+                'destination' => $destination,
+                'old' => $currentSettings[$settingKey] ?? null,
+            ];
+            continue;
+        }
+
+        $allowedReference = $reference === ''
+            || strpos($reference, '/') === 0
+            || strpos($reference, 'uploads/system-branding/') === 0
+            || strpos($reference, 'system/branding/') === 0;
+        if (!$allowedReference) throw new InvalidArgumentException('Invalid system branding reference.');
+    }
+
+    return ['settings' => $incomingSettings, 'promotions' => $promotions];
+}
+
 try {
+    if ($method === 'GET' && $scope === 'asset') {
+        $requestedPath = trim((string) ($_GET['path'] ?? ''));
+        $settings = gradtrack_system_settings_assoc(gradtrack_load_system_settings($db));
+        $allowedPaths = [];
+        foreach (gradtrack_system_upload_type_map() as $settingKey) {
+            if (!empty($settings[$settingKey])) $allowedPaths[] = (string) $settings[$settingKey];
+        }
+        if ($requestedPath === '' || !in_array($requestedPath, $allowedPaths, true) || !gradtrack_storage_is_s3_key($requestedPath)) {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'error' => 'Asset not found']);
+            exit;
+        }
+        header('Cache-Control: public, max-age=300');
+        header('Location: ' . gradtrack_storage_presigned_url($requestedPath, null, null, false), true, 302);
+        exit;
+    }
+
     if ($method === 'GET' && in_array($scope, ['public', 'display'], true)) {
         echo json_encode(gradtrack_system_public_payload($db));
         exit;
@@ -83,7 +137,23 @@ try {
             $payload = gradtrack_settings_request_payload();
             $incomingSettings = gradtrack_settings_normalize_update_payload($payload);
             $before = gradtrack_system_settings_assoc(gradtrack_load_system_settings($db));
-            $settings = gradtrack_save_system_settings($db, $incomingSettings, (int) $_SESSION['user_id']);
+            $prepared = gradtrack_settings_prepare_branding_promotions($incomingSettings, $before);
+            $promotions = $prepared['promotions'];
+            $db->beginTransaction();
+            try {
+                $settings = gradtrack_save_system_settings($db, $prepared['settings'], (int) $_SESSION['user_id']);
+                $db->commit();
+            } catch (Throwable $e) {
+                if ($db->inTransaction()) $db->rollBack();
+                foreach ($promotions as $promotion) gradtrack_storage_delete_quietly($promotion['destination']);
+                throw $e;
+            }
+            foreach ($promotions as $promotion) {
+                gradtrack_storage_delete_quietly($promotion['source']);
+                if (!empty($promotion['old']) && $promotion['old'] !== $promotion['destination']) {
+                    gradtrack_storage_delete_quietly($promotion['old']);
+                }
+            }
             $after = gradtrack_system_settings_assoc($settings);
 
             logAuditTrail(
@@ -130,9 +200,9 @@ try {
                 trim((string) ($_SESSION['full_name'] ?? $_SESSION['username'] ?? 'Super Admin')),
                 'super_admin',
                 null,
-                'Update',
+                'Upload',
                 'System Settings',
-                'Uploaded a system branding image.',
+                'Staged a system branding image pending Save Changes.',
                 $upload['setting_key'],
                 null,
                 ['setting_key' => $upload['setting_key']]
@@ -143,6 +213,7 @@ try {
                 'message' => 'Branding image uploaded successfully.',
                 'setting_key' => $upload['setting_key'],
                 'file_path' => $upload['file_path'],
+                'file_url' => $upload['file_url'],
                 'data' => $upload['settings'],
                 'settings' => gradtrack_system_settings_assoc($upload['settings']),
                 'grouped' => gradtrack_group_system_settings($upload['settings']),

@@ -4,6 +4,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/alumni_rating.php';
 require_once __DIR__ . '/../config/engagement_approval.php';
+require_once __DIR__ . '/../config/storage.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -82,28 +83,7 @@ function gradtrack_mentor_sanitize_filename(string $name): string
 
 function gradtrack_mentor_remove_proof_file(?string $relativePath): void
 {
-    $relativePath = trim((string) $relativePath);
-    if ($relativePath === '' || strpos($relativePath, 'uploads/mentor-proofs/') !== 0) {
-        return;
-    }
-
-    $base = realpath(__DIR__ . '/../../');
-    if ($base === false) {
-        return;
-    }
-
-    $absolutePath = $base . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativePath);
-    if (is_file($absolutePath)) {
-        @unlink($absolutePath);
-    }
-
-    $dir = dirname($absolutePath);
-    if (is_dir($dir)) {
-        $remaining = array_diff(scandir($dir) ?: [], ['.', '..']);
-        if (empty($remaining)) {
-            @rmdir($dir);
-        }
-    }
+    gradtrack_storage_delete_quietly($relativePath);
 }
 
 function gradtrack_mentor_prepare_proof_file(array $file): array
@@ -140,9 +120,30 @@ function gradtrack_mentor_prepare_proof_file(array $file): array
         throw new RuntimeException('Unsupported proof file type. Allowed: JPG, PNG, WEBP, PDF');
     }
 
-    $originalName = (string) ($file['name'] ?? 'mentor-proof');
-    $safeName = gradtrack_mentor_sanitize_filename($originalName);
-    $extension = strtolower((string) pathinfo($safeName, PATHINFO_EXTENSION));
+    $originalName = gradtrack_storage_safe_download_name((string) ($file['name'] ?? 'mentor-proof'));
+    if (gradtrack_storage_filename_has_dangerous_segment($originalName)) {
+        throw new RuntimeException('Proof filename is not allowed');
+    }
+    $extensionByMime = [
+        'image/jpeg' => 'jpg',
+        'image/png' => 'png',
+        'image/webp' => 'webp',
+        'application/pdf' => 'pdf',
+    ];
+    $extension = $extensionByMime[$mimeType];
+    $submittedExtension = strtolower((string) pathinfo($originalName, PATHINFO_EXTENSION));
+    $extensionAliases = $mimeType === 'image/jpeg' ? ['jpg', 'jpeg'] : [$extension];
+    if (!in_array($submittedExtension, $extensionAliases, true)) {
+        throw new RuntimeException('Proof file extension does not match its content');
+    }
+
+    if (strpos($mimeType, 'image/') === 0) {
+        $imageInfo = @getimagesize($tmpPath);
+        if ($imageInfo === false || (int) $imageInfo[0] < 1 || (int) $imageInfo[1] < 1
+            || (int) $imageInfo[0] > 8192 || (int) $imageInfo[1] > 8192) {
+            throw new RuntimeException('Proof image is malformed or has unsafe dimensions');
+        }
+    }
 
     return [
         'tmp_path' => $tmpPath,
@@ -155,26 +156,24 @@ function gradtrack_mentor_prepare_proof_file(array $file): array
 
 function gradtrack_mentor_store_prepared_proof_file(int $accountId, array $preparedFile, ?string $existingRelativePath): array
 {
-    $accountDir = gradtrack_mentor_upload_root() . DIRECTORY_SEPARATOR . $accountId;
-    gradtrack_mentor_ensure_dir($accountDir);
-
-    $storedName = uniqid('mentor_proof_', true);
-    if ($preparedFile['extension'] !== '') {
-        $storedName .= '.' . $preparedFile['extension'];
-    }
-
-    $destinationPath = $accountDir . DIRECTORY_SEPARATOR . $storedName;
-    if (!move_uploaded_file((string) $preparedFile['tmp_path'], $destinationPath)) {
-        throw new RuntimeException('Failed to save uploaded proof file');
-    }
-
-    gradtrack_mentor_remove_proof_file($existingRelativePath);
+    $storedName = gradtrack_storage_uuid_filename((string) $preparedFile['extension']);
+    $objectKey = 'private/mentorship/proofs/' . $accountId . '/' . $storedName;
+    $legacyPath = gradtrack_mentor_upload_relative_path($accountId, $storedName);
+    $storageResult = gradtrack_storage_put_file(
+        (string) $preparedFile['tmp_path'],
+        $objectKey,
+        $legacyPath,
+        (string) $preparedFile['mime_type'],
+        ['category' => 'mentor-proof', 'uploader-account-id' => (string) $accountId]
+    );
+    $storedReference = (string) $storageResult['reference'];
 
     return [
-        'proof_file_path' => gradtrack_mentor_upload_relative_path($accountId, $storedName),
+        'proof_file_path' => $storedReference,
         'proof_file_name' => (string) $preparedFile['original_name'],
         'proof_mime_type' => (string) $preparedFile['mime_type'],
         'proof_file_size_bytes' => (int) $preparedFile['file_size_bytes'],
+        'old_proof_file_path' => $existingRelativePath,
     ];
 }
 
@@ -250,6 +249,16 @@ try {
 
             if ($mine && (empty($mine['contact_email']) || $mine['contact_email'] === null)) {
                 $mine['contact_email'] = $user['email'] ?? null;
+            }
+
+            if ($mine) {
+                $mine['profile_image_path'] = gradtrack_storage_access_reference($mine['profile_image_path'] ?? null);
+                $mine['proof_file_path'] = gradtrack_storage_access_reference(
+                    $mine['proof_file_path'] ?? null,
+                    $mine['proof_file_name'] ?? null,
+                    $mine['proof_mime_type'] ?? null,
+                    true
+                );
             }
 
             echo json_encode(['success' => true, 'data' => $mine ?: null]);
@@ -376,6 +385,7 @@ try {
             $row['active_mentees_count'] = isset($row['active_mentees_count']) ? (int) $row['active_mentees_count'] : 0;
             $row['avg_rating'] = $ratings[$row['id']]['avg_rating'] ?? 0.0;
             $row['feedback_count'] = $ratings[$row['id']]['feedback_count'] ?? 0;
+            $row['profile_image_path'] = gradtrack_storage_access_reference($row['profile_image_path'] ?? null);
         }
 
         echo json_encode(['success' => true, 'data' => $rows]);
@@ -445,6 +455,11 @@ try {
             exit;
         }
 
+        $newProofReference = null;
+        $oldProofReference = null;
+        $db->beginTransaction();
+
+        try {
         if ($existing) {
             $mentorId = (int) $existing['id'];
             $updateQuery = "UPDATE mentors
@@ -508,6 +523,8 @@ try {
 
         if ($preparedProofFile !== null) {
             $proofMeta = gradtrack_mentor_store_prepared_proof_file((int) $user['account_id'], $preparedProofFile, $existingProofPath);
+            $newProofReference = $proofMeta['proof_file_path'];
+            $oldProofReference = $proofMeta['old_proof_file_path'];
             $proofStmt = $db->prepare("UPDATE mentors
                                        SET proof_file_path = :proof_file_path,
                                            proof_file_name = :proof_file_name,
@@ -522,6 +539,21 @@ try {
                 ':proof_file_size_bytes' => $proofMeta['proof_file_size_bytes'],
                 ':id' => $mentorId,
             ]);
+        }
+
+        $db->commit();
+        } catch (Throwable $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            if ($newProofReference !== null) {
+                gradtrack_storage_delete_quietly($newProofReference);
+            }
+            throw $e;
+        }
+
+        if ($oldProofReference !== null && $oldProofReference !== $newProofReference) {
+            gradtrack_storage_delete_quietly($oldProofReference);
         }
 
         echo json_encode([

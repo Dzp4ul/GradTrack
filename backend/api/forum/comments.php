@@ -78,6 +78,7 @@ try {
             $row['post_id'] = (int) $row['post_id'];
             $row['graduate_id'] = (int) $row['graduate_id'];
             $row['commenter_name'] = trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? ''));
+            $row['commenter_profile_image_path'] = gradtrack_storage_access_reference($row['commenter_profile_image_path'] ?? null);
         }
         unset($row);
 

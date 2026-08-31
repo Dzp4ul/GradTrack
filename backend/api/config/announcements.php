@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/storage.php';
 
 if (!function_exists('gradtrack_announcements_column_exists')) {
     function gradtrack_announcements_column_exists(PDO $db, string $column): bool
@@ -135,33 +136,17 @@ if (!function_exists('gradtrack_announcements_upload_root')) {
 if (!function_exists('gradtrack_announcements_remove_cover')) {
     function gradtrack_announcements_remove_cover(?string $relativePath): void
     {
-        $relativePath = trim((string) $relativePath);
-        if ($relativePath === '' || strpos(str_replace('\\', '/', $relativePath), 'uploads/announcements/') !== 0) {
-            return;
-        }
-
-        $backendRoot = realpath(__DIR__ . '/../../');
-        if ($backendRoot === false) {
-            return;
-        }
-
-        $absolutePath = $backendRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $relativePath);
-        if (is_file($absolutePath)) {
-            @unlink($absolutePath);
-        }
-
-        $directory = dirname($absolutePath);
-        if (is_dir($directory)) {
-            $items = scandir($directory);
-            if (is_array($items) && count($items) === 2) {
-                @rmdir($directory);
-            }
-        }
+        gradtrack_storage_delete_quietly($relativePath);
     }
 }
 
 if (!function_exists('gradtrack_announcements_save_cover')) {
-    function gradtrack_announcements_save_cover(int $announcementId, array $file, ?string $existingPath = null): array
+    function gradtrack_announcements_save_cover(
+        int $announcementId,
+        array $file,
+        ?string $existingPath = null,
+        string $kind = 'cover'
+    ): array
     {
         $errorCode = (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE);
         if ($errorCode !== UPLOAD_ERR_OK) {
@@ -191,24 +176,44 @@ if (!function_exists('gradtrack_announcements_save_cover')) {
             throw new InvalidArgumentException('Unsupported image type. Allowed: JPG, PNG, WEBP, GIF');
         }
 
-        $announcementDir = gradtrack_announcements_upload_root() . DIRECTORY_SEPARATOR . $announcementId;
-        if (!is_dir($announcementDir) && !mkdir($announcementDir, 0755, true) && !is_dir($announcementDir)) {
-            throw new RuntimeException('Unable to create the announcement upload directory');
+        $originalName = gradtrack_storage_safe_download_name((string) ($file['name'] ?? 'announcement-image'));
+        if (gradtrack_storage_filename_has_dangerous_segment($originalName)) {
+            throw new InvalidArgumentException('The announcement image filename is not allowed.');
+        }
+        $originalExtension = strtolower((string) pathinfo($originalName, PATHINFO_EXTENSION));
+        $allowedExtensions = [
+            'image/jpeg' => ['jpg', 'jpeg'],
+            'image/png' => ['png'],
+            'image/webp' => ['webp'],
+            'image/gif' => ['gif'],
+        ];
+        if (!in_array($originalExtension, $allowedExtensions[$mimeType], true)) {
+            throw new InvalidArgumentException('The announcement image extension does not match its contents.');
         }
 
-        $storedName = uniqid('announcement_', true) . '.' . $extensionByMime[$mimeType];
-        $destinationPath = $announcementDir . DIRECTORY_SEPARATOR . $storedName;
-        if (!move_uploaded_file($tmpPath, $destinationPath)) {
-            throw new RuntimeException('Failed to save the announcement image');
+        $dimensions = @getimagesize($tmpPath);
+        if ($dimensions === false || (int) $dimensions[0] <= 0 || (int) $dimensions[1] <= 0) {
+            throw new InvalidArgumentException('The announcement upload is not a valid image.');
+        }
+        if ((int) $dimensions[0] > 8192 || (int) $dimensions[1] > 8192) {
+            throw new InvalidArgumentException('Announcement images must not exceed 8192 pixels on either side.');
         }
 
-        if ($existingPath) {
-            gradtrack_announcements_remove_cover($existingPath);
-        }
+        $kind = $kind === 'gallery' ? 'gallery' : 'cover';
+        $storedName = gradtrack_storage_uuid_filename($extensionByMime[$mimeType]);
+        $legacyPath = 'uploads/announcements/' . $announcementId . '/' . $storedName;
+        $storageResult = gradtrack_storage_put_file(
+            $tmpPath,
+            'media/announcements/' . $announcementId . '/' . $kind . '/' . $storedName,
+            $legacyPath,
+            $mimeType,
+            ['category' => 'announcement-' . $kind]
+        );
 
         return [
-            'path' => 'uploads/announcements/' . $announcementId . '/' . $storedName,
-            'original_name' => (string) ($file['name'] ?? 'announcement-image'),
+            'path' => (string) $storageResult['reference'],
+            'old_path' => $existingPath,
+            'original_name' => $originalName,
             'mime_type' => $mimeType,
             'file_size_bytes' => $fileSize,
         ];
@@ -218,7 +223,7 @@ if (!function_exists('gradtrack_announcements_save_cover')) {
 if (!function_exists('gradtrack_announcements_save_gallery_image')) {
     function gradtrack_announcements_save_gallery_image(int $announcementId, array $file): array
     {
-        return gradtrack_announcements_save_cover($announcementId, $file);
+        return gradtrack_announcements_save_cover($announcementId, $file, null, 'gallery');
     }
 }
 

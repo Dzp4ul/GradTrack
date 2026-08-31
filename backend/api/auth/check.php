@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/admin_profile_image.php';
+require_once __DIR__ . '/../config/storage.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     http_response_code(405);
@@ -25,7 +26,7 @@ if (isset($_SESSION['user_id'])) {
             "username" => $_SESSION['username'],
             "full_name" => $_SESSION['full_name'],
             "role" => $_SESSION['role'],
-            "profile_image_path" => $profileImagePath,
+            "profile_image_path" => gradtrack_storage_access_reference($profileImagePath),
         ]
     ]);
 } else {

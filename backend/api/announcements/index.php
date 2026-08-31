@@ -183,6 +183,12 @@ function gradtrack_announcements_normalize_row(array $row): array
         ? (string) $row['summary']
         : gradtrack_announcements_excerpt((string) ($row['content'] ?? ''));
     $row['author_type'] = !empty($row['graduate_id']) ? 'graduate' : 'admin';
+    $row['cover_image_path'] = gradtrack_storage_access_reference(
+        $row['cover_image_path'] ?? null,
+        $row['cover_image_original_name'] ?? null,
+        $row['cover_image_mime_type'] ?? null
+    );
+    $row['author_profile_image_path'] = gradtrack_storage_access_reference($row['author_profile_image_path'] ?? null);
     return $row;
 }
 
@@ -198,6 +204,11 @@ function gradtrack_announcements_images(PDO $db, int $announcementId): array
         foreach (['id', 'announcement_id', 'file_size_bytes', 'sort_order'] as $key) {
             $row[$key] = (int) $row[$key];
         }
+        $row['file_path'] = gradtrack_storage_access_reference(
+            $row['file_path'] ?? null,
+            $row['original_name'] ?? null,
+            $row['mime_type'] ?? null
+        );
         return $row;
     }, $stmt->fetchAll(PDO::FETCH_ASSOC));
 }
@@ -213,7 +224,7 @@ function gradtrack_announcements_normalize_rows(PDO $db, array $rows, bool $incl
     }, $rows);
 }
 
-function gradtrack_announcements_insert_gallery_images(PDO $db, int $announcementId, array $files, int $startOrder = 0): void
+function gradtrack_announcements_insert_gallery_images(PDO $db, int $announcementId, array $files, int $startOrder = 0): array
 {
     if (count($files) > 10) {
         throw new InvalidArgumentException('You can upload up to 10 additional announcement images');
@@ -222,17 +233,27 @@ function gradtrack_announcements_insert_gallery_images(PDO $db, int $announcemen
     $stmt = $db->prepare('INSERT INTO announcement_images
         (announcement_id, file_path, original_name, mime_type, file_size_bytes, sort_order)
         VALUES (:announcement_id, :file_path, :original_name, :mime_type, :file_size_bytes, :sort_order)');
-    foreach ($files as $index => $file) {
-        $saved = gradtrack_announcements_save_gallery_image($announcementId, $file);
-        $stmt->execute([
-            ':announcement_id' => $announcementId,
-            ':file_path' => $saved['path'],
-            ':original_name' => $saved['original_name'],
-            ':mime_type' => $saved['mime_type'],
-            ':file_size_bytes' => $saved['file_size_bytes'],
-            ':sort_order' => $startOrder + $index,
-        ]);
+    $references = [];
+    try {
+        foreach ($files as $index => $file) {
+            $saved = gradtrack_announcements_save_gallery_image($announcementId, $file);
+            $references[] = $saved['path'];
+            $stmt->execute([
+                ':announcement_id' => $announcementId,
+                ':file_path' => $saved['path'],
+                ':original_name' => $saved['original_name'],
+                ':mime_type' => $saved['mime_type'],
+                ':file_size_bytes' => $saved['file_size_bytes'],
+                ':sort_order' => $startOrder + $index,
+            ]);
+        }
+    } catch (Throwable $error) {
+        foreach ($references as $reference) {
+            gradtrack_storage_delete_quietly($reference);
+        }
+        throw $error;
     }
+    return $references;
 }
 
 function gradtrack_announcements_category_counts(PDO $db, bool $adminOnly = false): array
@@ -424,9 +445,11 @@ try {
         ]);
         $announcementId = (int) $db->lastInsertId();
 
+        $createdReferences = [];
         try {
             if (isset($_FILES['cover_image']) && (int) ($_FILES['cover_image']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
                 $cover = gradtrack_announcements_save_cover($announcementId, $_FILES['cover_image']);
+                $createdReferences[] = $cover['path'];
                 $coverStmt = $db->prepare("UPDATE announcements SET cover_image_path = :path,
                     cover_image_original_name = :original_name, cover_image_mime_type = :mime_type,
                     cover_image_file_size_bytes = :file_size WHERE id = :id");
@@ -434,10 +457,15 @@ try {
                     ':mime_type' => $cover['mime_type'], ':file_size' => $cover['file_size_bytes'], ':id' => $announcementId]);
             }
             $galleryFiles = gradtrack_announcements_uploaded_files('gallery_images');
-            gradtrack_announcements_insert_gallery_images($db, $announcementId, $galleryFiles);
+            $createdReferences = array_merge(
+                $createdReferences,
+                gradtrack_announcements_insert_gallery_images($db, $announcementId, $galleryFiles)
+            );
         } catch (Throwable $uploadError) {
             $db->prepare('DELETE FROM announcements WHERE id = :id')->execute([':id' => $announcementId]);
-            gradtrack_announcements_remove_all_uploads($announcementId);
+            foreach (array_unique($createdReferences) as $createdReference) {
+                gradtrack_storage_delete_quietly($createdReference);
+            }
             throw $uploadError;
         }
 
@@ -489,6 +517,8 @@ try {
         $publishedAt = $payload['status'] === 'published'
             ? ((string) ($existing['published_at'] ?? '') !== '' ? $existing['published_at'] : date('Y-m-d H:i:s'))
             : null;
+        $newStorageReferences = [];
+        $oldStorageReferences = [];
         $db->beginTransaction();
         try {
             $stmt = $db->prepare("UPDATE announcements SET title = :title, summary = :summary, content = :content,
@@ -501,13 +531,17 @@ try {
             $hasNewImage = isset($_FILES['cover_image']) && (int) ($_FILES['cover_image']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE;
             if ($hasNewImage) {
                 $cover = gradtrack_announcements_save_cover($announcementId, $_FILES['cover_image'], $existing['cover_image_path'] ?? null);
+                $newStorageReferences[] = $cover['path'];
+                if (!empty($cover['old_path'])) {
+                    $oldStorageReferences[] = $cover['old_path'];
+                }
                 $coverStmt = $db->prepare("UPDATE announcements SET cover_image_path = :path,
                     cover_image_original_name = :original_name, cover_image_mime_type = :mime_type,
                     cover_image_file_size_bytes = :file_size WHERE id = :id");
                 $coverStmt->execute([':path' => $cover['path'], ':original_name' => $cover['original_name'],
                     ':mime_type' => $cover['mime_type'], ':file_size' => $cover['file_size_bytes'], ':id' => $announcementId]);
             } elseif ($removeImage && !empty($existing['cover_image_path'])) {
-                gradtrack_announcements_remove_cover($existing['cover_image_path']);
+                $oldStorageReferences[] = $existing['cover_image_path'];
                 $db->prepare("UPDATE announcements SET cover_image_path = NULL, cover_image_original_name = NULL,
                     cover_image_mime_type = NULL, cover_image_file_size_bytes = NULL WHERE id = :id")
                     ->execute([':id' => $announcementId]);
@@ -516,16 +550,29 @@ try {
             foreach ($removalRows as $removalRow) {
                 $db->prepare('DELETE FROM announcement_images WHERE id = :id AND announcement_id = :announcement_id')
                     ->execute([':id' => (int) $removalRow['id'], ':announcement_id' => $announcementId]);
-                gradtrack_announcements_remove_cover($removalRow['file_path'] ?? null);
+                if (!empty($removalRow['file_path'])) {
+                    $oldStorageReferences[] = $removalRow['file_path'];
+                }
             }
             $nextSortOrder = max(0, (int) ($galleryStats['max_sort'] ?? -1) + 1);
-            gradtrack_announcements_insert_gallery_images($db, $announcementId, $galleryFiles, $nextSortOrder);
+            $newStorageReferences = array_merge(
+                $newStorageReferences,
+                gradtrack_announcements_insert_gallery_images($db, $announcementId, $galleryFiles, $nextSortOrder)
+            );
             $db->commit();
         } catch (Throwable $updateError) {
             if ($db->inTransaction()) {
                 $db->rollBack();
             }
+            foreach (array_unique($newStorageReferences) as $newStorageReference) {
+                gradtrack_storage_delete_quietly($newStorageReference);
+            }
             throw $updateError;
+        }
+        foreach (array_unique($oldStorageReferences) as $oldStorageReference) {
+            if (!in_array($oldStorageReference, $newStorageReferences, true)) {
+                gradtrack_storage_delete_quietly($oldStorageReference);
+            }
         }
 
         gradtrack_announcements_log($actor, 'Update', $announcementId, ['category' => $payload['category'], 'status' => $payload['status']]);
@@ -550,8 +597,16 @@ try {
             gradtrack_announcements_json_error(403, 'You can only delete your own announcements');
         }
 
+        $galleryDeleteStmt = $db->prepare('SELECT file_path FROM announcement_images WHERE announcement_id = :id');
+        $galleryDeleteStmt->execute([':id' => $announcementId]);
+        $deleteReferences = array_column($galleryDeleteStmt->fetchAll(PDO::FETCH_ASSOC), 'file_path');
+        if (!empty($existing['cover_image_path'])) {
+            $deleteReferences[] = $existing['cover_image_path'];
+        }
         $db->prepare('DELETE FROM announcements WHERE id = :id')->execute([':id' => $announcementId]);
-        gradtrack_announcements_remove_all_uploads($announcementId);
+        foreach (array_unique(array_filter($deleteReferences)) as $deleteReference) {
+            gradtrack_storage_delete_quietly($deleteReference);
+        }
         gradtrack_announcements_log($actor, 'Delete', $announcementId);
         echo json_encode(['success' => true, 'message' => 'Announcement deleted successfully']);
         exit;

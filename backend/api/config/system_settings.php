@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/storage.php';
+
 if (!function_exists('gradtrack_system_setting_definitions')) {
     function gradtrack_system_setting_definitions(): array
     {
@@ -473,6 +475,18 @@ if (!function_exists('gradtrack_system_upload_type_map')) {
     }
 }
 
+if (!function_exists('gradtrack_system_branding_final_prefix_map')) {
+    function gradtrack_system_branding_final_prefix_map(): array
+    {
+        return [
+            'system_logo' => 'system/branding/system-logo',
+            'login_logo' => 'system/branding/login-logo',
+            'favicon' => 'system/branding/favicon',
+            'login_background' => 'system/branding/login-background',
+        ];
+    }
+}
+
 if (!function_exists('gradtrack_save_system_branding_upload')) {
     function gradtrack_save_system_branding_upload(PDO $db, string $imageType, array $file, ?int $adminUserId = null): array
     {
@@ -519,26 +533,40 @@ if (!function_exists('gradtrack_save_system_branding_upload')) {
             throw new RuntimeException('ICO files are only allowed for the favicon.');
         }
 
-        $uploadDir = gradtrack_system_upload_base_dir() . DIRECTORY_SEPARATOR . $imageType;
-        if (!is_dir($uploadDir)) {
-            mkdir($uploadDir, 0755, true);
+        if ($allowed[$mimeType] !== 'ico') {
+            $imageInfo = @getimagesize($tmpPath);
+            if ($imageInfo === false || (int) $imageInfo[0] < 1 || (int) $imageInfo[1] < 1
+                || (int) $imageInfo[0] > 8192 || (int) $imageInfo[1] > 8192) {
+                throw new RuntimeException('Branding image is malformed or has unsafe dimensions.');
+            }
         }
 
-        $storedName = uniqid($imageType . '_', true) . '.' . $allowed[$mimeType];
-        $destinationPath = $uploadDir . DIRECTORY_SEPARATOR . $storedName;
-
-        if (!move_uploaded_file($tmpPath, $destinationPath)) {
-            throw new RuntimeException('Failed to save uploaded image.');
+        $originalName = gradtrack_storage_safe_download_name((string) ($file['name'] ?? 'branding-image'));
+        if (gradtrack_storage_filename_has_dangerous_segment($originalName)) {
+            throw new RuntimeException('Branding image filename is not allowed.');
+        }
+        $submittedExtension = strtolower((string) pathinfo($originalName, PATHINFO_EXTENSION));
+        $expectedExtensions = $mimeType === 'image/jpeg' ? ['jpg', 'jpeg'] : [$allowed[$mimeType]];
+        if (!in_array($submittedExtension, $expectedExtensions, true)) {
+            throw new RuntimeException('Branding image extension does not match its content.');
         }
 
-        $relativePath = 'uploads/system-branding/' . $imageType . '/' . $storedName;
+        $storedName = gradtrack_storage_uuid_filename($allowed[$mimeType]);
+        $storageResult = gradtrack_storage_put_file(
+            $tmpPath,
+            'staging/system-branding/' . $imageType . '/' . $storedName,
+            'uploads/system-branding/staging/' . $imageType . '/' . $storedName,
+            $mimeType,
+            ['category' => 'pending-system-branding', 'image-type' => $imageType]
+        );
+        $relativePath = (string) $storageResult['reference'];
         $settingKey = $typeMap[$imageType];
-        $settings = gradtrack_save_system_settings($db, [$settingKey => $relativePath], $adminUserId);
 
         return [
             'setting_key' => $settingKey,
             'file_path' => $relativePath,
-            'settings' => $settings,
+            'file_url' => gradtrack_storage_access_reference($relativePath),
+            'settings' => gradtrack_load_system_settings($db),
         ];
     }
 }

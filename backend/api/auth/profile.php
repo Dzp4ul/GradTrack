@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/admin_profile_image.php';
+require_once __DIR__ . '/../config/storage.php';
 
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
@@ -86,7 +87,7 @@ function gradtrack_public_admin_user(array $user): array
         "email" => $user['email'],
         "full_name" => $user['full_name'] ?? '',
         "role" => $user['role'],
-        "profile_image_path" => $user['profile_image_path'] ?? null,
+        "profile_image_path" => gradtrack_storage_access_reference($user['profile_image_path'] ?? null),
     ];
 }
 
@@ -99,6 +100,10 @@ function gradtrack_update_admin_session(array $user): void
     $_SESSION['role'] = $user['role'];
     $_SESSION['profile_image_path'] = $user['profile_image_path'] ?? null;
 }
+
+$newStorageReference = null;
+$oldStorageReference = null;
+$storageReferenceCommitted = false;
 
 try {
     gradtrack_ensure_admin_profile_image_table($db);
@@ -207,6 +212,9 @@ try {
         }
 
         $tmpPath = (string) $file['tmp_name'];
+        if ($tmpPath === '' || !is_uploaded_file($tmpPath)) {
+            throw new RuntimeException('Invalid uploaded profile image');
+        }
         $finfo = new finfo(FILEINFO_MIME_TYPE);
         $mimeType = $finfo->file($tmpPath) ?: 'application/octet-stream';
         $allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
@@ -216,21 +224,37 @@ try {
 
         $existingPath = gradtrack_admin_profile_image_path($db, (int) $currentUser['id']);
 
-        $uploadRoot = gradtrack_admin_profile_upload_root();
-        $accountDir = $uploadRoot . DIRECTORY_SEPARATOR . (int) $currentUser['id'];
-        gradtrack_admin_profile_create_dir($accountDir);
-
-        $originalName = (string) ($file['name'] ?? 'profile');
-        $safeOriginalName = gradtrack_admin_profile_sanitize_filename($originalName);
-        $extension = pathinfo($safeOriginalName, PATHINFO_EXTENSION);
-        $storedName = uniqid('profile_', true) . ($extension ? ('.' . strtolower($extension)) : '');
-        $destinationPath = $accountDir . DIRECTORY_SEPARATOR . $storedName;
-
-        if (!move_uploaded_file($tmpPath, $destinationPath)) {
-            throw new RuntimeException('Failed to save uploaded profile image');
+        $originalName = gradtrack_storage_safe_download_name((string) ($file['name'] ?? 'profile'));
+        if (gradtrack_storage_filename_has_dangerous_segment($originalName)) {
+            throw new RuntimeException('Profile image filename is not allowed');
         }
-
-        $relativePath = gradtrack_admin_profile_upload_relative_path((int) $currentUser['id'], $storedName);
+        $extensionByMime = [
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'image/webp' => 'webp',
+            'image/gif' => 'gif',
+        ];
+        $submittedExtension = strtolower((string) pathinfo($originalName, PATHINFO_EXTENSION));
+        $expectedExtensions = $mimeType === 'image/jpeg' ? ['jpg', 'jpeg'] : [$extensionByMime[$mimeType]];
+        if (!in_array($submittedExtension, $expectedExtensions, true)) {
+            throw new RuntimeException('Profile image extension does not match its content');
+        }
+        $dimensions = @getimagesize($tmpPath);
+        if ($dimensions === false || (int) $dimensions[0] < 1 || (int) $dimensions[1] < 1
+            || (int) $dimensions[0] > 8192 || (int) $dimensions[1] > 8192) {
+            throw new RuntimeException('Profile image is malformed or has unsafe dimensions');
+        }
+        $storedName = gradtrack_storage_uuid_filename($extensionByMime[$mimeType]);
+        $storageResult = gradtrack_storage_put_file(
+            $tmpPath,
+            'media/profiles/admins/' . (int) $currentUser['id'] . '/profile/' . $storedName,
+            gradtrack_admin_profile_upload_relative_path((int) $currentUser['id'], $storedName),
+            $mimeType,
+            ['category' => 'admin-profile']
+        );
+        $relativePath = (string) $storageResult['reference'];
+        $newStorageReference = $relativePath;
+        $oldStorageReference = $existingPath;
 
         $upsertStmt = $db->prepare('INSERT INTO admin_profile_images
                                     (admin_user_id, file_path, original_file_name, mime_type, file_size_bytes)
@@ -247,16 +271,14 @@ try {
             ':mime_type' => $mimeType,
             ':file_size_bytes' => $fileSize,
         ]);
-
-        if ($existingPath) {
-            $absOld = gradtrack_admin_profile_abs_path_from_rel($existingPath);
-            if (is_file($absOld)) {
-                @unlink($absOld);
-            }
-        }
     }
 
     $db->commit();
+    $storageReferenceCommitted = true;
+
+    if ($oldStorageReference && $oldStorageReference !== $newStorageReference) {
+        gradtrack_storage_delete_quietly($oldStorageReference);
+    }
 
     $isActiveSelect = gradtrack_admin_is_active_select($db);
     $freshStmt = $db->prepare("
@@ -284,6 +306,9 @@ try {
     if ($db->inTransaction()) {
         $db->rollBack();
     }
+    if (!$storageReferenceCommitted && $newStorageReference) {
+        gradtrack_storage_delete_quietly($newStorageReference);
+    }
     $message = strpos($e->getMessage(), 'Duplicate entry') !== false
         ? 'Email or username already exists'
         : $e->getMessage();
@@ -293,6 +318,9 @@ try {
 } catch (Throwable $e) {
     if ($db->inTransaction()) {
         $db->rollBack();
+    }
+    if (!$storageReferenceCommitted && $newStorageReference) {
+        gradtrack_storage_delete_quietly($newStorageReference);
     }
     http_response_code(500);
     echo json_encode(["success" => false, "error" => $e->getMessage()]);

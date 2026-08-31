@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
+require_once __DIR__ . '/../config/storage.php';
 
 function gradtrack_profile_upload_root(): string
 {
@@ -43,14 +44,7 @@ function gradtrack_profile_abs_path_from_rel(string $relativePath): string
 
 function gradtrack_profile_delete_file(?string $relativePath): void
 {
-    if (!$relativePath) {
-        return;
-    }
-
-    $absOld = gradtrack_profile_abs_path_from_rel($relativePath);
-    if (is_file($absOld)) {
-        @unlink($absOld);
-    }
+    gradtrack_storage_delete_quietly($relativePath);
 }
 
 function gradtrack_profile_public_graduate_user(PDO $db, int $graduateId): ?array
@@ -105,8 +99,8 @@ function gradtrack_profile_public_graduate_user(PDO $db, int $graduateId): ?arra
         'program_id' => $user['program_id'] !== null ? (int) $user['program_id'] : null,
         'program_name' => $user['program_name'],
         'program_code' => $user['program_code'],
-        'profile_image_path' => $user['profile_image_path'] ?? null,
-        'cover_image_path' => $user['cover_image_path'] ?? null,
+        'profile_image_path' => gradtrack_storage_access_reference($user['profile_image_path'] ?? null),
+        'cover_image_path' => gradtrack_storage_access_reference($user['cover_image_path'] ?? null),
         'role' => 'graduate',
     ];
 }
@@ -135,22 +129,42 @@ function gradtrack_profile_validate_image_upload(array $file, string $label): ar
     }
 
     $tmpPath = (string) $file['tmp_name'];
+    if ($tmpPath === '' || !is_uploaded_file($tmpPath)) {
+        throw new RuntimeException('Invalid uploaded ' . strtolower($label));
+    }
     $finfo = new finfo(FILEINFO_MIME_TYPE);
     $mimeType = $finfo->file($tmpPath) ?: 'application/octet-stream';
     $allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
     if (!in_array($mimeType, $allowedMimes, true)) {
         throw new RuntimeException('Unsupported image type. Allowed: JPG, PNG, WEBP, GIF');
     }
+    $extensionByMime = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'image/gif' => 'gif'];
+    $originalName = gradtrack_storage_safe_download_name((string) ($file['name'] ?? $label));
+    if (gradtrack_storage_filename_has_dangerous_segment($originalName)) {
+        throw new RuntimeException($label . ' filename is not allowed.');
+    }
+    $submittedExtension = strtolower((string) pathinfo($originalName, PATHINFO_EXTENSION));
+    $expectedExtensions = $mimeType === 'image/jpeg' ? ['jpg', 'jpeg'] : [$extensionByMime[$mimeType]];
+    if (!in_array($submittedExtension, $expectedExtensions, true)) {
+        throw new RuntimeException($label . ' extension does not match its content.');
+    }
+    $dimensions = @getimagesize($tmpPath);
+    if ($dimensions === false || (int) $dimensions[0] <= 0 || (int) $dimensions[1] <= 0) {
+        throw new RuntimeException($label . ' is not a valid image.');
+    }
+    if ((int) $dimensions[0] > 8192 || (int) $dimensions[1] > 8192) {
+        throw new RuntimeException($label . ' dimensions are too large.');
+    }
 
     return [
         'tmp_path' => $tmpPath,
         'mime_type' => $mimeType,
         'file_size' => $fileSize,
-        'original_name' => (string) ($file['name'] ?? $label),
+        'original_name' => $originalName,
     ];
 }
 
-function gradtrack_profile_save_image(PDO $db, int $accountId, array $file, string $kind): void
+function gradtrack_profile_save_image(PDO $db, int $accountId, array $file, string $kind): array
 {
     $isCover = $kind === 'cover';
     $label = $isCover ? 'Cover photo' : 'Profile image';
@@ -164,23 +178,26 @@ function gradtrack_profile_save_image(PDO $db, int $accountId, array $file, stri
     $existingStmt->execute();
     $existingPath = $existingStmt->fetch(PDO::FETCH_ASSOC)['file_path'] ?? null;
 
-    $uploadRoot = $isCover ? gradtrack_cover_upload_root() : gradtrack_profile_upload_root();
-    $accountDir = $uploadRoot . DIRECTORY_SEPARATOR . $accountId;
-    gradtrack_profile_create_dir($accountDir);
-
-    $safeOriginalName = gradtrack_profile_sanitize_filename($validated['original_name']);
-    $extension = pathinfo($safeOriginalName, PATHINFO_EXTENSION);
-    $storedPrefix = $isCover ? 'cover_' : 'profile_';
-    $storedName = uniqid($storedPrefix, true) . ($extension ? ('.' . strtolower($extension)) : '');
-    $destinationPath = $accountDir . DIRECTORY_SEPARATOR . $storedName;
-
-    if (!move_uploaded_file($validated['tmp_path'], $destinationPath)) {
-        throw new RuntimeException('Failed to save uploaded ' . strtolower($label));
-    }
-
-    $relativePath = $isCover
+    $extensionByMime = [
+        'image/jpeg' => 'jpg',
+        'image/png' => 'png',
+        'image/webp' => 'webp',
+        'image/gif' => 'gif',
+    ];
+    $storedName = gradtrack_storage_uuid_filename($extensionByMime[$validated['mime_type']]);
+    $s3Key = 'media/profiles/graduates/' . $accountId . '/'
+        . ($isCover ? 'cover' : 'profile') . '/' . $storedName;
+    $legacyPath = $isCover
         ? gradtrack_cover_upload_relative_path($accountId, $storedName)
         : gradtrack_profile_upload_relative_path($accountId, $storedName);
+    $storageResult = gradtrack_storage_put_file(
+        $validated['tmp_path'],
+        $s3Key,
+        $legacyPath,
+        $validated['mime_type'],
+        ['category' => $isCover ? 'graduate-cover' : 'graduate-profile']
+    );
+    $relativePath = (string) $storageResult['reference'];
 
     $upsertSql = $isCover
         ? "INSERT INTO graduate_cover_images
@@ -209,10 +226,13 @@ function gradtrack_profile_save_image(PDO $db, int $accountId, array $file, stri
         ':file_size_bytes' => $validated['file_size'],
     ]);
 
-    gradtrack_profile_delete_file($existingPath);
+    return [
+        'new_reference' => $relativePath,
+        'old_reference' => $existingPath,
+    ];
 }
 
-function gradtrack_profile_remove_cover_image(PDO $db, int $accountId): void
+function gradtrack_profile_remove_cover_image(PDO $db, int $accountId): ?string
 {
     $existingStmt = $db->prepare('SELECT file_path FROM graduate_cover_images WHERE graduate_account_id = :account_id LIMIT 1');
     $existingStmt->execute([':account_id' => $accountId]);
@@ -221,7 +241,7 @@ function gradtrack_profile_remove_cover_image(PDO $db, int $accountId): void
     $deleteStmt = $db->prepare('DELETE FROM graduate_cover_images WHERE graduate_account_id = :account_id');
     $deleteStmt->execute([':account_id' => $accountId]);
 
-    gradtrack_profile_delete_file($existingPath);
+    return $existingPath;
 }
 
 function gradtrack_profile_normalize_label($value): string
@@ -890,6 +910,9 @@ function gradtrack_profile_survey_data(PDO $db, array $user): ?array
 $database = new Database();
 $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
+$newStorageReferences = [];
+$oldStorageReferences = [];
+$storageChangesCommitted = false;
 
 try {
     $user = gradtrack_require_graduate_auth($db);
@@ -1017,21 +1040,38 @@ try {
         }
 
         if (isset($_FILES['profile_image']) && (int) ($_FILES['profile_image']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
-            gradtrack_profile_save_image($db, $accountId, $_FILES['profile_image'], 'profile');
+            $profileStorageChange = gradtrack_profile_save_image($db, $accountId, $_FILES['profile_image'], 'profile');
+            $newStorageReferences[] = $profileStorageChange['new_reference'];
+            if (!empty($profileStorageChange['old_reference'])) {
+                $oldStorageReferences[] = $profileStorageChange['old_reference'];
+            }
         }
 
         $removeCover = isset($_POST['remove_cover_image'])
             && in_array(strtolower((string) $_POST['remove_cover_image']), ['1', 'true', 'yes'], true);
 
         if ($removeCover) {
-            gradtrack_profile_remove_cover_image($db, $accountId);
+            $removedCoverReference = gradtrack_profile_remove_cover_image($db, $accountId);
+            if ($removedCoverReference) {
+                $oldStorageReferences[] = $removedCoverReference;
+            }
         }
 
         if (!$removeCover && isset($_FILES['cover_image']) && (int) ($_FILES['cover_image']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
-            gradtrack_profile_save_image($db, $accountId, $_FILES['cover_image'], 'cover');
+            $coverStorageChange = gradtrack_profile_save_image($db, $accountId, $_FILES['cover_image'], 'cover');
+            $newStorageReferences[] = $coverStorageChange['new_reference'];
+            if (!empty($coverStorageChange['old_reference'])) {
+                $oldStorageReferences[] = $coverStorageChange['old_reference'];
+            }
         }
 
         $db->commit();
+        $storageChangesCommitted = true;
+        foreach (array_unique($oldStorageReferences) as $oldStorageReference) {
+            if (!in_array($oldStorageReference, $newStorageReferences, true)) {
+                gradtrack_storage_delete_quietly($oldStorageReference);
+            }
+        }
 
         $currentUser = gradtrack_current_graduate_user($db);
         echo json_encode([
@@ -1050,6 +1090,11 @@ try {
 } catch (Throwable $e) {
     if ($db->inTransaction()) {
         $db->rollBack();
+    }
+    if (!$storageChangesCommitted) {
+        foreach (array_unique($newStorageReferences) as $newStorageReference) {
+            gradtrack_storage_delete_quietly($newStorageReference);
+        }
     }
     http_response_code(500);
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);

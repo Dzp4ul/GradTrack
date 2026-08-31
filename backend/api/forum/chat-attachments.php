@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/chat.php';
+require_once __DIR__ . '/../config/storage.php';
 
 function gradtrack_chat_attachments_json_error(int $statusCode, string $message): void
 {
@@ -44,8 +45,14 @@ function gradtrack_chat_attachments_load_authorized(PDO $db, int $attachmentId, 
                           JOIN forum_chat_members fcm
                             ON fcm.room_id = a.room_id
                            AND fcm.graduate_id = :graduate_id
+                          LEFT JOIN forum_chat_messages m
+                            ON m.id = a.message_id
+                           AND m.room_id = a.room_id
                           WHERE a.id = :id
-                            AND (a.message_id IS NOT NULL OR a.uploaded_by = :uploaded_by)
+                            AND (
+                                (a.message_id IS NOT NULL AND m.id IS NOT NULL AND m.deleted_at IS NULL)
+                                OR (a.message_id IS NULL AND a.uploaded_by = :uploaded_by)
+                            )
                           LIMIT 1");
     $stmt->execute([
         ':id' => $attachmentId,
@@ -91,16 +98,15 @@ try {
         } catch (RuntimeException $e) {
             gradtrack_chat_attachments_json_error(400, $e->getMessage());
         }
-        $storedName = uniqid('chat_', true) . '.' . $validated['extension'];
-        $roomDir = gradtrack_chat_upload_room_dir($roomId);
-        gradtrack_chat_create_dir($roomDir);
-
-        $destinationPath = $roomDir . DIRECTORY_SEPARATOR . $storedName;
-        if (!move_uploaded_file($validated['tmp_path'], $destinationPath)) {
-            gradtrack_chat_attachments_json_error(500, 'Failed to save attachment');
-        }
-
-        $relativePath = gradtrack_chat_relative_attachment_path($roomId, $storedName);
+        $storedName = gradtrack_storage_uuid_filename($validated['extension']);
+        $storageResult = gradtrack_storage_put_file(
+            $validated['tmp_path'],
+            'staging/chat/rooms/' . $roomId . '/' . $storedName,
+            gradtrack_chat_relative_attachment_path($roomId, $storedName),
+            $validated['mime_type'],
+            ['category' => 'chat-' . $validated['attachment_type']]
+        );
+        $relativePath = (string) $storageResult['reference'];
 
         try {
             $stmt = $db->prepare("INSERT INTO forum_chat_message_attachments
@@ -117,9 +123,7 @@ try {
                 ':attachment_type' => $validated['attachment_type'],
             ]);
         } catch (Throwable $e) {
-            if (is_file($destinationPath)) {
-                @unlink($destinationPath);
-            }
+            gradtrack_storage_delete_quietly($relativePath);
             throw $e;
         }
 
@@ -143,15 +147,32 @@ try {
         }
 
         $attachment = gradtrack_chat_attachments_load_authorized($db, $attachmentId, $currentGraduateId);
-        $absolutePath = gradtrack_chat_attachments_secure_path((string) $attachment['storage_path']);
         $download = isset($_GET['download']) && (string) $_GET['download'] === '1';
-        $safeName = str_replace(['"', "\r", "\n"], '', (string) $attachment['original_name']);
+        $previewMimes = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+        $download = $download || !in_array((string) $attachment['mime_type'], $previewMimes, true);
+        $storagePath = (string) $attachment['storage_path'];
+        if (gradtrack_storage_is_s3_key($storagePath)) {
+            $url = gradtrack_storage_presigned_url(
+                $storagePath,
+                (string) $attachment['original_name'],
+                (string) $attachment['mime_type'],
+                $download
+            );
+            header_remove('Content-Type');
+            header('Cache-Control: private, no-store');
+            header('Location: ' . $url, true, 302);
+            exit;
+        }
+
+        $absolutePath = gradtrack_chat_attachments_secure_path($storagePath);
+        $safeName = gradtrack_storage_safe_download_name((string) $attachment['original_name'], 'attachment');
 
         header_remove('Content-Type');
         header('Content-Type: ' . $attachment['mime_type']);
         header('Content-Length: ' . filesize($absolutePath));
         header('X-Content-Type-Options: nosniff');
-        header('Content-Disposition: ' . ($download ? 'attachment' : 'inline') . '; filename="' . $safeName . '"');
+        header('Content-Disposition: ' . ($download ? 'attachment' : 'inline')
+            . '; filename="' . addcslashes($safeName, '"\\') . '"');
         readfile($absolutePath);
         exit;
     }

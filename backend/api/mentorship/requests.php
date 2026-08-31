@@ -534,6 +534,9 @@ try {
             if (isset($row['mentor_feedback_completed'])) {
                 $row['mentor_feedback_completed'] = $row['mentor_feedback_completed'] !== null ? (bool) $row['mentor_feedback_completed'] : null;
             }
+            if (array_key_exists('mentor_profile_image_path', $row)) {
+                $row['mentor_profile_image_path'] = gradtrack_storage_access_reference($row['mentor_profile_image_path'] ?? null);
+            }
         }
 
         echo json_encode(['success' => true, 'data' => $rows]);

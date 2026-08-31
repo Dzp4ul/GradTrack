@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/storage.php';
+
 if (!function_exists('gradtrack_public_content_ensure_schema')) {
     function gradtrack_public_content_ensure_schema(PDO $db): void
     {
@@ -216,7 +218,14 @@ if (!function_exists('gradtrack_public_content_about')) {
         $sql = "SELECT id, section_key, title, subtitle, content, image_path, default_image_path, image_alt, display_order, is_active, updated_at FROM website_content WHERE page = 'about'";
         if (!$admin) $sql .= ' AND is_active = 1';
         $sql .= ' ORDER BY display_order, id';
-        return $db->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+        $rows = $db->query($sql)->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as &$row) {
+            $rawPath = $row['image_path'] ?? null;
+            $row['image_storage_path'] = $rawPath;
+            $row['image_path'] = gradtrack_storage_access_reference($rawPath);
+        }
+        unset($row);
+        return $rows;
     }
 }
 
@@ -265,12 +274,13 @@ if (!function_exists('gradtrack_public_content_payload')) {
 }
 
 if (!function_exists('gradtrack_public_content_sync_about')) {
-    function gradtrack_public_content_sync_about(PDO $db, array $sections, int $adminId): void
+    function gradtrack_public_content_sync_about(PDO $db, array $sections, int $adminId): array
     {
         $existing = [];
         foreach (gradtrack_public_content_about($db, true) as $row) $existing[(int) $row['id']] = $row;
         if (count($sections) !== count($existing)) throw new InvalidArgumentException('All About page sections must be included.');
         $stmt = $db->prepare("UPDATE website_content SET title=:title, subtitle=:subtitle, content=:content, image_path=:image_path, image_alt=:image_alt, display_order=:display_order, is_active=:is_active, updated_by_admin_user_id=:admin_id WHERE id=:id AND page='about'");
+        $replacedPaths = [];
         foreach ($sections as $order => $section) {
             $id = (int) ($section['id'] ?? 0);
             if (!isset($existing[$id])) throw new InvalidArgumentException('Invalid About page section.');
@@ -279,12 +289,22 @@ if (!function_exists('gradtrack_public_content_sync_about')) {
             if ($title === '' || $content === '') throw new InvalidArgumentException('About section titles and descriptions are required.');
             if (($existing[$id]['section_key'] ?? '') === 'cta' && trim((string) ($section['subtitle'] ?? '')) === '') throw new InvalidArgumentException('The About page call-to-action button label is required.');
             if (mb_strlen($title) > 255 || mb_strlen($content) > 10000) throw new InvalidArgumentException('About page content is too long.');
-            $imagePath = $section['image_path'] ?? null;
+            $imagePath = array_key_exists('image_storage_path', $section)
+                ? $section['image_storage_path']
+                : ($section['image_path'] ?? null);
             if ($imagePath !== null && $imagePath !== '') {
                 $imagePath = (string) $imagePath;
                 $isDefault = $imagePath === (string) ($existing[$id]['default_image_path'] ?? '');
-                if (!$isDefault && !preg_match('#^uploads/public-content/about/[a-zA-Z0-9._-]+$#', $imagePath)) throw new InvalidArgumentException('Invalid About image path.');
+                $isLegacyUpload = preg_match('#^uploads/public-content/about/[a-zA-Z0-9._-]+$#', $imagePath) === 1;
+                $isS3Upload = preg_match('#^media/public-content/about/' . $id . '/[a-f0-9-]+\.(jpg|png|webp)$#', $imagePath) === 1;
+                if (!$isDefault && !$isLegacyUpload && !$isS3Upload) throw new InvalidArgumentException('Invalid About image path.');
             } else $imagePath = null;
+
+            $existingPath = $existing[$id]['image_storage_path'] ?? null;
+            $defaultPath = $existing[$id]['default_image_path'] ?? null;
+            if ($existingPath && $existingPath !== $imagePath && $existingPath !== $defaultPath) {
+                $replacedPaths[] = $existingPath;
+            }
             $stmt->execute([
                 ':title' => $title, ':subtitle' => trim((string) ($section['subtitle'] ?? '')) ?: null,
                 ':content' => $content, ':image_path' => $imagePath,
@@ -293,6 +313,7 @@ if (!function_exists('gradtrack_public_content_sync_about')) {
                 ':admin_id' => $adminId, ':id' => $id,
             ]);
         }
+        return array_values(array_unique($replacedPaths));
     }
 }
 
@@ -397,20 +418,39 @@ if (!function_exists('gradtrack_public_content_sync_privacy')) {
 }
 
 if (!function_exists('gradtrack_public_content_save_about_image')) {
-    function gradtrack_public_content_save_about_image(array $file): string
+    function gradtrack_public_content_save_about_image(array $file, int $contentId): string
     {
         if ((int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) throw new InvalidArgumentException('The image upload failed.');
         $size = (int) ($file['size'] ?? 0);
         if ($size <= 0 || $size > 4 * 1024 * 1024) throw new InvalidArgumentException('About images must be 4 MB or smaller.');
         $tmp = (string) ($file['tmp_name'] ?? '');
+        if ($tmp === '' || !is_uploaded_file($tmp)) throw new InvalidArgumentException('The uploaded About image is invalid.');
         $finfo = new finfo(FILEINFO_MIME_TYPE);
         $mime = (string) $finfo->file($tmp);
         $types = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
-        if (!isset($types[$mime]) || @getimagesize($tmp) === false) throw new InvalidArgumentException('Use a valid JPG, PNG, or WebP image.');
-        $base = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'uploads' . DIRECTORY_SEPARATOR . 'public-content' . DIRECTORY_SEPARATOR . 'about';
-        if (!is_dir($base) && !mkdir($base, 0755, true) && !is_dir($base)) throw new RuntimeException('Unable to create the About image directory.');
-        $name = 'about_' . bin2hex(random_bytes(12)) . '.' . $types[$mime];
-        if (!move_uploaded_file($tmp, $base . DIRECTORY_SEPARATOR . $name)) throw new RuntimeException('Unable to store the About image.');
-        return 'uploads/public-content/about/' . $name;
+        $imageInfo = @getimagesize($tmp);
+        if (!isset($types[$mime]) || $imageInfo === false
+            || (int) $imageInfo[0] < 1 || (int) $imageInfo[1] < 1
+            || (int) $imageInfo[0] > 8192 || (int) $imageInfo[1] > 8192) {
+            throw new InvalidArgumentException('Use a valid JPG, PNG, or WebP image with safe dimensions.');
+        }
+        $originalName = gradtrack_storage_safe_download_name((string) ($file['name'] ?? 'about-image'));
+        if (gradtrack_storage_filename_has_dangerous_segment($originalName)) {
+            throw new InvalidArgumentException('The image filename is not allowed.');
+        }
+        $submittedExtension = strtolower((string) pathinfo($originalName, PATHINFO_EXTENSION));
+        $allowedExtensions = $mime === 'image/jpeg' ? ['jpg', 'jpeg'] : [$types[$mime]];
+        if (!in_array($submittedExtension, $allowedExtensions, true)) {
+            throw new InvalidArgumentException('The image extension does not match its content.');
+        }
+        $name = gradtrack_storage_uuid_filename($types[$mime]);
+        $storageResult = gradtrack_storage_put_file(
+            $tmp,
+            'media/public-content/about/' . $contentId . '/' . $name,
+            'uploads/public-content/about/' . $name,
+            $mime,
+            ['category' => 'about-content', 'content-id' => (string) $contentId]
+        );
+        return (string) $storageResult['reference'];
     }
 }

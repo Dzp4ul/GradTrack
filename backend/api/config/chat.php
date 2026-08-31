@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/storage.php';
 
 require_once __DIR__ . '/forum.php';
 
@@ -325,7 +326,7 @@ if (!function_exists('gradtrack_chat_participants')) {
                 'full_name' => trim((string) ($row['full_name'] ?? '')) ?: 'Graduate',
                 'program_code' => $row['program_code'] ?? null,
                 'year_graduated' => $row['year_graduated'] !== null ? (int) $row['year_graduated'] : null,
-                'profile_image_path' => $row['profile_image_path'] ?? null,
+                'profile_image_path' => gradtrack_storage_access_reference($row['profile_image_path'] ?? null),
                 'last_active_at' => gradtrack_chat_datetime_iso($row['last_active_at'] ?? null),
                 'is_online' => false,
             ];
@@ -403,7 +404,7 @@ if (!function_exists('gradtrack_chat_format_message')) {
             'read_at' => gradtrack_chat_datetime_iso($row['read_at'] ?? null),
             'sender_name' => trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? '')) ?: 'Graduate',
             'sender_program_code' => $row['sender_program_code'] ?? null,
-            'sender_profile_image_path' => $row['sender_profile_image_path'] ?? null,
+            'sender_profile_image_path' => gradtrack_storage_access_reference($row['sender_profile_image_path'] ?? null),
             'is_mine' => $senderId === $currentGraduateId,
             'attachments' => $attachments,
             'status' => $senderId === $currentGraduateId
@@ -495,11 +496,8 @@ if (!function_exists('gradtrack_chat_attachment_config')) {
             'image/png' => ['attachment_type' => 'image', 'extension' => 'png', 'max_size' => $imageMax, 'extensions' => ['png']],
             'image/webp' => ['attachment_type' => 'image', 'extension' => 'webp', 'max_size' => $imageMax, 'extensions' => ['webp']],
             'application/pdf' => ['attachment_type' => 'file', 'extension' => 'pdf', 'max_size' => $documentMax, 'extensions' => ['pdf']],
-            'application/msword' => ['attachment_type' => 'file', 'extension' => 'doc', 'max_size' => $documentMax, 'extensions' => ['doc']],
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => ['attachment_type' => 'file', 'extension' => 'docx', 'max_size' => $documentMax, 'extensions' => ['docx']],
-            'application/vnd.ms-excel' => ['attachment_type' => 'file', 'extension' => 'xls', 'max_size' => $documentMax, 'extensions' => ['xls']],
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => ['attachment_type' => 'file', 'extension' => 'xlsx', 'max_size' => $documentMax, 'extensions' => ['xlsx']],
-            'application/vnd.ms-powerpoint' => ['attachment_type' => 'file', 'extension' => 'ppt', 'max_size' => $documentMax, 'extensions' => ['ppt']],
             'application/vnd.openxmlformats-officedocument.presentationml.presentation' => ['attachment_type' => 'file', 'extension' => 'pptx', 'max_size' => $documentMax, 'extensions' => ['pptx']],
             'text/plain' => ['attachment_type' => 'file', 'extension' => 'txt', 'max_size' => $documentMax, 'extensions' => ['txt']],
             'text/csv' => ['attachment_type' => 'file', 'extension' => 'csv', 'max_size' => $documentMax, 'extensions' => ['csv']],
@@ -530,8 +528,9 @@ if (!function_exists('gradtrack_chat_validate_attachment_file')) {
 
         $originalName = gradtrack_chat_sanitize_filename((string) ($file['name'] ?? 'attachment'));
         $extension = strtolower((string) pathinfo($originalName, PATHINFO_EXTENSION));
-        $dangerousExtensions = ['exe', 'bat', 'cmd', 'sh', 'js', 'php', 'phtml', 'phar', 'jar', 'msi', 'com', 'scr', 'vbs', 'ps1'];
-        if (in_array($extension, $dangerousExtensions, true)) {
+        $dangerousExtensions = ['exe', 'bat', 'cmd', 'sh', 'js', 'mjs', 'cjs', 'php', 'php3', 'php4', 'php5', 'php7', 'php8', 'phtml', 'phar', 'jar', 'msi', 'com', 'scr', 'vbs', 'ps1', 'html', 'htm', 'svg', 'xhtml'];
+        $nameSegments = array_map('strtolower', explode('.', $originalName));
+        if (count(array_intersect($nameSegments, $dangerousExtensions)) > 0) {
             throw new RuntimeException('This file type is not allowed');
         }
 
@@ -549,7 +548,35 @@ if (!function_exists('gradtrack_chat_validate_attachment_file')) {
         }
 
         if (!in_array($extension, $attachmentConfig['extensions'], true)) {
-            $extension = (string) $attachmentConfig['extension'];
+            throw new RuntimeException('Attachment extension does not match its content');
+        }
+
+        if ((string) $attachmentConfig['attachment_type'] === 'image') {
+            $imageInfo = @getimagesize($tmpPath);
+            if ($imageInfo === false || (int) $imageInfo[0] < 1 || (int) $imageInfo[1] < 1
+                || (int) $imageInfo[0] > 8192 || (int) $imageInfo[1] > 8192) {
+                throw new RuntimeException('Attachment image is malformed or has unsafe dimensions');
+            }
+        }
+
+        $officeMimes = [
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        ];
+        if (in_array($mimeType, $officeMimes, true)) {
+            if (!class_exists('ZipArchive')) {
+                throw new RuntimeException('Office document validation is unavailable on this server');
+            }
+            $archive = new ZipArchive();
+            if ($archive->open($tmpPath) !== true) {
+                throw new RuntimeException('Office document is malformed');
+            }
+            $hasMacro = $archive->locateName('word/vbaProject.bin', ZipArchive::FL_NOCASE) !== false
+                || $archive->locateName('xl/vbaProject.bin', ZipArchive::FL_NOCASE) !== false
+                || $archive->locateName('ppt/vbaProject.bin', ZipArchive::FL_NOCASE) !== false;
+            $archive->close();
+            if ($hasMacro) throw new RuntimeException('Macro-enabled Office documents are not allowed');
         }
 
         return [

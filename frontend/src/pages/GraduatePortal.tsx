@@ -529,12 +529,12 @@ function formatBytes(value?: number | null) {
   return `${value} B`;
 }
 
-const chatAttachmentAccept = '.jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv';
+const chatAttachmentAccept = '.jpg,.jpeg,.png,.webp,.pdf,.docx,.xlsx,.pptx,.txt,.csv';
 const chatImageMaxBytes = 10 * 1024 * 1024;
 const chatDocumentMaxBytes = 25 * 1024 * 1024;
 const chatImageExtensions = ['jpg', 'jpeg', 'png', 'webp'];
-const chatDocumentExtensions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv'];
-const chatDangerousExtensions = ['exe', 'bat', 'cmd', 'sh', 'js', 'php', 'phtml', 'phar', 'jar', 'msi', 'com', 'scr', 'vbs', 'ps1'];
+const chatDocumentExtensions = ['pdf', 'docx', 'xlsx', 'pptx', 'txt', 'csv'];
+const chatDangerousExtensions = ['exe', 'bat', 'cmd', 'sh', 'js', 'mjs', 'cjs', 'php', 'php3', 'php4', 'php5', 'php7', 'php8', 'phtml', 'phar', 'jar', 'msi', 'com', 'scr', 'vbs', 'ps1', 'html', 'htm', 'svg', 'xhtml'];
 const chatAllowedMimeTypes = [
   'image/jpeg',
   'image/png',

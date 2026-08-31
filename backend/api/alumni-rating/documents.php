@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
+require_once __DIR__ . '/../config/storage.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -47,6 +48,12 @@ try {
             $row['id'] = (int) $row['id'];
             $row['file_size_bytes'] = (int) $row['file_size_bytes'];
             $row['is_verified'] = (int) $row['is_verified'];
+            $row['file_path'] = gradtrack_storage_access_reference(
+                $row['file_path'] ?? null,
+                $row['original_file_name'] ?? null,
+                $row['mime_type'] ?? null,
+                true
+            );
         }
 
         echo json_encode(['success' => true, 'data' => $rows]);
@@ -92,41 +99,85 @@ try {
             exit;
         }
 
+        $tmpPath = (string) ($file['tmp_name'] ?? '');
+        if ($tmpPath === '' || !is_uploaded_file($tmpPath)) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Invalid uploaded document']);
+            exit;
+        }
         $finfo = new finfo(FILEINFO_MIME_TYPE);
-        $tmpPath = (string) $file['tmp_name'];
         $mimeType = $finfo->file($tmpPath) ?: 'application/octet-stream';
 
         $allowedMimes = [
             'application/pdf',
             'image/jpeg',
             'image/png',
-            'application/msword',
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
         ];
 
         if (!in_array($mimeType, $allowedMimes, true)) {
             http_response_code(400);
-            echo json_encode(['success' => false, 'error' => 'Unsupported file type. Allowed: PDF, JPG, PNG, DOC, DOCX']);
+            echo json_encode(['success' => false, 'error' => 'Unsupported file type. Allowed: PDF, JPG, PNG, DOCX']);
             exit;
         }
 
-        $uploadRoot = gradtrack_alumni_docs_upload_root();
-        $accountDir = $uploadRoot . DIRECTORY_SEPARATOR . $user['account_id'];
-        gradtrack_alumni_docs_create_dir($accountDir);
-
-        $originalName = (string) ($file['name'] ?? 'document');
-        $safeOriginalName = gradtrack_alumni_docs_sanitize_filename($originalName);
-        $extension = pathinfo($safeOriginalName, PATHINFO_EXTENSION);
-        $storedName = uniqid('alumni_doc_', true) . ($extension ? ('.' . strtolower($extension)) : '');
-        $destinationPath = $accountDir . DIRECTORY_SEPARATOR . $storedName;
-
-        if (!move_uploaded_file($tmpPath, $destinationPath)) {
-            http_response_code(500);
-            echo json_encode(['success' => false, 'error' => 'Failed to save uploaded file']);
+        $originalName = gradtrack_storage_safe_download_name((string) ($file['name'] ?? 'document'));
+        if (gradtrack_storage_filename_has_dangerous_segment($originalName)) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Document filename is not allowed']);
             exit;
         }
-
-        $relativePath = gradtrack_alumni_docs_relative_path((int) $user['account_id'], $storedName);
+        $extensionByMime = [
+            'application/pdf' => 'pdf',
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => 'docx',
+        ];
+        $submittedExtension = strtolower((string) pathinfo($originalName, PATHINFO_EXTENSION));
+        $expectedExtensions = $mimeType === 'image/jpeg' ? ['jpg', 'jpeg'] : [$extensionByMime[$mimeType]];
+        if (!in_array($submittedExtension, $expectedExtensions, true)) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Document extension does not match its content']);
+            exit;
+        }
+        if (strpos($mimeType, 'image/') === 0) {
+            $imageInfo = @getimagesize($tmpPath);
+            if ($imageInfo === false || (int) $imageInfo[0] < 1 || (int) $imageInfo[1] < 1
+                || (int) $imageInfo[0] > 8192 || (int) $imageInfo[1] > 8192) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'error' => 'Document image is malformed or has unsafe dimensions']);
+                exit;
+            }
+        }
+        if ($mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+            if (!class_exists('ZipArchive')) {
+                http_response_code(500);
+                echo json_encode(['success' => false, 'error' => 'DOCX validation is unavailable on this server']);
+                exit;
+            }
+            $archive = new ZipArchive();
+            if ($archive->open($tmpPath) !== true) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'error' => 'The DOCX document is malformed']);
+                exit;
+            }
+            $hasMacro = $archive->locateName('word/vbaProject.bin', ZipArchive::FL_NOCASE) !== false;
+            $archive->close();
+            if ($hasMacro) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'error' => 'Macro-enabled Office documents are not allowed']);
+                exit;
+            }
+        }
+        $storedName = gradtrack_storage_uuid_filename($extensionByMime[$mimeType]);
+        $storageResult = gradtrack_storage_put_file(
+            $tmpPath,
+            'private/graduate-documents/' . (int) $user['account_id'] . '/' . $documentType . '/' . $storedName,
+            gradtrack_alumni_docs_relative_path((int) $user['account_id'], $storedName),
+            $mimeType,
+            ['category' => 'graduate-document-' . $documentType]
+        );
+        $relativePath = (string) $storageResult['reference'];
 
         $insertStmt = $db->prepare('INSERT INTO alumni_supporting_documents
             (graduate_account_id, graduate_id, document_type, title, description, original_file_name, stored_file_name, file_path, mime_type, file_size_bytes)
@@ -143,7 +194,12 @@ try {
         $insertStmt->bindParam(':file_path', $relativePath);
         $insertStmt->bindParam(':mime_type', $mimeType);
         $insertStmt->bindParam(':file_size_bytes', $fileSize);
-        $insertStmt->execute();
+        try {
+            $insertStmt->execute();
+        } catch (Throwable $insertError) {
+            gradtrack_storage_delete_quietly($relativePath);
+            throw $insertError;
+        }
 
         echo json_encode([
             'success' => true,
@@ -179,10 +235,7 @@ try {
         $deactivateStmt->bindParam(':id', $id);
         $deactivateStmt->execute();
 
-        $absolutePath = realpath(__DIR__ . '/../../') . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, (string) $document['file_path']);
-        if (is_file($absolutePath)) {
-            @unlink($absolutePath);
-        }
+        gradtrack_storage_delete_quietly((string) $document['file_path']);
 
         echo json_encode(['success' => true, 'message' => 'Document removed successfully']);
         exit;

@@ -7,6 +7,7 @@ export type AboutSection = {
   subtitle: string | null;
   content: string;
   image_path: string | null;
+  image_storage_path?: string | null;
   default_image_path: string | null;
   image_alt: string | null;
   display_order: number;
