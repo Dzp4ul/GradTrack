@@ -5381,7 +5381,7 @@ function ProfileIdentityPanel({
     : (survey?.work?.summary?.employment_status || '');
   const company = profile ? (profile.company_name || '') : (survey?.work?.summary?.company || '');
   const headline = [jobTitle || employmentStatus, company].filter(hasDisplayValue).join(' at ');
-  const metaItems = [program, batch, jobTitle || employmentStatus].filter(hasDisplayValue);
+  const metaItems = [program, batch].filter(hasDisplayValue);
   const canMessage = messagingAvailable && !canEdit && !!user?.graduate_id && user.graduate_id !== currentGraduateId;
 
   return (
