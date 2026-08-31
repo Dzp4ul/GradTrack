@@ -157,6 +157,28 @@ function gradtrack_s3_http_test_location(array $response): string
     return count($locations) > 0 ? trim((string) end($locations)) : '';
 }
 
+function gradtrack_s3_http_test_fetch_media_reference(
+    string $baseUrl,
+    string $reference,
+    string $sessionId
+): string {
+    if (preg_match('#^https://#i', $reference) === 1) {
+        return gradtrack_s3_http_test_fetch_url($reference);
+    }
+
+    $backendBaseUrl = preg_replace('#/api/?$#', '', rtrim($baseUrl, '/')) ?: rtrim($baseUrl, '/');
+    $mediaResponse = gradtrack_s3_http_test_request(
+        $backendBaseUrl . '/' . ltrim($reference, '/'),
+        $sessionId
+    );
+    gradtrack_s3_http_test_assert(
+        (int) $mediaResponse['status'] === 302,
+        'Authenticated media reference did not redirect to S3.'
+    );
+
+    return gradtrack_s3_http_test_fetch_url(gradtrack_s3_http_test_location($mediaResponse));
+}
+
 function gradtrack_s3_http_test_create_identity(PDO $db, string $suffix, string $label): array
 {
     $studentId = 'S3' . strtoupper(substr(hash('sha256', $suffix . ':' . $label), 0, 18));
@@ -379,14 +401,14 @@ try {
     );
     gradtrack_s3_http_test_assert(gradtrack_storage_exists($profileKey), 'Profile image does not exist in S3.');
     $profileUrl = (string) ($profileJson['data']['user']['profile_image_path'] ?? '');
-    gradtrack_s3_http_test_assert(gradtrack_s3_http_test_fetch_url($profileUrl) === $png, 'Profile image display content did not match.');
+    gradtrack_s3_http_test_assert(gradtrack_s3_http_test_fetch_media_reference($baseUrl, $profileUrl, $senderSession) === $png, 'Profile image display content did not match.');
     $profileRefresh = gradtrack_s3_http_test_request($baseUrl . '/graduate-profile/index.php', $senderSession);
     $profileRefreshJson = gradtrack_s3_http_test_expect_json($profileRefresh, 200, 'Profile refresh');
     gradtrack_s3_http_test_assert(
-        gradtrack_s3_http_test_fetch_url((string) ($profileRefreshJson['data']['user']['profile_image_path'] ?? '')) === $png,
+        gradtrack_s3_http_test_fetch_media_reference($baseUrl, (string) ($profileRefreshJson['data']['user']['profile_image_path'] ?? ''), $senderSession) === $png,
         'Profile image did not persist after refresh.'
     );
-    gradtrack_s3_http_test_output('PASS: profile S3 object, raw DB key, presigned display, and refresh');
+    gradtrack_s3_http_test_output('PASS: profile S3 object, raw DB key, authenticated display, and refresh');
 
     gradtrack_s3_http_test_output('TEST 5 - Graduate cover image');
     $coverResponse = gradtrack_s3_http_test_request(
@@ -406,16 +428,33 @@ try {
     );
     gradtrack_s3_http_test_assert(gradtrack_storage_exists($coverKey), 'Cover image does not exist in S3.');
     gradtrack_s3_http_test_assert(
-        gradtrack_s3_http_test_fetch_url((string) ($coverJson['data']['user']['cover_image_path'] ?? '')) === $png,
+        gradtrack_s3_http_test_fetch_media_reference($baseUrl, (string) ($coverJson['data']['user']['cover_image_path'] ?? ''), $senderSession) === $png,
         'Cover image display content did not match.'
     );
     $coverRefresh = gradtrack_s3_http_test_request($baseUrl . '/graduate-profile/index.php', $senderSession);
     $coverRefreshJson = gradtrack_s3_http_test_expect_json($coverRefresh, 200, 'Cover refresh');
     gradtrack_s3_http_test_assert(
-        gradtrack_s3_http_test_fetch_url((string) ($coverRefreshJson['data']['user']['cover_image_path'] ?? '')) === $png,
+        gradtrack_s3_http_test_fetch_media_reference($baseUrl, (string) ($coverRefreshJson['data']['user']['cover_image_path'] ?? ''), $senderSession) === $png,
         'Cover image did not persist after refresh.'
     );
-    gradtrack_s3_http_test_output('PASS: cover S3 object, raw DB key, presigned display, and refresh');
+    $coverOtherSession = gradtrack_s3_http_test_request(
+        $baseUrl . '/graduate-profile/index.php?graduate_id=' . $sender['graduate_id'],
+        $recipientSession
+    );
+    $coverOtherSessionJson = gradtrack_s3_http_test_expect_json(
+        $coverOtherSession,
+        200,
+        'Cover display from another authenticated session'
+    );
+    gradtrack_s3_http_test_assert(
+        gradtrack_s3_http_test_fetch_media_reference(
+            $baseUrl,
+            (string) ($coverOtherSessionJson['data']['user']['cover_image_path'] ?? ''),
+            $recipientSession
+        ) === $png,
+        'Cover image did not persist in another authenticated session.'
+    );
+    gradtrack_s3_http_test_output('PASS: cover S3 object, raw DB key, authenticated display, refresh, and another session');
 
     $roomIds[] = gradtrack_s3_http_test_create_room(
         $db,
@@ -499,7 +538,7 @@ try {
     $forumRefresh = gradtrack_s3_http_test_request($baseUrl . '/forum/posts.php?id=' . $postId, $recipientSession);
     $forumRefreshJson = gradtrack_s3_http_test_expect_json($forumRefresh, 200, 'Community post recipient refresh');
     $forumUrl = (string) ($forumRefreshJson['data']['media'][0]['file_path'] ?? '');
-    gradtrack_s3_http_test_assert(gradtrack_s3_http_test_fetch_url($forumUrl) === $png, 'Community post display content did not match.');
+    gradtrack_s3_http_test_assert(gradtrack_s3_http_test_fetch_media_reference($baseUrl, $forumUrl, $recipientSession) === $png, 'Community post display content did not match.');
     $forumDelete = gradtrack_s3_http_test_request(
         $baseUrl . '/forum/posts.php?id=' . $postId,
         $senderSession,

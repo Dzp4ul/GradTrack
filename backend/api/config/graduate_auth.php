@@ -265,8 +265,8 @@ if (!function_exists('gradtrack_current_graduate_user')) {
             'program_id' => $user['program_id'] !== null ? (int) $user['program_id'] : null,
             'program_name' => $user['program_name'],
             'program_code' => $user['program_code'],
-            'profile_image_path' => gradtrack_storage_access_reference($profileImagePath),
-            'cover_image_path' => gradtrack_storage_access_reference($coverImagePath),
+            'profile_image_path' => gradtrack_storage_media_access_reference($profileImagePath),
+            'cover_image_path' => gradtrack_storage_media_access_reference($coverImagePath),
             'role' => 'graduate'
         ];
     }

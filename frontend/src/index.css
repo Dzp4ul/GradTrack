@@ -1103,6 +1103,11 @@ html.dark .recharts-pie-label-text {
   }
 }
 
+/* Honor camera EXIF orientation while preserving the uploaded pixels. */
+.gradtrack-media-image {
+  image-orientation: from-image;
+}
+
 @media print {
   :root,
   html.dark {

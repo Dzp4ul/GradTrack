@@ -252,7 +252,7 @@ try {
             }
 
             if ($mine) {
-                $mine['profile_image_path'] = gradtrack_storage_access_reference($mine['profile_image_path'] ?? null);
+                $mine['profile_image_path'] = gradtrack_storage_media_access_reference($mine['profile_image_path'] ?? null);
                 $mine['proof_file_path'] = gradtrack_storage_access_reference(
                     $mine['proof_file_path'] ?? null,
                     $mine['proof_file_name'] ?? null,
@@ -385,7 +385,7 @@ try {
             $row['active_mentees_count'] = isset($row['active_mentees_count']) ? (int) $row['active_mentees_count'] : 0;
             $row['avg_rating'] = $ratings[$row['id']]['avg_rating'] ?? 0.0;
             $row['feedback_count'] = $ratings[$row['id']]['feedback_count'] ?? 0;
-            $row['profile_image_path'] = gradtrack_storage_access_reference($row['profile_image_path'] ?? null);
+            $row['profile_image_path'] = gradtrack_storage_media_access_reference($row['profile_image_path'] ?? null);
         }
 
         echo json_encode(['success' => true, 'data' => $rows]);

@@ -99,8 +99,8 @@ function gradtrack_profile_public_graduate_user(PDO $db, int $graduateId): ?arra
         'program_id' => $user['program_id'] !== null ? (int) $user['program_id'] : null,
         'program_name' => $user['program_name'],
         'program_code' => $user['program_code'],
-        'profile_image_path' => gradtrack_storage_access_reference($user['profile_image_path'] ?? null),
-        'cover_image_path' => gradtrack_storage_access_reference($user['cover_image_path'] ?? null),
+        'profile_image_path' => gradtrack_storage_media_access_reference($user['profile_image_path'] ?? null),
+        'cover_image_path' => gradtrack_storage_media_access_reference($user['cover_image_path'] ?? null),
         'role' => 'graduate',
     ];
 }
@@ -118,42 +118,51 @@ function gradtrack_profile_public_visibility(array $user): array
 
 function gradtrack_profile_validate_image_upload(array $file, string $label): array
 {
-    if ((int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
-        throw new RuntimeException($label . ' upload failed');
+    $uploadError = (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE);
+    if ($uploadError !== UPLOAD_ERR_OK) {
+        $uploadMessage = $uploadError === UPLOAD_ERR_INI_SIZE || $uploadError === UPLOAD_ERR_FORM_SIZE
+            ? $label . ' exceeds the server upload limit.'
+            : ($uploadError === UPLOAD_ERR_PARTIAL
+                ? $label . ' was only partially uploaded. Please try again.'
+                : $label . ' upload failed. Please choose the file again.');
+        throw new InvalidArgumentException($uploadMessage);
     }
 
     $maxSizeBytes = 5 * 1024 * 1024;
     $fileSize = (int) ($file['size'] ?? 0);
     if ($fileSize <= 0 || $fileSize > $maxSizeBytes) {
-        throw new RuntimeException($label . ' must be between 1 byte and 5 MB');
+        throw new InvalidArgumentException($label . ' must be between 1 byte and 5 MB');
     }
 
     $tmpPath = (string) $file['tmp_name'];
     if ($tmpPath === '' || !is_uploaded_file($tmpPath)) {
-        throw new RuntimeException('Invalid uploaded ' . strtolower($label));
+        throw new InvalidArgumentException('Invalid uploaded ' . strtolower($label));
     }
     $finfo = new finfo(FILEINFO_MIME_TYPE);
     $mimeType = $finfo->file($tmpPath) ?: 'application/octet-stream';
     $allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
     if (!in_array($mimeType, $allowedMimes, true)) {
-        throw new RuntimeException('Unsupported image type. Allowed: JPG, PNG, WEBP, GIF');
+        $unsupportedMessage = in_array($mimeType, ['image/heic', 'image/heif'], true)
+            ? 'HEIC/HEIF images are not supported. Please convert the photo to JPG, PNG, or WEBP.'
+            : 'Unsupported image type. Allowed: JPG, PNG, WEBP, GIF';
+        throw new InvalidArgumentException($unsupportedMessage);
     }
     $extensionByMime = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'image/gif' => 'gif'];
     $originalName = gradtrack_storage_safe_download_name((string) ($file['name'] ?? $label));
     if (gradtrack_storage_filename_has_dangerous_segment($originalName)) {
-        throw new RuntimeException($label . ' filename is not allowed.');
+        throw new InvalidArgumentException($label . ' filename is not allowed.');
     }
     $submittedExtension = strtolower((string) pathinfo($originalName, PATHINFO_EXTENSION));
     $expectedExtensions = $mimeType === 'image/jpeg' ? ['jpg', 'jpeg'] : [$extensionByMime[$mimeType]];
     if (!in_array($submittedExtension, $expectedExtensions, true)) {
-        throw new RuntimeException($label . ' extension does not match its content.');
+        throw new InvalidArgumentException($label . ' extension does not match its content.');
     }
     $dimensions = @getimagesize($tmpPath);
     if ($dimensions === false || (int) $dimensions[0] <= 0 || (int) $dimensions[1] <= 0) {
-        throw new RuntimeException($label . ' is not a valid image.');
+        throw new InvalidArgumentException($label . ' is not a valid image.');
     }
     if ((int) $dimensions[0] > 8192 || (int) $dimensions[1] > 8192) {
-        throw new RuntimeException($label . ' dimensions are too large.');
+        throw new InvalidArgumentException($label . ' dimensions are too large. Maximum: 8192 pixels per side.');
     }
 
     return [
@@ -1096,6 +1105,6 @@ try {
             gradtrack_storage_delete_quietly($newStorageReference);
         }
     }
-    http_response_code(500);
+    http_response_code($e instanceof InvalidArgumentException ? 400 : 500);
     echo json_encode(['success' => false, 'error' => $e->getMessage()]);
 }

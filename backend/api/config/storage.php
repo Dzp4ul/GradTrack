@@ -674,3 +674,25 @@ if (!function_exists('gradtrack_storage_access_reference')) {
         }
     }
 }
+
+if (!function_exists('gradtrack_storage_media_access_reference')) {
+    /**
+     * Return a browser-safe media reference that does not expire while it sits
+     * in long-lived frontend state. Local/static references remain unchanged;
+     * private S3 keys are resolved by the authenticated media endpoint, which
+     * creates a fresh short-lived presigned redirect for every browser request.
+     */
+    function gradtrack_storage_media_access_reference(?string $reference): ?string
+    {
+        $reference = trim((string) $reference);
+        if ($reference === '') {
+            return null;
+        }
+
+        if (!gradtrack_storage_is_s3_key($reference) || !gradtrack_storage_uses_s3()) {
+            return $reference;
+        }
+
+        return 'api/media.php?path=' . rawurlencode(gradtrack_storage_normalize_key($reference));
+    }
+}

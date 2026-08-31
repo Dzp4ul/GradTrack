@@ -262,7 +262,7 @@ function gradtrack_jobs_normalize_row(array &$row, bool $canAccessPrivateFile = 
     $fallbackName = trim(preg_replace('/\s+/', ' ', implode(' ', array_filter($nameParts))) ?? '');
     $posterName = trim((string) ($row['poster_full_name'] ?? ''));
     $row['poster_full_name'] = $posterName !== '' ? $posterName : $fallbackName;
-    $row['poster_profile_image_path'] = gradtrack_storage_access_reference($row['poster_profile_image_path'] ?? null);
+    $row['poster_profile_image_path'] = gradtrack_storage_media_access_reference($row['poster_profile_image_path'] ?? null);
 
     gradtrack_jobs_attach_requirements_data($row, $canAccessPrivateFile);
 }

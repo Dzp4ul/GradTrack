@@ -1,5 +1,5 @@
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties, Dispatch, SetStateAction } from 'react';
+import type { CSSProperties, Dispatch, ImgHTMLAttributes, SetStateAction } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Award,
@@ -350,6 +350,7 @@ const passwordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$
 const passwordRequirementMessage =
   'Password must be at least 8 characters and include uppercase, lowercase, number, and symbol.';
 const profileImageAccept = 'image/png,image/jpeg,image/webp,image/gif';
+const supportedProfileImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 const profileEditSections: Array<{ key: ProfileEditSection; label: string; icon: LucideIcon }> = [
   { key: 'basic', label: 'Basic Profile', icon: Contact },
   { key: 'employment', label: 'Employment', icon: Briefcase },
@@ -493,6 +494,8 @@ const forumMediaAccept = 'image/png,image/jpeg,image/webp,image/gif,video/mp4,vi
 const maxForumMediaFiles = 10;
 const maxForumImageBytes = 5 * 1024 * 1024;
 const maxForumVideoBytes = 50 * 1024 * 1024;
+const supportedForumImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+const supportedForumVideoTypes = new Set(['video/mp4', 'video/webm', 'video/ogg', 'video/quicktime']);
 
 function isVideoMedia(media: Pick<ForumMedia, 'media_type' | 'mime_type'>) {
   return media.media_type === 'video' || !!media.mime_type?.startsWith('video/');
@@ -875,6 +878,7 @@ export default function GraduatePortal() {
   const [mediaViewerCommentsLoading, setMediaViewerCommentsLoading] = useState(false);
   const [mediaViewerCommentDraft, setMediaViewerCommentDraft] = useState('');
   const [mediaViewerCommentSubmitting, setMediaViewerCommentSubmitting] = useState(false);
+  const [profileImageViewer, setProfileImageViewer] = useState<{ src: string; alt: string } | null>(null);
   const [postComments, setPostComments] = useState<ForumComment[]>([]);
   const [commentDraft, setCommentDraft] = useState('');
   const [commentSubmitting, setCommentSubmitting] = useState(false);
@@ -1813,6 +1817,22 @@ export default function GraduatePortal() {
   }, [coverImageFile, coverRemoveRequested, profileUser?.cover_image_path]);
 
   useEffect(() => {
+    return () => {
+      if (profileImagePreview.startsWith('blob:')) {
+        URL.revokeObjectURL(profileImagePreview);
+      }
+    };
+  }, [profileImagePreview]);
+
+  useEffect(() => {
+    return () => {
+      if (coverImagePreview.startsWith('blob:')) {
+        URL.revokeObjectURL(coverImagePreview);
+      }
+    };
+  }, [coverImagePreview]);
+
+  useEffect(() => {
     setMyJobForm((current) => {
       if (current.id) return current;
       return {
@@ -2222,6 +2242,9 @@ export default function GraduatePortal() {
   useEffect(() => {
     if (!mediaViewer) return undefined;
 
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         closeMediaViewer();
@@ -2235,7 +2258,10 @@ export default function GraduatePortal() {
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
   }, [mediaViewer]);
 
   const openForumComposer = (post?: ForumPost) => {
@@ -2291,8 +2317,17 @@ export default function GraduatePortal() {
     }
 
     for (const file of selectedFiles) {
-      const isImage = file.type.startsWith('image/');
-      const isVideo = isVideoFile(file);
+      const extension = file.name.split('.').pop()?.toLowerCase() || '';
+      const isImage = supportedForumImageTypes.has(file.type);
+      const isVideo = supportedForumVideoTypes.has(file.type);
+
+      if (extension === 'heic' || extension === 'heif' || /image\/(?:hei[cf]|heif)/i.test(file.type)) {
+        notify('warning', `${file.name} uses HEIC/HEIF, which is not supported. Please convert it to JPG, PNG, or WEBP.`, 'Community Forum');
+        if (forumMediaInputRef.current) {
+          forumMediaInputRef.current.value = '';
+        }
+        return;
+      }
 
       if (!isImage && !isVideo) {
         notify('warning', 'Only JPG, PNG, WEBP, GIF, MP4, WEBM, OGG, or MOV files are supported.', 'Community Forum');
@@ -3430,12 +3465,18 @@ export default function GraduatePortal() {
 
     if (!file) return;
 
-    if (!file.type.startsWith('image/')) {
+    const extension = file.name.split('.').pop()?.toLowerCase() || '';
+    if (extension === 'heic' || extension === 'heif' || /image\/(?:hei[cf]|heif)/i.test(file.type)) {
+      notify('warning', 'HEIC/HEIF photos are not supported. Please convert the photo to JPG, PNG, or WEBP.', 'My Profile');
+      return;
+    }
+
+    if (!supportedProfileImageTypes.has(file.type)) {
       notify('warning', 'Only JPG, PNG, WEBP, or GIF images are supported.', 'My Profile');
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
+    if (file.size <= 0 || file.size > 5 * 1024 * 1024) {
       notify('warning', 'Profile images can be up to 5 MB.', 'My Profile');
       return;
     }
@@ -4420,6 +4461,7 @@ export default function GraduatePortal() {
                       onChangeProfilePhoto={() => profileImageInputRef.current?.click()}
                       onChangeCoverPhoto={() => coverImageInputRef.current?.click()}
                       onRemoveCoverPhoto={handleRemoveCoverImage}
+                      onOpenProfileImage={(src, alt) => setProfileImageViewer({ src, alt })}
                       onMessage={() => profileUser?.graduate_id && void createDirectChat(profileUser.graduate_id)}
                       onOpenPost={(post) => void loadPostDetail(post.id)}
                       onOpenMedia={openMediaViewer}
@@ -4676,6 +4718,14 @@ export default function GraduatePortal() {
           onCommentDraftChange={setMediaViewerCommentDraft}
           onCommentSubmit={handleMediaViewerCommentSubmit}
           onOpenProfile={openCommunityProfile}
+        />
+      )}
+
+      {profileImageViewer && (
+        <ImageLightbox
+          src={profileImageViewer.src}
+          alt={profileImageViewer.alt}
+          onClose={() => setProfileImageViewer(null)}
         />
       )}
 
@@ -5064,6 +5114,7 @@ function ProfileWorkspace({
   onChangeProfilePhoto,
   onChangeCoverPhoto,
   onRemoveCoverPhoto,
+  onOpenProfileImage,
   onMessage,
   onOpenPost,
   onOpenMedia,
@@ -5093,6 +5144,7 @@ function ProfileWorkspace({
   onChangeProfilePhoto: () => void;
   onChangeCoverPhoto: () => void;
   onRemoveCoverPhoto: () => void;
+  onOpenProfileImage: (src: string, alt: string) => void;
   onMessage: () => void;
   onOpenPost: (post: ForumPost) => void;
   onOpenMedia: (post: ForumPost, mediaIndex?: number) => void;
@@ -5120,6 +5172,7 @@ function ProfileWorkspace({
         onChangeProfilePhoto={onChangeProfilePhoto}
         onChangeCoverPhoto={onChangeCoverPhoto}
         onRemoveCoverPhoto={onRemoveCoverPhoto}
+        onOpenImage={onOpenProfileImage}
         onMessage={onMessage}
       />
 
@@ -5156,6 +5209,7 @@ function ProfileWorkspace({
           onEdit={onEdit}
         />
       )}
+
     </div>
   );
 }
@@ -5175,6 +5229,7 @@ function ProfileIdentityPanel({
   onChangeProfilePhoto,
   onChangeCoverPhoto,
   onRemoveCoverPhoto,
+  onOpenImage,
   onMessage,
 }: {
   user?: GraduateUser | null;
@@ -5191,6 +5246,7 @@ function ProfileIdentityPanel({
   onChangeProfilePhoto: () => void;
   onChangeCoverPhoto: () => void;
   onRemoveCoverPhoto: () => void;
+  onOpenImage: (src: string, alt: string) => void;
   onMessage: () => void;
 }) {
   const fullName = getGraduateFullName(user);
@@ -5206,22 +5262,32 @@ function ProfileIdentityPanel({
 
   return (
     <section className="rounded-[28px] border border-slate-200 bg-white shadow-sm">
-      <div className="relative h-52 overflow-hidden rounded-t-[28px] bg-[#071735] text-white sm:h-64 lg:h-72">
-        {coverImageUrl ? (
-          <img src={coverImageUrl} alt={`${fullName} profile cover`} className="absolute inset-0 h-full w-full object-cover" />
-        ) : (
-          <div className="absolute inset-0 bg-[linear-gradient(135deg,#071735_0%,#123a7a_56%,#0f172a_100%)]" />
+      <div className="relative h-64 w-full overflow-hidden rounded-t-[28px] bg-[#071735] text-white sm:h-80 lg:h-96">
+        <div className="absolute inset-0 bg-[linear-gradient(135deg,#071735_0%,#123a7a_56%,#0f172a_100%)]" />
+        {coverImageUrl && (
+          <button
+            type="button"
+            onClick={() => onOpenImage(coverImageUrl, `${fullName} profile cover`)}
+            className="absolute inset-0 z-[1] h-full w-full cursor-zoom-in"
+            aria-label={`View ${fullName} cover photo`}
+          >
+            <SafeImage
+              src={coverImageUrl}
+              alt={`${fullName} profile cover`}
+              className="gradtrack-media-image h-full w-full object-cover object-center"
+            />
+          </button>
         )}
-        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(7,23,53,0.08)_0%,rgba(7,23,53,0.22)_48%,rgba(7,23,53,0.72)_100%)]" />
-        <div className="absolute bottom-0 left-0 h-2 w-full bg-[#f8c331]" />
+        <div className="pointer-events-none absolute inset-0 z-[2] bg-[linear-gradient(180deg,rgba(7,23,53,0.08)_0%,rgba(7,23,53,0.22)_48%,rgba(7,23,53,0.72)_100%)]" />
+        <div className="pointer-events-none absolute bottom-0 left-0 z-[3] h-2 w-full bg-[#f8c331]" />
 
         {!coverImageUrl && (
-          <div className="absolute inset-0 flex items-center justify-end px-8 opacity-20">
+          <div className="pointer-events-none absolute inset-0 z-[3] flex items-center justify-end px-8 opacity-20">
             <img src={defaultLogoUrl} alt="GradTrack" className="h-28 w-28 object-contain sm:h-36 sm:w-36" />
           </div>
         )}
 
-        <div className="absolute left-4 top-4 flex items-center gap-3 rounded-2xl bg-slate-950/32 px-3 py-2 backdrop-blur sm:left-6 sm:top-6">
+        <div className="pointer-events-none absolute left-4 top-4 z-10 flex items-center gap-3 rounded-2xl bg-slate-950/32 px-3 py-2 backdrop-blur sm:left-6 sm:top-6">
           <img src={defaultLogoUrl} alt="GradTrack" className="h-9 w-9 rounded-xl bg-white p-1.5 object-contain shadow-sm" />
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#f8c331]">GradTrack Alumni</p>
@@ -5230,7 +5296,7 @@ function ProfileIdentityPanel({
         </div>
 
         {canEdit && (
-          <div className="absolute right-4 top-4 flex flex-wrap justify-end gap-2 sm:right-6 sm:top-6">
+          <div className="absolute right-4 top-4 z-20 flex flex-wrap justify-end gap-2 sm:right-6 sm:top-6">
             <button type="button" onClick={onChangeCoverPhoto} disabled={saving} className="inline-flex items-center gap-2 rounded-full bg-white/90 px-4 py-2 text-xs font-bold text-slate-800 shadow-sm backdrop-blur transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60" aria-label="Change cover photo" title="Change cover photo">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
               <span className="hidden sm:inline">Change Cover</span>
@@ -5245,9 +5311,20 @@ function ProfileIdentityPanel({
       </div>
 
       <div className="relative px-4 pb-5 pt-[4.75rem] sm:px-6 sm:pb-6 lg:px-8">
-        <div className="absolute -top-14 left-4 sm:-top-16 sm:left-6 lg:left-8">
+        <div className="absolute -top-14 left-4 z-30 sm:-top-16 sm:left-6 lg:left-8">
           <div className="relative rounded-full border-4 border-white bg-white shadow-lg">
-            <Avatar src={profileImageUrl} label={fullName} size="xl" />
+            {profileImageUrl ? (
+              <button
+                type="button"
+                onClick={() => onOpenImage(profileImageUrl, `${fullName} profile photo`)}
+                className="block cursor-zoom-in rounded-full"
+                aria-label={`View ${fullName} profile photo`}
+              >
+                <Avatar src={profileImageUrl} label={fullName} size="xl" />
+              </button>
+            ) : (
+              <Avatar src="" label={fullName} size="xl" />
+            )}
             {canEdit && (
               <button type="button" onClick={onChangeProfilePhoto} disabled={saving} className="absolute bottom-1 right-1 inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60" aria-label="Change profile photo" title="Change profile photo">
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
@@ -6049,7 +6126,7 @@ function ProfileEditModal({
               <div className="rounded-[28px] border border-slate-200 bg-slate-50 p-5">
                 <div className="aspect-[3/1] overflow-hidden rounded-2xl bg-[#081733]">
                   {coverImageUrl ? (
-                    <img src={coverImageUrl} alt="Profile cover preview" className="h-full w-full object-cover" />
+                    <SafeImage src={coverImageUrl} alt="Profile cover preview" logContext="cover photo preview" className="gradtrack-media-image h-full w-full object-cover object-center" />
                   ) : (
                     <div className="flex h-full items-center justify-center text-sm font-semibold text-white/70">Default GradTrack cover</div>
                   )}
@@ -6098,6 +6175,90 @@ function ProfileEditModal({
   );
 }
 
+type SafeImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'> & {
+  src?: string | null;
+  fallback?: ReactNode;
+  logContext?: string;
+};
+
+function safeMediaLogReference(src: string) {
+  try {
+    const parsed = new URL(src, window.location.origin);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return src.split('?')[0];
+  }
+}
+
+function SafeImage({ src, fallback = null, logContext = 'image', onError, ...props }: SafeImageProps) {
+  const [failedSource, setFailedSource] = useState('');
+
+  if (!src || failedSource === src) {
+    return <>{fallback}</>;
+  }
+
+  return (
+    <img
+      {...props}
+      src={src}
+      onError={(event) => {
+        console.warn(`GradTrack ${logContext} failed to load`, safeMediaLogReference(src));
+        setFailedSource(src);
+        onError?.(event);
+      }}
+    />
+  );
+}
+
+function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[80] flex cursor-zoom-out items-center justify-center bg-black/95 p-4 sm:p-8"
+      role="dialog"
+      aria-modal="true"
+      aria-label={alt}
+      onClick={onClose}
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute right-4 top-4 z-10 inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-full bg-white/15 text-white backdrop-blur transition hover:bg-white/25"
+        aria-label="Close image viewer"
+      >
+        <X className="h-6 w-6" />
+      </button>
+      <SafeImage
+        src={src}
+        alt={alt}
+        logContext="full image"
+        onClick={(event) => event.stopPropagation()}
+        className="gradtrack-media-image max-h-full max-w-full cursor-default select-none object-contain"
+        fallback={(
+          <div className="cursor-default rounded-2xl border border-white/15 bg-white/10 px-6 py-8 text-center text-sm font-semibold text-white/80" onClick={(event) => event.stopPropagation()}>
+            This image is currently unavailable.
+          </div>
+        )}
+      />
+    </div>
+  );
+}
+
 function Avatar({
   src,
   label,
@@ -6110,15 +6271,25 @@ function Avatar({
   const sizeClass =
     size === 'sm' ? 'h-10 w-10 text-sm' : size === 'md' ? 'h-12 w-12 text-base' : size === 'lg' ? 'h-14 w-14 text-lg' : 'h-28 w-28 text-3xl';
 
-  if (src) {
-    return <img src={src} alt={label || 'Avatar'} className={`${sizeClass} rounded-full object-cover`} />;
-  }
-
-  return (
+  const fallback = (
     <div className={`${sizeClass} flex items-center justify-center rounded-full bg-blue-100 font-bold text-blue-800`}>
       {getInitials(label)}
     </div>
   );
+
+  if (src) {
+    return (
+      <SafeImage
+        src={src}
+        alt={label || 'Avatar'}
+        logContext="avatar"
+        className={`${sizeClass} gradtrack-media-image rounded-full object-cover object-center`}
+        fallback={fallback}
+      />
+    );
+  }
+
+  return fallback;
 }
 
 function DashboardCard({
@@ -6413,8 +6584,9 @@ function ForumMediaGrid({
 
   const visibleMedia = media.slice(0, 4);
   const single = media.length === 1;
+  const singleMediaMaxHeight = compact ? 'max-h-[32rem]' : 'max-h-[min(70vh,42rem)]';
   const wrapperClass = single
-    ? `${detail ? 'mt-6' : 'mt-4'} overflow-hidden rounded-lg border border-slate-200 bg-black`
+    ? `${detail ? 'mt-6' : 'mt-4'} overflow-hidden rounded-lg border border-slate-200 bg-slate-950`
     : `${detail ? 'mt-6' : 'mt-4'} grid grid-cols-2 gap-1 overflow-hidden rounded-lg border border-slate-200 bg-slate-200`;
 
   return (
@@ -6424,12 +6596,20 @@ function ForumMediaGrid({
           key={`${item.file_path}-${index}`}
           type="button"
           onClick={() => onOpen(index)}
-          className={`group relative block w-full overflow-hidden bg-black text-left ${single ? '' : 'aspect-square'} ${compact && single ? 'max-h-56' : ''}`}
+          className={`group relative flex w-full items-center justify-center overflow-hidden bg-slate-950 text-left ${single ? '' : 'aspect-square'}`}
           aria-label={`Open ${item.original_name || post.title}`}
         >
           {isVideoMedia(item) ? (
             <>
-              <video src={resolveAssetUrl(item.file_path)} muted playsInline preload="metadata" className={`${single ? 'max-h-[620px]' : 'h-full'} w-full object-cover`} />
+              <video
+                src={resolveAssetUrl(item.file_path)}
+                muted
+                playsInline
+                preload="metadata"
+                className={single
+                  ? `block h-auto w-auto max-w-full ${singleMediaMaxHeight} object-contain`
+                  : 'block h-auto w-auto max-h-full max-w-full object-contain'}
+              />
               <span className="absolute inset-0 flex items-center justify-center bg-black/20 text-white">
                 <span className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-black/55">
                   <Video className="h-5 w-5" />
@@ -6437,7 +6617,20 @@ function ForumMediaGrid({
               </span>
             </>
           ) : (
-            <img src={resolveAssetUrl(item.file_path)} alt={item.original_name || post.title} className={`${single ? 'max-h-[620px]' : 'h-full'} w-full object-cover transition duration-200 group-hover:scale-[1.02]`} />
+            <SafeImage
+              src={resolveAssetUrl(item.file_path)}
+              alt={item.original_name || post.title}
+              logContext="forum image preview"
+              className={single
+                ? `gradtrack-media-image block h-auto w-auto max-w-full ${singleMediaMaxHeight} object-contain`
+                : 'gradtrack-media-image block h-auto w-auto max-h-full max-w-full object-contain'}
+              fallback={(
+                <span className="flex h-full min-h-40 w-full flex-col items-center justify-center gap-2 bg-slate-100 px-4 text-center text-sm font-semibold text-slate-500">
+                  <ImagePlus className="h-6 w-6 text-slate-400" />
+                  Image unavailable
+                </span>
+              )}
+            />
           )}
           {index === 3 && media.length > visibleMedia.length && (
             <span className="absolute inset-0 flex items-center justify-center bg-black/55 text-3xl font-bold text-white">
@@ -6466,11 +6659,11 @@ function SelectedMediaPreview({ files }: { files: File[] }) {
     <div className="mt-3 grid gap-3 sm:grid-cols-2">
       {previews.map((preview) => (
         <div key={`${preview.file.name}-${preview.file.size}-${preview.file.lastModified}`} className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-          <div className="aspect-video bg-black">
+          <div className="flex aspect-video items-center justify-center bg-slate-950">
             {isVideoFile(preview.file) ? (
-              <video src={preview.url} muted playsInline preload="metadata" className="h-full w-full object-cover" />
+              <video src={preview.url} muted playsInline preload="metadata" className="h-full w-full object-contain" />
             ) : (
-              <img src={preview.url} alt={preview.file.name} className="h-full w-full object-cover" />
+              <SafeImage src={preview.url} alt={preview.file.name} logContext="selected forum image preview" className="gradtrack-media-image block h-auto w-auto max-h-full max-w-full object-contain" />
             )}
           </div>
           <div className="px-3 py-2">
@@ -6488,11 +6681,11 @@ function StaticMediaPreview({ media }: { media: ForumMedia[] }) {
     <div className="mt-3 grid gap-3 sm:grid-cols-2">
       {media.slice(0, 6).map((item, index) => (
         <div key={`${item.file_path}-${index}`} className="overflow-hidden rounded-lg border border-slate-200 bg-white">
-          <div className="aspect-video bg-black">
+          <div className="flex aspect-video items-center justify-center bg-slate-950">
             {isVideoMedia(item) ? (
-              <video src={resolveAssetUrl(item.file_path)} muted playsInline preload="metadata" className="h-full w-full object-cover" />
+              <video src={resolveAssetUrl(item.file_path)} muted playsInline preload="metadata" className="h-full w-full object-contain" />
             ) : (
-              <img src={resolveAssetUrl(item.file_path)} alt={item.original_name || 'Forum attachment'} className="h-full w-full object-cover" />
+              <SafeImage src={resolveAssetUrl(item.file_path)} alt={item.original_name || 'Forum attachment'} logContext="forum attachment preview" className="gradtrack-media-image block h-auto w-auto max-h-full max-w-full object-contain" />
             )}
           </div>
           <div className="px-3 py-2">
@@ -6556,7 +6749,7 @@ function ForumMediaViewer({
         </button>
         <div className="hidden text-sm font-semibold text-white/80 sm:block">
           {viewer.mediaIndex + 1} of {media.length}
-        </div>A 
+        </div>
       </div>
 
       {!isVideo && (
@@ -6574,26 +6767,33 @@ function ForumMediaViewer({
       )}
 
       <div className="grid h-full lg:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="relative flex min-h-0 items-center justify-center overflow-hidden px-4 py-20">
+        <div className="relative flex min-h-0 cursor-zoom-out items-center justify-center overflow-hidden px-4 py-20" onClick={onClose}>
           {canMove && (
             <>
-              <button type="button" onClick={() => onMove(-1)} className="absolute left-4 top-1/2 z-10 inline-flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 backdrop-blur transition hover:bg-white/20" aria-label="Previous media">
+              <button type="button" onClick={(event) => { event.stopPropagation(); onMove(-1); }} className="absolute left-4 top-1/2 z-10 inline-flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 backdrop-blur transition hover:bg-white/20" aria-label="Previous media">
                 <ChevronLeft className="h-7 w-7" />
               </button>
-              <button type="button" onClick={() => onMove(1)} className="absolute right-4 top-1/2 z-10 inline-flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 backdrop-blur transition hover:bg-white/20" aria-label="Next media">
+              <button type="button" onClick={(event) => { event.stopPropagation(); onMove(1); }} className="absolute right-4 top-1/2 z-10 inline-flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 backdrop-blur transition hover:bg-white/20" aria-label="Next media">
                 <ChevronRight className="h-7 w-7" />
               </button>
             </>
           )}
 
           {isVideo ? (
-            <video src={resolveAssetUrl(current.file_path)} controls autoPlay className="max-h-full max-w-full rounded-lg bg-black" />
+            <video src={resolveAssetUrl(current.file_path)} controls autoPlay className="max-h-full max-w-full cursor-default rounded-lg bg-black object-contain" onClick={(event) => event.stopPropagation()} />
           ) : (
-            <img
+            <SafeImage
               src={resolveAssetUrl(current.file_path)}
               alt={current.original_name || viewer.post.title}
-              className="max-h-full max-w-full select-none rounded-lg object-contain transition-transform duration-150"
+              logContext="full forum image"
+              className="gradtrack-media-image max-h-full max-w-full cursor-default select-none rounded-lg object-contain transition-transform duration-150"
               style={{ transform: `scale(${zoom})` }}
+              onClick={(event) => event.stopPropagation()}
+              fallback={(
+                <div className="cursor-default rounded-2xl border border-white/15 bg-white/10 px-6 py-8 text-center text-sm font-semibold text-white/80" onClick={(event) => event.stopPropagation()}>
+                  This image is currently unavailable.
+                </div>
+              )}
             />
           )}
         </div>
@@ -6632,7 +6832,7 @@ function ForumMediaViewer({
                         <Video className="h-5 w-5" />
                       </div>
                     ) : (
-                      <img src={resolveAssetUrl(item.file_path)} alt={item.original_name || `Attachment ${index + 1}`} className="h-full w-full object-cover" />
+                      <SafeImage src={resolveAssetUrl(item.file_path)} alt={item.original_name || `Attachment ${index + 1}`} logContext="forum image thumbnail" className="gradtrack-media-image h-full w-full object-cover" />
                     )}
                   </button>
                 ))}

@@ -326,7 +326,7 @@ if (!function_exists('gradtrack_chat_participants')) {
                 'full_name' => trim((string) ($row['full_name'] ?? '')) ?: 'Graduate',
                 'program_code' => $row['program_code'] ?? null,
                 'year_graduated' => $row['year_graduated'] !== null ? (int) $row['year_graduated'] : null,
-                'profile_image_path' => gradtrack_storage_access_reference($row['profile_image_path'] ?? null),
+                'profile_image_path' => gradtrack_storage_media_access_reference($row['profile_image_path'] ?? null),
                 'last_active_at' => gradtrack_chat_datetime_iso($row['last_active_at'] ?? null),
                 'is_online' => false,
             ];
@@ -404,7 +404,7 @@ if (!function_exists('gradtrack_chat_format_message')) {
             'read_at' => gradtrack_chat_datetime_iso($row['read_at'] ?? null),
             'sender_name' => trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? '')) ?: 'Graduate',
             'sender_program_code' => $row['sender_program_code'] ?? null,
-            'sender_profile_image_path' => gradtrack_storage_access_reference($row['sender_profile_image_path'] ?? null),
+            'sender_profile_image_path' => gradtrack_storage_media_access_reference($row['sender_profile_image_path'] ?? null),
             'is_mine' => $senderId === $currentGraduateId,
             'attachments' => $attachments,
             'status' => $senderId === $currentGraduateId

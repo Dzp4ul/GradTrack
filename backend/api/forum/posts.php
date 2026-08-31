@@ -80,7 +80,7 @@ function gradtrack_forum_posts_normalize_row(array $row): array
     $row['media_count'] = isset($row['media_count']) ? (int) $row['media_count'] : count($row['media']);
     $row['is_liked'] = !empty($row['is_liked']);
     $row['author_name'] = trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? ''));
-    $row['author_profile_image_path'] = gradtrack_storage_access_reference($row['author_profile_image_path'] ?? null);
+    $row['author_profile_image_path'] = gradtrack_storage_media_access_reference($row['author_profile_image_path'] ?? null);
 
     return $row;
 }
@@ -458,5 +458,5 @@ try {
 
     gradtrack_forum_posts_json_error(405, 'Method not allowed');
 } catch (Throwable $e) {
-    gradtrack_forum_posts_json_error(500, $e->getMessage());
+    gradtrack_forum_posts_json_error($e instanceof InvalidArgumentException ? 400 : 500, $e->getMessage());
 }

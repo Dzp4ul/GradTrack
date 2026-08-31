@@ -211,27 +211,35 @@ if (!function_exists('gradtrack_forum_save_post_media')) {
     {
         $errorCode = (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE);
         if ($errorCode === UPLOAD_ERR_NO_FILE) {
-            throw new RuntimeException('No forum media was uploaded');
+            throw new InvalidArgumentException('No forum media was uploaded');
         }
         if ($errorCode !== UPLOAD_ERR_OK) {
-            throw new RuntimeException('Forum media upload failed');
+            $uploadMessage = $errorCode === UPLOAD_ERR_INI_SIZE || $errorCode === UPLOAD_ERR_FORM_SIZE
+                ? 'Forum media exceeds the server upload limit.'
+                : ($errorCode === UPLOAD_ERR_PARTIAL
+                    ? 'Forum media was only partially uploaded. Please try again.'
+                    : 'Forum media upload failed. Please choose the file again.');
+            throw new InvalidArgumentException($uploadMessage);
         }
 
         $tmpPath = (string) ($file['tmp_name'] ?? '');
         if ($tmpPath === '' || !is_uploaded_file($tmpPath)) {
-            throw new RuntimeException('Invalid uploaded forum media');
+            throw new InvalidArgumentException('Invalid uploaded forum media');
         }
 
         $fileSize = (int) ($file['size'] ?? 0);
         if ($fileSize <= 0) {
-            throw new RuntimeException('Forum media must be at least 1 byte');
+            throw new InvalidArgumentException('Forum media must be at least 1 byte');
         }
 
         $finfo = new finfo(FILEINFO_MIME_TYPE);
         $mimeType = $finfo->file($tmpPath) ?: 'application/octet-stream';
         $mediaConfig = gradtrack_forum_media_config();
         if (!isset($mediaConfig[$mimeType])) {
-            throw new RuntimeException('Unsupported media type. Allowed: JPG, PNG, WEBP, GIF, MP4, WEBM, OGG, or MOV');
+            $unsupportedMessage = in_array($mimeType, ['image/heic', 'image/heif'], true)
+                ? 'HEIC/HEIF images are not supported. Please convert the photo to JPG, PNG, or WEBP.'
+                : 'Unsupported media type. Allowed: JPG, PNG, WEBP, GIF, MP4, WEBM, OGG, or MOV';
+            throw new InvalidArgumentException($unsupportedMessage);
         }
 
         $config = $mediaConfig[$mimeType];
@@ -239,12 +247,12 @@ if (!function_exists('gradtrack_forum_save_post_media')) {
         if ($fileSize > $maxSizeBytes) {
             $maxMb = (int) round($maxSizeBytes / 1024 / 1024);
             $label = $config['media_type'] === 'video' ? 'video' : 'image';
-            throw new RuntimeException("Forum {$label} must be {$maxMb} MB or smaller");
+            throw new InvalidArgumentException("Forum {$label} must be {$maxMb} MB or smaller");
         }
 
         $originalName = gradtrack_storage_safe_download_name((string) ($file['name'] ?? 'forum-media'));
         if (gradtrack_storage_filename_has_dangerous_segment($originalName)) {
-            throw new RuntimeException('The forum media filename is not allowed.');
+            throw new InvalidArgumentException('The forum media filename is not allowed.');
         }
         $originalExtension = strtolower((string) pathinfo($originalName, PATHINFO_EXTENSION));
         $allowedExtensions = [
@@ -258,16 +266,16 @@ if (!function_exists('gradtrack_forum_save_post_media')) {
             'video/quicktime' => ['mov'],
         ];
         if (!in_array($originalExtension, $allowedExtensions[$mimeType], true)) {
-            throw new RuntimeException('The forum media extension does not match its contents.');
+            throw new InvalidArgumentException('The forum media extension does not match its contents.');
         }
 
         if ($config['media_type'] === 'image') {
             $dimensions = @getimagesize($tmpPath);
             if ($dimensions === false) {
-                throw new RuntimeException('The forum image is malformed or unsupported.');
+                throw new InvalidArgumentException('The forum image is malformed or unsupported.');
             }
             if ((int) $dimensions[0] > 8192 || (int) $dimensions[1] > 8192) {
-                throw new RuntimeException('Forum images must not exceed 8192 pixels on either side.');
+                throw new InvalidArgumentException('Forum images must not exceed 8192 pixels on either side.');
             }
         }
 
@@ -392,11 +400,7 @@ if (!function_exists('gradtrack_forum_post_media_by_post_ids')) {
             $row['post_id'] = $postId;
             $row['file_size_bytes'] = isset($row['file_size_bytes']) ? (int) $row['file_size_bytes'] : null;
             $row['sort_order'] = isset($row['sort_order']) ? (int) $row['sort_order'] : 0;
-            $row['file_path'] = gradtrack_storage_access_reference(
-                $row['file_path'] ?? null,
-                $row['original_name'] ?? null,
-                $row['mime_type'] ?? null
-            );
+            $row['file_path'] = gradtrack_storage_media_access_reference($row['file_path'] ?? null);
             $grouped[$postId][] = $row;
         }
 
@@ -426,11 +430,7 @@ if (!function_exists('gradtrack_forum_attach_media_to_posts')) {
                     'id' => 0,
                     'post_id' => $postId,
                     'media_type' => strpos($mimeType, 'video/') === 0 ? 'video' : 'image',
-                    'file_path' => gradtrack_storage_access_reference(
-                        $post['image_path'],
-                        $post['image_original_name'] ?? null,
-                        $post['image_mime_type'] ?? null
-                    ),
+                    'file_path' => gradtrack_storage_media_access_reference($post['image_path']),
                     'original_name' => $post['image_original_name'] ?? null,
                     'mime_type' => $post['image_mime_type'] ?? null,
                     'file_size_bytes' => isset($post['image_file_size_bytes']) ? (int) $post['image_file_size_bytes'] : null,
