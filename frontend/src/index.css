@@ -359,6 +359,7 @@ html.dark .to-white {
 
 html.dark .text-gray-900,
 html.dark .text-gray-800,
+html.dark .text-slate-950,
 html.dark .text-slate-900,
 html.dark .text-slate-800,
 html.dark .text-\[\#1b2a4a\] {
@@ -470,6 +471,7 @@ html.dark .hover\:bg-slate-100:hover {
 html.dark .hover\:text-gray-900:hover,
 html.dark .hover\:text-gray-700:hover,
 html.dark .hover\:text-gray-600:hover,
+html.dark .hover\:text-slate-950:hover,
 html.dark .hover\:text-slate-700:hover {
   color: var(--text-primary) !important;
 }
@@ -1144,6 +1146,7 @@ html.dark .recharts-pie-label-text {
   html.dark .text-gray-800,
   html.dark .text-gray-700,
   html.dark .text-gray-600,
+  html.dark .text-slate-950,
   html.dark .text-slate-900,
   html.dark .text-slate-800,
   html.dark .text-slate-700,

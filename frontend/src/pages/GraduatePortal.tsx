@@ -498,16 +498,30 @@ function getBatchLabel(year?: number | null) {
   return year ? `Batch ${year}` : '';
 }
 
+function formatProfileLocationForDisplay(value?: string | null) {
+  const location = String(value ?? '').trim();
+  if (!location) return '';
+
+  const segments = location.split(',').map((segment) => segment.trim()).filter(Boolean);
+  const trailingSegment = segments[segments.length - 1] || '';
+
+  if (segments.length > 2 && /^region\s+(?:[ivxlcdm]+|\d+)$/i.test(trailingSegment)) {
+    return segments.slice(0, -1).join(', ');
+  }
+
+  return location;
+}
+
 function buildProfileLocation(
   profile?: GraduateEditableProfile | null,
   user?: GraduateUser | null,
   survey?: GraduateSurveyProfile | null,
 ) {
-  if (profile) {
-    return profile.current_location || '';
-  }
+  const location = profile
+    ? (profile.current_location || '')
+    : (user?.address || getProfileFieldValue(survey?.personal?.fields, 'current_location') || '');
 
-  return user?.address || getProfileFieldValue(survey?.personal?.fields, 'current_location') || '';
+  return formatProfileLocationForDisplay(location);
 }
 
 function getGraduateFullName(user?: GraduateUser | null) {
@@ -3663,7 +3677,7 @@ export default function GraduatePortal() {
   const primaryNavItems = navItems.filter((item) => item.key !== 'my_profile');
   const activeNavItem = navItems.find((item) => item.key === activeTab);
 
-  const profileInputClass = 'w-full rounded-2xl border border-slate-300 bg-white px-4 py-3 text-sm outline-none transition focus:border-blue-500';
+  const profileInputClass = 'w-full rounded-2xl border border-[var(--border-strong)] bg-[var(--input)] px-4 py-3 text-sm text-[var(--text-primary)] outline-none transition focus:border-blue-500';
 
   const renderChatWorkspace = (mode: 'direct' | 'group') => {
     const isGroupMode = mode === 'group';
@@ -5368,7 +5382,6 @@ function ProfileIdentityPanel({
   const company = profile ? (profile.company_name || '') : (survey?.work?.summary?.company || '');
   const headline = [jobTitle || employmentStatus, company].filter(hasDisplayValue).join(' at ');
   const metaItems = [program, batch, jobTitle || employmentStatus].filter(hasDisplayValue);
-  const isVerified = user?.alumni_verification_status === 'approved';
   const canMessage = messagingAvailable && !canEdit && !!user?.graduate_id && user.graduate_id !== currentGraduateId;
 
   return (
@@ -5398,22 +5411,14 @@ function ProfileIdentityPanel({
           </div>
         )}
 
-        <div className="pointer-events-none absolute left-4 top-4 z-10 flex items-center gap-3 rounded-2xl bg-slate-950/32 px-3 py-2 backdrop-blur sm:left-6 sm:top-6">
-          <img src={defaultLogoUrl} alt="GradTrack" className="h-9 w-9 rounded-xl bg-white p-1.5 object-contain shadow-sm" />
-          <div>
-            <p className="text-xs font-bold uppercase tracking-[0.18em] text-[#f8c331]">GradTrack Alumni</p>
-            <p className="text-xs text-white/78">Norzagaray College</p>
-          </div>
-        </div>
-
         {canEdit && (
           <div className="absolute right-4 top-4 z-20 flex flex-wrap justify-end gap-2 sm:right-6 sm:top-6">
-            <button type="button" onClick={onChangeCoverPhoto} disabled={saving} className="inline-flex items-center gap-2 rounded-full bg-white/90 px-4 py-2 text-xs font-bold text-slate-800 shadow-sm backdrop-blur transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60" aria-label="Change cover photo" title="Change cover photo">
+            <button type="button" onClick={onChangeCoverPhoto} disabled={saving} className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white/90 px-4 py-2 text-xs font-bold text-slate-800 shadow-sm backdrop-blur transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-800/90 dark:text-slate-100 dark:hover:bg-slate-700" aria-label="Change cover photo" title="Change cover photo">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
               <span className="hidden sm:inline">Change Cover</span>
             </button>
             {coverImageUrl && (
-              <button type="button" onClick={onRemoveCoverPhoto} disabled={saving} className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-slate-800 shadow-sm backdrop-blur transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60" aria-label="Remove cover photo" title="Remove cover photo">
+              <button type="button" onClick={onRemoveCoverPhoto} disabled={saving} className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white/90 text-slate-800 shadow-sm backdrop-blur transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-60 dark:border-slate-600 dark:bg-slate-800/90 dark:text-slate-100 dark:hover:bg-slate-700" aria-label="Remove cover photo" title="Remove cover photo">
                 <Trash2 className="h-4 w-4" />
               </button>
             )}
@@ -5446,22 +5451,7 @@ function ProfileIdentityPanel({
 
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              {isVerified && (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-bold text-emerald-700">
-                  <ShieldCheck className="h-3.5 w-3.5" />
-                  Verified Alumni
-                </span>
-              )}
-              {batch && (
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-700">
-                  <CalendarDays className="h-3.5 w-3.5" />
-                  {batch}
-                </span>
-              )}
-            </div>
-
-            <h2 className="mt-3 break-words text-2xl font-bold leading-tight text-slate-950 sm:text-3xl">{fullName}</h2>
+            <h2 className="break-words text-2xl font-bold leading-tight text-slate-950 sm:text-3xl">{fullName}</h2>
             {metaItems.length > 0 && (
               <p className="mt-2 break-words text-sm font-semibold leading-6 text-slate-600">
                 {metaItems.join(' - ')}
@@ -6078,15 +6068,30 @@ function ProfileEditModal({
   onChangeCoverPhoto: () => void;
   onRemoveCoverPhoto: () => void;
 }) {
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, []);
+
   const canSubmit = ['basic', 'employment', 'education', 'security'].includes(activeSection);
   const professionalStatusOptions = ['Currently Employed', 'Self-Employed', 'Freelance', 'Not Employed'];
 
   return (
-    <div className="fixed inset-0 z-[65] flex items-center justify-center bg-slate-950/60 px-4 py-6">
-      <form onSubmit={onSubmit} className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-2xl">
-        <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
+    <div className="fixed inset-0 z-[65] flex items-center justify-center bg-slate-950/60 p-3 sm:p-6">
+      <form
+        onSubmit={onSubmit}
+        className="flex h-[calc(100dvh-1.5rem)] max-h-[46rem] w-full max-w-5xl flex-col overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-2xl sm:h-[calc(100dvh-3rem)]"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="profile-editor-title"
+      >
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-slate-100 px-4 py-4 sm:px-6 sm:py-5">
           <div>
-            <h2 className="text-2xl font-bold text-slate-950">Edit Profile</h2>
+            <h2 id="profile-editor-title" className="text-2xl font-bold text-slate-950">Edit Profile</h2>
             <p className="text-sm text-slate-500">{user?.full_name || 'Graduate User'}</p>
           </div>
           <button type="button" onClick={onClose} className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100" aria-label="Close profile editor">
@@ -6094,9 +6099,9 @@ function ProfileEditModal({
           </button>
         </div>
 
-        <div className="grid min-h-0 flex-1 overflow-hidden lg:grid-cols-[260px_minmax(0,1fr)]">
-          <aside className="border-b border-slate-100 bg-slate-50 p-4 lg:border-b-0 lg:border-r">
-            <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-1">
+        <div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden lg:grid-cols-[260px_minmax(0,1fr)] lg:grid-rows-1">
+          <aside className="min-h-0 overflow-y-auto border-b border-slate-100 bg-slate-50 p-3 sm:p-4 lg:border-b-0 lg:border-r">
+            <div className="grid grid-cols-2 gap-1 lg:grid-cols-1">
               {profileEditSections.map((section) => {
                 const active = activeSection === section.key;
                 const SectionIcon = section.icon;
@@ -6117,7 +6122,7 @@ function ProfileEditModal({
             </div>
           </aside>
 
-          <div className="min-h-0 overflow-y-auto px-6 py-5">
+          <div className="min-h-0 overscroll-contain overflow-y-auto px-4 py-5 sm:px-6">
             {activeSection === 'basic' && (
               <div className="space-y-4">
                 <div className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-800">
@@ -6255,7 +6260,7 @@ function ProfileEditModal({
           </div>
         </div>
 
-        <div className="flex flex-wrap justify-end gap-3 border-t border-slate-100 px-6 py-4">
+        <div className="flex shrink-0 flex-wrap justify-end gap-3 border-t border-slate-100 bg-white px-4 py-4 sm:px-6">
           <button type="button" onClick={onClose} className="rounded-full border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
             {canSubmit ? 'Cancel' : 'Done'}
           </button>
