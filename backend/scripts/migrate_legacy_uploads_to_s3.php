@@ -113,22 +113,110 @@ function gradtrack_migration_update(PDO $db, array $entry, string $from, string 
 
 $apply = gradtrack_migration_has_flag('apply');
 $rollbackPath = gradtrack_migration_argument('rollback');
+$verifyPath = gradtrack_migration_argument('verify');
+$kindFilter = gradtrack_migration_argument('kind');
 $config = gradtrack_storage_config();
 
-if (($apply || $rollbackPath !== null) && !gradtrack_storage_uses_s3()) {
-    fwrite(STDERR, "Apply and rollback require STORAGE_DRIVER=s3.\n");
+$selectedModes = (int) $apply + (int) ($rollbackPath !== null) + (int) ($verifyPath !== null);
+if ($selectedModes > 1) {
+    fwrite(STDERR, "Choose only one migration mode: --apply, --verify, or --rollback.\n");
+    exit(1);
+}
+
+if ($kindFilter !== null) {
+    $supportedKinds = array_column(gradtrack_migration_specs(), 'kind');
+    if (!in_array($kindFilter, $supportedKinds, true)) {
+        fwrite(STDERR, 'Unsupported migration kind. Allowed: ' . implode(', ', $supportedKinds) . "\n");
+        exit(1);
+    }
+}
+
+if (($apply || $rollbackPath !== null || $verifyPath !== null) && !gradtrack_storage_uses_s3()) {
+    fwrite(STDERR, "Apply, verify, and rollback require STORAGE_DRIVER=s3.\n");
     exit(1);
 }
 if ($apply && $config['environment'] === 'production' && !gradtrack_migration_has_flag('production-approved')) {
     fwrite(STDERR, "Production apply is blocked. Re-run only after approval with --production-approved.\n");
     exit(1);
 }
-if ($apply && $config['environment'] !== 'production' && !gradtrack_migration_has_flag('confirmed-synthetic-data-only')) {
-    fwrite(STDERR, "Development apply is blocked unless all source data is synthetic. Use --confirmed-synthetic-data-only only after verification.\n");
+if (
+    $apply
+    && $config['environment'] !== 'production'
+    && !gradtrack_migration_has_flag('confirmed-synthetic-data-only')
+    && !gradtrack_migration_has_flag('confirmed-development-data')
+) {
+    fwrite(STDERR, "Development apply requires an explicit data confirmation. Use --confirmed-development-data after reviewing the dry-run manifest.\n");
     exit(1);
 }
 
 $db = (new Database())->getConnection();
+
+if ($verifyPath !== null) {
+    $manifest = json_decode((string) file_get_contents($verifyPath), true);
+    if (!is_array($manifest) || !is_array($manifest['entries'] ?? null)) {
+        throw new RuntimeException('Invalid migration manifest.');
+    }
+
+    $allowed = [];
+    foreach (gradtrack_migration_specs() as $spec) {
+        $allowed[$spec['table'] . '.' . $spec['path'] . '.' . $spec['pk']] = true;
+    }
+
+    $verified = 0;
+    foreach ($manifest['entries'] as $entry) {
+        if (($entry['status'] ?? '') !== 'updated') continue;
+
+        $signature = ($entry['table'] ?? '') . '.' . ($entry['path_column'] ?? '') . '.' . ($entry['primary_key'] ?? '');
+        if (!isset($allowed[$signature])) {
+            throw new RuntimeException('Manifest contains an unsupported database target.');
+        }
+
+        $sql = "SELECT `{$entry['path_column']}` FROM `{$entry['table']}` WHERE `{$entry['primary_key']}` = :record_id LIMIT 1";
+        $stmt = $db->prepare($sql);
+        $stmt->execute([':record_id' => $entry['record_id']]);
+        $databaseReference = (string) ($stmt->fetchColumn() ?: '');
+        if ($databaseReference !== (string) ($entry['new_reference'] ?? '')) {
+            throw new RuntimeException('Database reference verification failed for ' . $entry['kind'] . ' record ' . $entry['record_id']);
+        }
+
+        $localPath = gradtrack_storage_local_absolute_path((string) $entry['old_reference'], true);
+        $localChecksum = hash_file('sha256', $localPath);
+        if ($localChecksum === false || $localChecksum !== (string) ($entry['sha256'] ?? '')) {
+            throw new RuntimeException('Local checksum verification failed for ' . $entry['kind'] . ' record ' . $entry['record_id']);
+        }
+
+        $head = gradtrack_storage_head($databaseReference);
+        if (empty($head['exists']) || ($head['driver'] ?? '') !== 's3') {
+            throw new RuntimeException('S3 HeadObject verification failed for ' . $entry['kind'] . ' record ' . $entry['record_id']);
+        }
+        if (($head['metadata']['gradtrack-sha256'] ?? '') !== $localChecksum) {
+            throw new RuntimeException('S3 metadata checksum verification failed for ' . $entry['kind'] . ' record ' . $entry['record_id']);
+        }
+
+        $downloaded = gradtrack_storage_s3_client()->getObject([
+            'Bucket' => $config['bucket'],
+            'Key' => $databaseReference,
+        ]);
+        if (hash('sha256', (string) $downloaded['Body']) !== $localChecksum) {
+            throw new RuntimeException('Downloaded content verification failed for ' . $entry['kind'] . ' record ' . $entry['record_id']);
+        }
+
+        $url = gradtrack_storage_presigned_url(
+            $databaseReference,
+            basename($localPath),
+            (string) ($head['content_type'] ?? 'application/octet-stream')
+        );
+        if (parse_url($url, PHP_URL_SCHEME) !== 'https') {
+            throw new RuntimeException('Private access verification failed for ' . $entry['kind'] . ' record ' . $entry['record_id']);
+        }
+
+        echo 'PASS: ' . $entry['kind'] . ' record ' . $entry['record_id'] . "\n";
+        $verified++;
+    }
+
+    echo "Verified {$verified} database references and S3 objects. Local files were retained.\n";
+    exit(0);
+}
 
 if ($rollbackPath !== null) {
     $manifest = json_decode((string) file_get_contents($rollbackPath), true);
@@ -163,6 +251,7 @@ $referencedPaths = [];
 $uploadedByLegacyPath = [];
 
 foreach (gradtrack_migration_specs() as $spec) {
+    if ($kindFilter !== null && $spec['kind'] !== $kindFilter) continue;
     if (!gradtrack_migration_table_column_exists($db, $spec['table'], $spec['path'])) continue;
     foreach ($db->query($spec['query'])->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $legacyPath = ltrim(str_replace('\\', '/', trim((string) ($row['legacy_path'] ?? ''))), '/');
@@ -242,8 +331,9 @@ foreach (gradtrack_migration_specs() as $spec) {
 }
 
 $orphaned = [];
+$orphanScanPerformed = $kindFilter === null;
 $uploadsRoot = gradtrack_storage_backend_root() . DIRECTORY_SEPARATOR . 'uploads';
-if (is_dir($uploadsRoot)) {
+if ($orphanScanPerformed && is_dir($uploadsRoot)) {
     $iterator = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($uploadsRoot, FilesystemIterator::SKIP_DOTS));
     foreach ($iterator as $file) {
         if (!$file->isFile()) continue;
@@ -254,8 +344,9 @@ if (is_dir($uploadsRoot)) {
 
 $manifest = [
     'version' => 1, 'created_at' => gmdate(DATE_ATOM), 'mode' => $apply ? 'apply' : 'dry-run',
-    'environment' => $config['environment'], 'bucket' => $config['bucket'],
+    'environment' => $config['environment'], 'bucket' => $config['bucket'], 'kind_filter' => $kindFilter,
     'entries' => $entries, 'orphaned_local_files' => $orphaned,
+    'orphan_scan_performed' => $orphanScanPerformed,
     'local_files_deleted' => false, 's3_objects_deleted' => false,
 ];
 file_put_contents($manifestPath, json_encode($manifest, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
@@ -263,5 +354,7 @@ file_put_contents($manifestPath, json_encode($manifest, JSON_PRETTY_PRINT | JSON
 $counts = array_count_values(array_column($entries, 'status'));
 echo ($apply ? 'Apply' : 'Dry run') . " complete. Manifest: {$manifestPath}\n";
 foreach ($counts as $status => $count) echo "{$status}: {$count}\n";
-echo 'orphaned-local: ' . count($orphaned) . "\n";
+echo $orphanScanPerformed
+    ? 'orphaned-local: ' . count($orphaned) . "\n"
+    : "orphaned-local: not evaluated for a scoped migration\n";
 echo "No local files were deleted.\n";

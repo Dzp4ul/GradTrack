@@ -226,11 +226,23 @@ After reviewing the manifest, the development apply command is:
 php backend/scripts/migrate_legacy_uploads_to_s3.php --apply --confirmed-synthetic-data-only
 ```
 
+For a reviewed development dataset that is not synthetic, use `--confirmed-development-data`. A single module can be migrated with `--kind=<kind>`. For example, the chat-only workflow is:
+
+```text
+php backend/scripts/migrate_legacy_uploads_to_s3.php --kind=chat-attachment --manifest=backend/tmp/chat-dry-run.json
+php backend/scripts/migrate_legacy_uploads_to_s3.php --apply --confirmed-development-data --kind=chat-attachment --manifest=backend/tmp/chat-applied.json
+```
+
+Global orphan detection is intentionally skipped for a scoped migration because references owned by out-of-scope modules have not been inventoried.
+
 It uploads, verifies S3 metadata/checksum, then updates the matching database reference. If the database update fails, the newly uploaded object is removed. Rollback restores old database references and retains both S3 and local files:
 
 ```text
+php backend/scripts/migrate_legacy_uploads_to_s3.php --verify=path-to-applied-manifest.json
 php backend/scripts/migrate_legacy_uploads_to_s3.php --rollback=path-to-manifest.json
 ```
+
+Verification is read-only: it compares the current database value with the manifest, confirms `HeadObject` metadata, downloads and hashes the S3 content, generates a private presigned URL, and confirms the original local backup remains readable.
 
 Production tools additionally require `--production-approved`, but that flag must not be used until an explicit production migration approval is given. Keep the local files as a backup until every record, view, download, permission boundary, and checksum has been verified. Local deletion is a separate later operation and is not implemented by these tools.
 
@@ -439,5 +451,7 @@ The implementation run completed these non-production checks:
 - Authenticated multipart HTTP integration passed for graduate profile and cover images, Community Forum chat, direct messages, group chat, and Community Forum post images. Tests verified raw S3 keys in MySQL, private access through authorized/presigned URLs, recipient refresh behavior, chat staging-to-private promotion, and cleanup.
 - Prefix permission checks passed for announcements, public content, graduate documents, job requirements, mentorship proofs, and system branding.
 - All temporary integration accounts, rooms, posts, database metadata, local files, and S3 objects were removed; the post-test fixture orphan counts were zero.
+- Three legacy room-1 chat attachments were migrated from `uploads/chat-attachments/1/...` to `private/chat/rooms/1/attachments/...`. MySQL references, S3 `HeadObject`, downloaded SHA-256 checksums, and private presigned access were independently verified. No legacy chat attachment DB paths remain, and local originals were retained for rollback.
+- The remaining full legacy inventory migrated 15 physical files and updated 17 active references: three graduate profiles, two forum media objects shared by their two legacy forum columns, three announcement covers, three announcement gallery images, three mentor proofs, and one About-page image. A post-migration global dry run found zero remaining legacy database paths. All 17 records passed database, `HeadObject`, downloaded SHA-256, private URL, and local-backup verification.
 
 The browser UI should still receive a short manual smoke test with a real logged-in user after deployment or credential rotation. No production bucket or production migration was touched.
