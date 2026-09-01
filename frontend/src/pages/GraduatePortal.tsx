@@ -17,6 +17,7 @@ import {
   Flag,
   GraduationCap,
   Heart,
+  Home,
   ImagePlus,
   Loader2,
   LogOut,
@@ -34,7 +35,6 @@ import {
   ShieldCheck,
   Trash2,
   User,
-  Users,
   Video,
   X,
   ZoomIn,
@@ -43,12 +43,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import type { Socket } from 'socket.io-client';
 import { API_BASE_URL, API_ENDPOINTS } from '../config/api';
-import RealtimeMessagingWorkspace, {
-  ImagePreviewModal as ChatImagePreviewModal,
-  MessageComposer,
-  MessageList,
-  PresenceText,
-} from '../components/messaging/RealtimeMessagingWorkspace';
+import RealtimeMessagingWorkspace from '../components/messaging/RealtimeMessagingWorkspace';
 import type {
   MessageAttachment,
   MessagePagination,
@@ -60,6 +55,8 @@ import type {
 import MessageBox from '../components/MessageBox';
 import FeatureUnavailable from '../components/FeatureUnavailable';
 import NotificationBell from '../components/NotificationBell';
+import type { NotificationSnapshot } from '../components/NotificationBell';
+import ProfileAvatar from '../components/ProfileAvatar';
 import ThemeToggle from '../components/ThemeToggle';
 import GraduateAnnouncements from '../components/graduate/GraduateAnnouncements';
 import { useGraduateAuth } from '../contexts/GraduateAuthContext';
@@ -68,7 +65,7 @@ import { useSystemSettings } from '../contexts/SystemSettingsContext';
 import { destroyRealtimeChatSocket, emitWithAck, getRealtimeChatSocket } from '../services/realtimeChat';
 import type { RealtimeChatStatus } from '../services/realtimeChat';
 
-type PortalTab = 'announcements' | 'dashboard' | 'community_forum' | 'messages' | 'group_chats' | 'jobs' | 'job_posting' | 'my_profile';
+type PortalTab = 'announcements' | 'dashboard' | 'community_forum' | 'messages' | 'jobs' | 'job_posting' | 'my_profile';
 type ForumStatus = 'approved' | 'pending' | 'hidden';
 type ApprovalStatus = 'pending' | 'approved' | 'declined';
 
@@ -366,7 +363,7 @@ interface MessageBoxState {
   onConfirm?: () => void;
 }
 
-const portalTabs: PortalTab[] = ['announcements', 'dashboard', 'community_forum', 'messages', 'group_chats', 'jobs', 'job_posting', 'my_profile'];
+const portalTabs: PortalTab[] = ['announcements', 'dashboard', 'community_forum', 'messages', 'jobs', 'job_posting', 'my_profile'];
 const graduatePortalLayoutStyle = {
   '--graduate-portal-header-height': '4rem',
   '--graduate-portal-sticky-gap': '1rem',
@@ -394,6 +391,9 @@ const profileEditSections: Array<{ key: ProfileEditSection; label: string; icon:
 ];
 
 function getPortalTab(rawValue: string | null): PortalTab {
+  if (rawValue === 'group_chats') {
+    return 'messages';
+  }
   if (rawValue && portalTabs.includes(rawValue as PortalTab)) {
     return rawValue as PortalTab;
   }
@@ -409,18 +409,6 @@ function resolveAssetUrl(path?: string | null) {
   if (!path) return '';
   if (/^(https?:|blob:|data:)/i.test(path)) return path;
   return `${API_BASE_URL}/${path.replace(/^\/+/, '')}`;
-}
-
-function getInitials(value?: string | null) {
-  const text = (value || '').trim();
-  if (!text) return 'G';
-
-  const parts = text.split(/\s+/).filter(Boolean);
-  if (parts.length === 1) {
-    return parts[0].slice(0, 2).toUpperCase();
-  }
-
-  return `${parts[0].charAt(0)}${parts[parts.length - 1].charAt(0)}`.toUpperCase();
 }
 
 function parseDate(value?: string | null) {
@@ -818,17 +806,6 @@ function getRoomLabel(room: ChatRoom, currentGraduateId: number) {
   return other?.full_name || 'Direct Chat';
 }
 
-function getRoomSubtitle(room: ChatRoom, currentGraduateId: number) {
-  if (room.is_group) {
-    const others = getRoomOtherParticipants(room, currentGraduateId);
-    if (others.length === 0) return 'Only you';
-    return others.map((participant) => participant.full_name).join(', ');
-  }
-
-  const other = getRoomOtherParticipants(room, currentGraduateId)[0];
-  return other?.program_code || 'Graduate';
-}
-
 function getPortalHeading(tab: PortalTab) {
   if (tab === 'announcements') {
     return {
@@ -854,14 +831,7 @@ function getPortalHeading(tab: PortalTab) {
   if (tab === 'messages') {
     return {
       title: 'Messages',
-      subtitle: 'Open direct chats with fellow graduates.',
-    };
-  }
-
-  if (tab === 'group_chats') {
-    return {
-      title: 'Group Chats',
-      subtitle: 'Coordinate group conversations with multiple graduates.',
+      subtitle: 'Continue direct and group conversations with fellow graduates.',
     };
   }
 
@@ -902,15 +872,18 @@ export default function GraduatePortal() {
   ));
   const [loading, setLoading] = useState(true);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [isDesktopMessagingLayout, setIsDesktopMessagingLayout] = useState(() => (
+    typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches
+  ));
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
-  const [profileDetails, setProfileDetails] = useState<GraduateProfilePayload | null>(null);
-  const [profileDetailsLoaded, setProfileDetailsLoaded] = useState(false);
-  const [profileDetailsLoading, setProfileDetailsLoading] = useState(false);
+  const [viewedProfileDetails, setViewedProfileDetails] = useState<GraduateProfilePayload | null>(null);
+  const [viewedProfileLoaded, setViewedProfileLoaded] = useState(false);
+  const [viewedProfileLoading, setViewedProfileLoading] = useState(false);
   const [profileEditOpen, setProfileEditOpen] = useState(false);
   const [profileEditSection, setProfileEditSection] = useState<ProfileEditSection>('basic');
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileImageFile, setProfileImageFile] = useState<File | null>(null);
-  const [profileImagePreview, setProfileImagePreview] = useState('');
+  const [authenticatedProfileImagePreview, setAuthenticatedProfileImagePreview] = useState('');
   const [coverImageFile, setCoverImageFile] = useState<File | null>(null);
   const [coverImagePreview, setCoverImagePreview] = useState('');
   const [coverRemoveRequested, setCoverRemoveRequested] = useState(false);
@@ -966,6 +939,10 @@ export default function GraduatePortal() {
   const [showJobPostForm, setShowJobPostForm] = useState(false);
   const [jobSubmitting, setJobSubmitting] = useState(false);
   const [myJobForm, setMyJobForm] = useState<JobForm>(() => createDefaultJobForm(user));
+  const [notificationCategoryCounts, setNotificationCategoryCounts] = useState({
+    browse_jobs: 0,
+    job_posting: 0,
+  });
 
   const [rooms, setRooms] = useState<ChatRoom[]>([]);
   const [directory, setDirectory] = useState<ChatParticipant[]>([]);
@@ -982,8 +959,6 @@ export default function GraduatePortal() {
   const [chatTypingUsers, setChatTypingUsers] = useState<Record<number, Record<number, { name: string; expiresAt: number }>>>({});
   const [chatNewMessageAvailable, setChatNewMessageAvailable] = useState(false);
   const [chatMobileConversationOpen, setChatMobileConversationOpen] = useState(false);
-  const [forumChatWindowOpen, setForumChatWindowOpen] = useState(false);
-  const [chatPreviewAttachment, setChatPreviewAttachment] = useState<MessageAttachment | null>(null);
   const [chatModalOpen, setChatModalOpen] = useState(false);
   const [chatModalMode, setChatModalMode] = useState<'direct' | 'group'>('direct');
   const [chatModalName, setChatModalName] = useState('');
@@ -1021,52 +996,59 @@ export default function GraduatePortal() {
   const roomLoadRequestRef = useRef(0);
   const loadMissedRoomMessagesRef = useRef<(roomId: number) => Promise<void>>(async () => undefined);
   const markVisibleMessagesAsReadRef = useRef<(roomId?: number, messages?: ChatMessage[]) => Promise<void>>(async () => undefined);
+  const lastMarkedReadIdByRoomRef = useRef<Map<number, number>>(new Map());
+  const seenRealtimeMessageIdsRef = useRef<Set<number>>(new Set());
   const bootStartedRef = useRef(false);
   const routePostTargetRef = useRef('');
   const routeJobTargetRef = useRef('');
+  const viewedProfileRequestRef = useRef(0);
+  const viewedProfilePostsRequestRef = useRef(0);
   const commentRefs = useRef<Record<number, HTMLElement | null>>({});
   const jobCardRefs = useRef<Record<number, HTMLElement | null>>({});
 
   const currentGraduateId = user?.graduate_id ?? 0;
   const profileTargetGraduateId = isCommunityProfileRoute ? routeProfileGraduateId : currentGraduateId;
   const isViewingOwnProfile = profileTargetGraduateId > 0 && profileTargetGraduateId === currentGraduateId;
-  const profileRecord = profileDetails?.profile || null;
-  const profileBaseUser = profileDetails?.user || (isViewingOwnProfile ? user : null);
-  const profileUser = useMemo<GraduateUser | null>(() => {
-    if (!profileBaseUser) return null;
-    if (!profileRecord) return profileBaseUser;
+  const viewedProfileRecord = viewedProfileDetails?.profile || null;
+  const viewedProfileBaseUser = viewedProfileDetails?.user || (isViewingOwnProfile ? user : null);
+  const viewedProfileUser = useMemo<GraduateUser | null>(() => {
+    if (!viewedProfileBaseUser) return null;
+    if (!viewedProfileRecord) return viewedProfileBaseUser;
 
-    const fullName = [profileRecord.first_name, profileRecord.middle_name, profileRecord.last_name]
+    const fullName = [viewedProfileRecord.first_name, viewedProfileRecord.middle_name, viewedProfileRecord.last_name]
       .filter((part) => hasDisplayValue(part))
       .join(' ');
 
     return {
-      ...profileBaseUser,
-      first_name: profileRecord.first_name,
-      middle_name: profileRecord.middle_name,
-      last_name: profileRecord.last_name,
-      full_name: fullName || profileBaseUser.full_name,
-      phone: profileRecord.phone_number,
-      address: profileRecord.current_location,
-      program_name: profileRecord.program_course,
-      year_graduated: profileRecord.graduation_year,
+      ...viewedProfileBaseUser,
+      first_name: viewedProfileRecord.first_name,
+      middle_name: viewedProfileRecord.middle_name,
+      last_name: viewedProfileRecord.last_name,
+      full_name: fullName || viewedProfileBaseUser.full_name,
+      phone: viewedProfileRecord.phone_number,
+      address: viewedProfileRecord.current_location,
+      program_name: viewedProfileRecord.program_course,
+      year_graduated: viewedProfileRecord.graduation_year,
     };
-  }, [profileBaseUser, profileRecord]);
-  const profileSurvey = profileDetails?.survey_profile || null;
+  }, [viewedProfileBaseUser, viewedProfileRecord]);
+  const profileSurvey = viewedProfileDetails?.survey_profile || null;
   const profilePersonalFields = profileSurvey?.personal?.fields || [];
   const profileWorkFields = profileSurvey?.work?.fields || [];
   const profileEducationFields = profileSurvey?.education?.fields || [];
   const profileGraduateStudyFields = profileSurvey?.education?.graduate_studies || [];
   const profileTrainings = profileSurvey?.trainings || [];
-  const currentProfileImageUrl = resolveAssetUrl(user?.profile_image_path);
+  const authenticatedUserProfileImageUrl = resolveAssetUrl(user?.profile_image_path);
   const profileImageUrl = isViewingOwnProfile
-    ? (profileImagePreview || resolveAssetUrl(profileUser?.profile_image_path) || currentProfileImageUrl)
-    : resolveAssetUrl(profileUser?.profile_image_path);
-  const currentCoverImageUrl = resolveAssetUrl(profileUser?.cover_image_path);
+    ? (authenticatedProfileImagePreview || resolveAssetUrl(viewedProfileUser?.profile_image_path) || authenticatedUserProfileImageUrl)
+    : resolveAssetUrl(viewedProfileUser?.profile_image_path);
+  const navbarProfileImageUrl = isViewingOwnProfile && authenticatedProfileImagePreview
+    ? authenticatedProfileImagePreview
+    : authenticatedUserProfileImageUrl;
+  const viewedProfileCoverImageUrl = resolveAssetUrl(viewedProfileUser?.cover_image_path);
   const profileCoverImageUrl = isViewingOwnProfile
-    ? (coverRemoveRequested ? '' : (coverImagePreview || currentCoverImageUrl))
-    : currentCoverImageUrl;
-  const profileJobTitle = profileRecord?.job_title || '';
+    ? (coverRemoveRequested ? '' : (coverImagePreview || viewedProfileCoverImageUrl))
+    : viewedProfileCoverImageUrl;
+  const profileJobTitle = viewedProfileRecord?.job_title || '';
   const profilePosts = isViewingOwnProfile ? myForumPosts : profileForumPosts;
   const canPostJobs = !!ratingSummary?.permissions?.can_post_jobs;
   const communityAvailable = isEnabled('community_available', true);
@@ -1119,20 +1101,6 @@ export default function GraduatePortal() {
       .includes(query);
   });
 
-  const matchesChatSearch = (room: ChatRoom) => {
-    const query = chatSearch.trim().toLowerCase();
-    if (!query) return true;
-
-    return [getRoomLabel(room, currentGraduateId), getRoomSubtitle(room, currentGraduateId), room.last_message || '']
-      .join(' ')
-      .toLowerCase()
-      .includes(query);
-  };
-
-  const directRooms = useMemo(() => rooms.filter((room) => !room.is_group), [rooms]);
-  const groupRooms = useMemo(() => rooms.filter((room) => room.is_group), [rooms]);
-  const filteredRooms = rooms.filter(matchesChatSearch);
-
   const chatModalProgramOptions = useMemo(() => (
     Array.from(new Set(directory.map((participant) => participant.program_code?.trim()).filter(Boolean) as string[]))
       .sort((first, second) => first.localeCompare(second))
@@ -1161,8 +1129,10 @@ export default function GraduatePortal() {
   const pendingForumPostsCount = myForumPosts.filter((post) => post.status === 'pending').length;
   const approvedForumPostsCount = myForumPosts.filter((post) => post.status === 'approved').length;
   const hiddenForumPostsCount = myForumPosts.filter((post) => post.status === 'hidden').length;
-  const directChatCount = directRooms.length;
-  const groupChatCount = groupRooms.length;
+  const unreadMessageCount = useMemo(
+    () => rooms.reduce((total, room) => total + Math.max(0, Number(room.unread_count || 0)), 0),
+    [rooms],
+  );
 
   const unavailableForTab = useCallback(
     (tab: PortalTab) => {
@@ -1173,7 +1143,7 @@ export default function GraduatePortal() {
         };
       }
 
-      if (['messages', 'group_chats'].includes(tab) && !messagingAvailable) {
+      if (tab === 'messages' && !messagingAvailable) {
         return {
           title: 'Messages are currently unavailable.',
           message: 'This feature is currently unavailable.',
@@ -1224,6 +1194,30 @@ export default function GraduatePortal() {
 
     return data;
   }, []);
+
+  const applyNotificationSnapshot = useCallback((snapshot: NotificationSnapshot) => {
+    setNotificationCategoryCounts({
+      browse_jobs: Math.max(0, Number(snapshot.unread_by_category?.browse_jobs || 0)),
+      job_posting: Math.max(0, Number(snapshot.unread_by_category?.job_posting || 0)),
+    });
+  }, []);
+
+  const markNotificationCategoryRead = useCallback(async (category: 'browse_jobs' | 'job_posting') => {
+    try {
+      const response = await authenticatedFetch(`${API_ENDPOINTS.NOTIFICATIONS}?audience=graduate`, {
+        method: 'POST',
+        body: JSON.stringify({ action: 'mark_category_read', category }),
+      });
+      if (response.data) {
+        applyNotificationSnapshot(response.data as NotificationSnapshot);
+      }
+      window.dispatchEvent(new CustomEvent('gradtrack:notifications-updated', {
+        detail: { audience: 'graduate' },
+      }));
+    } catch {
+      // Keep the persisted unread value visible and retry when notifications refresh.
+    }
+  }, [applyNotificationSnapshot, authenticatedFetch]);
 
   const selectTab = useCallback(
     (tab: PortalTab) => {
@@ -1318,21 +1312,27 @@ export default function GraduatePortal() {
       return;
     }
 
-    setProfileDetailsLoading(true);
+    const requestId = ++viewedProfileRequestRef.current;
+    setViewedProfileLoading(true);
 
     try {
       const endpoint = isViewingOwnProfile
         ? API_ENDPOINTS.GRADUATE_PROFILE
         : `${API_ENDPOINTS.GRADUATE_PROFILE}?graduate_id=${profileTargetGraduateId}`;
       const response = await authenticatedFetch(endpoint);
-      setProfileDetails((response.data as GraduateProfilePayload | undefined) || null);
-      setProfileDetailsLoaded(true);
+      if (requestId === viewedProfileRequestRef.current) {
+        setViewedProfileDetails((response.data as GraduateProfilePayload | undefined) || null);
+        setViewedProfileLoaded(true);
+      }
     } finally {
-      setProfileDetailsLoading(false);
+      if (requestId === viewedProfileRequestRef.current) {
+        setViewedProfileLoading(false);
+      }
     }
   }, [authenticatedFetch, isViewingOwnProfile, profileTargetGraduateId]);
 
   const loadProfileForumPosts = useCallback(async () => {
+    const requestId = ++viewedProfilePostsRequestRef.current;
     if (!communityAvailable || profileTargetGraduateId <= 0) {
       setProfileForumPosts([]);
       return;
@@ -1344,7 +1344,9 @@ export default function GraduatePortal() {
     }
 
     const response = await authenticatedFetch(`${API_ENDPOINTS.FORUM.POSTS}?graduate_id=${profileTargetGraduateId}`);
-    setProfileForumPosts(Array.isArray(response.data) ? (response.data as ForumPost[]) : []);
+    if (requestId === viewedProfilePostsRequestRef.current) {
+      setProfileForumPosts(Array.isArray(response.data) ? (response.data as ForumPost[]) : []);
+    }
   }, [authenticatedFetch, communityAvailable, isViewingOwnProfile, loadMyForumPosts, profileTargetGraduateId]);
 
   const loadForumComments = useCallback(
@@ -1487,7 +1489,11 @@ export default function GraduatePortal() {
       if (!roomId || messages.length === 0) return;
 
       const newestIncoming = [...messages].reverse().find((message) => !message.is_mine && message.id > 0);
-      if (!newestIncoming || newestIncoming.read_at) return;
+      if (!newestIncoming) return;
+
+      const previousMarkedId = lastMarkedReadIdByRoomRef.current.get(roomId) || 0;
+      if (previousMarkedId >= newestIncoming.id) return;
+      lastMarkedReadIdByRoomRef.current.set(roomId, newestIncoming.id);
 
       try {
         const socket = chatSocketRef.current;
@@ -1524,6 +1530,13 @@ export default function GraduatePortal() {
         });
         setRooms((current) => current.map((room) => (room.id === roomId ? { ...room, unread_count: 0 } : room)));
       } catch {
+        if (lastMarkedReadIdByRoomRef.current.get(roomId) === newestIncoming.id) {
+          if (previousMarkedId > 0) {
+            lastMarkedReadIdByRoomRef.current.set(roomId, previousMarkedId);
+          } else {
+            lastMarkedReadIdByRoomRef.current.delete(roomId);
+          }
+        }
         // Read receipts are best effort and will be retried on the next sync.
       }
     },
@@ -1553,17 +1566,18 @@ export default function GraduatePortal() {
       });
     });
     const synchronizedConversation = mergeKnownPresenceIntoRoom(conversation, chatPresenceByGraduateRef.current);
+    const visibleConversation = synchronizedConversation;
 
     setRooms((current) => {
-      const exists = current.some((room) => room.id === synchronizedConversation.id);
+      const exists = current.some((room) => room.id === visibleConversation.id);
       const next = exists
-        ? current.map((room) => (room.id === synchronizedConversation.id ? { ...room, ...synchronizedConversation } : room))
-        : [synchronizedConversation, ...current];
+        ? current.map((room) => (room.id === visibleConversation.id ? { ...room, ...visibleConversation } : room))
+        : [visibleConversation, ...current];
       return sortChatRooms(next);
     });
 
     setActiveRoom((current) => (
-      current?.id === synchronizedConversation.id ? { ...current, ...synchronizedConversation } : current
+      current?.id === visibleConversation.id ? { ...current, ...visibleConversation } : current
     ));
   }, []);
 
@@ -1657,7 +1671,6 @@ export default function GraduatePortal() {
         dashboard: tasks.map((task) => task.key),
         community_forum: communityAvailable ? ['forum', 'my_forum'] : [],
         messages: messagingAvailable ? ['chats'] : [],
-        group_chats: messagingAvailable ? ['chats'] : [],
         jobs: jobsAvailable ? ['jobs', 'rating'] : [],
         job_posting: jobsAvailable ? ['my_jobs', 'rating'] : [],
         my_profile: communityAvailable ? ['rating', 'activity'] : ['rating'],
@@ -1732,9 +1745,16 @@ export default function GraduatePortal() {
 
   useEffect(() => {
     if (profileTargetGraduateId <= 0) return;
-    setProfileDetails(null);
-    setProfileDetailsLoaded(false);
-    setProfileDetailsLoading(false);
+    viewedProfileRequestRef.current += 1;
+    viewedProfilePostsRequestRef.current += 1;
+    setViewedProfileDetails(null);
+    setViewedProfileLoaded(false);
+    setViewedProfileLoading(false);
+    setProfileImageFile(null);
+    setAuthenticatedProfileImagePreview('');
+    setCoverImageFile(null);
+    setCoverImagePreview('');
+    setCoverRemoveRequested(false);
     setProfileForumPosts([]);
     setProfileEditOpen(false);
   }, [profileTargetGraduateId]);
@@ -1760,14 +1780,14 @@ export default function GraduatePortal() {
   }, [isAnnouncementRoute, isCommunityProfileRoute, navigate, searchParams]);
 
   useEffect(() => {
-    if (activeTab !== 'my_profile' || profileTargetGraduateId <= 0 || profileDetailsLoaded || profileDetailsLoading) {
+    if (activeTab !== 'my_profile' || profileTargetGraduateId <= 0 || viewedProfileLoaded || viewedProfileLoading) {
       return;
     }
 
     void loadGraduateProfile().catch((error) => {
       notify('warning', error instanceof Error ? error.message : 'Unable to load profile details', 'My Profile');
     });
-  }, [activeTab, loadGraduateProfile, notify, profileDetailsLoaded, profileDetailsLoading, profileTargetGraduateId]);
+  }, [activeTab, loadGraduateProfile, notify, profileTargetGraduateId, viewedProfileLoaded, viewedProfileLoading]);
 
   useEffect(() => {
     if (activeTab !== 'my_profile' || profileTargetGraduateId <= 0) {
@@ -1855,16 +1875,9 @@ export default function GraduatePortal() {
   }, [highlightedCommentId, postComments, selectedPostOpen]);
 
   useEffect(() => {
-    const scopedRooms =
-      activeTab === 'messages'
-        ? directRooms
-        : activeTab === 'group_chats'
-          ? groupRooms
-          : null;
+    if (activeTab !== 'messages') return;
 
-    if (!scopedRooms) return;
-
-    if (scopedRooms.length === 0) {
+    if (rooms.length === 0) {
       setSelectedRoomId(null);
       setActiveRoom(null);
       setRoomMessages([]);
@@ -1874,37 +1887,51 @@ export default function GraduatePortal() {
     }
 
     setSelectedRoomId((current) => {
-      if (current && scopedRooms.some((room) => room.id === current)) {
+      if (current && rooms.some((room) => room.id === current)) {
         return current;
       }
 
-      return scopedRooms[0].id;
+      return rooms[0].id;
     });
-  }, [activeTab, directRooms, groupRooms]);
+  }, [activeTab, rooms]);
 
   useEffect(() => {
-    setProfileForm(createProfileForm(profileRecord, profileUser));
-  }, [profileRecord, profileUser]);
+    const mediaQuery = window.matchMedia('(min-width: 1024px)');
+    const handleChange = (event: MediaQueryListEvent) => setIsDesktopMessagingLayout(event.matches);
+    setIsDesktopMessagingLayout(mediaQuery.matches);
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, []);
 
   useEffect(() => {
-    if (!profileImageFile) {
-      setProfileImagePreview(resolveAssetUrl(profileUser?.profile_image_path));
+    setProfileForm(createProfileForm(viewedProfileRecord, viewedProfileUser));
+  }, [viewedProfileRecord, viewedProfileUser]);
+
+  useEffect(() => {
+    if (!isViewingOwnProfile) {
+      if (!profileImageFile) {
+        setAuthenticatedProfileImagePreview('');
+      }
+      return;
     }
-  }, [profileImageFile, profileUser?.profile_image_path]);
+    if (!profileImageFile) {
+      setAuthenticatedProfileImagePreview(resolveAssetUrl(viewedProfileUser?.profile_image_path));
+    }
+  }, [isViewingOwnProfile, profileImageFile, viewedProfileUser?.profile_image_path]);
 
   useEffect(() => {
     if (!coverImageFile && !coverRemoveRequested) {
-      setCoverImagePreview(resolveAssetUrl(profileUser?.cover_image_path));
+      setCoverImagePreview(resolveAssetUrl(viewedProfileUser?.cover_image_path));
     }
-  }, [coverImageFile, coverRemoveRequested, profileUser?.cover_image_path]);
+  }, [coverImageFile, coverRemoveRequested, viewedProfileUser?.cover_image_path]);
 
   useEffect(() => {
     return () => {
-      if (profileImagePreview.startsWith('blob:')) {
-        URL.revokeObjectURL(profileImagePreview);
+      if (authenticatedProfileImagePreview.startsWith('blob:')) {
+        URL.revokeObjectURL(authenticatedProfileImagePreview);
       }
     };
-  }, [profileImagePreview]);
+  }, [authenticatedProfileImagePreview]);
 
   useEffect(() => {
     return () => {
@@ -1951,12 +1978,10 @@ export default function GraduatePortal() {
   }, [selectedRoomId]);
 
   const chatRealtimeEnabled = messagingAvailable;
-  const chatSurfaceOpen = messagingAvailable && ['community_forum', 'messages', 'group_chats'].includes(activeTab);
-  const chatConversationSurfaceOpen = messagingAvailable && (
-    activeTab === 'messages'
-    || activeTab === 'group_chats'
-    || (activeTab === 'community_forum' && forumChatWindowOpen)
-  );
+  const chatSurfaceOpen = messagingAvailable;
+  const chatConversationSurfaceOpen = messagingAvailable
+    && activeTab === 'messages'
+    && (isDesktopMessagingLayout || chatMobileConversationOpen);
 
   useEffect(() => {
     chatConversationSurfaceOpenRef.current = chatConversationSurfaceOpen;
@@ -1997,9 +2022,6 @@ export default function GraduatePortal() {
     }
 
     setChatTypingUsers((current) => ({ ...current, [selectedRoomId]: {} }));
-    if (activeTab === 'messages') {
-      setChatMobileConversationOpen(true);
-    }
     void loadRoomMessages(selectedRoomId);
 
     if (socket?.connected) {
@@ -2013,7 +2035,7 @@ export default function GraduatePortal() {
         }
       })();
     }
-  }, [activeTab, chatConversationSurfaceOpen, loadRoomMessages, selectedRoomId]);
+  }, [chatConversationSurfaceOpen, loadRoomMessages, selectedRoomId]);
 
   useEffect(() => {
     roomMessagesRef.current = roomMessages;
@@ -2119,7 +2141,26 @@ export default function GraduatePortal() {
       if (import.meta.env.DEV) console.info(`[Realtime] Message received: ${incoming.id}`);
       updateRoomPreview(incoming);
       removeTypingUser(incoming.room_id, incoming.graduate_id);
-      if (selectedRoomIdRef.current !== incoming.room_id) return;
+      const isNewRealtimeMessage = incoming.id > 0 && !seenRealtimeMessageIdsRef.current.has(incoming.id);
+      if (isNewRealtimeMessage) {
+        if (seenRealtimeMessageIdsRef.current.size >= 1000) {
+          seenRealtimeMessageIdsRef.current.clear();
+        }
+        seenRealtimeMessageIdsRef.current.add(incoming.id);
+      }
+      if (isNewRealtimeMessage && !incoming.is_mine) {
+        const visibleAtNewest = selectedRoomIdRef.current === incoming.room_id
+          && chatConversationSurfaceOpenRef.current
+          && chatNearBottomRef.current;
+        if (!visibleAtNewest) {
+          setRooms((current) => current.map((room) => (
+            room.id === incoming.room_id
+              ? { ...room, unread_count: Math.max(0, Number(room.unread_count || 0)) + 1 }
+              : room
+          )));
+        }
+      }
+      if (selectedRoomIdRef.current !== incoming.room_id || !chatConversationSurfaceOpenRef.current) return;
 
       const nextMessages = mergeChatMessages(roomMessagesRef.current, [incoming]);
       setRoomMessages(nextMessages);
@@ -2196,7 +2237,8 @@ export default function GraduatePortal() {
       if (!payload.rooms) return;
       setRooms((current) => current.map((room) => {
         const unreadCount = payload.rooms?.[String(room.id)];
-        return typeof unreadCount === 'number' ? { ...room, unread_count: unreadCount } : room;
+        if (typeof unreadCount !== 'number') return room;
+        return { ...room, unread_count: unreadCount };
       }));
     };
 
@@ -2271,7 +2313,7 @@ export default function GraduatePortal() {
 
     const messageInterval = window.setInterval(() => {
       const roomId = selectedRoomIdRef.current;
-      if (roomId) {
+      if (roomId && chatConversationSurfaceOpenRef.current) {
         void loadMissedRoomMessages(roomId);
       }
     }, 7000);
@@ -2288,9 +2330,9 @@ export default function GraduatePortal() {
   }, [activeTab, roomMessages]);
 
   useEffect(() => {
-    if (activeTab !== 'messages' || !chatNearBottomRef.current) return;
+    if (!chatConversationSurfaceOpen || !chatNearBottomRef.current) return;
     void markVisibleMessagesAsRead();
-  }, [activeTab, markVisibleMessagesAsRead, roomMessages]);
+  }, [chatConversationSurfaceOpen, markVisibleMessagesAsRead, roomMessages]);
 
   useEffect(() => {
     chatSelectedAttachmentRef.current = chatSelectedAttachment;
@@ -2310,16 +2352,14 @@ export default function GraduatePortal() {
   }, []);
 
   useEffect(() => {
-    const handleNotificationUpdate = () => {
-      void loadBootData(true, activeTab);
-      if (selectedRoomId) {
-        void loadRoomMessages(selectedRoomId, true);
-      }
-    };
+    if (loading || activeTab !== 'jobs' || notificationCategoryCounts.browse_jobs <= 0) return;
+    void markNotificationCategoryRead('browse_jobs');
+  }, [activeTab, loading, markNotificationCategoryRead, notificationCategoryCounts.browse_jobs]);
 
-    window.addEventListener('gradtrack:notifications-updated', handleNotificationUpdate);
-    return () => window.removeEventListener('gradtrack:notifications-updated', handleNotificationUpdate);
-  }, [activeTab, loadBootData, loadRoomMessages, selectedRoomId]);
+  useEffect(() => {
+    if (loading || activeTab !== 'job_posting' || notificationCategoryCounts.job_posting <= 0) return;
+    void markNotificationCategoryRead('job_posting');
+  }, [activeTab, loading, markNotificationCategoryRead, notificationCategoryCounts.job_posting]);
 
   useEffect(() => {
     if (!mediaViewer) return undefined;
@@ -2773,16 +2813,6 @@ export default function GraduatePortal() {
     setChatModalOpen(true);
   };
 
-  const openForumChatWindow = (roomId: number) => {
-    if (!messagingAvailable) {
-      notify('info', 'This feature is currently unavailable.', 'Messages');
-      return;
-    }
-
-    setSelectedRoomId(roomId);
-    setForumChatWindowOpen(true);
-  };
-
   const openCommunityProfile = useCallback((graduateId?: number | null) => {
     const targetId = Number(graduateId || 0);
     if (!Number.isInteger(targetId) || targetId <= 0) {
@@ -2874,7 +2904,7 @@ export default function GraduatePortal() {
         setChatMobileConversationOpen(true);
         await loadRoomMessages(roomId);
       }
-      selectTab(chatModalMode === 'group' ? 'group_chats' : 'messages');
+      selectTab('messages');
 
       notify(
         'success',
@@ -3168,7 +3198,6 @@ export default function GraduatePortal() {
               last_message_at: newestMessage.created_at,
               last_message_sender_id: newestMessage.graduate_id,
               updated_at: newestMessage.created_at,
-              unread_count: 0,
             }
           : room
       ))));
@@ -3418,9 +3447,9 @@ export default function GraduatePortal() {
 
   const resetProfileEditorFiles = () => {
     setProfileImageFile(null);
-    setProfileImagePreview(resolveAssetUrl(profileUser?.profile_image_path));
+    setAuthenticatedProfileImagePreview(resolveAssetUrl(viewedProfileUser?.profile_image_path));
     setCoverImageFile(null);
-    setCoverImagePreview(resolveAssetUrl(profileUser?.cover_image_path));
+    setCoverImagePreview(resolveAssetUrl(viewedProfileUser?.cover_image_path));
     setCoverRemoveRequested(false);
     if (profileImageInputRef.current) {
       profileImageInputRef.current.value = '';
@@ -3442,7 +3471,7 @@ export default function GraduatePortal() {
   const cancelProfileEditing = () => {
     setProfileEditOpen(false);
     resetProfileEditorFiles();
-    setProfileForm(createProfileForm(profileRecord, profileUser));
+    setProfileForm(createProfileForm(viewedProfileRecord, viewedProfileUser));
   };
 
   const submitProfileUpdate = async ({
@@ -3508,13 +3537,13 @@ export default function GraduatePortal() {
         body: formData,
       });
       const nextProfile = (response.data as GraduateProfilePayload | undefined) || null;
-      setProfileDetails(nextProfile);
-      setProfileDetailsLoaded(true);
+      setViewedProfileDetails(nextProfile);
+      setViewedProfileLoaded(true);
       await checkAuth();
       setProfileImageFile(null);
       setCoverImageFile(null);
       setCoverRemoveRequested(false);
-      setProfileImagePreview(resolveAssetUrl(nextProfile?.user?.profile_image_path));
+      setAuthenticatedProfileImagePreview(resolveAssetUrl(nextProfile?.user?.profile_image_path));
       setCoverImagePreview(resolveAssetUrl(nextProfile?.user?.cover_image_path));
       setProfileForm((current) => ({
         ...current,
@@ -3536,8 +3565,8 @@ export default function GraduatePortal() {
       setProfileImageFile(null);
       setCoverImageFile(null);
       setCoverRemoveRequested(false);
-      setProfileImagePreview(resolveAssetUrl(profileUser?.profile_image_path));
-      setCoverImagePreview(resolveAssetUrl(profileUser?.cover_image_path));
+      setAuthenticatedProfileImagePreview(resolveAssetUrl(viewedProfileUser?.profile_image_path));
+      setCoverImagePreview(resolveAssetUrl(viewedProfileUser?.cover_image_path));
       notify('error', error instanceof Error ? error.message : 'Unable to update profile', 'My Profile');
     } finally {
       setProfileSaving(false);
@@ -3570,7 +3599,7 @@ export default function GraduatePortal() {
     const previewUrl = URL.createObjectURL(file);
     if (kind === 'profile') {
       setProfileImageFile(file);
-      setProfileImagePreview(previewUrl);
+      setAuthenticatedProfileImagePreview(previewUrl);
       void submitProfileUpdate({ profileFile: file, coverFile: null, removeCover: false });
       return;
     }
@@ -3667,11 +3696,10 @@ export default function GraduatePortal() {
 
   const navItems: Array<{ key: PortalTab; label: string; shortLabel: string; icon: LucideIcon; badge?: number }> = [
     { key: 'announcements', label: 'Announcements', shortLabel: 'News', icon: Megaphone },
-    { key: 'community_forum', label: 'Community Forum', shortLabel: 'Forum', icon: MessageSquare, badge: forumPosts.length },
-    { key: 'messages', label: 'Messages', shortLabel: 'Chats', icon: MessageCircle, badge: directChatCount },
-    { key: 'group_chats', label: 'Group Chats', shortLabel: 'Groups', icon: Users, badge: groupChatCount },
-    { key: 'jobs', label: 'Browse Jobs', shortLabel: 'Jobs', icon: Briefcase, badge: jobs.length },
-    { key: 'job_posting', label: 'Job Posting', shortLabel: 'Post Job', icon: Pencil, badge: myPostedJobs.length },
+    { key: 'community_forum', label: 'Home', shortLabel: 'Home', icon: Home },
+    { key: 'messages', label: 'Messages', shortLabel: 'Chats', icon: MessageCircle, badge: unreadMessageCount },
+    { key: 'jobs', label: 'Browse Jobs', shortLabel: 'Jobs', icon: Briefcase, badge: notificationCategoryCounts.browse_jobs },
+    { key: 'job_posting', label: 'Job Posting', shortLabel: 'Post Job', icon: Pencil, badge: notificationCategoryCounts.job_posting },
     { key: 'my_profile', label: 'My Profile', shortLabel: 'Profile', icon: User },
   ];
   const primaryNavItems = navItems.filter((item) => item.key !== 'my_profile');
@@ -3679,17 +3707,15 @@ export default function GraduatePortal() {
 
   const profileInputClass = 'w-full rounded-2xl border border-[var(--border-strong)] bg-[var(--input)] px-4 py-3 text-sm text-[var(--text-primary)] outline-none transition focus:border-blue-500';
 
-  const renderChatWorkspace = (mode: 'direct' | 'group') => {
-    const isGroupMode = mode === 'group';
-    {
-      const activeTypingNames = selectedRoomId
-        ? Object.values(chatTypingUsers[selectedRoomId] || {})
-            .filter((typing) => typing.expiresAt > Date.now())
-            .map((typing) => typing.name)
-        : [];
+  const renderChatWorkspace = () => {
+    const activeTypingNames = selectedRoomId
+      ? Object.values(chatTypingUsers[selectedRoomId] || {})
+          .filter((typing) => typing.expiresAt > Date.now())
+          .map((typing) => typing.name)
+      : [];
 
-      return (
-        <RealtimeMessagingWorkspace
+    return (
+      <RealtimeMessagingWorkspace
           currentGraduate={{
             graduate_id: currentGraduateId,
             full_name: user?.full_name || 'Graduate',
@@ -3697,15 +3723,14 @@ export default function GraduatePortal() {
             program_code: user?.program_code,
             program_name: user?.program_name,
           }}
-          rooms={isGroupMode ? groupRooms : directRooms}
-          directory={directory}
+          rooms={rooms}
           selectedRoomId={selectedRoomId}
-          activeRoom={activeRoom && activeRoom.id === selectedRoomId && activeRoom.is_group === isGroupMode ? activeRoom : null}
-          messages={activeRoom && activeRoom.id === selectedRoomId && activeRoom.is_group === isGroupMode ? roomMessages : []}
+          activeRoom={activeRoom && activeRoom.id === selectedRoomId ? activeRoom : null}
+          messages={activeRoom && activeRoom.id === selectedRoomId ? roomMessages : []}
           search={chatSearch}
           draft={chatMessageDraft}
           roomLoading={roomLoading}
-          initialLoading={loading && (isGroupMode ? groupRooms.length : directRooms.length) === 0}
+          initialLoading={loading && rooms.length === 0}
           connectionStatus={chatConnectionStatus}
           loadingOlder={olderMessagesLoading}
           hasMoreOlder={!!messagePagination?.has_more_older}
@@ -3713,9 +3738,6 @@ export default function GraduatePortal() {
           selectedAttachment={chatSelectedAttachment}
           newMessageAvailable={chatNewMessageAvailable}
           mobileChatOpen={chatMobileConversationOpen}
-          newConversationOpen={!isGroupMode && chatModalOpen && chatModalMode === 'direct' && activeTab === 'messages'}
-          newConversationSearch={chatModalSearch}
-          newConversationCreating={chatCreating}
           resolveAssetUrl={resolveAssetUrl}
           onSearchChange={setChatSearch}
           onSelectRoom={(roomId) => {
@@ -3733,35 +3755,13 @@ export default function GraduatePortal() {
           onAttachmentSelected={handleChatAttachmentSelected}
           onRemoveAttachment={removeChatAttachment}
           onRetryAttachment={handleRetryAttachment}
-          onOpenNewConversation={() => openChatModal(mode)}
-          onCloseNewConversation={() => setChatModalOpen(false)}
-          onNewConversationSearchChange={setChatModalSearch}
-          onStartConversation={(graduateId) => void createDirectChat(graduateId)}
+          onOpenNewConversation={() => openChatModal('direct')}
           onOpenProfile={openCommunityProfile}
-        />
-      );
-    }
-
+      />
+    );
   };
 
-  const ActiveNavIcon = activeNavItem?.icon || MessageSquare;
-  const selectedForumChatRoom = selectedRoomId
-    ? (activeRoom?.id === selectedRoomId ? activeRoom : rooms.find((room) => room.id === selectedRoomId) || null)
-    : null;
-  const selectedForumChatReady = !!activeRoom && activeRoom.id === selectedRoomId;
-  const selectedForumChatTypingNames = selectedRoomId
-    ? Object.values(chatTypingUsers[selectedRoomId] || {})
-        .filter((typing) => typing.expiresAt > Date.now())
-        .map((typing) => typing.name)
-    : [];
-  const selectedForumChatRecipient = selectedForumChatRoom
-    ? getRoomOtherParticipants(selectedForumChatRoom, currentGraduateId)[0] || selectedForumChatRoom.participants[0] || null
-    : null;
-
-  useEffect(() => {
-    setChatPreviewAttachment(null);
-  }, [activeTab, location.key, selectedRoomId]);
-
+  const ActiveNavIcon = activeNavItem?.icon || Home;
   return (
     <div className="min-h-screen overflow-x-clip bg-[#f4f6fb] text-slate-900" style={graduatePortalLayoutStyle}>
       <header className="sticky top-0 z-50 border-b border-gray-200 bg-white shadow-sm">
@@ -3823,7 +3823,7 @@ export default function GraduatePortal() {
 
           <div className="flex min-w-0 shrink-0 items-center justify-end gap-2 justify-self-end sm:gap-3">
             <ThemeToggle compact />
-            {notificationsEnabled && <NotificationBell audience="graduate" expandLabel />}
+            {notificationsEnabled && <NotificationBell audience="graduate" expandLabel onSnapshot={applyNotificationSnapshot} />}
 
             <div className="relative min-w-0" ref={profileMenuRef}>
               <button
@@ -3835,7 +3835,7 @@ export default function GraduatePortal() {
                 aria-haspopup="menu"
                 aria-expanded={profileMenuOpen}
               >
-                <Avatar src={profileImagePreview || currentProfileImageUrl} label={user?.full_name} size="sm" />
+                <Avatar src={navbarProfileImageUrl} label={user?.full_name} size="sm" />
                 <div className="hidden min-w-0 flex-1 text-left 2xl:block">
                   <p className="max-w-[150px] truncate text-sm font-semibold text-gray-800">{user?.full_name || 'Graduate User'}</p>
                   <p className="max-w-[150px] truncate text-xs text-gray-500">{user?.program_code || 'Graduate'}</p>
@@ -3846,7 +3846,7 @@ export default function GraduatePortal() {
               {profileMenuOpen && (
                 <div className="absolute right-0 z-50 mt-2 w-72 max-w-[calc(100vw-2rem)] rounded-2xl border bg-white py-2 shadow-xl sm:w-80">
                   <div className="flex items-center gap-3 border-b px-4 py-3">
-                    <Avatar src={profileImagePreview || currentProfileImageUrl} label={user?.full_name} size="lg" />
+                    <Avatar src={navbarProfileImageUrl} label={user?.full_name} size="lg" />
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-gray-800">{user?.full_name || 'Graduate User'}</p>
                       <p className="truncate text-xs text-gray-500">{user?.email || 'No email set'}</p>
@@ -3958,7 +3958,7 @@ export default function GraduatePortal() {
                   <div className="grid gap-4 lg:grid-cols-4">
                     <DashboardCard label="Approved Forum Posts" value={forumPosts.length} caption="Visible in the social feed" tone="blue" />
                     <DashboardCard label="Pending My Posts" value={pendingForumPostsCount} caption="Waiting for moderator review" tone="amber" />
-                    <DashboardCard label="Messages" value={directChatCount} caption={`${groupChatCount} group chat${groupChatCount === 1 ? '' : 's'}`} tone="pink" />
+                    <DashboardCard label="Conversations" value={rooms.length} caption={`${unreadMessageCount} unread message${unreadMessageCount === 1 ? '' : 's'}`} tone="pink" />
                     <DashboardCard label="Approved Jobs" value={jobs.length} caption={`${myPostedJobs.length} post${myPostedJobs.length === 1 ? '' : 's'} created by you`} tone="emerald" />
                   </div>
 
@@ -3976,8 +3976,7 @@ export default function GraduatePortal() {
 
                       <div className="mt-6 grid gap-4 md:grid-cols-2">
                         <InfoTile title="Community Forum" description="Post, react, comment, and message fellow graduates." actionLabel="Open Forum" onAction={() => selectTab('community_forum')} />
-                        <InfoTile title="Messages" description="Continue one-on-one conversations with fellow graduates." actionLabel="Open Messages" onAction={() => selectTab('messages')} />
-                        <InfoTile title="Group Chats" description="Create or revisit group conversations for alumni coordination." actionLabel="Open Group Chats" onAction={() => selectTab('group_chats')} />
+                        <InfoTile title="Messages" description="Continue direct and group conversations in one inbox." actionLabel="Open Messages" onAction={() => selectTab('messages')} />
                         <InfoTile title="Job Posting" description={canPostJobs ? 'Your account can submit new job opportunities.' : 'Locked until employment status is marked as employed.'} actionLabel="Open Job Posting" onAction={() => selectTab('job_posting')} />
                         <InfoTile title="Browse Jobs" description="Review approved job openings shared in GradTrack." actionLabel="Browse Jobs" onAction={() => selectTab('jobs')} />
                         <InfoTile title="My Profile" description="Keep your account details and photo up to date." actionLabel="Edit Profile" onAction={() => selectTab('my_profile')} />
@@ -4021,7 +4020,7 @@ export default function GraduatePortal() {
                 <section className="space-y-6">
                   <div className="rounded-[32px] border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-                      <Avatar src={currentProfileImageUrl} label={user?.full_name} size="lg" />
+                      <Avatar src={authenticatedUserProfileImageUrl} label={user?.full_name} size="lg" />
                       <button type="button" onClick={() => openForumComposer()} className="flex-1 rounded-full bg-[#f5f7fb] px-5 py-3 text-left text-sm text-slate-500 transition hover:bg-[#edf1f8]">
                         Share a career tip, experience, or question with fellow graduates...
                       </button>
@@ -4157,53 +4156,41 @@ export default function GraduatePortal() {
                       <aside className="rounded-[32px] border border-slate-200 bg-white p-5 shadow-sm lg:sticky lg:top-[calc(var(--graduate-portal-header-height)_+_var(--graduate-portal-sticky-gap))] lg:z-10 lg:max-h-[calc(100vh_-_var(--graduate-portal-header-height)_-_2rem)] lg:overflow-y-auto lg:overscroll-contain">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                           <div>
-                            <h2 className="text-xl font-bold text-slate-900">Chats</h2>
-                            <p className="text-sm text-slate-500">Direct and group conversations inside the forum.</p>
+                            <h2 className="text-xl font-bold text-slate-900">Recent Messages</h2>
+                            <p className="text-sm text-slate-500">A preview of your unified inbox.</p>
                           </div>
                           {messagingAvailable && (
-                            <div className="flex gap-2">
-                              <button type="button" onClick={() => openChatModal('direct')} className="rounded-full border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                                New Chat
-                              </button>
-                              <button type="button" onClick={() => openChatModal('group')} className="rounded-full bg-blue-700 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-800">
-                                Group Chat
-                              </button>
-                            </div>
+                            <button type="button" onClick={() => selectTab('messages')} className="rounded-full border border-blue-200 px-3 py-2 text-xs font-semibold text-blue-700 transition hover:bg-blue-50">
+                              View all
+                            </button>
                           )}
                         </div>
 
                         {!messagingAvailable ? (
                           <FeatureUnavailable compact title="Messages are currently unavailable." message="This feature is currently unavailable." />
                         ) : (
-                        <div className="mt-4 rounded-3xl bg-[#fafbff] p-3">
-                          <label className="relative block">
-                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                            <input value={chatSearch} onChange={(event) => setChatSearch(event.target.value)} placeholder="Search chats" className="w-full rounded-2xl border border-slate-200 bg-white px-10 py-2.5 text-sm outline-none transition focus:border-blue-500" />
-                          </label>
-
-                          <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1 lg:max-h-[calc(100vh_-_var(--graduate-portal-header-height)_-_14rem)]">
-                            {filteredRooms.length === 0 ? (
-                              <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-500">
-                                No chat rooms yet. Start a direct message or create a group chat.
+                        <div className="mt-4 rounded-3xl bg-[#fafbff] p-3 dark:bg-slate-950/60">
+                          <div className="space-y-2">
+                            {rooms.length === 0 ? (
+                              <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+                                No conversations yet. Start one from Messages.
                               </div>
                             ) : (
-                              filteredRooms.map((room) => {
-                                const active = selectedRoomId === room.id;
-
-                                return (
-                                  <button key={room.id} type="button" onClick={() => openForumChatWindow(room.id)} className={`flex w-full items-start gap-3 rounded-2xl border px-3 py-3 text-left transition ${active && forumChatWindowOpen ? 'border-blue-200 bg-blue-50' : 'border-transparent bg-white hover:border-slate-200 hover:bg-slate-50'}`}>
+                              rooms.slice(0, 4).map((room) => (
+                                  <button key={room.id} type="button" onClick={() => { setSelectedRoomId(room.id); setChatMobileConversationOpen(true); selectTab('messages'); }} className="flex w-full items-start gap-3 rounded-2xl border border-transparent bg-white px-3 py-3 text-left transition hover:border-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:hover:border-slate-700 dark:hover:bg-slate-800">
                                     <Avatar src={resolveAssetUrl(getRoomOtherParticipants(room, currentGraduateId)[0]?.profile_image_path || room.participants[0]?.profile_image_path)} label={getRoomLabel(room, currentGraduateId)} size="sm" />
                                     <div className="min-w-0 flex-1">
                                       <div className="flex items-start justify-between gap-3">
-                                        <p className="truncate text-sm font-semibold text-slate-900">{getRoomLabel(room, currentGraduateId)}</p>
+                                        <p className={`truncate text-sm text-slate-900 dark:text-slate-100 ${(room.unread_count || 0) > 0 ? 'font-bold' : 'font-semibold'}`}>{getRoomLabel(room, currentGraduateId)}</p>
                                         <span className="shrink-0 text-[11px] text-slate-400">{formatRelativeTime(room.last_message_at || room.updated_at)}</span>
                                       </div>
-                                      <p className="truncate text-xs text-slate-500">{getRoomSubtitle(room, currentGraduateId)}</p>
-                                      <p className="mt-1 truncate text-xs text-slate-500">{room.last_message || 'No messages yet'}</p>
+                                      <div className="mt-1 flex items-center gap-2">
+                                        <p className={`min-w-0 flex-1 truncate text-xs dark:text-slate-400 ${(room.unread_count || 0) > 0 ? 'font-bold text-slate-800 dark:text-slate-200' : 'text-slate-500'}`}>{room.last_message || 'No messages yet'}</p>
+                                        {(room.unread_count || 0) > 0 && <span className="min-w-5 rounded-full bg-blue-700 px-1.5 py-0.5 text-center text-[10px] font-bold text-white">{room.unread_count}</span>}
+                                      </div>
                                     </div>
                                   </button>
-                                );
-                              })
+                              ))
                             )}
                           </div>
                         </div>
@@ -4217,13 +4204,7 @@ export default function GraduatePortal() {
               {activeTab === 'messages' && (
                 unavailableForTab(activeTab)
                   ? <FeatureUnavailable compact {...unavailableForTab(activeTab)!} />
-                  : renderChatWorkspace('direct')
-              )}
-
-              {activeTab === 'group_chats' && (
-                unavailableForTab(activeTab)
-                  ? <FeatureUnavailable compact {...unavailableForTab(activeTab)!} />
-                  : renderChatWorkspace('group')
+                  : renderChatWorkspace()
               )}
 
               {activeTab === 'jobs' && unavailableForTab(activeTab) && (
@@ -4556,12 +4537,12 @@ export default function GraduatePortal() {
                     </>
                   )}
 
-                  {profileDetailsLoading && !profileDetailsLoaded ? (
+                  {viewedProfileLoading && !viewedProfileLoaded ? (
                     <ProfileSkeleton />
                   ) : (
                     <ProfileWorkspace
-                      user={profileUser}
-                      profile={profileRecord}
+                      user={viewedProfileUser}
+                      profile={viewedProfileRecord}
                       survey={profileSurvey}
                       personalFields={profilePersonalFields}
                       workFields={profileWorkFields}
@@ -4583,7 +4564,7 @@ export default function GraduatePortal() {
                       onChangeCoverPhoto={() => coverImageInputRef.current?.click()}
                       onRemoveCoverPhoto={handleRemoveCoverImage}
                       onOpenProfileImage={(src, alt) => setProfileImageViewer({ src, alt })}
-                      onMessage={() => profileUser?.graduate_id && void createDirectChat(profileUser.graduate_id)}
+                      onMessage={() => viewedProfileUser?.graduate_id && void createDirectChat(viewedProfileUser.graduate_id)}
                       onOpenPost={(post) => void loadPostDetail(post.id)}
                       onOpenMedia={openMediaViewer}
                       onToggleLike={(postId) => void toggleLike(postId)}
@@ -4597,72 +4578,6 @@ export default function GraduatePortal() {
             </>
           )}
       </main>
-
-      {activeTab === 'community_forum' && forumChatWindowOpen && selectedRoomId && (
-        <div className="fixed bottom-4 left-4 right-4 z-40 flex h-[32rem] max-h-[calc(100vh_-_7rem)] flex-col overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-2xl sm:left-auto sm:w-96">
-          <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-3">
-            {selectedForumChatRoom ? (
-              <button type="button" onClick={() => openCommunityProfile(selectedForumChatRecipient?.graduate_id)} disabled={selectedForumChatRoom.is_group || !selectedForumChatRecipient?.graduate_id} className="flex min-w-0 items-center gap-3 text-left disabled:cursor-default">
-                <div className="relative shrink-0">
-                  <Avatar src={resolveAssetUrl(selectedForumChatRecipient?.profile_image_path)} label={getRoomLabel(selectedForumChatRoom, currentGraduateId)} size="md" />
-                  {!selectedForumChatRoom.is_group && selectedForumChatRecipient?.is_online && (
-                    <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-emerald-500" />
-                  )}
-                </div>
-                <div className="min-w-0">
-                  <p className="truncate font-semibold text-slate-900 transition hover:text-blue-700">{getRoomLabel(selectedForumChatRoom, currentGraduateId)}</p>
-                  <p className="truncate text-xs text-slate-500">
-                    {selectedForumChatRoom.is_group
-                      ? getRoomSubtitle(selectedForumChatRoom, currentGraduateId)
-                      : <PresenceText participant={selectedForumChatRecipient} />}
-                  </p>
-                </div>
-              </button>
-            ) : (
-              <div>
-                <p className="font-semibold text-slate-900">Loading chat</p>
-                <p className="text-xs text-slate-500">Opening conversation...</p>
-              </div>
-            )}
-            <button type="button" onClick={() => { setForumChatWindowOpen(false); removeChatAttachment(); }} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100" aria-label="Close chat window">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-
-          <div className="min-h-0 flex flex-1 flex-col">
-            <MessageList
-              room={selectedForumChatReady ? activeRoom : null}
-              messages={selectedForumChatReady ? roomMessages : []}
-              loading={roomLoading || !selectedForumChatReady}
-              loadingOlder={olderMessagesLoading}
-              hasMoreOlder={!!messagePagination?.has_more_older}
-              typingNames={selectedForumChatTypingNames}
-              newMessageAvailable={chatNewMessageAvailable}
-              resolveAssetUrl={resolveAssetUrl}
-              onRetryMessage={handleRetryMessage}
-              onLoadOlder={loadOlderRoomMessages}
-              onNearBottomChange={handleChatNearBottomChange}
-              onScrollToNewest={handleScrollToNewest}
-              onImageOpen={setChatPreviewAttachment}
-            />
-            <MessageComposer
-              draft={chatMessageDraft}
-              disabled={!selectedForumChatReady || roomLoading}
-              selectedAttachment={chatSelectedAttachment}
-              onDraftChange={handleChatDraftInput}
-              onTypingStop={() => stopChatTyping()}
-              onSend={handleSendMessage}
-              onAttachmentSelected={handleChatAttachmentSelected}
-              onRemoveAttachment={removeChatAttachment}
-              onRetryAttachment={handleRetryAttachment}
-            />
-          </div>
-        </div>
-      )}
-
-      {chatPreviewAttachment && (
-        <ChatImagePreviewModal attachment={chatPreviewAttachment} resolveAssetUrl={resolveAssetUrl} onClose={() => setChatPreviewAttachment(null)} />
-      )}
 
       {forumComposerOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-6">
@@ -4853,7 +4768,7 @@ export default function GraduatePortal() {
       {isViewingOwnProfile && profileEditOpen && (
         <ProfileEditModal
           activeSection={profileEditSection}
-          user={profileUser}
+          user={viewedProfileUser}
           survey={profileSurvey}
           form={profileForm}
           inputClassName={profileInputClass}
@@ -5038,16 +4953,16 @@ export default function GraduatePortal() {
         </div>
       )}
 
-      {chatModalOpen && !(activeTab === 'messages' && chatModalMode === 'direct') && (
+      {chatModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-6">
-          <form onSubmit={handleCreateChat} className="w-full max-w-2xl rounded-[32px] border border-slate-200 bg-white shadow-2xl">
+          <form onSubmit={handleCreateChat} className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-[32px] border border-slate-200 bg-white shadow-2xl">
             <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
               <div>
-                <h2 className="text-2xl font-bold text-slate-900">{chatModalMode === 'group' ? 'Create Group Chat' : 'Start Direct Chat'}</h2>
+                <h2 className="text-2xl font-bold text-slate-900">New Message</h2>
                 <p className="text-sm text-slate-500">
                   {chatModalMode === 'group'
                     ? 'Choose multiple graduates and give your chat a name.'
-                    : 'Pick one graduate to start a private conversation.'}
+                    : 'Choose one graduate to start a private conversation.'}
                 </p>
               </div>
               <button type="button" onClick={() => setChatModalOpen(false)} className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100" aria-label="Close chat creator">
@@ -5058,10 +4973,10 @@ export default function GraduatePortal() {
             <div className="space-y-5 px-6 py-5">
               <div className="flex gap-2">
                 <button type="button" onClick={() => { setChatModalMode('direct'); setChatModalName(''); setChatModalSelectedIds([]); }} className={`rounded-full px-4 py-2 text-sm font-semibold transition ${chatModalMode === 'direct' ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-700'}`}>
-                  Direct
+                  Direct Message
                 </button>
                 <button type="button" onClick={() => { setChatModalMode('group'); setChatModalSelectedIds([]); }} className={`rounded-full px-4 py-2 text-sm font-semibold transition ${chatModalMode === 'group' ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-700'}`}>
-                  Group
+                  Group Chat
                 </button>
               </div>
 
@@ -5110,6 +5025,17 @@ export default function GraduatePortal() {
                 ) : (
                   filteredDirectory.map((participant) => {
                     const selected = chatModalSelectedIds.includes(participant.graduate_id);
+                    const toggleParticipant = () => {
+                      if (chatModalMode === 'group') {
+                        setChatModalSelectedIds((current) =>
+                          current.includes(participant.graduate_id)
+                            ? current.filter((id) => id !== participant.graduate_id)
+                            : [...current, participant.graduate_id],
+                        );
+                      } else {
+                        setChatModalSelectedIds([participant.graduate_id]);
+                      }
+                    };
 
                     return (
                       <div key={participant.graduate_id} className={`flex items-center gap-3 rounded-2xl border px-4 py-3 transition ${selected ? 'border-blue-200 bg-blue-50' : 'border-slate-200 hover:bg-slate-50'}`}>
@@ -5117,19 +5043,9 @@ export default function GraduatePortal() {
                           type={chatModalMode === 'group' ? 'checkbox' : 'radio'}
                           name="chat_participant"
                           checked={selected}
-                          onChange={() => {
-                            if (chatModalMode === 'group') {
-                              setChatModalSelectedIds((current) =>
-                                current.includes(participant.graduate_id)
-                                  ? current.filter((id) => id !== participant.graduate_id)
-                                  : [...current, participant.graduate_id],
-                              );
-                            } else {
-                              setChatModalSelectedIds([participant.graduate_id]);
-                            }
-                          }}
+                          onChange={toggleParticipant}
                         />
-                        <button type="button" onClick={() => openCommunityProfile(participant.graduate_id)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+                        <button type="button" onClick={toggleParticipant} className="flex min-w-0 flex-1 items-center gap-3 text-left">
                           <Avatar src={resolveAssetUrl(participant.profile_image_path)} label={participant.full_name} size="sm" />
                           <span className="min-w-0">
                             <span className="block truncate font-semibold text-slate-900 transition hover:text-blue-700">{participant.full_name}</span>
@@ -5309,7 +5225,6 @@ function ProfileWorkspace({
 
       <ProfilePostsSection
         posts={posts}
-        profileImageUrl={profileImageUrl}
         forumActionKey={forumActionKey}
         onOpenPost={onOpenPost}
         onOpenMedia={onOpenMedia}
@@ -5804,7 +5719,6 @@ function ProfileTrainingsSection({
 
 function ProfilePostsSection({
   posts,
-  profileImageUrl,
   forumActionKey,
   limit,
   canManagePosts,
@@ -5816,7 +5730,6 @@ function ProfilePostsSection({
   onOpenProfile,
 }: {
   posts: ForumPost[];
-  profileImageUrl: string;
   forumActionKey: string;
   limit?: number;
   canManagePosts: boolean;
@@ -5850,7 +5763,6 @@ function ProfilePostsSection({
           <ProfilePostCard
             key={post.id}
             post={post}
-            profileImageUrl={profileImageUrl}
             actionKey={forumActionKey}
             canManage={canManagePosts}
             onOpenPost={onOpenPost}
@@ -5868,7 +5780,6 @@ function ProfilePostsSection({
 
 function ProfilePostCard({
   post,
-  profileImageUrl,
   actionKey,
   canManage,
   onOpenPost,
@@ -5879,7 +5790,6 @@ function ProfilePostCard({
   onOpenProfile,
 }: {
   post: ForumPost;
-  profileImageUrl: string;
   actionKey: string;
   canManage: boolean;
   onOpenPost: (post: ForumPost) => void;
@@ -5893,7 +5803,7 @@ function ProfilePostCard({
     <article className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <button type="button" onClick={() => onOpenProfile(post.graduate_id)} className="flex min-w-0 items-center gap-3 text-left">
-          <Avatar src={resolveAssetUrl(post.author_profile_image_path) || profileImageUrl} label={post.author_name} size="md" />
+          <Avatar src={resolveAssetUrl(post.author_profile_image_path)} label={post.author_name} size="md" />
           <div className="min-w-0">
             <p className="font-semibold text-slate-950 transition hover:text-blue-700">{post.author_name}</p>
             <p className="truncate text-xs text-slate-500">
@@ -6372,25 +6282,14 @@ function Avatar({
   const sizeClass =
     size === 'sm' ? 'h-10 w-10 text-sm' : size === 'md' ? 'h-12 w-12 text-base' : size === 'lg' ? 'h-14 w-14 text-lg' : 'h-28 w-28 text-3xl';
 
-  const fallback = (
-    <div className={`${sizeClass} flex items-center justify-center rounded-full bg-blue-100 font-bold text-blue-800`}>
-      {getInitials(label)}
-    </div>
+  return (
+    <ProfileAvatar
+      src={src}
+      label={label}
+      imageClassName={`${sizeClass} gradtrack-media-image rounded-full object-cover object-center`}
+      fallbackClassName={`${sizeClass} flex items-center justify-center rounded-full bg-blue-100 font-bold text-blue-800 dark:bg-blue-950 dark:text-blue-200`}
+    />
   );
-
-  if (src) {
-    return (
-      <SafeImage
-        src={src}
-        alt={label || 'Avatar'}
-        logContext="avatar"
-        className={`${sizeClass} gradtrack-media-image rounded-full object-cover object-center`}
-        fallback={fallback}
-      />
-    );
-  }
-
-  return fallback;
 }
 
 function DashboardCard({

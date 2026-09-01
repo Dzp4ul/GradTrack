@@ -175,7 +175,7 @@ function gradtrack_forum_chats_rooms(PDO $db, int $currentGraduateId): array
                                      WHERE unread.room_id = r.id
                                        AND unread.graduate_id <> :unread_graduate_id
                                        AND unread.deleted_at IS NULL
-                                       AND (mine.last_read_at IS NULL OR unread.created_at > mine.last_read_at)
+                                       AND unread.id > COALESCE(mine.last_read_message_id, 0)
                                  ) AS unread_count
                           FROM forum_chat_rooms r
                           JOIN forum_chat_members mine

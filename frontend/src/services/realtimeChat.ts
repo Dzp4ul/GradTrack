@@ -20,7 +20,9 @@ export function getRealtimeChatSocket(): Socket {
     reconnectionAttempts: Infinity,
     reconnectionDelay: 800,
     reconnectionDelayMax: 5000,
-    timeout: 10000,
+    // Allow the PHP session-backed authentication middleware to complete
+    // during a busy full-page refresh before Socket.IO retries the handshake.
+    timeout: 15000,
     transports: ['websocket', 'polling'],
     tryAllTransports: true,
     upgrade: true,

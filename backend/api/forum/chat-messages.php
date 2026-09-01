@@ -16,7 +16,7 @@ function gradtrack_forum_chat_messages_request_data(): array
     return is_array($decoded) ? $decoded : [];
 }
 
-function gradtrack_forum_chat_messages_json_error(int $statusCode, string $message): void
+function gradtrack_forum_chat_messages_json_error(int $statusCode, string $message): never
 {
     http_response_code($statusCode);
     echo json_encode(['success' => false, 'error' => $message]);
@@ -199,6 +199,7 @@ function gradtrack_forum_chat_messages_insert(PDO $db, int $roomId, int $current
     }
 
     $attachmentType = null;
+    $attachmentRows = [];
     if (count($attachmentIds) > 0) {
         $params = [
             ':room_id' => $roomId,
@@ -404,12 +405,14 @@ function gradtrack_forum_chat_messages_mark_read(PDO $db, int $roomId, int $curr
                                       SET last_read_at = CASE
                                           WHEN last_read_at IS NULL OR last_read_at < :read_at_compare THEN :read_at_value
                                           ELSE last_read_at
-                                      END
+                                      END,
+                                          last_read_message_id = GREATEST(COALESCE(last_read_message_id, 0), :up_to_message_id)
                                       WHERE room_id = :room_id
                                         AND graduate_id = :graduate_id");
     $updateMemberStmt->execute([
         ':read_at_compare' => $boundary['created_at'],
         ':read_at_value' => $boundary['created_at'],
+        ':up_to_message_id' => $upToMessageId,
         ':room_id' => $roomId,
         ':graduate_id' => $currentGraduateId,
     ]);

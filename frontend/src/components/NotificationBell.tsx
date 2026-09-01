@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Bell, CheckCheck, Loader2 } from 'lucide-react';
 import { API_ENDPOINTS } from '../config/api';
 
-interface NotificationItem {
+export interface NotificationItem {
   key: string;
   type: string;
   title: string;
@@ -12,14 +12,18 @@ interface NotificationItem {
   link: string | null;
   priority: string;
   read: boolean;
+  category?: 'browse_jobs' | 'job_posting' | 'general';
+}
+
+export interface NotificationSnapshot {
+  notifications: NotificationItem[];
+  unread_count: number;
+  unread_by_category?: Record<string, number>;
 }
 
 interface NotificationsResponse {
   success: boolean;
-  data?: {
-    notifications: NotificationItem[];
-    unread_count: number;
-  };
+  data?: NotificationSnapshot;
   error?: string;
 }
 
@@ -28,6 +32,7 @@ interface NotificationBellProps {
   colorScheme?: 'light' | 'dark';
   className?: string;
   expandLabel?: boolean;
+  onSnapshot?: (snapshot: NotificationSnapshot) => void;
 }
 
 const typeStyles: Record<string, string> = {
@@ -38,6 +43,7 @@ const typeStyles: Record<string, string> = {
   post_reaction: 'bg-rose-50 text-rose-700 border-rose-200',
   graduate: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   job_opportunity: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  job_posting: 'bg-amber-50 text-amber-700 border-amber-200',
   response: 'bg-violet-50 text-violet-700 border-violet-200',
   survey: 'bg-rose-50 text-rose-700 border-rose-200',
   user: 'bg-slate-50 text-slate-700 border-slate-200',
@@ -47,6 +53,7 @@ const typeLabels: Record<string, string> = {
   forum_comment: 'Forum Comment',
   post_reaction: 'Post Reaction',
   job_opportunity: 'New Job',
+  job_posting: 'Job Posting',
 };
 
 function formatRelativeTime(value: string | null) {
@@ -78,7 +85,7 @@ function formatNotificationType(type: string) {
   return typeLabels[type] || type.replace(/[_-]+/g, ' ');
 }
 
-export default function NotificationBell({ audience, colorScheme = 'light', className = '', expandLabel = false }: NotificationBellProps) {
+export default function NotificationBell({ audience, colorScheme = 'light', className = '', expandLabel = false, onSnapshot }: NotificationBellProps) {
   const navigate = useNavigate();
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const streamRef = useRef<EventSource | null>(null);
@@ -96,7 +103,7 @@ export default function NotificationBell({ audience, colorScheme = 'light', clas
     setError('');
 
     try {
-      const response = await fetch(`${API_ENDPOINTS.NOTIFICATIONS}?limit=20&audience=${audience}`, {
+      const response = await fetch(`${API_ENDPOINTS.NOTIFICATIONS}?limit=50&audience=${audience}`, {
         credentials: 'include',
       });
       const data = (await response.json()) as NotificationsResponse;
@@ -107,18 +114,31 @@ export default function NotificationBell({ audience, colorScheme = 'light', clas
 
       setNotifications(Array.isArray(data.data.notifications) ? data.data.notifications : []);
       setUnreadCount(Number(data.data.unread_count || 0));
+      onSnapshot?.(data.data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load notifications');
     } finally {
       if (!silent) setLoading(false);
     }
-  }, [audience]);
+  }, [audience, onSnapshot]);
 
   useEffect(() => {
     void fetchNotifications();
     const intervalId = window.setInterval(() => void fetchNotifications(true), 30000);
     return () => window.clearInterval(intervalId);
   }, [fetchNotifications]);
+
+  useEffect(() => {
+    const handleNotificationsUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<{ audience?: string }>).detail;
+      if (!detail?.audience || detail.audience === audience) {
+        void fetchNotifications(true);
+      }
+    };
+
+    window.addEventListener('gradtrack:notifications-updated', handleNotificationsUpdated);
+    return () => window.removeEventListener('gradtrack:notifications-updated', handleNotificationsUpdated);
+  }, [audience, fetchNotifications]);
 
   useEffect(() => {
     if (!isLiveNotificationsEnabled) {
@@ -202,12 +222,22 @@ export default function NotificationBell({ audience, colorScheme = 'light', clas
     setUnreadCount((current) => Math.max(0, current - 1));
 
     try {
-      await fetch(`${API_ENDPOINTS.NOTIFICATIONS}?audience=${audience}`, {
+      const response = await fetch(`${API_ENDPOINTS.NOTIFICATIONS}?audience=${audience}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ action: 'mark_read', key }),
       });
+      const data = (await response.json()) as NotificationsResponse;
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Unable to mark notification as read');
+      }
+      if (data.data) {
+        setNotifications(data.data.notifications || []);
+        setUnreadCount(Number(data.data.unread_count || 0));
+        onSnapshot?.(data.data);
+      }
+      window.dispatchEvent(new CustomEvent('gradtrack:notifications-updated', { detail: { audience } }));
     } catch {
       void fetchNotifications(true);
     }
@@ -222,12 +252,22 @@ export default function NotificationBell({ audience, colorScheme = 'light', clas
     setUnreadCount(0);
 
     try {
-      await fetch(`${API_ENDPOINTS.NOTIFICATIONS}?audience=${audience}`, {
+      const response = await fetch(`${API_ENDPOINTS.NOTIFICATIONS}?audience=${audience}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ action: 'mark_all_read', keys }),
       });
+      const data = (await response.json()) as NotificationsResponse;
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Unable to mark notifications as read');
+      }
+      if (data.data) {
+        setNotifications(data.data.notifications || []);
+        setUnreadCount(Number(data.data.unread_count || 0));
+        onSnapshot?.(data.data);
+      }
+      window.dispatchEvent(new CustomEvent('gradtrack:notifications-updated', { detail: { audience } }));
     } catch {
       void fetchNotifications(true);
     } finally {

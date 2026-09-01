@@ -553,10 +553,12 @@ CREATE TABLE `forum_chat_members` (
     `graduate_id` INT NOT NULL,
     `joined_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
     `last_read_at` TIMESTAMP NULL DEFAULT NULL,
+    `last_read_message_id` INT DEFAULT NULL,
     `is_admin` TINYINT(1) DEFAULT 0,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uq_chat_members_room_graduate` (`room_id`, `graduate_id`),
-    KEY `idx_chat_members_graduate_id` (`graduate_id`)
+    KEY `idx_chat_members_graduate_id` (`graduate_id`),
+    KEY `idx_chat_members_read_message` (`room_id`, `graduate_id`, `last_read_message_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE `forum_chat_messages` (

@@ -49,6 +49,23 @@ const allowedOrigin = (process.env.CORS_ALLOWED_ORIGINS || process.env.FRONTEND_
   .split(',')
   .map((value) => value.trim())
   .find((value) => value && value !== '*') || 'http://localhost:5173';
+const storageDriver = String(process.env.STORAGE_DRIVER || process.env.APP_STORAGE_DRIVER || 'local').trim().toLowerCase();
+
+function expectedMediaReference(reference) {
+  const value = String(reference || '').trim();
+  if (!value) return null;
+  const normalized = value.replace(/\\/g, '/').replace(/^\/+/, '');
+  if (
+    storageDriver !== 's3'
+    || /^https?:\/\//i.test(value)
+    || value.startsWith('/')
+    || normalized.startsWith('uploads/')
+    || normalized.startsWith('api/media.php?path=')
+  ) {
+    return value;
+  }
+  return `api/media.php?path=${encodeURIComponent(normalized)}`;
+}
 
 const pool = mysql.createPool({
   host: normalizedDbHost(),
@@ -197,8 +214,10 @@ async function loadFixture() {
     `SELECT msg.id AS message_id, msg.room_id, msg.graduate_id AS sender_id,
             msg.message, msg.client_message_id,
             sender_account.id AS sender_account_id,
+            sender_profile.file_path AS sender_profile_image_path,
             recipient_member.graduate_id AS recipient_id,
-            recipient_account.id AS recipient_account_id
+            recipient_account.id AS recipient_account_id,
+            recipient_profile.file_path AS recipient_profile_image_path
        FROM forum_chat_messages msg
        JOIN graduate_accounts sender_account
          ON sender_account.graduate_id = msg.graduate_id
@@ -209,6 +228,10 @@ async function loadFixture() {
        JOIN graduate_accounts recipient_account
          ON recipient_account.graduate_id = recipient_member.graduate_id
         AND recipient_account.status = 'active'
+       LEFT JOIN graduate_profile_images sender_profile
+         ON sender_profile.graduate_account_id = sender_account.id
+       LEFT JOIN graduate_profile_images recipient_profile
+         ON recipient_profile.graduate_account_id = recipient_account.id
        LEFT JOIN forum_chat_message_attachments attachment ON attachment.message_id = msg.id
       WHERE msg.client_message_id IS NOT NULL
         AND msg.client_message_id <> ''
@@ -408,7 +431,7 @@ async function main() {
       message_id: Number(savedMessage.id),
     });
     const incoming = await receivedMessage;
-    await conversationPreviewUpdated;
+    const conversationUpdate = await conversationPreviewUpdated;
     await wait(300);
     recipient.off('message:new', countHandler);
     outsider?.off('message:new', outsiderCountHandler);
@@ -416,6 +439,17 @@ async function main() {
     assert(sendAck.success === true && Number(sendAck.message?.id) === Number(fixture.message_id), 'Socket.IO publishes the REST-persisted message');
     assert(Number(incoming.message?.id) === Number(fixture.message_id), 'the recipient receives the saved message without polling');
     assert(true, 'the recipient conversation preview refreshes immediately after the saved message event');
+    const realtimeSender = conversationUpdate.conversation?.participants?.find(
+      (participant) => Number(participant.graduate_id) === Number(fixture.sender_id),
+    );
+    assert(
+      (realtimeSender?.profile_image_path || null) === expectedMediaReference(fixture.sender_profile_image_path),
+      'realtime conversation avatars use the same browser-safe profile image reference as the REST API',
+    );
+    assert(
+      (incoming.message?.sender_profile_image_path || null) === expectedMediaReference(fixture.sender_profile_image_path),
+      'realtime message senders use the current profile image source of truth',
+    );
     assert(recipientEventCount === 1, 'a recipient in both user and conversation rooms receives no duplicate message event');
     assert(outsiderEventCount === 0, 'a non-participant receives no private message event');
 

@@ -15,6 +15,7 @@ import {
   Search,
   Send,
   Smile,
+  Users,
   X,
 } from 'lucide-react';
 import type {
@@ -25,6 +26,7 @@ import type {
   SelectedAttachment,
 } from './types';
 import type { RealtimeChatStatus } from '../../services/realtimeChat';
+import ProfileAvatar from '../ProfileAvatar';
 
 interface CurrentGraduate {
   graduate_id: number;
@@ -37,7 +39,6 @@ interface CurrentGraduate {
 interface RealtimeMessagingWorkspaceProps {
   currentGraduate: CurrentGraduate;
   rooms: MessagingRoom[];
-  directory: MessagingParticipant[];
   selectedRoomId: number | null;
   activeRoom: MessagingRoom | null;
   messages: MessagingMessage[];
@@ -52,9 +53,6 @@ interface RealtimeMessagingWorkspaceProps {
   selectedAttachment: SelectedAttachment | null;
   newMessageAvailable: boolean;
   mobileChatOpen: boolean;
-  newConversationOpen: boolean;
-  newConversationSearch: string;
-  newConversationCreating: boolean;
   resolveAssetUrl: (path?: string | null) => string;
   onSearchChange: (value: string) => void;
   onSelectRoom: (roomId: number) => void;
@@ -70,18 +68,7 @@ interface RealtimeMessagingWorkspaceProps {
   onRemoveAttachment: () => void;
   onRetryAttachment: () => void;
   onOpenNewConversation: () => void;
-  onCloseNewConversation: () => void;
-  onNewConversationSearchChange: (value: string) => void;
-  onStartConversation: (graduateId: number) => void;
   onOpenProfile?: (graduateId?: number | null) => void;
-}
-
-function getInitials(value?: string | null) {
-  const text = (value || '').trim();
-  if (!text) return 'G';
-  const parts = text.split(/\s+/).filter(Boolean);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return `${parts[0].charAt(0)}${parts[parts.length - 1].charAt(0)}`.toUpperCase();
 }
 
 function parseDate(value?: string | null) {
@@ -227,15 +214,14 @@ function Avatar({
   resolveAssetUrl: (path?: string | null) => string;
 }) {
   const className = size === 'sm' ? 'h-10 w-10 text-xs' : size === 'lg' ? 'h-12 w-12 text-base' : 'h-11 w-11 text-sm';
-
-  if (src) {
-    return <img src={resolveAssetUrl(src)} alt={label || 'Profile'} className={`${className} shrink-0 rounded-full object-cover`} />;
-  }
-
   return (
-    <div className={`${className} flex shrink-0 items-center justify-center rounded-full bg-blue-100 font-bold text-blue-800`}>
-      {getInitials(label)}
-    </div>
+    <ProfileAvatar
+      src={src}
+      label={label}
+      resolveUrl={resolveAssetUrl}
+      imageClassName={`${className} shrink-0 rounded-full object-cover`}
+      fallbackClassName={`${className} flex shrink-0 items-center justify-center rounded-full bg-blue-100 font-bold text-blue-800 dark:bg-blue-950 dark:text-blue-200`}
+    />
   );
 }
 
@@ -256,6 +242,7 @@ function ConversationItem({
 }) {
   const label = getRoomLabel(room, currentGraduateId);
   const recipient = getRecipient(room, currentGraduateId);
+  const unread = Math.max(0, Number(room.unread_count || 0));
   const canOpenRecipient = !room.is_group && !!recipient?.graduate_id && recipient.graduate_id !== currentGraduateId;
   const handleIdentityClick = () => {
     if (canOpenRecipient && onOpenProfile) {
@@ -277,21 +264,23 @@ function ConversationItem({
     >
       <button type="button" onClick={handleIdentityClick} className="relative shrink-0" aria-label={canOpenRecipient ? `Open ${label} profile` : `Open ${label}`}>
         <Avatar src={getRoomAvatar(room, currentGraduateId)} label={label} size="sm" resolveAssetUrl={resolveAssetUrl} />
-        {recipient?.is_online && <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-emerald-500" />}
+        {room.is_group
+          ? <span className="absolute -bottom-0.5 -right-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full border-2 border-white bg-blue-700 text-white"><Users className="h-2.5 w-2.5" /></span>
+          : recipient?.is_online && <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-emerald-500" />}
       </button>
 
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
-          <button type="button" onClick={handleIdentityClick} className="truncate text-left text-sm font-bold text-slate-900 transition hover:text-blue-700">{label}</button>
+          <button type="button" onClick={handleIdentityClick} className={`truncate text-left text-sm text-slate-900 transition hover:text-blue-700 ${unread > 0 ? 'font-bold' : 'font-semibold'}`}>{label}</button>
         </div>
-        <button type="button" onClick={onSelect} className="mt-0.5 block w-full truncate text-left text-xs text-slate-500">{safePreview(room.last_message)}</button>
+        <button type="button" onClick={onSelect} className={`mt-0.5 block w-full truncate text-left text-xs ${unread > 0 ? 'font-bold text-slate-800' : 'text-slate-500'}`}>{safePreview(room.last_message)}</button>
       </div>
 
       <button type="button" onClick={onSelect} className="flex flex-col items-end gap-2 text-right">
         <span className="text-[11px] font-semibold text-slate-400">{formatConversationTime(room.last_message_at || room.updated_at)}</span>
-        {(room.unread_count || 0) > 0 && (
+        {unread > 0 && (
           <span className="min-w-5 rounded-full bg-blue-700 px-1.5 py-0.5 text-center text-[11px] font-bold text-white">
-            {room.unread_count && room.unread_count > 9 ? '9+' : room.unread_count}
+            {unread > 9 ? '9+' : unread}
           </span>
         )}
       </button>
@@ -436,11 +425,15 @@ function ChatHeader({
         <>
           <button type="button" onClick={handleIdentityClick} disabled={!canOpenRecipient} className="relative shrink-0 disabled:cursor-default" aria-label={canOpenRecipient ? `Open ${label} profile` : undefined}>
             <Avatar src={recipient?.profile_image_path} label={label} size="lg" resolveAssetUrl={resolveAssetUrl} />
-            {recipient?.is_online && <span className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" />}
+            {room.is_group
+              ? <span className="absolute -bottom-0.5 -right-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-blue-700 text-white"><Users className="h-3 w-3" /></span>
+              : recipient?.is_online && <span className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" />}
           </button>
           <div className="min-w-0">
             <button type="button" onClick={handleIdentityClick} disabled={!canOpenRecipient} className="max-w-full truncate text-left text-base font-bold text-slate-900 transition hover:text-blue-700 disabled:cursor-default disabled:hover:text-slate-900">{label}</button>
-            <p className="truncate text-xs font-semibold text-slate-500"><PresenceText participant={recipient} /></p>
+            <p className="truncate text-xs font-semibold text-slate-500">
+              {room.is_group ? `${room.participant_count} member${room.participant_count === 1 ? '' : 's'}` : <PresenceText participant={recipient} />}
+            </p>
           </div>
         </>
       ) : (
@@ -1125,153 +1118,9 @@ function ImagePreviewModal({
   );
 }
 
-function NewConversationModal({
-  open,
-  directory,
-  search,
-  creating,
-  resolveAssetUrl,
-  onClose,
-  onSearchChange,
-  onStartConversation,
-  onOpenProfile,
-}: {
-  open: boolean;
-  directory: MessagingParticipant[];
-  search: string;
-  creating: boolean;
-  resolveAssetUrl: (path?: string | null) => string;
-  onClose: () => void;
-  onSearchChange: (value: string) => void;
-  onStartConversation: (graduateId: number) => void;
-  onOpenProfile?: (graduateId?: number | null) => void;
-}) {
-  const query = search.trim().toLowerCase();
-  const [programFilter, setProgramFilter] = useState('all');
-  const [batchFilter, setBatchFilter] = useState('all');
-  const programOptions = useMemo(() => (
-    Array.from(new Set(directory.map((participant) => participant.program_code?.trim()).filter(Boolean) as string[]))
-      .sort((first, second) => first.localeCompare(second))
-  ), [directory]);
-  const batchOptions = useMemo(() => (
-    Array.from(new Set(
-      directory
-        .map((participant) => participant.year_graduated)
-        .filter((year): year is number => typeof year === 'number' && Number.isFinite(year)),
-    )).sort((first, second) => second - first)
-  ), [directory]);
-  const filtered = useMemo(() => {
-    return directory.filter((participant) => {
-      const participantProgram = participant.program_code?.trim() || '';
-      const participantBatch = participant.year_graduated ? String(participant.year_graduated) : '';
-      const matchesProgram = programFilter === 'all' || participantProgram === programFilter;
-      const matchesBatch = batchFilter === 'all' || participantBatch === batchFilter;
-      if (!matchesProgram || !matchesBatch) return false;
-      if (!query) return true;
-
-      return [participant.full_name, participantProgram, participantBatch ? `Batch ${participantBatch}` : ''].join(' ').toLowerCase().includes(query);
-    });
-  }, [batchFilter, directory, programFilter, query]);
-
-  useEffect(() => {
-    if (!open) return;
-    setProgramFilter('all');
-    setBatchFilter('all');
-  }, [open]);
-
-  if (!open) return null;
-
-  return (
-    <div className="fixed inset-0 z-[75] flex items-center justify-center bg-slate-950/55 px-4 py-6" role="dialog" aria-modal="true">
-      <div className="flex max-h-[88vh] w-full max-w-xl flex-col rounded-lg border border-slate-200 bg-white shadow-2xl">
-        <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4">
-          <div>
-            <h2 className="text-xl font-bold text-slate-900">New Message</h2>
-            <p className="text-sm text-slate-500">Choose a graduate to message.</p>
-          </div>
-          <button type="button" onClick={onClose} className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100" aria-label="Close new message">
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <div className="border-b border-slate-100 px-5 py-4">
-          <label className="relative block">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
-              value={search}
-              onChange={(event) => onSearchChange(event.target.value)}
-              placeholder="Search graduates"
-              className="h-11 w-full rounded-lg border border-slate-200 bg-[#f8fafc] px-10 text-sm outline-none transition focus:border-blue-500"
-              aria-label="Search graduates"
-            />
-          </label>
-
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <label className="block">
-              <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">Program</span>
-              <select value={programFilter} onChange={(event) => setProgramFilter(event.target.value)} className="h-11 w-full rounded-lg border border-slate-200 bg-[#f8fafc] px-3 text-sm outline-none transition focus:border-blue-500">
-                <option value="all">All Programs</option>
-                {programOptions.map((program) => (
-                  <option key={program} value={program}>
-                    {program}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="block">
-              <span className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">Batch</span>
-              <select value={batchFilter} onChange={(event) => setBatchFilter(event.target.value)} className="h-11 w-full rounded-lg border border-slate-200 bg-[#f8fafc] px-3 text-sm outline-none transition focus:border-blue-500">
-                <option value="all">All Batches</option>
-                {batchOptions.map((year) => (
-                  <option key={year} value={String(year)}>
-                    Batch {year}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </div>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          {filtered.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">
-              No graduates match your filters.
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {filtered.map((participant) => (
-                <div
-                  key={participant.graduate_id}
-                  className="flex w-full items-center gap-3 rounded-lg border border-slate-200 px-4 py-3 text-left transition hover:bg-slate-50"
-                >
-                  <button type="button" onClick={() => onOpenProfile?.(participant.graduate_id)} className="flex min-w-0 flex-1 items-center gap-3 text-left">
-                    <Avatar src={participant.profile_image_path} label={participant.full_name} size="sm" resolveAssetUrl={resolveAssetUrl} />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-bold text-slate-900 transition hover:text-blue-700">{participant.full_name}</span>
-                      <span className="block truncate text-xs text-slate-500">
-                        {participant.program_code || 'Graduate'}{participant.year_graduated ? ` - Batch ${participant.year_graduated}` : ''}
-                      </span>
-                    </span>
-                  </button>
-                  <button type="button" disabled={creating} onClick={() => onStartConversation(participant.graduate_id)} className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60">
-                    {creating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                    Message
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export default function RealtimeMessagingWorkspace({
   currentGraduate,
   rooms,
-  directory,
   selectedRoomId,
   activeRoom,
   messages,
@@ -1286,9 +1135,6 @@ export default function RealtimeMessagingWorkspace({
   selectedAttachment,
   newMessageAvailable,
   mobileChatOpen,
-  newConversationOpen,
-  newConversationSearch,
-  newConversationCreating,
   resolveAssetUrl,
   onSearchChange,
   onSelectRoom,
@@ -1304,9 +1150,6 @@ export default function RealtimeMessagingWorkspace({
   onRemoveAttachment,
   onRetryAttachment,
   onOpenNewConversation,
-  onCloseNewConversation,
-  onNewConversationSearchChange,
-  onStartConversation,
   onOpenProfile,
 }: RealtimeMessagingWorkspaceProps) {
   const [previewAttachment, setPreviewAttachment] = useState<MessageAttachment | null>(null);
@@ -1316,7 +1159,7 @@ export default function RealtimeMessagingWorkspace({
   }, [selectedRoomId]);
 
   return (
-    <section className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+    <section className="gradtrack-messaging overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
       <div className="grid h-[calc(100vh-170px)] min-h-[620px] grid-cols-1 lg:grid-cols-[360px_minmax(0,1fr)]">
         <div className={`${mobileChatOpen ? 'hidden lg:block' : 'block'} min-h-0`}>
           <ConversationList
@@ -1371,18 +1214,6 @@ export default function RealtimeMessagingWorkspace({
         </div>
       </div>
 
-      <NewConversationModal
-        open={newConversationOpen}
-        directory={directory}
-        search={newConversationSearch}
-        creating={newConversationCreating}
-        resolveAssetUrl={resolveAssetUrl}
-        onClose={onCloseNewConversation}
-        onSearchChange={onNewConversationSearchChange}
-        onStartConversation={onStartConversation}
-        onOpenProfile={onOpenProfile}
-      />
-
       {previewAttachment && (
         <ImagePreviewModal attachment={previewAttachment} resolveAssetUrl={resolveAssetUrl} onClose={() => setPreviewAttachment(null)} />
       )}
@@ -1399,7 +1230,6 @@ export {
   MessageBubble,
   MessageComposer,
   MessageList,
-  NewConversationModal,
   PresenceText,
   TypingIndicator,
 };

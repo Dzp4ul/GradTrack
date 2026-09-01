@@ -139,7 +139,7 @@ try {
 
             echo json_encode([
                 'success' => true,
-                'data' => gradtrack_forum_posts_attach_media($db, [gradtrack_forum_posts_normalize_row($post)])[0],
+                'data' => gradtrack_forum_posts_attach_media($db, [$post])[0],
                 'categories' => gradtrack_forum_categories(),
             ]);
             exit;
@@ -194,7 +194,6 @@ try {
         $stmt->execute($params);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        $rows = array_map('gradtrack_forum_posts_normalize_row', $rows);
         $rows = gradtrack_forum_posts_attach_media($db, $rows);
 
         echo json_encode([

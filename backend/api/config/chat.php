@@ -133,7 +133,8 @@ if (!function_exists('gradtrack_chat_ensure_schema')) {
 
         $memberColumns = [
             'last_read_at' => "ALTER TABLE forum_chat_members ADD last_read_at DATETIME NULL AFTER joined_at",
-            'created_at' => "ALTER TABLE forum_chat_members ADD created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER last_read_at",
+            'last_read_message_id' => "ALTER TABLE forum_chat_members ADD last_read_message_id INT NULL AFTER last_read_at",
+            'created_at' => "ALTER TABLE forum_chat_members ADD created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER last_read_message_id",
             'updated_at' => "ALTER TABLE forum_chat_members ADD updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at",
         ];
 
@@ -171,6 +172,7 @@ if (!function_exists('gradtrack_chat_ensure_schema')) {
             ],
             'forum_chat_members' => [
                 'idx_forum_chat_members_read' => [['room_id', 'graduate_id', 'last_read_at'], false, "ALTER TABLE forum_chat_members ADD INDEX idx_forum_chat_members_read (room_id, graduate_id, last_read_at)"],
+                'idx_forum_chat_members_read_message' => [['room_id', 'graduate_id', 'last_read_message_id'], false, "ALTER TABLE forum_chat_members ADD INDEX idx_forum_chat_members_read_message (room_id, graduate_id, last_read_message_id)"],
             ],
             'forum_chat_messages' => [
                 'idx_forum_chat_messages_room_id' => [['room_id', 'id'], false, "ALTER TABLE forum_chat_messages ADD INDEX idx_forum_chat_messages_room_id (room_id, id)"],
@@ -226,6 +228,18 @@ if (!function_exists('gradtrack_chat_ensure_schema')) {
                          AND fcm.deleted_at IS NULL
                    )
                    WHERE r.last_message_at IS NULL");
+
+        $db->exec("UPDATE forum_chat_members member
+                   SET member.last_read_message_id = (
+                       SELECT MAX(message.id)
+                       FROM forum_chat_messages message
+                       WHERE message.room_id = member.room_id
+                         AND message.deleted_at IS NULL
+                         AND member.last_read_at IS NOT NULL
+                         AND message.created_at <= member.last_read_at
+                   )
+                   WHERE member.last_read_message_id IS NULL
+                     AND member.last_read_at IS NOT NULL");
     }
 }
 

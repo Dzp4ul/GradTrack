@@ -95,7 +95,27 @@ const presenceOfflineGraceMs = Math.max(0, Number(process.env.REALTIME_PRESENCE_
 const presenceRecoveryGraceMs = Math.max(presenceOfflineGraceMs, Number(process.env.REALTIME_PRESENCE_RECOVERY_GRACE_MS || 5000));
 const pingInterval = Math.max(5000, Number(process.env.REALTIME_PING_INTERVAL_MS || 25000));
 const pingTimeout = Math.max(5000, Number(process.env.REALTIME_PING_TIMEOUT_MS || 20000));
+const authTimeoutMs = Math.max(5000, Number(process.env.REALTIME_AUTH_TIMEOUT_MS || 12000));
 const sessionCookieName = String(process.env.PHP_SESSION_COOKIE_NAME || 'PHPSESSID').trim() || 'PHPSESSID';
+const storageDriver = String(process.env.STORAGE_DRIVER || process.env.APP_STORAGE_DRIVER || 'local').trim().toLowerCase();
+
+function mediaAccessReference(reference) {
+  const value = String(reference || '').trim();
+  if (!value) return null;
+
+  const normalized = value.replace(/\\/g, '/').replace(/^\/+/, '');
+  if (
+    storageDriver !== 's3'
+    || /^https?:\/\//i.test(value)
+    || value.startsWith('/')
+    || normalized.startsWith('uploads/')
+    || normalized.startsWith('api/media.php?path=')
+  ) {
+    return value;
+  }
+
+  return `api/media.php?path=${encodeURIComponent(normalized)}`;
+}
 
 function socketRoom(roomId) {
   return `conversation:${roomId}`;
@@ -191,7 +211,8 @@ async function ensureSchema() {
 
   await addColumnIfMissing('forum_chat_rooms', 'last_message_at', 'ALTER TABLE forum_chat_rooms ADD last_message_at DATETIME NULL AFTER updated_at');
   await addColumnIfMissing('forum_chat_members', 'last_read_at', 'ALTER TABLE forum_chat_members ADD last_read_at DATETIME NULL AFTER joined_at');
-  await addColumnIfMissing('forum_chat_members', 'created_at', 'ALTER TABLE forum_chat_members ADD created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER last_read_at');
+  await addColumnIfMissing('forum_chat_members', 'last_read_message_id', 'ALTER TABLE forum_chat_members ADD last_read_message_id INT NULL AFTER last_read_at');
+  await addColumnIfMissing('forum_chat_members', 'created_at', 'ALTER TABLE forum_chat_members ADD created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER last_read_message_id');
   await addColumnIfMissing('forum_chat_members', 'updated_at', 'ALTER TABLE forum_chat_members ADD updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at');
   await pool.query('ALTER TABLE forum_chat_messages MODIFY message TEXT NULL');
   await addColumnIfMissing('forum_chat_messages', 'message_type', "ALTER TABLE forum_chat_messages ADD message_type ENUM('text', 'image', 'file', 'mixed') NOT NULL DEFAULT 'text' AFTER message");
@@ -203,6 +224,7 @@ async function ensureSchema() {
 
   await addIndexIfMissing('forum_chat_rooms', 'idx_forum_chat_rooms_last_message', ['last_message_at', 'updated_at', 'id'], false, 'ALTER TABLE forum_chat_rooms ADD INDEX idx_forum_chat_rooms_last_message (last_message_at, updated_at, id)');
   await addIndexIfMissing('forum_chat_members', 'idx_forum_chat_members_read', ['room_id', 'graduate_id', 'last_read_at'], false, 'ALTER TABLE forum_chat_members ADD INDEX idx_forum_chat_members_read (room_id, graduate_id, last_read_at)');
+  await addIndexIfMissing('forum_chat_members', 'idx_forum_chat_members_read_message', ['room_id', 'graduate_id', 'last_read_message_id'], false, 'ALTER TABLE forum_chat_members ADD INDEX idx_forum_chat_members_read_message (room_id, graduate_id, last_read_message_id)');
   await addIndexIfMissing('forum_chat_messages', 'idx_forum_chat_messages_room_id', ['room_id', 'id'], false, 'ALTER TABLE forum_chat_messages ADD INDEX idx_forum_chat_messages_room_id (room_id, id)');
   await addIndexIfMissing('forum_chat_messages', 'idx_forum_chat_messages_sender_created', ['graduate_id', 'created_at'], false, 'ALTER TABLE forum_chat_messages ADD INDEX idx_forum_chat_messages_sender_created (graduate_id, created_at)');
   await addIndexIfMissing('forum_chat_messages', 'idx_forum_chat_messages_created', ['created_at', 'id'], false, 'ALTER TABLE forum_chat_messages ADD INDEX idx_forum_chat_messages_created (created_at, id)');
@@ -245,6 +267,18 @@ async function ensureSchema() {
          AND fcm.deleted_at IS NULL
     )
     WHERE r.last_message_at IS NULL`);
+
+  await pool.query(`UPDATE forum_chat_members member
+    SET member.last_read_message_id = (
+      SELECT MAX(message.id)
+        FROM forum_chat_messages message
+       WHERE message.room_id = member.room_id
+         AND message.deleted_at IS NULL
+         AND member.last_read_at IS NOT NULL
+         AND message.created_at <= member.last_read_at
+    )
+    WHERE member.last_read_message_id IS NULL
+      AND member.last_read_at IS NOT NULL`);
 }
 
 async function verifySchema() {
@@ -254,6 +288,7 @@ async function verifySchema() {
                       JOIN forum_chat_members members ON members.room_id = fcm.room_id
                      WHERE 1 = 0`);
   await pool.query('SELECT id, room_id, message_id, uploaded_by FROM forum_chat_message_attachments WHERE 1 = 0');
+  await pool.query('SELECT room_id, graduate_id, last_read_message_id FROM forum_chat_members WHERE 1 = 0');
   await pool.query('SELECT graduate_id, last_active_at FROM graduate_presence WHERE 1 = 0');
 }
 
@@ -277,7 +312,7 @@ async function authenticateSocket(socket) {
       Cookie: cookie,
     },
     cache: 'no-store',
-    signal: AbortSignal.timeout(5000),
+    signal: AbortSignal.timeout(authTimeoutMs),
   });
   const data = await response.json();
 
@@ -437,7 +472,7 @@ function formatMessage(row, attachments = []) {
     read_at: row.read_at || null,
     sender_name: `${row.first_name || ''} ${row.last_name || ''}`.trim() || 'Graduate',
     sender_program_code: row.sender_program_code || null,
-    sender_profile_image_path: row.sender_profile_image_path || null,
+    sender_profile_image_path: mediaAccessReference(row.sender_profile_image_path),
     attachments,
     status: row.read_at ? 'read' : row.delivered_at ? 'delivered' : 'sent',
   };
@@ -463,7 +498,7 @@ async function getConversationForViewer(roomId, viewerGraduateId) {
                WHERE unread.room_id = r.id
                  AND unread.graduate_id <> ?
                  AND unread.deleted_at IS NULL
-                 AND (mine.last_read_at IS NULL OR unread.created_at > mine.last_read_at)
+                 AND unread.id > COALESCE(mine.last_read_message_id, 0)
             ) AS unread_count
        FROM forum_chat_rooms r
        JOIN forum_chat_members mine
@@ -518,7 +553,7 @@ async function getConversationForViewer(roomId, viewerGraduateId) {
       graduate_id: Number(participant.graduate_id),
       full_name: participant.full_name || 'Graduate',
       program_code: participant.program_code || null,
-      profile_image_path: participant.profile_image_path || null,
+      profile_image_path: mediaAccessReference(participant.profile_image_path),
       last_active_at: participant.last_active_at || null,
       is_online: isGraduateOnline(participant.graduate_id),
     })),
@@ -534,7 +569,7 @@ async function getUnreadSummary(graduateId) {
          ON msg.room_id = fcm.room_id
         AND msg.graduate_id <> fcm.graduate_id
         AND msg.deleted_at IS NULL
-        AND (fcm.last_read_at IS NULL OR msg.created_at > fcm.last_read_at)
+        AND msg.id > COALESCE(fcm.last_read_message_id, 0)
       WHERE fcm.graduate_id = ?
       GROUP BY fcm.room_id`,
     [graduateId],
@@ -736,10 +771,11 @@ async function markRead(roomId, graduateId, upToMessageId) {
           SET last_read_at = CASE
             WHEN last_read_at IS NULL OR last_read_at < ? THEN ?
             ELSE last_read_at
-          END
+          END,
+              last_read_message_id = GREATEST(COALESCE(last_read_message_id, 0), ?)
         WHERE room_id = ?
           AND graduate_id = ?`,
-      [boundaryRows[0].created_at, boundaryRows[0].created_at, roomId, graduateId],
+      [boundaryRows[0].created_at, boundaryRows[0].created_at, upToMessageId, roomId, graduateId],
     );
 
     [rows] = await connection.query(

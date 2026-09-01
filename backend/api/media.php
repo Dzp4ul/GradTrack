@@ -13,10 +13,20 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
+$isAuthenticated = isset($_SESSION['graduate_account_id']) || isset($_SESSION['user_id']);
+
+// Avatar, cover, and forum images are commonly requested in parallel. Keep
+// only the authentication snapshot and release PHP's per-session lock before
+// generating an S3 redirect so duplicate image requests cannot block each
+// other during page refresh.
+if (session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
+
 // Graduate media is private to authenticated GradTrack portal sessions. The
 // endpoint intentionally accepts only the two media namespaces rendered by
 // the Graduate Portal; chat attachments keep their record-level endpoint.
-if (!isset($_SESSION['graduate_account_id']) && !isset($_SESSION['user_id'])) {
+if (!$isAuthenticated) {
     http_response_code(401);
     echo json_encode(['success' => false, 'error' => 'Authentication required']);
     exit;

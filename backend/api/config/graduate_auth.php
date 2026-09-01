@@ -206,15 +206,25 @@ if (!function_exists('gradtrack_current_graduate_user')) {
     function gradtrack_current_graduate_user(PDO $db): ?array
     {
         gradtrack_start_session_if_needed();
+        $accountId = isset($_SESSION['graduate_account_id'])
+            ? (int) $_SESSION['graduate_account_id']
+            : 0;
+
+        // Authentication is read-only for normal API requests. Release the
+        // per-session file lock before database work so parallel page-load and
+        // realtime-auth requests do not serialize behind one another.
+        if (session_status() === PHP_SESSION_ACTIVE) {
+            session_write_close();
+        }
+
+        if ($accountId <= 0) {
+            return null;
+        }
+
         gradtrack_ensure_graduate_account_verification_schema($db);
         gradtrack_ensure_graduate_profile_image_table($db);
         gradtrack_ensure_graduate_cover_image_table($db);
 
-        if (!isset($_SESSION['graduate_account_id'])) {
-            return null;
-        }
-
-        $accountId = (int) $_SESSION['graduate_account_id'];
         $query = "SELECT ga.id AS account_id, ga.email, ga.status, ga.last_login_at,
                          ga.alumni_verification_status, ga.alumni_verification_reason,
                          ga.alumni_verification_reviewed_at, ga.alumni_verification_submitted_at,
@@ -232,7 +242,15 @@ if (!function_exists('gradtrack_current_graduate_user')) {
         $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$user || !gradtrack_graduate_account_is_verified($user)) {
-            unset($_SESSION['graduate_account_id']);
+            // Persist removal only if this is still the same authenticated
+            // session; preserve unrelated session keys and concurrent logins.
+            gradtrack_start_session_if_needed();
+            if ((int) ($_SESSION['graduate_account_id'] ?? 0) === $accountId) {
+                unset($_SESSION['graduate_account_id']);
+            }
+            if (session_status() === PHP_SESSION_ACTIVE) {
+                session_write_close();
+            }
             return null;
         }
 

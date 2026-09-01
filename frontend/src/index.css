@@ -1110,6 +1110,56 @@ html.dark .recharts-pie-label-text {
   image-orientation: from-image;
 }
 
+/* The messaging workspace is shared by direct and group conversations. */
+html.dark .gradtrack-messaging {
+  background: #0f172a;
+  color: #e2e8f0;
+}
+
+html.dark .gradtrack-messaging .bg-white {
+  background-color: #0f172a;
+}
+
+html.dark .gradtrack-messaging .bg-\[\#f8fafc\],
+html.dark .gradtrack-messaging .bg-slate-50 {
+  background-color: #020617;
+}
+
+html.dark .gradtrack-messaging .border-slate-100,
+html.dark .gradtrack-messaging .border-slate-200,
+html.dark .gradtrack-messaging .border-slate-300 {
+  border-color: #334155;
+}
+
+html.dark .gradtrack-messaging .text-slate-950,
+html.dark .gradtrack-messaging .text-slate-900 {
+  color: #f1f5f9;
+}
+
+html.dark .gradtrack-messaging .text-slate-800,
+html.dark .gradtrack-messaging .text-slate-700,
+html.dark .gradtrack-messaging .text-slate-600 {
+  color: #cbd5e1;
+}
+
+html.dark .gradtrack-messaging .text-slate-500,
+html.dark .gradtrack-messaging .text-slate-400 {
+  color: #94a3b8;
+}
+
+html.dark .gradtrack-messaging .hover\:bg-slate-50:hover,
+html.dark .gradtrack-messaging .hover\:bg-slate-100:hover {
+  background-color: #1e293b;
+}
+
+html.dark .gradtrack-messaging input,
+html.dark .gradtrack-messaging textarea,
+html.dark .gradtrack-messaging select {
+  background-color: #0f172a;
+  border-color: #475569;
+  color: #f1f5f9;
+}
+
 @media print {
   :root,
   html.dark {

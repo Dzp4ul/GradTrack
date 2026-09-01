@@ -63,6 +63,21 @@ function gradtrack_notifications_add(
     ];
 }
 
+function gradtrack_notifications_category(array $notification): string
+{
+    $key = (string) ($notification['key'] ?? '');
+    $type = (string) ($notification['type'] ?? '');
+
+    if ($type === 'job_opportunity' || strpos($key, 'job-opportunity:') === 0) {
+        return 'browse_jobs';
+    }
+    if ($type === 'job_posting' || strpos($key, 'job-post-status:') === 0) {
+        return 'job_posting';
+    }
+
+    return 'general';
+}
+
 function gradtrack_notifications_program_placeholders(array $programCodes, array &$params, string $prefix): string
 {
     $placeholders = [];
@@ -447,7 +462,7 @@ function gradtrack_notifications_add_graduate(PDO $db, array &$notifications, ar
         gradtrack_notifications_add(
             $notifications,
             'job-post-status:' . $row['id'] . ':' . $row['approval_status'] . ':' . gradtrack_notifications_date_token($eventDate),
-            'approval',
+            'job_posting',
             'Job post ' . $row['approval_status'],
             '"' . $row['title'] . '" at ' . $row['company'] . ' is ' . $row['approval_status'] . '.',
             $eventDate,
@@ -620,12 +635,19 @@ function gradtrack_notifications_apply_read_state(PDO $db, array $auth, array $n
     }, $notifications)));
     $readKeys = gradtrack_notifications_read_keys($db, $auth['target_type'], (int) $auth['target_id'], $keys);
     $unreadCount = 0;
+    $unreadByCategory = [
+        'browse_jobs' => 0,
+        'job_posting' => 0,
+        'general' => 0,
+    ];
 
     foreach ($notifications as &$notification) {
         $isRead = isset($readKeys[$notification['key']]);
         $notification['read'] = $isRead;
+        $notification['category'] = gradtrack_notifications_category($notification);
         if (!$isRead) {
             $unreadCount++;
+            $unreadByCategory[$notification['category']]++;
         }
     }
     unset($notification);
@@ -633,6 +655,7 @@ function gradtrack_notifications_apply_read_state(PDO $db, array $auth, array $n
     return [
         'notifications' => array_slice($notifications, 0, $limit),
         'unread_count' => $unreadCount,
+        'unread_by_category' => $unreadByCategory,
     ];
 }
 
@@ -732,6 +755,10 @@ function gradtrack_notifications_stream(PDO $db, array $auth, int $limit): void
     exit;
 }
 
+if (defined('GRADTRACK_NOTIFICATIONS_LIBRARY_ONLY') && GRADTRACK_NOTIFICATIONS_LIBRARY_ONLY) {
+    return;
+}
+
 $database = new Database();
 $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
@@ -780,6 +807,19 @@ try {
                     return (string) $notification['key'];
                 }, gradtrack_notifications_generate($db, $auth));
             }
+        } elseif ($action === 'mark_category_read') {
+            $category = trim((string) ($data['category'] ?? ''));
+            if (!in_array($category, ['browse_jobs', 'job_posting', 'general'], true)) {
+                gradtrack_notifications_json_error(400, 'Invalid notification category');
+            }
+            $keys = array_map(function (array $notification): string {
+                return (string) $notification['key'];
+            }, array_values(array_filter(
+                gradtrack_notifications_generate($db, $auth),
+                function (array $notification) use ($category): bool {
+                    return gradtrack_notifications_category($notification) === $category;
+                }
+            )));
         } else {
             $key = $data['key'] ?? null;
             if (is_string($key) && trim($key) !== '') {
@@ -791,9 +831,13 @@ try {
 
         gradtrack_notifications_mark_read($db, $auth['target_type'], (int) $auth['target_id'], $keys);
 
+        $updatedNotifications = gradtrack_notifications_generate($db, $auth);
+        $updatedPayload = gradtrack_notifications_apply_read_state($db, $auth, $updatedNotifications, 50);
+
         echo json_encode([
             'success' => true,
             'message' => 'Notifications updated',
+            'data' => $updatedPayload,
         ]);
         exit;
     }

@@ -29,6 +29,11 @@ storage_test_assert(!gradtrack_storage_filename_has_dangerous_segment('graduate-
 storage_test_assert(gradtrack_storage_is_legacy_path('/uploads/profile-images/1/photo.jpg'), 'legacy upload paths are recognized');
 storage_test_assert(gradtrack_storage_is_s3_key('media/profiles/graduates/1/profile/file.jpg'), 'S3 object keys are recognized');
 storage_test_assert(!gradtrack_storage_is_s3_key('https://example.test/file.jpg'), 'absolute URLs are never treated as S3 keys');
+storage_test_assert(
+    gradtrack_storage_media_access_reference('api/media.php?path=media%2Fprofiles%2Fgraduates%2F1%2Fprofile%2Fphoto.jpg')
+        === 'api/media.php?path=media%2Fprofiles%2Fgraduates%2F1%2Fprofile%2Fphoto.jpg',
+    'authenticated media references remain idempotent when API formatters are composed'
+);
 
 $invalidKeyRejected = false;
 try {

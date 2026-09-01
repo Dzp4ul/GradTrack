@@ -689,6 +689,14 @@ if (!function_exists('gradtrack_storage_media_access_reference')) {
             return null;
         }
 
+        // API formatters can be composed (for example, forum rows plus media
+        // attachment formatting). Keep this resolver idempotent so an already
+        // authenticated media route is never encoded as though it were an S3
+        // object key a second time.
+        if (strpos(ltrim($reference, '/'), 'api/media.php?path=') === 0) {
+            return $reference;
+        }
+
         if (!gradtrack_storage_is_s3_key($reference) || !gradtrack_storage_uses_s3()) {
             return $reference;
         }
