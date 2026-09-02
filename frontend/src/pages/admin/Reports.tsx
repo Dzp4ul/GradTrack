@@ -30,10 +30,6 @@ interface OverviewFilters {
   programAlignment: 'all' | 'aligned' | 'not_aligned';
   graduationYear: string;
   programId: string;
-  region: string;
-  province: string;
-  cityMunicipality: string;
-  barangay: string;
 }
 
 interface OverviewFilterProgram {
@@ -45,18 +41,6 @@ interface OverviewFilterProgram {
 interface OverviewFilterOptions {
   years: string[];
   programs: OverviewFilterProgram[];
-  regions: LocationFilterOption[];
-  provinces: LocationFilterOption[];
-  cities: LocationFilterOption[];
-  barangays: LocationFilterOption[];
-}
-
-interface LocationFilterOption {
-  value: string;
-  code: string | null;
-  name: string | null;
-  label: string;
-  count: number;
 }
 
 interface ProgramReport {
@@ -87,15 +71,6 @@ interface StatusData {
 interface SalaryData {
   salary_range: string;
   count: number;
-}
-
-interface LocationReport {
-  location_id: string;
-  location_label: string;
-  code: string | null;
-  name: string | null;
-  count: number;
-  percentage: number;
 }
 
 interface SurveySummary {
@@ -190,20 +165,14 @@ interface SurveyReportChart {
 
 const COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
 const SURVEY_CHART_COLORS = ['#1d4ed8', '#16a34a', '#f59e0b', '#dc2626', '#7c3aed', '#0891b2', '#ea580c', '#475569'];
-const REPORT_TABS = ['overview', 'program', 'year', 'employment', 'salary', 'location', 'surveys'] as const;
+const REPORT_TABS = ['overview', 'program', 'year', 'employment', 'salary', 'surveys'] as const;
 type ReportTab = typeof REPORT_TABS[number];
-type LocationLevel = 'region' | 'province' | 'city_municipality' | 'barangay';
 const DEFAULT_OVERVIEW_FILTERS: OverviewFilters = {
   employmentStatus: 'all',
   programAlignment: 'all',
   graduationYear: 'all',
   programId: 'all',
-  region: 'all',
-  province: 'all',
-  cityMunicipality: 'all',
-  barangay: 'all',
 };
-const LOCATION_REPORT_TYPES = new Set(['by_region', 'by_province', 'by_city', 'by_city_municipality', 'by_barangay']);
 const SELECTED_SURVEY_STORAGE_KEY = 'gradtrack_selected_survey_id';
 const NO_SURVEY_SELECTION_VALUE = 'none';
 const SURVEY_REPORT_HEADER_COLOR = 'FF1B2A4A';
@@ -274,10 +243,6 @@ const getOverviewFilterKey = (filters: OverviewFilters): string => [
   filters.programAlignment,
   filters.graduationYear,
   filters.programId,
-  filters.region,
-  filters.province,
-  filters.cityMunicipality,
-  filters.barangay,
 ].join('|');
 
 const areOverviewFiltersEqual = (a: OverviewFilters, b: OverviewFilters): boolean => (
@@ -310,18 +275,6 @@ const appendOverviewFilterParams = (params: URLSearchParams, filters?: OverviewF
   if (isSpecificFilterValue(filters.programId)) {
     params.set('programId', filters.programId);
   }
-  if (isSpecificFilterValue(filters.region)) {
-    params.set('region', filters.region);
-  }
-  if (isSpecificFilterValue(filters.province)) {
-    params.set('province', filters.province);
-  }
-  if (isSpecificFilterValue(filters.cityMunicipality)) {
-    params.set('cityMunicipality', filters.cityMunicipality);
-  }
-  if (isSpecificFilterValue(filters.barangay)) {
-    params.set('barangay', filters.barangay);
-  }
 };
 
 export default function Reports() {
@@ -341,8 +294,6 @@ export default function Reports() {
   const [yearData, setYearData] = useState<YearReport[]>([]);
   const [statusData, setStatusData] = useState<StatusData[]>([]);
   const [salaryData, setSalaryData] = useState<SalaryData[]>([]);
-  const [locationData, setLocationData] = useState<LocationReport[]>([]);
-  const [locationLevel, setLocationLevel] = useState<LocationLevel>('barangay');
   const [loading, setLoading] = useState(true);
   const [selectedYear, setSelectedYear] = useState<string>('all');
   const [selectedDepartment, setSelectedDepartment] = useState<string>('all');
@@ -354,10 +305,6 @@ export default function Reports() {
   const [overviewFilterOptions, setOverviewFilterOptions] = useState<OverviewFilterOptions>({
     years: [],
     programs: [],
-    regions: [],
-    provinces: [],
-    cities: [],
-    barangays: [],
   });
   const [overviewFilterError, setOverviewFilterError] = useState('');
   const [aiAnalysis, setAiAnalysis] = useState<string>('');
@@ -424,13 +371,6 @@ export default function Reports() {
         break;
       case 'salary_distribution':
         setSalaryData(data as SalaryData[]);
-        break;
-      case 'by_region':
-      case 'by_province':
-      case 'by_city':
-      case 'by_city_municipality':
-      case 'by_barangay':
-        setLocationData(data as LocationReport[]);
         break;
       default:
         break;
@@ -534,7 +474,7 @@ export default function Reports() {
 
     if (cachedData !== undefined) {
       applyReportDataByType(type, cachedData);
-      if (type !== 'overview' && !LOCATION_REPORT_TYPES.has(type)) {
+      if (type !== 'overview') {
         fetchAIAnalytics(type, buildAiPayload(type, cachedData), reportYear, reportDepartment);
       }
       setLoading(false);
@@ -557,7 +497,7 @@ export default function Reports() {
 
           applyReportDataByType(type, res.data);
 
-          if (type !== 'overview' && !LOCATION_REPORT_TYPES.has(type)) {
+          if (type !== 'overview') {
             fetchAIAnalytics(type, buildAiPayload(type, res.data), reportYear, reportDepartment);
           }
         }
@@ -707,28 +647,9 @@ export default function Reports() {
                 name: String(program.name || program.code),
               }))
             : [];
-          const normalizeLocationOptions = (items: unknown): LocationFilterOption[] => (
-            Array.isArray(items)
-              ? items.map((item) => {
-                  const option = item as Partial<LocationFilterOption>;
-                  return {
-                    value: String(option.value ?? option.code ?? option.name ?? ''),
-                    code: option.code ? String(option.code) : null,
-                    name: option.name ? String(option.name) : null,
-                    label: String(option.label || option.name || option.code || 'Not specified'),
-                    count: Number(option.count ?? 0),
-                  };
-                }).filter((item) => item.value !== '')
-              : []
-          );
-
           setOverviewFilterOptions({
             years,
             programs,
-            regions: normalizeLocationOptions(res.data.regions),
-            provinces: normalizeLocationOptions(res.data.provinces),
-            cities: normalizeLocationOptions(res.data.cities),
-            barangays: normalizeLocationOptions(res.data.barangays),
           });
           if (programs.length > 0) {
             setAvailableDepartments(
@@ -739,10 +660,10 @@ export default function Reports() {
             );
           }
         } else {
-          setOverviewFilterOptions({ years: [], programs: [], regions: [], provinces: [], cities: [], barangays: [] });
+          setOverviewFilterOptions({ years: [], programs: [] });
         }
       })
-      .catch(() => setOverviewFilterOptions({ years: [], programs: [], regions: [], provinces: [], cities: [], barangays: [] }));
+      .catch(() => setOverviewFilterOptions({ years: [], programs: [] }));
   };
 
   const fetchOverviewProgramData = async (filters: OverviewFilters): Promise<ProgramReport[]> => {
@@ -874,13 +795,8 @@ export default function Reports() {
       return;
     }
 
-    if (tab === 'location') {
-      fetchReport(`by_${locationLevel}`, selectedYear, selectedDepartment);
-      return;
-    }
-
     fetchReport(typeMap[tab], selectedYear, selectedDepartment);
-  }, [tab, selectedYear, selectedDepartment, selectedSurveyId, overviewFilters, locationLevel, surveyItemsLoaded]);
+  }, [tab, selectedYear, selectedDepartment, selectedSurveyId, overviewFilters, surveyItemsLoaded]);
 
   useEffect(() => {
     if (tab === 'surveys' && selectedSurveyId) {
@@ -1213,15 +1129,6 @@ export default function Reports() {
     return program ? `${program.code} - ${program.name}` : `Program ID ${programId}`;
   };
 
-  const getLocationFilterLabel = (options: LocationFilterOption[], value: string, allLabel: string) => {
-    if (value === 'all') {
-      return allLabel;
-    }
-
-    const option = options.find((item) => item.value === value || item.code === value || item.name === value);
-    return option ? option.label : value;
-  };
-
   const getOverviewFilterLabels = (filters: OverviewFilters = overviewFilters) => ({
     employmentStatus: filters.employmentStatus === 'all'
       ? 'All'
@@ -1235,10 +1142,6 @@ export default function Reports() {
       : 'Not Aligned',
     graduationYear: filters.graduationYear === 'all' ? 'All Years' : filters.graduationYear,
     course: getOverviewProgramFilterLabel(filters.programId),
-    region: getLocationFilterLabel(overviewFilterOptions.regions, filters.region, 'All Regions'),
-    province: getLocationFilterLabel(overviewFilterOptions.provinces, filters.province, 'All Provinces'),
-    cityMunicipality: getLocationFilterLabel(overviewFilterOptions.cities, filters.cityMunicipality, 'All Cities/Municipalities'),
-    barangay: getLocationFilterLabel(overviewFilterOptions.barangays, filters.barangay, 'All Barangays'),
   });
 
   const getOverviewActiveFilterChips = () => {
@@ -1248,10 +1151,6 @@ export default function Reports() {
       overviewFilters.programAlignment !== 'all' ? `Program Alignment: ${labels.programAlignment}` : null,
       overviewFilters.graduationYear !== 'all' ? `Graduation Year: ${labels.graduationYear}` : null,
       overviewFilters.programId !== 'all' ? `Course: ${labels.course}` : null,
-      overviewFilters.region !== 'all' ? `Region: ${labels.region}` : null,
-      overviewFilters.province !== 'all' ? `Province: ${labels.province}` : null,
-      overviewFilters.cityMunicipality !== 'all' ? `City/Municipality: ${labels.cityMunicipality}` : null,
-      overviewFilters.barangay !== 'all' ? `Barangay: ${labels.barangay}` : null,
     ].filter((chip): chip is string => Boolean(chip));
   };
 
@@ -1283,13 +1182,12 @@ export default function Reports() {
       }
     };
 
-    const [overviewExport, programExport, yearExport, statusExport, salaryExport, locationExport] = await Promise.all([
+    const [overviewExport, programExport, yearExport, statusExport, salaryExport] = await Promise.all([
       tab === 'overview' && overview ? Promise.resolve(overview) : fetchReportData<Overview>('overview'),
       cachedProgramExport.length ? Promise.resolve(cachedProgramExport) : fetchReportData<ProgramReport[]>('by_program', true),
       canUseCachedScopedData && yearData.length ? Promise.resolve(yearData) : fetchReportData<YearReport[]>('by_year'),
       canUseCachedScopedData && statusData.length ? Promise.resolve(statusData) : fetchReportData<StatusData[]>('employment_status', true),
       canUseCachedScopedData && salaryData.length ? Promise.resolve(salaryData) : fetchReportData<SalaryData[]>('salary_distribution', true),
-      tab === 'location' && locationData.length ? Promise.resolve(locationData) : fetchReportData<LocationReport[]>(`by_${locationLevel}`, true),
     ]);
 
     const overviewRows: ExcelRow[] = overviewExport
@@ -1338,13 +1236,7 @@ export default function Reports() {
       Count: item.count,
     }));
 
-    const locationRows: ExcelRow[] = (locationExport ?? []).map((item) => ({
-      [locationLevelLabel[locationLevel]]: item.location_label,
-      Respondents: item.count,
-      'Percentage (%)': Number(item.percentage ?? 0),
-    }));
-
-    if (!overviewRows.length && !programRows.length && !yearRows.length && !statusRows.length && !salaryRows.length && !locationRows.length) {
+    if (!overviewRows.length && !programRows.length && !yearRows.length && !statusRows.length && !salaryRows.length) {
       return;
     }
 
@@ -1357,18 +1249,11 @@ export default function Reports() {
     summarySheet.addRow(['Generated At', new Date().toLocaleString()]);
     summarySheet.addRow(['Year Filter', selectedYear === 'all' ? 'All Years' : selectedYear]);
     summarySheet.addRow(['Department Filter', reportDepartment === 'all' ? 'All Departments' : reportDepartment]);
-    if (tab === 'location') {
-      summarySheet.addRow(['Location Level', locationLevelLabel[locationLevel]]);
-    }
     const labels = getOverviewFilterLabels();
     summarySheet.addRow(['Employability Status', labels.employmentStatus]);
     summarySheet.addRow(['Program Alignment', labels.programAlignment]);
     summarySheet.addRow(['Graduation Year', labels.graduationYear]);
     summarySheet.addRow(['Course', labels.course]);
-    summarySheet.addRow(['Region', labels.region]);
-    summarySheet.addRow(['Province', labels.province]);
-    summarySheet.addRow(['City/Municipality', labels.cityMunicipality]);
-    summarySheet.addRow(['Barangay', labels.barangay]);
     summarySheet.addRow(['Export Triggered From Tab', tab]);
     summarySheet.addRow([]);
     summarySheet.getRow(1).font = { bold: true, size: 14 };
@@ -1411,7 +1296,6 @@ export default function Reports() {
     addSheetFromRows('By Year', yearRows);
     addSheetFromRows('Employment Status', statusRows);
     addSheetFromRows('Salary Distribution', salaryRows);
-    addSheetFromRows('Location', locationRows);
 
     const chartsSheet = workbook.addWorksheet('Charts');
     chartsSheet.addRow(['Report Graphs']);
@@ -1552,26 +1436,6 @@ export default function Reports() {
         },
         options: {
           title: { display: true, text: 'Salary Distribution' },
-          legend: { display: false },
-        },
-      });
-    }
-
-    if (locationRows.length) {
-      await addChartImage(`${locationLevelLabel[locationLevel]} Distribution (Bar Chart)`, {
-        type: 'bar',
-        data: {
-          labels: locationRows.map((row) => row[locationLevelLabel[locationLevel]]),
-          datasets: [
-            {
-              label: 'Respondents',
-              backgroundColor: '#3b82f6',
-              data: locationRows.map((row) => row.Respondents),
-            },
-          ],
-        },
-        options: {
-          title: { display: true, text: `${locationLevelLabel[locationLevel]} Distribution` },
           legend: { display: false },
         },
       });
@@ -1863,7 +1727,6 @@ export default function Reports() {
     { key: 'year', label: 'By Year' },
     { key: 'employment', label: 'Employment Status' },
     { key: 'salary', label: 'Salary Distribution' },
-    { key: 'location', label: 'Location' },
     { key: 'surveys', label: 'Survey Analytics' },
   ] as const;
 
@@ -1935,13 +1798,6 @@ export default function Reports() {
     ...year,
     not_employed: getNotEmployedCount(year),
   }));
-  const locationLevelLabel: Record<LocationLevel, string> = {
-    region: 'Region',
-    province: 'Province',
-    city_municipality: 'City/Municipality',
-    barangay: 'Barangay',
-  };
-  const locationTotal = locationData.reduce((sum, item) => sum + Number(item.count ?? 0), 0);
   const departmentOptionMap = new Map(DEFAULT_DEPARTMENTS.map((department) => [department.code, department]));
   availableDepartments.forEach((department) => {
     if (department.code) {
@@ -2028,69 +1884,6 @@ export default function Reports() {
             </select>
           </label>
 
-          <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
-            Region
-            <select
-              value={overviewFilterDraft.region}
-              onChange={(e) => updateOverviewFilterDraft('region', e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-            >
-              <option value="all">All Regions</option>
-              {overviewFilterOptions.regions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label} ({option.count})
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
-            Province
-            <select
-              value={overviewFilterDraft.province}
-              onChange={(e) => updateOverviewFilterDraft('province', e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-            >
-              <option value="all">All Provinces</option>
-              {overviewFilterOptions.provinces.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label} ({option.count})
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
-            City/Municipality
-            <select
-              value={overviewFilterDraft.cityMunicipality}
-              onChange={(e) => updateOverviewFilterDraft('cityMunicipality', e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-            >
-              <option value="all">All Cities/Municipalities</option>
-              {overviewFilterOptions.cities.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label} ({option.count})
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
-            Barangay
-            <select
-              value={overviewFilterDraft.barangay}
-              onChange={(e) => updateOverviewFilterDraft('barangay', e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-            >
-              <option value="all">All Barangays</option>
-              {overviewFilterOptions.barangays.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label} ({option.count})
-                </option>
-              ))}
-            </select>
-          </label>
         </div>
 
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -2163,7 +1956,7 @@ export default function Reports() {
             </div>
           )}
           {/* Year Filter */}
-          {(tab === 'program' || tab === 'employment' || tab === 'salary' || tab === 'location') && availableYears.length > 0 && (
+          {(tab === 'program' || tab === 'employment' || tab === 'salary') && availableYears.length > 0 && (
             <div className="flex w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
               <label className="text-sm font-medium text-gray-700">Filter by Year:</label>
               <select
@@ -2192,21 +1985,6 @@ export default function Reports() {
                     {department.code} - {department.name}
                   </option>
                 ))}
-              </select>
-            </div>
-          )}
-          {tab === 'location' && (
-            <div className="flex w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
-              <label className="text-sm font-medium text-gray-700">Location:</label>
-              <select
-                value={locationLevel}
-                onChange={(e) => setLocationLevel(e.target.value as LocationLevel)}
-                className="w-full border border-gray-300 rounded-lg px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white sm:w-auto"
-              >
-                <option value="region">Region</option>
-                <option value="province">Province</option>
-                <option value="city_municipality">City/Municipality</option>
-                <option value="barangay">Barangay</option>
               </select>
             </div>
           )}
@@ -2844,69 +2622,9 @@ export default function Reports() {
                 </div>
               )}
 
-              {tab === 'location' && (
-                <div className="space-y-6">
-                  <div className="rounded-xl border bg-gray-50 p-4">
-                    <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-                      <div>
-                        <h3 className="text-lg font-bold text-[#1b2a4a]">{locationLevelLabel[locationLevel]} Distribution</h3>
-                        <p className="text-sm text-gray-500">
-                          {locationTotal} filtered respondent{locationTotal === 1 ? '' : 's'} counted once
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {locationData.length > 0 ? (
-                    <>
-                      <ResponsiveContainer width="100%" height={320}>
-                        <BarChart data={locationData} margin={{ top: 18, right: 24, bottom: 44, left: 8 }}>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                          <XAxis dataKey="location_label" tick={{ fontSize: 11 }} interval={0} angle={-18} textAnchor="end" height={70} />
-                          <YAxis tick={{ fontSize: 12 }} allowDecimals={false} />
-                          <Tooltip
-                            contentStyle={{ borderRadius: 8 }}
-                            formatter={(value, name) => (
-                              name === 'Percentage' ? [`${Number(value).toFixed(1)}%`, name] : [value, name]
-                            )}
-                          />
-                          <Legend />
-                          <Bar dataKey="count" name="Respondents" fill="#3b82f6" radius={[6, 6, 0, 0]} />
-                        </BarChart>
-                      </ResponsiveContainer>
-
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead className="bg-gray-50">
-                            <tr>
-                              <th className="text-left px-4 py-3 font-semibold text-gray-600">{locationLevelLabel[locationLevel]}</th>
-                              <th className="text-center px-4 py-3 font-semibold text-gray-600">Respondents</th>
-                              <th className="text-center px-4 py-3 font-semibold text-gray-600">Percentage</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {locationData.map((item) => (
-                              <tr key={item.location_id} className="border-t hover:bg-gray-50">
-                                <td className="px-4 py-3 font-medium">{item.location_label}</td>
-                                <td className="px-4 py-3 text-center">{item.count}</td>
-                                <td className="px-4 py-3 text-center">{Number(item.percentage ?? 0).toFixed(1)}%</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="border rounded-xl p-8 text-center">
-                      <p className="font-semibold text-[#1b2a4a]">No location data matches the selected filters.</p>
-                    </div>
-                  )}
-                </div>
-              )}
-
               {/* Survey Analytics */}
               {tab === 'surveys' && (
-                <div className="space-y-6">
+                <div className="survey-analytics-content space-y-6">
                   {surveyLoading ? (
                     <SurveyAnalyticsLoadingSkeleton />
                   ) : surveyItems.length === 0 ? (
@@ -3197,8 +2915,8 @@ function SurveyAnalyticsStatCard({ icon: Icon, label, value, color }: {
 
 function SurveyNumberedReportTables({ tables }: { tables: SurveyReportTable[] }) {
   return (
-    <div className="bg-white rounded-xl shadow-sm border p-5 sm:p-8">
-      <div className="space-y-10 text-black" style={{ fontFamily: '"Times New Roman", Times, serif' }}>
+    <div className="survey-report-paper rounded-xl border p-5 shadow-sm sm:p-8">
+      <div className="space-y-10" style={{ fontFamily: '"Times New Roman", Times, serif' }}>
         {tables.map((table, index) => (
           <ThesisReportTable key={`${table.number}-${index}`} table={table} />
         ))}
@@ -3212,7 +2930,7 @@ function SurveyReportGraphs({ tables }: { tables: SurveyReportTable[] }) {
 
   if (charts.length === 0) {
     return (
-      <div className="rounded-xl border bg-white p-8 text-center">
+      <div className="survey-report-paper rounded-xl border p-8 text-center">
         <p className="font-semibold text-[#1b2a4a]">No graph-ready data found.</p>
         <p className="mt-1 text-sm text-gray-500">The current survey tables do not have count columns that can be charted.</p>
       </div>
@@ -3220,7 +2938,7 @@ function SurveyReportGraphs({ tables }: { tables: SurveyReportTable[] }) {
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border p-5 sm:p-6">
+    <div className="survey-report-paper rounded-xl border p-5 shadow-sm sm:p-6">
       <div className="mb-6 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h3 className="text-lg font-bold text-[#1b2a4a]">Survey Graphs</h3>
@@ -3231,7 +2949,7 @@ function SurveyReportGraphs({ tables }: { tables: SurveyReportTable[] }) {
 
       <div className="space-y-8">
         {charts.map((chart) => (
-          <section key={`${chart.tableNumber}-${chart.title}`} className="rounded-xl border p-4 sm:p-5">
+          <section key={`${chart.tableNumber}-${chart.title}`} className="survey-chart-card rounded-xl border p-4 sm:p-5">
             <div className="mb-4">
               <h4 className="text-base font-bold text-[#1b2a4a]">{chart.title}</h4>
               <p className="mt-1 text-xs text-gray-500">Graph based on available frequency/count values.</p>
@@ -3282,7 +3000,7 @@ function ThesisReportTable({ table }: { table: SurveyReportTable }) {
         Table {table.number}. {table.title}
       </h4>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[620px] border-collapse text-[15px] leading-tight">
+        <table className="survey-report-table w-full min-w-[620px] border-collapse text-[15px] leading-tight">
           <thead>
             {table.headers.map((headerRow, rowIndex) => (
               <tr key={rowIndex}>
@@ -3292,9 +3010,9 @@ function ThesisReportTable({ table }: { table: SurveyReportTable }) {
                     colSpan={cell.colspan ?? 1}
                     rowSpan={cell.rowspan ?? 1}
                     className={`px-2 py-1 font-bold ${
-                      rowIndex === 0 ? 'border-t border-black' : ''
+                      rowIndex === 0 ? 'border-t' : ''
                     } ${
-                      rowIndex === table.headers.length - 1 ? 'border-b border-black' : ''
+                      rowIndex === table.headers.length - 1 ? 'border-b' : ''
                     } ${getReportCellAlignClass(cell.align)}`}
                   >
                     {cell.label}
@@ -3305,16 +3023,16 @@ function ThesisReportTable({ table }: { table: SurveyReportTable }) {
           </thead>
           <tbody>
             {table.rows.map((row, rowIndex) => (
-              <tr key={rowIndex}>
+              <tr key={rowIndex} className={row.is_total ? 'survey-report-total' : row.is_group ? 'survey-report-group' : ''}>
                 {row.cells.map((cell, cellIndex) => (
                   <td
                     key={`${rowIndex}-${cellIndex}`}
                     className={`px-2 py-0.5 ${
-                      row.is_total ? 'font-bold border-t border-black' : ''
+                      row.is_total ? 'font-bold border-t' : ''
                     } ${
                       row.is_group ? 'font-bold' : ''
                     } ${
-                      rowIndex === table.rows.length - 1 ? 'border-b border-black' : ''
+                      rowIndex === table.rows.length - 1 ? 'border-b' : ''
                     } ${cellIndex === 0 ? 'text-left' : 'text-center'}`}
                   >
                     {cell}
@@ -3829,7 +3547,7 @@ function toWorksheetSafeName(value: string): string {
 
 function SurveyQuestionReportTable({ analytics }: { analytics: SurveyAnalyticsData }) {
   return (
-    <div className="bg-white rounded-xl shadow-sm border p-6">
+    <div className="survey-report-paper rounded-xl border p-6 shadow-sm">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between mb-5">
         <div>
           <h3 className="text-xl font-bold text-[#1b2a4a]">Survey Question Report</h3>
@@ -3841,7 +3559,7 @@ function SurveyQuestionReportTable({ analytics }: { analytics: SurveyAnalyticsDa
       </div>
 
       <div className="overflow-x-auto rounded-lg border">
-        <table className="min-w-full border-collapse text-sm">
+        <table className="survey-question-table min-w-full border-collapse text-sm">
           <thead className="bg-[#1b2a4a] text-white">
             <tr>
               <th className="px-4 py-3 text-left font-semibold w-36">Section</th>

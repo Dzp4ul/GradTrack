@@ -574,6 +574,65 @@ html.dark .recharts-pie-label-text {
   fill: var(--text-secondary) !important;
 }
 
+.survey-analytics-content {
+  color: var(--text-primary);
+}
+
+.survey-report-paper,
+.survey-chart-card {
+  background-color: var(--surface);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+
+.survey-question-section {
+  border-color: var(--border);
+}
+
+.survey-report-table {
+  color: var(--text-secondary);
+}
+
+.survey-report-table thead {
+  background-color: var(--surface-alt);
+  color: var(--text-primary);
+}
+
+.survey-report-table th,
+.survey-report-table td {
+  border-color: var(--border-strong) !important;
+}
+
+.survey-report-table tbody tr:nth-child(even):not(.survey-report-total):not(.survey-report-group) {
+  background-color: var(--surface-alt);
+}
+
+.survey-report-table .survey-report-total,
+.survey-report-table .survey-report-group {
+  background-color: var(--surface-muted);
+  color: var(--text-primary);
+}
+
+.survey-report-table tbody tr:hover,
+.survey-question-table tbody tr:hover {
+  background-color: var(--surface-hover) !important;
+}
+
+.survey-question-table thead,
+.survey-question-table thead th {
+  background-color: #1b2a4a !important;
+  border-color: #33476c !important;
+  color: #ffffff !important;
+}
+
+.survey-question-table tbody {
+  color: var(--text-secondary);
+}
+
+.survey-question-table tbody tr:nth-child(even) {
+  background-color: var(--surface-alt);
+}
+
 .settings-save-modal-overlay {
   animation: gradtrack-modal-fade-in 180ms ease-out both;
 }
@@ -698,10 +757,15 @@ html.dark .recharts-pie-label-text {
 }
 
 .gt-ai-chat-panel {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text-primary);
   animation: gradtrack-ai-panel-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .gt-ai-floating-button {
+  background: var(--surface);
+  border-color: var(--border);
   transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
 }
 
@@ -718,6 +782,196 @@ html.dark .recharts-pie-label-text {
   border-radius: 9999px;
   content: '';
   animation: gradtrack-ai-pulse 1.4s ease-out infinite;
+}
+
+.gt-ai-status-bar,
+.gt-ai-messages {
+  background: var(--surface-alt);
+  border-color: var(--border);
+}
+
+.gt-ai-messages {
+  color: var(--text-primary);
+  scrollbar-color: var(--border-strong) var(--surface-alt);
+  scrollbar-width: thin;
+}
+
+.gt-ai-messages::-webkit-scrollbar {
+  width: 0.55rem;
+}
+
+.gt-ai-messages::-webkit-scrollbar-track {
+  background: var(--surface-alt);
+}
+
+.gt-ai-messages::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border: 2px solid var(--surface-alt);
+  border-radius: 9999px;
+}
+
+.gt-ai-ready-badge {
+  background: rgb(16 185 129 / 0.14);
+  color: #047857;
+}
+
+.gt-ai-ready-badge.is-analyzing {
+  background: rgb(245 158 11 / 0.16);
+  color: #b45309;
+}
+
+.gt-ai-context-badge,
+.gt-ai-card,
+.gt-ai-assistant-message,
+.gt-ai-section,
+.gt-ai-followups,
+.gt-ai-footer,
+.gt-ai-input-wrap {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+.gt-ai-context-badge,
+.gt-ai-primary-text {
+  color: var(--text-primary);
+}
+
+.gt-ai-secondary-text,
+.gt-ai-assistant-message,
+.gt-ai-data-summary {
+  color: var(--text-secondary);
+}
+
+.gt-ai-muted-text,
+.gt-ai-message-meta,
+.gt-ai-muted-button {
+  color: var(--text-muted);
+}
+
+.gt-ai-muted-button:hover,
+.gt-ai-copy-button:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.gt-ai-suggestion {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--gradtrack-primary);
+  transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+}
+
+.gt-ai-suggestion:hover {
+  background: var(--surface-hover);
+  border-color: var(--focus-ring);
+  color: var(--text-primary);
+}
+
+.gt-ai-input-wrap:focus-within {
+  background: var(--input);
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 2px rgb(37 99 235 / 0.12);
+}
+
+.gt-ai-input {
+  background: transparent !important;
+  color: var(--text-primary) !important;
+}
+
+.gt-ai-input::placeholder {
+  color: var(--text-muted) !important;
+}
+
+.gt-ai-insights-button {
+  color: var(--gradtrack-primary);
+}
+
+.gt-ai-insights-button:hover {
+  background: var(--surface-hover);
+}
+
+.gt-ai-data-summary {
+  background: var(--surface-alt);
+  border-color: var(--border);
+}
+
+.gt-ai-data-section {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #172554;
+}
+
+.gt-ai-report-ready {
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #064e3b;
+}
+
+.gt-ai-report-icon,
+.gt-ai-report-secondary {
+  background: var(--surface);
+}
+
+.gt-ai-report-secondary {
+  border-color: #6ee7b7;
+  color: #047857;
+}
+
+.gt-ai-report-secondary:hover {
+  background: rgb(16 185 129 / 0.12);
+}
+
+.gt-ai-error {
+  background: #fff1f2;
+  border-color: #fecdd3;
+  color: #be123c;
+}
+
+.gt-ai-warning {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #92400e;
+}
+
+.gt-ai-new-dot {
+  --tw-ring-color: var(--surface);
+}
+
+html.dark .gt-ai-ready-badge {
+  color: #6ee7b7;
+}
+
+html.dark .gt-ai-ready-badge.is-analyzing {
+  color: #fcd34d;
+}
+
+html.dark .gt-ai-data-section {
+  background: rgb(37 99 235 / 0.13);
+  border-color: rgb(96 165 250 / 0.3);
+  color: #dbeafe;
+}
+
+html.dark .gt-ai-report-ready {
+  background: rgb(16 185 129 / 0.13);
+  border-color: rgb(52 211 153 / 0.3);
+  color: #d1fae5;
+}
+
+html.dark .gt-ai-report-secondary {
+  border-color: rgb(52 211 153 / 0.38);
+  color: #6ee7b7;
+}
+
+html.dark .gt-ai-error {
+  background: rgb(244 63 94 / 0.13);
+  border-color: rgb(251 113 133 / 0.32);
+  color: #fda4af;
+}
+
+html.dark .gt-ai-warning {
+  background: rgb(245 158 11 / 0.13);
+  border-color: rgb(251 191 36 / 0.3);
+  color: #fcd34d;
 }
 
 .gt-ai-mascot {

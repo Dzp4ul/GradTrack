@@ -222,19 +222,6 @@ function getProgramById(PDO $db, int $programId): ?array
     return $program ?: null;
 }
 
-function validateLocationFilterValue(?string $value, string $name): ?string
-{
-    if ($value === null) {
-        return null;
-    }
-
-    if (strlen($value) > 180 || preg_match('/[\x00-\x1F\x7F]/', $value)) {
-        throw new ReportValidationException("Invalid {$name} parameter.");
-    }
-
-    return $value;
-}
-
 function getOverviewFilters(PDO $db, ?array $allowedProgramCodes): array
 {
     $employmentStatus = getOptionalQueryValue(['employmentStatus', 'employment_status']);
@@ -281,28 +268,12 @@ function getOverviewFilters(PDO $db, ?array $allowedProgramCodes): array
         }
     }
 
-    $region = validateLocationFilterValue(getOptionalQueryValue(['regionCode', 'region_code', 'region']), 'region');
-    $province = validateLocationFilterValue(getOptionalQueryValue(['provinceCode', 'province_code', 'province']), 'province');
-    $cityMunicipality = validateLocationFilterValue(getOptionalQueryValue([
-        'cityMunicipalityCode',
-        'city_municipality_code',
-        'cityMunicipality',
-        'city_municipality',
-        'city',
-    ]), 'cityMunicipality');
-    $barangayRaw = validateLocationFilterValue(getOptionalQueryValue(['barangayCode', 'barangay_code', 'barangay']), 'barangay');
-    $barangay = gradtrack_survey_normalize_barangay_filter($barangayRaw);
-
     return [
         'employment_status' => $employmentStatus,
         'program_alignment' => $programAlignment,
         'graduation_year' => $graduationYear,
         'program_id' => $programId,
         'program' => $program,
-        'region' => $region,
-        'province' => $province,
-        'city_municipality' => $cityMunicipality,
-        'barangay' => $barangay,
     ];
 }
 
@@ -311,11 +282,7 @@ function overviewFiltersHaveValues(array $filters): bool
     return ($filters['employment_status'] ?? null) !== null
         || ($filters['program_alignment'] ?? null) !== null
         || ($filters['graduation_year'] ?? null) !== null
-        || ($filters['program_id'] ?? null) !== null
-        || ($filters['region'] ?? null) !== null
-        || ($filters['province'] ?? null) !== null
-        || ($filters['city_municipality'] ?? null) !== null
-        || ($filters['barangay'] ?? null) !== null;
+        || ($filters['program_id'] ?? null) !== null;
 }
 
 function appendAllowedProgramCodeFilter(array &$whereParts, array &$bindings, ?array $allowedProgramCodes, string $alias = 'p'): void
@@ -386,96 +353,7 @@ function getOverviewFilterOptions(PDO $db, ?int $surveyId, ?array $allowedProgra
         ];
     }, $programStmt->fetchAll(PDO::FETCH_ASSOC));
 
-    $addressOptions = getOverviewAddressFilterOptions($db, $surveyId, $allowedProgramCodes);
-
-    return array_merge(['years' => $years, 'programs' => $programs], $addressOptions);
-}
-
-function addLocationFilterOption(array &$options, ?string $code, ?string $name, string $fallbackLabel, int $count = 1): void
-{
-    $bucket = gradtrack_survey_location_bucket($code, $name, $fallbackLabel);
-    if (!empty($bucket['is_not_specified']) && $fallbackLabel !== GRADTRACK_BARANGAY_NOT_SPECIFIED_LABEL) {
-        return;
-    }
-
-    $key = (string)$bucket['id'];
-    if (!isset($options[$key])) {
-        $options[$key] = [
-            'value' => $bucket['id'],
-            'code' => $bucket['code'],
-            'name' => $bucket['name'],
-            'label' => $bucket['label'],
-            'count' => 0,
-        ];
-    }
-
-    $options[$key]['count'] += $count;
-}
-
-function sortLocationFilterOptions(array $options): array
-{
-    $items = array_values($options);
-    usort($items, static function ($a, $b) {
-        $aMissing = ($a['value'] ?? '') === GRADTRACK_BARANGAY_NOT_SPECIFIED_VALUE;
-        $bMissing = ($b['value'] ?? '') === GRADTRACK_BARANGAY_NOT_SPECIFIED_VALUE;
-        if ($aMissing !== $bMissing) {
-            return $aMissing ? 1 : -1;
-        }
-
-        return strcasecmp((string)($a['label'] ?? ''), (string)($b['label'] ?? ''));
-    });
-
-    return $items;
-}
-
-function getOverviewAddressFilterOptions(PDO $db, ?int $surveyId, ?array $allowedProgramCodes): array
-{
-    $empty = [
-        'regions' => [],
-        'provinces' => [],
-        'cities' => [],
-        'barangays' => [],
-    ];
-
-    if ($surveyId === null) {
-        return $empty;
-    }
-
-    $questions = getSurveyQuestions($db, $surveyId);
-    $addressQuestionIds = getReportAddressQuestionIds($questions);
-    $responses = getSurveyResponses($db, $surveyId);
-    $seen = [];
-    $regions = [];
-    $provinces = [];
-    $cities = [];
-    $barangays = [];
-
-    foreach ($responses as $response) {
-        if (gradtrack_survey_is_duplicate_response($response, $seen)) {
-            continue;
-        }
-
-        $programCode = strtoupper((string)($response['program_code'] ?? ''));
-        if (is_array($allowedProgramCodes) && ($programCode === '' || !in_array($programCode, $allowedProgramCodes, true))) {
-            continue;
-        }
-
-        $data = json_decode((string)($response['responses'] ?? ''), true);
-        $answers = is_array($data) ? gradtrack_survey_build_answer_map($questions, $data) : [];
-        $address = getReportResponseAddress($response, $answers, $addressQuestionIds);
-
-        addLocationFilterOption($regions, $address['region_code'], $address['region_name'], 'Region not specified');
-        addLocationFilterOption($provinces, $address['province_code'], $address['province_name'], 'Province not specified');
-        addLocationFilterOption($cities, $address['city_municipality_code'], $address['city_municipality_name'], 'City/Municipality not specified');
-        addLocationFilterOption($barangays, $address['barangay_code'], $address['barangay_name'], GRADTRACK_BARANGAY_NOT_SPECIFIED_LABEL);
-    }
-
-    return [
-        'regions' => sortLocationFilterOptions($regions),
-        'provinces' => sortLocationFilterOptions($provinces),
-        'cities' => sortLocationFilterOptions($cities),
-        'barangays' => sortLocationFilterOptions($barangays),
-    ];
+    return ['years' => $years, 'programs' => $programs];
 }
 
 function isYearLikeAnswer(string $value): bool
@@ -608,14 +486,6 @@ function getSurveyResponses(PDO $db, ?int $surveyId, array $overviewFilters = []
         SELECT
             sr.id AS response_id,
             sr.responses,
-            sr.region_code,
-            sr.region_name,
-            sr.province_code,
-            sr.province_name,
-            sr.city_municipality_code,
-            sr.city_municipality_name,
-            sr.barangay_code,
-            sr.barangay_name,
             g.year_graduated,
             g.program_id,
             p.code AS program_code,
@@ -631,84 +501,6 @@ function getSurveyResponses(PDO $db, ?int $surveyId, array $overviewFilters = []
     $stmt->execute();
 
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
-}
-
-function normalizeReportQuestionLookupText($value): string
-{
-    $text = strtolower(trim((string)$value));
-    $text = str_replace(["\r", "\n", "\t"], ' ', $text);
-    $text = preg_replace('/\s+/', ' ', $text);
-    return trim((string)$text);
-}
-
-function findReportQuestionId(array $questions, array $requiredTerms, array $excludedTerms = []): ?string
-{
-    foreach ($questions as $question) {
-        $text = normalizeReportQuestionLookupText($question['question_text'] ?? '');
-        $matches = true;
-        foreach ($requiredTerms as $term) {
-            if (strpos($text, normalizeReportQuestionLookupText($term)) === false) {
-                $matches = false;
-                break;
-            }
-        }
-
-        foreach ($excludedTerms as $term) {
-            if ($matches && strpos($text, normalizeReportQuestionLookupText($term)) !== false) {
-                $matches = false;
-                break;
-            }
-        }
-
-        if ($matches) {
-            return (string)($question['id'] ?? '');
-        }
-    }
-
-    return null;
-}
-
-function getReportAddressQuestionIds(array $questions): array
-{
-    return [
-        'region' => findReportQuestionId($questions, ['region']),
-        'province' => findReportQuestionId($questions, ['province']),
-        'city_municipality' => findReportQuestionId($questions, ['city'], ['civil'])
-            ?? findReportQuestionId($questions, ['municipality']),
-        'barangay' => findReportQuestionId($questions, ['barangay']),
-    ];
-}
-
-function getReportMappedAnswerLabel(array $answers, ?string $questionId): ?string
-{
-    if ($questionId === null || $questionId === '') {
-        return null;
-    }
-
-    return gradtrack_survey_clean_location(gradtrack_survey_answer_label($answers[$questionId] ?? null));
-}
-
-function getReportResponseAddress(array $response, array $answers, array $addressQuestionIds): array
-{
-    $regionName = gradtrack_survey_clean_location($response['region_name'] ?? null)
-        ?? getReportMappedAnswerLabel($answers, $addressQuestionIds['region'] ?? null);
-    $provinceName = gradtrack_survey_clean_location($response['province_name'] ?? null)
-        ?? getReportMappedAnswerLabel($answers, $addressQuestionIds['province'] ?? null);
-    $cityName = gradtrack_survey_clean_location($response['city_municipality_name'] ?? null)
-        ?? getReportMappedAnswerLabel($answers, $addressQuestionIds['city_municipality'] ?? null);
-    $barangayName = gradtrack_survey_clean_location($response['barangay_name'] ?? null)
-        ?? getReportMappedAnswerLabel($answers, $addressQuestionIds['barangay'] ?? null);
-
-    return [
-        'region_code' => gradtrack_survey_clean_location($response['region_code'] ?? null),
-        'region_name' => $regionName,
-        'province_code' => gradtrack_survey_clean_location($response['province_code'] ?? null),
-        'province_name' => $provinceName,
-        'city_municipality_code' => gradtrack_survey_clean_location($response['city_municipality_code'] ?? null),
-        'city_municipality_name' => $cityName,
-        'barangay_code' => gradtrack_survey_clean_location($response['barangay_code'] ?? null),
-        'barangay_name' => $barangayName,
-    ];
 }
 
 function getReportResponseDetails(array $response, array $questions): array
@@ -833,7 +625,6 @@ function getReportResponseDetails(array $response, array $questions): array
         'is_aligned' => $isAligned,
         'alignment_bucket' => $alignmentBucket,
         'salary_range' => $salaryRange,
-        'address' => getReportResponseAddress($response, $answers, getReportAddressQuestionIds($questions)),
     ];
 }
 
@@ -855,20 +646,6 @@ function responseMatchesOverviewFilters(array $details, array $filters): bool
         return false;
     }
 
-    $address = is_array($details['address'] ?? null) ? $details['address'] : [];
-    if (!gradtrack_survey_location_matches($filters['region'] ?? null, $address['region_code'] ?? null, $address['region_name'] ?? null)) {
-        return false;
-    }
-    if (!gradtrack_survey_location_matches($filters['province'] ?? null, $address['province_code'] ?? null, $address['province_name'] ?? null)) {
-        return false;
-    }
-    if (!gradtrack_survey_location_matches($filters['city_municipality'] ?? null, $address['city_municipality_code'] ?? null, $address['city_municipality_name'] ?? null)) {
-        return false;
-    }
-    if (!gradtrack_survey_barangay_matches($filters['barangay'] ?? null, $address)) {
-        return false;
-    }
-
     return true;
 }
 
@@ -883,104 +660,6 @@ function getSurveyResponseCount(PDO $db, ?int $surveyId): int
     $stmt->execute();
 
     return (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
-}
-
-function getLocationReportData(
-    PDO $db,
-    ?int $surveyId,
-    array $overviewFilters,
-    ?string $filterYear,
-    ?string $filterDepartment,
-    ?array $allowedProgramCodes,
-    string $level
-): array {
-    $allowedLevels = ['region', 'province', 'city_municipality', 'barangay'];
-    if (!in_array($level, $allowedLevels, true)) {
-        throw new ReportValidationException('Invalid location report level.');
-    }
-
-    $questions = getSurveyQuestions($db, $surveyId);
-    $responses = getSurveyResponses($db, $surveyId, $overviewFilters);
-    $buckets = [];
-    $seenResponses = [];
-    $total = 0;
-
-    foreach ($responses as $response) {
-        if (gradtrack_survey_is_duplicate_response($response, $seenResponses)) {
-            continue;
-        }
-
-        $rowProgramCode = strtoupper((string)($response['program_code'] ?? ''));
-        if ($filterDepartment !== null && $rowProgramCode !== $filterDepartment) {
-            continue;
-        }
-        if (is_array($allowedProgramCodes) && ($rowProgramCode === '' || !in_array($rowProgramCode, $allowedProgramCodes, true))) {
-            continue;
-        }
-
-        $details = getReportResponseDetails($response, $questions);
-        if (!responseMatchesOverviewFilters($details, $overviewFilters)) {
-            continue;
-        }
-
-        if ($filterYear !== null && (string)$details['year_graduated'] !== $filterYear) {
-            continue;
-        }
-
-        $address = is_array($details['address'] ?? null) ? $details['address'] : [];
-        $fallback = [
-            'region' => 'Region not specified',
-            'province' => 'Province not specified',
-            'city_municipality' => 'City/Municipality not specified',
-            'barangay' => GRADTRACK_BARANGAY_NOT_SPECIFIED_LABEL,
-        ][$level];
-
-        if (
-            $level === 'province'
-            && gradtrack_survey_clean_location($address['province_code'] ?? null) === null
-            && gradtrack_survey_clean_location($address['province_name'] ?? null) === null
-            && strpos(gradtrack_survey_normalize_text($address['region_name'] ?? ''), 'national capital') !== false
-        ) {
-            $fallback = 'Province not applicable';
-        }
-
-        $codeKey = $level === 'city_municipality' ? 'city_municipality_code' : $level . '_code';
-        $nameKey = $level === 'city_municipality' ? 'city_municipality_name' : $level . '_name';
-        $bucket = gradtrack_survey_location_bucket($address[$codeKey] ?? null, $address[$nameKey] ?? null, $fallback);
-        $bucketKey = (string)$bucket['id'];
-
-        if (!isset($buckets[$bucketKey])) {
-            $buckets[$bucketKey] = [
-                'location_id' => $bucket['id'],
-                'location_label' => $bucket['label'],
-                'code' => $bucket['code'],
-                'name' => $bucket['name'],
-                'count' => 0,
-                'percentage' => 0,
-            ];
-        }
-
-        $buckets[$bucketKey]['count']++;
-        $total++;
-    }
-
-    $rows = array_values($buckets);
-    foreach ($rows as &$row) {
-        $row['count'] = (int)$row['count'];
-        $row['percentage'] = gradtrack_survey_percentage((int)$row['count'], $total, 1);
-    }
-    unset($row);
-
-    usort($rows, static function ($a, $b) {
-        $countCompare = ((int)$b['count']) <=> ((int)$a['count']);
-        if ($countCompare !== 0) {
-            return $countCompare;
-        }
-
-        return strcasecmp((string)$a['location_label'], (string)$b['location_label']);
-    });
-
-    return $rows;
 }
 
 if (!defined('GRADTRACK_REPORTS_INDEX_NO_RUN')) {
@@ -1023,11 +702,7 @@ try {
         ? " with overview filters: employability=" . ($overviewFilters['employment_status'] ?? 'all') .
             ", alignment=" . ($overviewFilters['program_alignment'] ?? 'all') .
             ", graduation_year=" . ($overviewFilters['graduation_year'] ?? 'all') .
-            ", program_id=" . ($overviewFilters['program_id'] ?? 'all') .
-            ", region=" . ($overviewFilters['region'] ?? 'all') .
-            ", province=" . ($overviewFilters['province'] ?? 'all') .
-            ", city_municipality=" . ($overviewFilters['city_municipality'] ?? 'all') .
-            ", barangay=" . ($overviewFilters['barangay'] ?? 'all')
+            ", program_id=" . ($overviewFilters['program_id'] ?? 'all')
         : '';
 
     // Audit Trail: call logAuditTrail() when report data is generated or requested for export.
@@ -1278,57 +953,8 @@ try {
             echo json_encode(["success" => true, "data" => array_values($yearData)]);
             break;
 
-        case 'by_region':
-            echo json_encode(["success" => true, "data" => getLocationReportData(
-                $db,
-                $selectedSurveyId,
-                $overviewFilters,
-                $filterYear,
-                $filterDepartment,
-                $allowedProgramCodes,
-                'region'
-            )]);
-            break;
-
-        case 'by_province':
-            echo json_encode(["success" => true, "data" => getLocationReportData(
-                $db,
-                $selectedSurveyId,
-                $overviewFilters,
-                $filterYear,
-                $filterDepartment,
-                $allowedProgramCodes,
-                'province'
-            )]);
-            break;
-
-        case 'by_city_municipality':
-        case 'by_city':
-            echo json_encode(["success" => true, "data" => getLocationReportData(
-                $db,
-                $selectedSurveyId,
-                $overviewFilters,
-                $filterYear,
-                $filterDepartment,
-                $allowedProgramCodes,
-                'city_municipality'
-            )]);
-            break;
-
-        case 'by_barangay':
-            echo json_encode(["success" => true, "data" => getLocationReportData(
-                $db,
-                $selectedSurveyId,
-                $overviewFilters,
-                $filterYear,
-                $filterDepartment,
-                $allowedProgramCodes,
-                'barangay'
-            )]);
-            break;
-
         case 'employment_status':
-            // Get survey responses and count employment status with location
+            // Get survey responses and count each employment-status category.
             $questions = getSurveyQuestions($db, $selectedSurveyId);
             
             $surveyResponses = getSurveyResponses($db, $selectedSurveyId, $overviewFilters);

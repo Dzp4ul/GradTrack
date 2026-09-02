@@ -83,7 +83,7 @@ export default function SurveyAnalytics() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="survey-analytics-content space-y-6">
       {/* Header */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-3 sm:gap-4">
@@ -133,7 +133,7 @@ export default function SurveyAnalytics() {
 
       {/* Employment Insights */}
       {analytics.employment_insights && (
-        <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
+        <div className="survey-report-paper rounded-xl border p-4 shadow-sm sm:p-6">
           <h2 className="text-xl font-bold text-blue-900 mb-6">Employment Insights</h2>
           
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
@@ -227,12 +227,12 @@ export default function SurveyAnalytics() {
       )}
 
       {/* Question Analytics */}
-      <div className="bg-white rounded-xl shadow-sm border p-4 sm:p-6">
+      <div className="survey-report-paper rounded-xl border p-4 shadow-sm sm:p-6">
         <h2 className="text-xl font-bold text-blue-900 mb-6">Question-by-Question Analysis</h2>
         
         <div className="space-y-8">
           {analytics.questions_analytics.map((qa, index) => (
-            <div key={qa.question_id} className="border-b pb-6 last:border-b-0">
+            <div key={qa.question_id} className="survey-question-section border-b pb-6 last:border-b-0">
               <div className="mb-4">
                 <h3 className="text-base font-semibold text-blue-900 mb-1">
                   Q{index + 1}: {qa.question_text}
@@ -352,7 +352,7 @@ function StatCard({ icon: Icon, label, value, color }: {
   icon: React.ElementType; label: string; value: string; color: string;
 }) {
   return (
-    <div className="bg-white rounded-xl shadow-sm border p-5">
+    <div className="survey-report-paper rounded-xl border p-5 shadow-sm">
       <div className="flex items-center gap-3 mb-2">
         <div className={`p-2 rounded-lg ${color}`}>
           <Icon className="w-5 h-5" />

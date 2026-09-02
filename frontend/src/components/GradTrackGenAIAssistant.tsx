@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ExcelJS from 'exceljs';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -77,9 +77,16 @@ interface GenAIResponseData {
     model?: string | null;
     privacy?: string;
   };
-  dataset?: Record<string, unknown>;
+  dataset?: Record<string, unknown> | null;
   context?: Record<string, unknown>;
   aiError?: string | null;
+}
+
+interface AssistantConfig {
+  roleLabel: string;
+  welcome: string;
+  suggestions: string[];
+  supportsReportContext: boolean;
 }
 
 interface ChatMessage {
@@ -91,20 +98,7 @@ interface ChatMessage {
   error?: string;
 }
 
-const REPORT_CONTEXT_STORAGE_KEY = 'gradtrack_genai_report_context';
-const DEFAULT_PROMPTS = [
-  'Explain the tracer study results',
-  'Summarize employment statistics',
-  'What are the major findings?',
-  'Compare programs',
-  'Analyze job relevance',
-  'Identify employment trends',
-  'Generate a tracer report',
-  'Create a PDF summary',
-];
-
-const ADMIN_AI_ROLES = ['admin', 'super_admin', 'dean_cs', 'dean_coed', 'dean_hm'];
-
+const REPORT_CONTEXT_STORAGE_KEY_PREFIX = 'gradtrack_genai_report_context';
 const makeMessageId = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 const toTitle = (value: unknown) => String(value ?? '')
@@ -125,7 +119,6 @@ const getReportTypeLabel = (context: ReportContext | null) => {
     employment: 'Employment Status',
     salary_distribution: 'Salary Distribution',
     salary: 'Salary Distribution',
-    location: 'Location',
     surveys: 'Survey Analytics',
   };
 
@@ -221,20 +214,33 @@ export default function GradTrackGenAIAssistant() {
   const [loading, setLoading] = useState(false);
   const [loadingStage, setLoadingStage] = useState('Retrieving GradTrack data...');
   const [reportContext, setReportContext] = useState<ReportContext | null>(null);
+  const [assistantConfig, setAssistantConfig] = useState<AssistantConfig | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const loadingTimersRef = useRef<number[]>([]);
 
-  const isAllowed = Boolean(user?.role && ADMIN_AI_ROLES.includes(user.role));
-  const shouldShow = isAllowed && location.pathname.startsWith('/admin');
-  const contextLabel = useMemo(() => buildContextLabel(reportContext), [reportContext]);
-  const contextIsAvailable = Boolean(reportContext?.surveyId || reportContext?.reportType || reportContext?.tab);
+  const isAdminPath = location.pathname.startsWith('/admin');
+  const shouldShow = Boolean(assistantConfig) && isAdminPath;
+  const reportContextStorageKey = useMemo(
+    () => `${REPORT_CONTEXT_STORAGE_KEY_PREFIX}_${user?.id ?? 'anonymous'}`,
+    [user?.id],
+  );
+  const contextLabel = useMemo(
+    () => assistantConfig?.supportsReportContext
+      ? buildContextLabel(reportContext)
+      : `Role scope: ${assistantConfig?.roleLabel || 'GradTrack'}`,
+    [assistantConfig, reportContext],
+  );
+  const contextIsAvailable = Boolean(
+    assistantConfig?.supportsReportContext
+      && (reportContext?.surveyId || reportContext?.reportType || reportContext?.tab),
+  );
 
-  const clearLoadingTimers = () => {
+  const clearLoadingTimers = useCallback(() => {
     loadingTimersRef.current.forEach((timer) => window.clearTimeout(timer));
     loadingTimersRef.current = [];
-  };
+  }, []);
 
-  const startLoadingStages = (isReportRequest: boolean) => {
+  const startLoadingStages = useCallback((isReportRequest: boolean) => {
     clearLoadingTimers();
     const stages = isReportRequest
       ? ['Preparing report data...', 'Generating AI summary...', 'Creating report preview...']
@@ -243,7 +249,7 @@ export default function GradTrackGenAIAssistant() {
     stages.slice(1).forEach((stage, index) => {
       loadingTimersRef.current.push(window.setTimeout(() => setLoadingStage(stage), (index + 1) * 900));
     });
-  };
+  }, [clearLoadingTimers]);
 
   const openAssistant = () => {
     setIsOpen(true);
@@ -265,17 +271,56 @@ export default function GradTrackGenAIAssistant() {
 
   const clearContext = () => {
     setReportContext(null);
-    sessionStorage.removeItem(REPORT_CONTEXT_STORAGE_KEY);
+    sessionStorage.removeItem(reportContextStorageKey);
   };
 
-  const updateStoredContext = (context: ReportContext | null) => {
+  const updateStoredContext = useCallback((context: ReportContext | null) => {
+    if (!assistantConfig?.supportsReportContext) {
+      return;
+    }
     setReportContext(context);
     if (context) {
-      sessionStorage.setItem(REPORT_CONTEXT_STORAGE_KEY, JSON.stringify(context));
+      sessionStorage.setItem(reportContextStorageKey, JSON.stringify(context));
     }
-  };
+  }, [assistantConfig?.supportsReportContext, reportContextStorageKey]);
 
-  const sendMessage = async (prompt?: string, action: GenAIAction = 'chat', explicitContext?: ReportContext) => {
+  useEffect(() => {
+    setAssistantConfig(null);
+    setMessages([]);
+    setReportContext(null);
+
+    if (!user?.id || !isAdminPath) {
+      setAssistantConfig(null);
+      return;
+    }
+
+    const controller = new AbortController();
+    fetch(API_ENDPOINTS.GENAI_ASSISTANT, {
+      credentials: 'include',
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const result = await response.json().catch(() => null);
+        if (!response.ok || !result?.success || !result.data?.assistantConfig) {
+          return null;
+        }
+        return result.data.assistantConfig as AssistantConfig;
+      })
+      .then((config) => {
+        if (!controller.signal.aborted) {
+          setAssistantConfig(config);
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setAssistantConfig(null);
+        }
+      });
+
+    return () => controller.abort();
+  }, [isAdminPath, user?.id, user?.role]);
+
+  const sendMessage = useCallback(async (prompt?: string, action: GenAIAction = 'chat', explicitContext?: ReportContext) => {
     const messageText = (prompt ?? input).trim();
     if (!messageText || loading) {
       return;
@@ -362,7 +407,7 @@ export default function GradTrackGenAIAssistant() {
       setLoading(false);
       setLoadingStage('Retrieving GradTrack data...');
     }
-  };
+  }, [clearLoadingTimers, contextLabel, input, isMinimized, isOpen, loading, messages, reportContext, startLoadingStages, updateStoredContext]);
 
   const copyMessage = async (message: ChatMessage) => {
     const details = message.response
@@ -569,18 +614,25 @@ export default function GradTrackGenAIAssistant() {
   };
 
   useEffect(() => {
-    const storedContext = sessionStorage.getItem(REPORT_CONTEXT_STORAGE_KEY);
+    if (!assistantConfig?.supportsReportContext) {
+      setReportContext(null);
+      return;
+    }
+    const storedContext = sessionStorage.getItem(reportContextStorageKey);
     if (storedContext) {
       try {
         setReportContext(JSON.parse(storedContext) as ReportContext);
       } catch {
-        sessionStorage.removeItem(REPORT_CONTEXT_STORAGE_KEY);
+        sessionStorage.removeItem(reportContextStorageKey);
       }
     }
-  }, []);
+  }, [assistantConfig?.supportsReportContext, reportContextStorageKey]);
 
   useEffect(() => {
     const handleContextUpdate = (event: Event) => {
+      if (!assistantConfig?.supportsReportContext) {
+        return;
+      }
       const detail = (event as CustomEvent<ReportContext>).detail;
       if (detail) {
         updateStoredContext(detail);
@@ -609,7 +661,7 @@ export default function GradTrackGenAIAssistant() {
       window.removeEventListener('gradtrack:report-context', handleContextUpdate as EventListener);
       window.removeEventListener('gradtrack:genai-open', handleOpen as EventListener);
     };
-  }, [reportContext, messages, input, loading]);
+  }, [assistantConfig?.supportsReportContext, reportContext, sendMessage, updateStoredContext]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -622,7 +674,7 @@ export default function GradTrackGenAIAssistant() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen]);
 
-  useEffect(() => () => clearLoadingTimers(), []);
+  useEffect(() => () => clearLoadingTimers(), [clearLoadingTimers]);
 
   if (!shouldShow) {
     return null;
@@ -639,7 +691,7 @@ export default function GradTrackGenAIAssistant() {
         <div className="space-y-2">
           <p>{message.content}</p>
           {message.error && (
-            <div className="mt-3 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+            <div className="gt-ai-error mt-3 flex items-start gap-2 rounded-lg border px-3 py-2 text-xs font-medium">
               <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>{message.error}</span>
             </div>
@@ -667,8 +719,8 @@ export default function GradTrackGenAIAssistant() {
         <p className="whitespace-pre-wrap">{assistant.answer}</p>
 
         {isDirect && response.sourceMetrics.length > 0 && (
-          <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-600">
-            <span className="font-semibold text-slate-700">Data used:</span>{' '}
+          <div className="gt-ai-data-summary rounded-md border px-3 py-2 text-[11px] leading-relaxed">
+            <span className="font-semibold">Data used:</span>{' '}
             {response.sourceMetrics.map((metric, index) => (
               <span key={metric.label}>
                 {index > 0 ? ' | ' : ''}
@@ -679,9 +731,9 @@ export default function GradTrackGenAIAssistant() {
         )}
 
         {!isDirect && sections.map((section) => (
-          <section key={section.title} className="rounded-lg border border-slate-200 bg-white/80 p-3">
-            <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-[#1b2a4a]">{section.title}</h4>
-            <div className="space-y-2 text-sm text-gray-700">
+          <section key={section.title} className="gt-ai-section rounded-lg border p-3">
+            <h4 className="gt-ai-primary-text mb-2 text-xs font-bold uppercase tracking-wide">{section.title}</h4>
+            <div className="gt-ai-secondary-text space-y-2 text-sm">
               {section.items.map((item, index) => (
                 <p key={index} className="leading-relaxed">{item}</p>
               ))}
@@ -690,16 +742,16 @@ export default function GradTrackGenAIAssistant() {
         ))}
 
         {!isDirect && response.sourceMetrics.length > 0 && (
-          <section className="rounded-lg border border-blue-100 bg-blue-50/70 p-3">
-            <h4 className="mb-2 text-xs font-bold uppercase tracking-wide text-blue-900">Data Used For This Analysis</h4>
+          <section className="gt-ai-data-section rounded-lg border p-3">
+            <h4 className="mb-2 text-xs font-bold uppercase tracking-wide">Data Used For This Analysis</h4>
             <div className="space-y-2">
               {response.sourceMetrics.map((metric) => (
-                <div key={metric.label} className="text-xs text-blue-950">
+                <div key={metric.label} className="text-xs">
                   <span className="font-semibold">{metric.label}:</span> {metric.value}
                 </div>
               ))}
             </div>
-            <p className="mt-2 text-[11px] leading-relaxed text-blue-700">
+            <p className="gt-ai-muted-text mt-2 text-[11px] leading-relaxed">
               Generated {response.dataUsed.generatedAt ? new Date(response.dataUsed.generatedAt).toLocaleString() : 'now'}
               {response.dataUsed.model ? ` using ${response.dataUsed.model}` : ''}. {response.dataUsed.privacy}
             </p>
@@ -707,9 +759,9 @@ export default function GradTrackGenAIAssistant() {
         )}
 
         {reportReady && (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+          <div className="gt-ai-report-ready rounded-lg border p-3">
             <div className="flex items-start gap-3">
-              <div className="rounded-lg bg-white p-2 text-emerald-700 shadow-sm">
+              <div className="gt-ai-report-icon rounded-lg p-2 text-emerald-700 shadow-sm">
                 {preferredFormat === 'xlsx' ? <FileSpreadsheet className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
               </div>
               <div className="min-w-0 flex-1">
@@ -727,21 +779,21 @@ export default function GradTrackGenAIAssistant() {
                   <button
                     type="button"
                     onClick={() => void downloadReport(response, 'pdf')}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"
+                    className="gt-ai-report-secondary inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold"
                   >
                     PDF
                   </button>
                   <button
                     type="button"
                     onClick={() => void downloadReport(response, 'xlsx')}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"
+                    className="gt-ai-report-secondary inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold"
                   >
                     Excel
                   </button>
                   <button
                     type="button"
                     onClick={() => void downloadReport(response, 'csv')}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"
+                    className="gt-ai-report-secondary inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold"
                   >
                     CSV
                   </button>
@@ -752,7 +804,7 @@ export default function GradTrackGenAIAssistant() {
         )}
 
         {response.aiError && (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <div className="gt-ai-warning rounded-lg border px-3 py-2 text-xs">
             Local deterministic analysis was used because Groq was unavailable: {response.aiError}
           </div>
         )}
@@ -765,7 +817,7 @@ export default function GradTrackGenAIAssistant() {
       {isOpen && !isMinimized && (
         <div className="fixed inset-x-3 bottom-3 z-[70] sm:inset-x-auto sm:right-5 sm:w-[430px]">
           <section
-            className="gt-ai-chat-panel overflow-hidden rounded-2xl border border-blue-100 bg-white shadow-2xl"
+            className="gt-ai-chat-panel flex max-h-[calc(100vh-1.5rem)] flex-col overflow-hidden rounded-2xl border shadow-2xl"
             aria-label="GradTrack GenAI Assistant chat panel"
           >
             <header className="flex items-center gap-3 border-b bg-[#1b2a4a] px-4 py-3 text-white">
@@ -774,7 +826,7 @@ export default function GradTrackGenAIAssistant() {
               </div>
               <div className="min-w-0 flex-1">
                 <h2 className="truncate text-sm font-bold">GradTrack GenAI Assistant</h2>
-                <p className="truncate text-xs text-blue-100">AI-powered Graduate Tracer Insights</p>
+                <p className="truncate text-xs text-blue-100">{assistantConfig?.roleLabel} Assistant</p>
               </div>
               <div className="flex items-center gap-1">
                 <button
@@ -807,46 +859,45 @@ export default function GradTrackGenAIAssistant() {
               </div>
             </header>
 
-            <div className="border-b bg-slate-50 px-4 py-2">
+            <div className="gt-ai-status-bar border-b px-4 py-2">
               <div className="flex flex-wrap items-center gap-2 text-xs">
-                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-1 font-semibold text-emerald-700">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                  Ready
+                <span className={`gt-ai-ready-badge inline-flex items-center gap-1 rounded-full px-2.5 py-1 font-semibold ${loading ? 'is-analyzing' : ''}`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${loading ? 'animate-pulse bg-amber-500' : 'bg-emerald-500'}`} />
+                  {loading ? 'Analyzing' : 'Ready'}
                 </span>
-                <span className="min-w-0 flex-1 truncate rounded-full border border-blue-100 bg-white px-2.5 py-1 font-medium text-blue-900">
+                <span className="gt-ai-context-badge min-w-0 flex-1 truncate rounded-full border px-2.5 py-1 font-medium">
                   Analyzing: {contextLabel}
                 </span>
                 {contextIsAvailable && (
-                  <button type="button" onClick={clearContext} className="font-semibold text-slate-500 hover:text-slate-800">
+                  <button type="button" onClick={clearContext} className="gt-ai-muted-button font-semibold">
                     Clear context
                   </button>
                 )}
               </div>
             </div>
 
-            <div className="max-h-[58vh] min-h-[360px] overflow-y-auto bg-slate-50/70 px-4 py-4 sm:max-h-[560px]">
+            <div className="gt-ai-messages min-h-[240px] flex-1 overflow-y-auto px-4 py-4 sm:min-h-[360px]">
               {messages.length === 0 && (
                 <div className="space-y-4">
-                  <div className="rounded-2xl border border-blue-100 bg-white p-4 shadow-sm">
+                  <div className="gt-ai-card rounded-2xl border p-4 shadow-sm">
                     <div className="mb-3 flex items-center gap-3">
                       <GradTrackAIMascot compact />
                       <div>
-                        <p className="font-bold text-[#1b2a4a]">Hello! I'm the GradTrack GenAI Assistant.</p>
-                        <p className="text-xs font-medium text-gray-500">I explain tracer-study reports using authorized GradTrack data.</p>
+                        <p className="gt-ai-primary-text font-bold">Hello! I'm the GradTrack GenAI Assistant.</p>
+                        <p className="gt-ai-muted-text text-xs font-medium">Assistance scoped to your authenticated {assistantConfig?.roleLabel} account.</p>
                       </div>
                     </div>
-                    <p className="text-sm leading-relaxed text-gray-700">
-                      I can help you understand graduate tracer reports, analyze employment trends, compare programs or batches,
-                      summarize survey results, and generate report files from GradTrack data.
+                    <p className="gt-ai-secondary-text text-sm leading-relaxed">
+                      {assistantConfig?.welcome}
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {DEFAULT_PROMPTS.map((prompt) => (
+                    {(assistantConfig?.suggestions || []).map((prompt) => (
                       <button
                         key={prompt}
                         type="button"
                         onClick={() => void sendMessage(prompt, prompt.toLowerCase().includes('report') || prompt.toLowerCase().includes('pdf') ? 'generate_report' : 'chat')}
-                        className="rounded-full border border-blue-100 bg-white px-3 py-1.5 text-xs font-semibold text-blue-900 shadow-sm hover:border-blue-300 hover:bg-blue-50"
+                        className="gt-ai-suggestion rounded-full border px-3 py-1.5 text-xs font-semibold shadow-sm"
                       >
                         {prompt}
                       </button>
@@ -861,16 +912,16 @@ export default function GradTrackGenAIAssistant() {
                     <div className={`max-w-[92%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
                       message.role === 'admin'
                         ? 'bg-[#1d4ed8] text-white'
-                        : 'border border-slate-200 bg-white text-gray-800'
+                        : 'gt-ai-assistant-message border'
                     }`}>
                       {message.role === 'assistant' ? renderAssistantSections(message) : <p className="whitespace-pre-wrap">{message.content}</p>}
                       {message.role === 'assistant' && (
-                        <div className="mt-3 flex items-center justify-between gap-2 border-t border-slate-100 pt-2 text-[11px] text-slate-500">
+                        <div className="gt-ai-message-meta mt-3 flex items-center justify-between gap-2 border-t pt-2 text-[11px]">
                           <span>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
                           <button
                             type="button"
                             onClick={() => void copyMessage(message)}
-                            className="inline-flex items-center gap-1 rounded-md px-2 py-1 font-semibold hover:bg-slate-100"
+                            className="gt-ai-copy-button inline-flex items-center gap-1 rounded-md px-2 py-1 font-semibold"
                           >
                             <Copy className="h-3 w-3" />
                             Copy
@@ -883,12 +934,12 @@ export default function GradTrackGenAIAssistant() {
 
                 {loading && (
                   <div className="flex justify-start">
-                    <div className="max-w-[88%] rounded-2xl border border-blue-100 bg-white px-4 py-3 text-sm text-gray-700 shadow-sm">
+                    <div className="gt-ai-assistant-message max-w-[88%] rounded-2xl border px-4 py-3 text-sm shadow-sm">
                       <div className="flex items-center gap-3">
                         <GradTrackAIMascot compact thinking />
                         <div>
-                          <p className="font-semibold text-[#1b2a4a]">{loadingStage}</p>
-                          <p className="text-xs text-gray-500">GradTrack AI is typing...</p>
+                          <p className="gt-ai-primary-text font-semibold">{loadingStage}</p>
+                          <p className="gt-ai-muted-text text-xs">GradTrack AI is typing...</p>
                         </div>
                         <Loader2 className="ml-auto h-4 w-4 animate-spin text-blue-600" />
                       </div>
@@ -899,14 +950,14 @@ export default function GradTrackGenAIAssistant() {
             </div>
 
             {lastMessage?.response?.assistant.suggestedQuestions?.length ? (
-              <div className="border-t bg-white px-4 py-2">
+              <div className="gt-ai-followups border-t px-4 py-2">
                 <div className="flex gap-2 overflow-x-auto pb-1">
                   {lastMessage.response.assistant.suggestedQuestions?.map((question: string) => (
                     <button
                       key={question}
                       type="button"
                       onClick={() => void sendMessage(question, question.toLowerCase().includes('report') || question.toLowerCase().includes('export') ? 'generate_report' : 'chat')}
-                      className="shrink-0 rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-900"
+                      className="gt-ai-suggestion shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold"
                     >
                       {question}
                     </button>
@@ -915,17 +966,19 @@ export default function GradTrackGenAIAssistant() {
               </div>
             ) : null}
 
-            <footer className="border-t bg-white p-3">
-              <div className="flex items-end gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2 focus-within:border-blue-400 focus-within:bg-white">
-                <button
-                  type="button"
-                  onClick={() => void sendMessage('Generate comprehensive insights from the current report.', 'insights')}
-                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-blue-700 hover:bg-blue-50"
-                  aria-label="Generate insights for current report"
-                  title="Generate insights for current report"
-                >
-                  <Sparkles className="h-4 w-4" />
-                </button>
+            <footer className="gt-ai-footer border-t p-3">
+              <div className="gt-ai-input-wrap flex items-end gap-2 rounded-xl border p-2">
+                {assistantConfig?.supportsReportContext && (
+                  <button
+                    type="button"
+                    onClick={() => void sendMessage('Generate comprehensive insights from the current report.', 'insights')}
+                    className="gt-ai-insights-button inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
+                    aria-label="Generate insights for current report"
+                    title="Generate insights for current report"
+                  >
+                    <Sparkles className="h-4 w-4" />
+                  </button>
+                )}
                 <textarea
                   ref={inputRef}
                   value={input}
@@ -937,8 +990,8 @@ export default function GradTrackGenAIAssistant() {
                     }
                   }}
                   rows={1}
-                  className="max-h-28 min-h-9 flex-1 resize-none border-0 bg-transparent px-1 py-2 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:ring-0"
-                  placeholder="Ask about graduate tracer reports, employment data, programs, trends, or generate a report..."
+                  className="gt-ai-input max-h-28 min-h-9 flex-1 resize-none border-0 bg-transparent px-1 py-2 text-sm outline-none focus:ring-0"
+                  placeholder="Ask about GradTrack features available to your account..."
                   aria-label="Message GradTrack GenAI Assistant"
                 />
                 <button
@@ -961,7 +1014,7 @@ export default function GradTrackGenAIAssistant() {
           <button
             type="button"
             onClick={openAssistant}
-            className={`gt-ai-floating-button group relative flex h-[78px] w-[78px] items-center justify-center rounded-full border border-blue-100 bg-white shadow-2xl ${
+            className={`gt-ai-floating-button group relative flex h-[78px] w-[78px] items-center justify-center rounded-full border shadow-2xl ${
               hasNewResult ? 'gt-ai-floating-button--new' : ''
             }`}
             aria-label="Ask GradTrack AI"
@@ -970,7 +1023,7 @@ export default function GradTrackGenAIAssistant() {
             <span className="pointer-events-none absolute bottom-full right-0 mb-2 hidden whitespace-nowrap rounded-lg bg-[#1b2a4a] px-3 py-1.5 text-xs font-semibold text-white shadow-lg group-hover:block">
               Ask GradTrack AI
             </span>
-            {hasNewResult && <span className="absolute right-2 top-2 h-3 w-3 rounded-full bg-emerald-500 ring-4 ring-white" />}
+            {hasNewResult && <span className="gt-ai-new-dot absolute right-2 top-2 h-3 w-3 rounded-full bg-emerald-500 ring-4" />}
           </button>
         </div>
       )}
