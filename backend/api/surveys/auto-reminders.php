@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/survey_reminders.php';
 
 if (PHP_SAPI !== 'cli') {
@@ -145,6 +146,8 @@ function auto_reminder_load_recipients(PDO $db, int $intervalDays, int $limit): 
             AND rl.graduate_id = g.id
             AND rl.status = 'sent'
         WHERE s.status = 'active'
+          AND s.archived_at IS NULL
+          AND g.archived_at IS NULL
           AND sr.id IS NULL
           AND g.email IS NOT NULL
           AND TRIM(g.email) <> ''
@@ -183,6 +186,8 @@ $database = new Database();
 $db = $database->getConnection();
 
 try {
+    gradtrack_ensure_archive_schema($db, 'graduates');
+    gradtrack_ensure_archive_schema($db, 'surveys', true);
     gradtrack_survey_reminder_ensure_log_table($db);
 
     $emailEnabled = auto_reminder_bool_setting($db, 'enable_email_notifications', true);

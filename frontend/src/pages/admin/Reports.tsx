@@ -79,6 +79,7 @@ interface SurveySummary {
   description: string;
   response_count: number;
   status: string;
+  archived_at?: string | null;
 }
 
 interface SurveyQuestionAnalytics {
@@ -515,11 +516,16 @@ export default function Reports() {
       setSurveyLoading(true);
     }
 
-    fetch(`${API_BASE}/surveys/index.php`)
-      .then((r) => r.json())
-      .then((res) => {
-        if (res.success) {
-          const surveys: SurveySummary[] = (res.data || []).map(normalizeSurveySummary);
+    Promise.all([
+      fetch(`${API_BASE}/surveys/index.php?archive=active&limit=100`, { credentials: 'include' }).then((r) => r.json()),
+      fetch(`${API_BASE}/surveys/index.php?archive=archived&limit=100`, { credentials: 'include' }).then((r) => r.json()),
+    ])
+      .then(([activeResult, archivedResult]) => {
+        if (activeResult.success) {
+          const surveys: SurveySummary[] = [
+            ...(activeResult.data || []),
+            ...(archivedResult.success ? archivedResult.data || [] : []),
+          ].map(normalizeSurveySummary);
           setSurveyItems(surveys);
 
           if (surveys.length === 0) {
@@ -1949,7 +1955,7 @@ export default function Reports() {
                 {surveyItems.map((survey) => (
                   <option key={survey.id} value={survey.id}>
                     {survey.title}
-                    {survey.status === 'active' ? ' (Active)' : ' (Saved)'}
+                    {survey.archived_at ? ' (Archived)' : survey.status === 'active' ? ' (Active)' : ' (Saved)'}
                   </option>
                 ))}
               </select>
@@ -2649,7 +2655,7 @@ export default function Reports() {
                             {surveyItems.map((survey) => (
                               <option key={survey.id} value={survey.id}>
                                 {survey.title}
-                                {survey.status === 'active' ? ' (Active)' : ' (Saved)'}
+                                {survey.archived_at ? ' (Archived)' : survey.status === 'active' ? ' (Active)' : ' (Saved)'}
                               </option>
                             ))}
                           </select>

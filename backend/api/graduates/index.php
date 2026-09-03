@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/audit_trail.php';
+require_once __DIR__ . '/../config/archive.php';
 
 function normalize_nullable_text($value) {
     if (!isset($value)) {
@@ -126,6 +127,8 @@ if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'registrar') {
 $auditUser = gradtrack_audit_current_admin_context();
 
 try {
+    gradtrack_ensure_archive_schema($db, 'graduates');
+
     switch ($method) {
         case 'GET':
             if (isset($_GET['id'])) {
@@ -133,11 +136,16 @@ try {
                 $stmt = $db->prepare("
                     SELECT g.*, p.name as program_name, p.code as program_code,
                         e.company_name, e.job_title, e.industry, e.employment_status, 
-                        e.is_aligned, e.date_hired, e.monthly_salary, e.time_to_employment
+                        e.is_aligned, e.date_hired, e.monthly_salary, e.time_to_employment,
+                        archiver.full_name AS archived_by_name,
+                        restorer.full_name AS restored_by_name
                     FROM graduates g
                     LEFT JOIN programs p ON g.program_id = p.id
                     LEFT JOIN employment e ON e.graduate_id = g.id
+                    LEFT JOIN admin_users archiver ON archiver.id = g.archived_by
+                    LEFT JOIN admin_users restorer ON restorer.id = g.restored_by
                     WHERE g.id = :id
+                      AND " . ((isset($_GET['archive']) && $_GET['archive'] === 'archived') ? 'g.archived_at IS NOT NULL' : 'g.archived_at IS NULL') . "
                 ");
                 $stmt->bindParam(':id', $_GET['id']);
                 $stmt->execute();
@@ -151,7 +159,8 @@ try {
                 }
             } else {
                 // List all graduates with filters
-                $where = [];
+                $archiveScope = isset($_GET['archive']) && $_GET['archive'] === 'archived' ? 'archived' : 'active';
+                $where = [$archiveScope === 'archived' ? 'g.archived_at IS NOT NULL' : 'g.archived_at IS NULL'];
                 $params = [];
 
                 if (isset($_GET['search']) && !empty($_GET['search'])) {
@@ -183,7 +192,7 @@ try {
                 $offset = ($page - 1) * $limit;
 
                 // Count total
-                $countSql = "SELECT COUNT(*) as total FROM graduates g LEFT JOIN employment e ON e.graduate_id = g.id $whereClause";
+                $countSql = "SELECT COUNT(DISTINCT g.id) as total FROM graduates g LEFT JOIN employment e ON e.graduate_id = g.id $whereClause";
                 $countStmt = $db->prepare($countSql);
                 $countStmt->execute($params);
                 $total = $countStmt->fetch(PDO::FETCH_ASSOC)['total'];
@@ -191,10 +200,14 @@ try {
                 // Fetch data
                 $sql = "
                     SELECT g.*, p.name as program_name, p.code as program_code,
-                        e.employment_status, e.is_aligned, e.job_title, e.company_name
+                        e.employment_status, e.is_aligned, e.job_title, e.company_name,
+                        archiver.full_name AS archived_by_name,
+                        restorer.full_name AS restored_by_name
                     FROM graduates g
                     LEFT JOIN programs p ON g.program_id = p.id
                     LEFT JOIN employment e ON e.graduate_id = g.id
+                    LEFT JOIN admin_users archiver ON archiver.id = g.archived_by
+                    LEFT JOIN admin_users restorer ON restorer.id = g.restored_by
                     $whereClause
                     ORDER BY g.created_at DESC
                     LIMIT $limit OFFSET $offset
@@ -202,10 +215,18 @@ try {
                 $stmt = $db->prepare($sql);
                 $stmt->execute($params);
                 $graduates = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                $archiveCounts = $db->query("SELECT
+                                                SUM(CASE WHEN archived_at IS NULL THEN 1 ELSE 0 END) AS active,
+                                                SUM(CASE WHEN archived_at IS NOT NULL THEN 1 ELSE 0 END) AS archived
+                                             FROM graduates")->fetch(PDO::FETCH_ASSOC) ?: [];
 
                 echo json_encode([
                     "success" => true,
                     "data" => $graduates,
+                    "archive_counts" => [
+                        "active" => (int)($archiveCounts['active'] ?? 0),
+                        "archived" => (int)($archiveCounts['archived'] ?? 0),
+                    ],
                     "pagination" => [
                         "total" => (int)$total,
                         "page" => $page,
@@ -326,6 +347,54 @@ try {
                 break;
             }
 
+            $graduateId = (int)$data['id'];
+            $existingGraduate = graduates_audit_snapshot($db, $graduateId);
+            if (!$existingGraduate) {
+                http_response_code(404);
+                echo json_encode(["success" => false, "error" => "Graduate not found"]);
+                break;
+            }
+
+            if (($data['action'] ?? '') === 'restore') {
+                $restoreStmt = $db->prepare("UPDATE graduates
+                                             SET archived_at = NULL,
+                                                 archived_by = NULL,
+                                                 restored_at = NOW(),
+                                                 restored_by = :restored_by
+                                             WHERE id = :id AND archived_at IS NOT NULL");
+                $restoreStmt->execute([
+                    ':restored_by' => $auditUser['user_id'],
+                    ':id' => $graduateId,
+                ]);
+                if ($restoreStmt->rowCount() === 0) {
+                    http_response_code(409);
+                    echo json_encode(["success" => false, "error" => "Graduate record is already active"]);
+                    break;
+                }
+
+                logAuditTrail(
+                    $auditUser['user_id'],
+                    $auditUser['user_name'],
+                    $auditUser['user_role'],
+                    $existingGraduate['program_code'] ?? null,
+                    'Restore',
+                    'Graduate Records',
+                    "Restored graduate record with ID {$graduateId}.",
+                    $graduateId
+                );
+                echo json_encode(["success" => true, "message" => "Graduate restored successfully"]);
+                break;
+            }
+
+            $activeCheckStmt = $db->prepare('SELECT archived_at FROM graduates WHERE id = :id LIMIT 1');
+            $activeCheckStmt->execute([':id' => $graduateId]);
+            $archiveState = $activeCheckStmt->fetch(PDO::FETCH_ASSOC);
+            if (!empty($archiveState['archived_at'])) {
+                http_response_code(409);
+                echo json_encode(["success" => false, "error" => "Restore this graduate record before editing it"]);
+                break;
+            }
+
             $studentId = normalize_nullable_text($data['student_id'] ?? null);
             $email = normalize_nullable_text($data['email'] ?? null);
             $phone = normalize_nullable_text($data['phone'] ?? null);
@@ -360,7 +429,7 @@ try {
                         student_id = :student_id, first_name = :first_name, middle_name = :middle_name, last_name = :last_name,
                         name_extension = :name_extension, email = :email, phone = :phone, program_id = :program_id,
                         year_graduated = :year_graduated, address = :address
-                    WHERE id = :id
+                    WHERE id = :id AND archived_at IS NULL
                 ");
                 $stmt->execute([
                     ':id' => $data['id'],
@@ -381,7 +450,7 @@ try {
                         student_id = :student_id, first_name = :first_name, middle_name = :middle_name, last_name = :last_name,
                         email = :email, phone = :phone, program_id = :program_id,
                         year_graduated = :year_graduated, address = :address
-                    WHERE id = :id
+                    WHERE id = :id AND archived_at IS NULL
                 ");
                 $stmt->execute([
                     ':id' => $data['id'],
@@ -461,30 +530,32 @@ try {
                     return $row['program_code'] ?? null;
                 }, $auditRowsStmt->fetchAll(PDO::FETCH_ASSOC))));
 
-                $stmt = $db->prepare("DELETE FROM graduates WHERE id IN ($placeholders)");
-                $stmt->execute($ids);
-                $deletedCount = $stmt->rowCount();
+                $updateParams = array_merge([$auditUser['user_id']], $ids);
+                $stmt = $db->prepare("UPDATE graduates
+                                      SET archived_at = NOW(), archived_by = ?, restored_at = NULL, restored_by = NULL
+                                      WHERE id IN ($placeholders) AND archived_at IS NULL");
+                $stmt->execute($updateParams);
+                $archivedCount = $stmt->rowCount();
                 $auditDepartment = count($programCodes) === 1 ? $programCodes[0] : null;
 
-                // Audit Trail: call logAuditTrail() after selected graduate records are successfully deleted.
                 logAuditTrail(
                     $auditUser['user_id'],
                     $auditUser['user_name'],
                     $auditUser['user_role'],
                     $auditDepartment,
-                    'Delete',
+                    'Archive',
                     'Graduate Records',
-                    "Deleted {$deletedCount} selected graduate records.",
+                    "Archived {$archivedCount} selected graduate records.",
                     null,
                     null,
                     null,
-                    ['deleted_count' => $deletedCount]
+                    ['archived_count' => $archivedCount]
                 );
 
                 echo json_encode([
                     "success" => true,
-                    "message" => "Selected graduates deleted successfully",
-                    "deleted" => $deletedCount
+                    "message" => "Selected graduates archived successfully",
+                    "archived" => $archivedCount
                 ]);
                 break;
             }
@@ -497,8 +568,10 @@ try {
                     break;
                 }
 
-                $sql = "DELETE FROM graduates WHERE year_graduated = :year";
-                $params = [':year' => $year];
+                $sql = "UPDATE graduates
+                        SET archived_at = NOW(), archived_by = :archived_by, restored_at = NULL, restored_by = NULL
+                        WHERE year_graduated = :year AND archived_at IS NULL";
+                $params = [':year' => $year, ':archived_by' => $auditUser['user_id']];
 
                 if (isset($data['program_id']) && $data['program_id'] !== '') {
                     $programId = (int)$data['program_id'];
@@ -510,31 +583,30 @@ try {
 
                 $stmt = $db->prepare($sql);
                 $stmt->execute($params);
-                $deletedCount = $stmt->rowCount();
+                $archivedCount = $stmt->rowCount();
                 $programCode = graduates_program_code_from_program_id($db, $params[':program_id'] ?? null);
 
-                // Audit Trail: call logAuditTrail() after graduate records are successfully deleted by filter.
                 logAuditTrail(
                     $auditUser['user_id'],
                     $auditUser['user_name'],
                     $auditUser['user_role'],
                     $programCode,
-                    'Delete',
+                    'Archive',
                     'Graduate Records',
-                    "Deleted {$deletedCount} graduate records for graduation year {$year}.",
+                    "Archived {$archivedCount} graduate records for graduation year {$year}.",
                     null,
                     null,
                     null,
                     [
-                        'deleted_count' => $deletedCount,
+                        'archived_count' => $archivedCount,
                         'graduation_year' => $year,
                     ]
                 );
 
                 echo json_encode([
                     "success" => true,
-                    "message" => "Graduates deleted successfully",
-                    "deleted" => $deletedCount
+                    "message" => "Graduates archived successfully",
+                    "archived" => $archivedCount
                 ]);
                 break;
             }
@@ -545,21 +617,32 @@ try {
                 break;
             }
 
-            $graduateToDelete = graduates_audit_snapshot($db, (int)$data['id']);
-            $stmt = $db->prepare("DELETE FROM graduates WHERE id = :id");
-            $stmt->execute([':id' => $data['id']]);
-            // Audit Trail: call logAuditTrail() after a graduate record is successfully deleted.
+            $graduateToArchive = graduates_audit_snapshot($db, (int)$data['id']);
+            if (!$graduateToArchive) {
+                http_response_code(404);
+                echo json_encode(["success" => false, "error" => "Graduate not found"]);
+                break;
+            }
+            $stmt = $db->prepare("UPDATE graduates
+                                  SET archived_at = NOW(), archived_by = :archived_by, restored_at = NULL, restored_by = NULL
+                                  WHERE id = :id AND archived_at IS NULL");
+            $stmt->execute([':archived_by' => $auditUser['user_id'], ':id' => $data['id']]);
+            if ($stmt->rowCount() === 0) {
+                http_response_code(409);
+                echo json_encode(["success" => false, "error" => "Graduate record is already archived"]);
+                break;
+            }
             logAuditTrail(
                 $auditUser['user_id'],
                 $auditUser['user_name'],
                 $auditUser['user_role'],
-                $graduateToDelete['program_code'] ?? null,
-                'Delete',
+                $graduateToArchive['program_code'] ?? null,
+                'Archive',
                 'Graduate Records',
-                'Deleted graduate record with ID ' . $data['id'] . '.',
+                'Archived graduate record with ID ' . $data['id'] . '.',
                 $data['id']
             );
-            echo json_encode(["success" => true, "message" => "Graduate deleted successfully"]);
+            echo json_encode(["success" => true, "message" => "Graduate archived successfully"]);
             break;
 
         default:

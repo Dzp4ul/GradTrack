@@ -35,7 +35,7 @@ function gradtrack_forum_comments_post_access(PDO $db, int $postId, ?array $grad
     $isOwner = $graduateUser !== null && (int) $post['graduate_id'] === (int) $graduateUser['graduate_id'];
     $canModerate = $moderator !== null;
 
-    if (($post['status'] ?? 'pending') !== 'approved' && !$isOwner && !$canModerate) {
+    if (($post['status'] ?? 'approved') !== 'approved' && !$isOwner && !$canModerate) {
         gradtrack_forum_comments_json_error(404, 'Forum post not found');
     }
 
@@ -59,7 +59,8 @@ try {
         $moderator = gradtrack_forum_current_moderator($db);
         gradtrack_forum_comments_post_access($db, $postId, $graduateUser, $moderator);
 
-        $stmt = $db->prepare("SELECT fc.id, fc.post_id, fc.graduate_id, fc.comment, fc.created_at,
+        $visibilityClause = $moderator !== null ? '' : " AND fc.status = 'approved'";
+        $stmt = $db->prepare("SELECT fc.id, fc.post_id, fc.graduate_id, fc.comment, fc.status, fc.created_at,
                                      g.first_name, g.middle_name, g.last_name,
                                      gpi.file_path AS commenter_profile_image_path,
                                      p.name AS commenter_program_name, p.code AS commenter_program_code
@@ -69,6 +70,7 @@ try {
                               LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
                               LEFT JOIN programs p ON p.id = g.program_id
                               WHERE fc.post_id = :post_id
+                              {$visibilityClause}
                               ORDER BY fc.created_at ASC, fc.id ASC");
         $stmt->execute([':post_id' => $postId]);
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -142,8 +144,13 @@ try {
         }
 
         $isOwner = $graduateUser !== null && (int) $comment['graduate_id'] === (int) $graduateUser['graduate_id'];
-        if (!$isOwner && $moderator === null) {
-            gradtrack_forum_comments_json_error(403, 'You can only delete your own comments');
+        if (!$isOwner) {
+            gradtrack_forum_comments_json_error(
+                403,
+                $moderator !== null
+                    ? 'Moderators must hide reported comments through Forum Reports'
+                    : 'You can only delete your own comments'
+            );
         }
 
         $deleteStmt = $db->prepare('DELETE FROM forum_comments WHERE id = :id');

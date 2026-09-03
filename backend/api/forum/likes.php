@@ -50,7 +50,7 @@ try {
     }
 
     $isOwner = (int) $post['graduate_id'] === (int) $user['graduate_id'];
-    if (($post['status'] ?? 'pending') !== 'approved' && !$isOwner) {
+    if (($post['status'] ?? 'approved') !== 'approved' && !$isOwner) {
         gradtrack_forum_likes_json_error(404, 'Forum post not found');
     }
 

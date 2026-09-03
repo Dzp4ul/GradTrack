@@ -6,6 +6,7 @@ header("Access-Control-Allow-Headers: Content-Type");
 
 require_once '../config/database.php';
 require_once '../config/system_settings.php';
+require_once '../config/archive.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
@@ -14,6 +15,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 
 $database = new Database();
 $conn = $database->getConnection();
+gradtrack_ensure_archive_schema($conn, 'surveys', true);
+gradtrack_ensure_archive_schema($conn, 'graduates');
 gradtrack_system_require_feature_enabled($conn, 'graduate_survey', 'Graduate Tracer Survey');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -40,7 +43,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                   JOIN graduates g ON st.graduate_id = g.id
               LEFT JOIN programs p ON g.program_id = p.id
                   JOIN surveys s ON st.survey_id = s.id
-                  WHERE st.token = :token";
+                  WHERE st.token = :token
+                    AND g.archived_at IS NULL
+                    AND s.archived_at IS NULL";
         
         $stmt = $conn->prepare($query);
         $stmt->bindParam(':token', $token);

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Eye } from 'lucide-react';
 import { API_ROOT } from '../../config/api';
 
@@ -41,6 +41,8 @@ const getQuestionDisplayText = (question: Question) =>
 
 export default function SurveyDetail() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
+  const archiveScope = searchParams.get('archive') === 'archived' ? 'archived' : 'active';
   const navigate = useNavigate();
   const [survey, setSurvey] = useState<Survey | null>(null);
   const [loading, setLoading] = useState(true);
@@ -48,7 +50,7 @@ export default function SurveyDetail() {
 
   useEffect(() => {
     if (id) {
-      fetch(`${API_ROOT}/surveys/index.php?id=${id}`, {
+      fetch(`${API_ROOT}/surveys/index.php?id=${id}&archive=${archiveScope}`, {
         credentials: 'include',
       })
         .then((r) => r.json())
@@ -65,7 +67,7 @@ export default function SurveyDetail() {
         .catch(() => {})
         .finally(() => setLoading(false));
     }
-  }, [id]);
+  }, [archiveScope, id]);
 
   if (loading) {
     return (
@@ -89,7 +91,7 @@ export default function SurveyDetail() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-3 sm:gap-4">
           <button
-            onClick={() => navigate('/admin/surveys')}
+            onClick={() => navigate(archiveScope === 'archived' ? '/admin/surveys?archive=archived' : '/admin/surveys')}
             className="p-2 hover:bg-gray-100 rounded-lg transition"
           >
             <ArrowLeft className="w-6 h-6 text-gray-600" />

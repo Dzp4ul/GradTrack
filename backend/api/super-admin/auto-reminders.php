@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/survey_reminders.php';
 require_once __DIR__ . '/../../vendor/autoload.php';
 
@@ -185,7 +186,7 @@ function super_reminder_get_setting(PDO $db, string $key, string $default): stri
 
 function super_reminder_get_active_survey(PDO $db): ?array
 {
-    $stmt = $db->query("SELECT id, title, status, created_at, updated_at FROM surveys WHERE status = 'active' ORDER BY updated_at DESC, id DESC LIMIT 1");
+    $stmt = $db->query("SELECT id, title, status, created_at, updated_at FROM surveys WHERE status = 'active' AND archived_at IS NULL ORDER BY updated_at DESC, id DESC LIMIT 1");
     $survey = $stmt->fetch(PDO::FETCH_ASSOC);
     return $survey ?: null;
 }
@@ -198,6 +199,7 @@ function super_reminder_get_eligible_graduates(PDO $db, int $surveyId, int $limi
         LEFT JOIN programs p ON p.id = g.program_id
         LEFT JOIN survey_responses sr ON sr.graduate_id = g.id AND sr.survey_id = :survey_id
         WHERE sr.id IS NULL
+          AND g.archived_at IS NULL
           AND g.email IS NOT NULL
           AND TRIM(g.email) <> ''
         ORDER BY g.last_name ASC, g.first_name ASC
@@ -259,6 +261,8 @@ function super_reminder_get_stats(PDO $db): array
 }
 
 try {
+    gradtrack_ensure_archive_schema($db, 'graduates');
+    gradtrack_ensure_archive_schema($db, 'surveys', true);
     gradtrack_survey_reminder_ensure_log_table($db);
 
     if ($method === 'GET') {
@@ -306,6 +310,11 @@ try {
             if ($surveyId <= 0) {
                 super_reminder_json_response(400, ['success' => false, 'error' => 'No active survey found']);
             }
+            $surveyStmt = $db->prepare('SELECT id FROM surveys WHERE id = :id AND archived_at IS NULL LIMIT 1');
+            $surveyStmt->execute([':id' => $surveyId]);
+            if (!$surveyStmt->fetch(PDO::FETCH_ASSOC)) {
+                super_reminder_json_response(404, ['success' => false, 'error' => 'Survey not found']);
+            }
             $eligible = super_reminder_get_eligible_graduates($db, $surveyId);
             echo json_encode([
                 'success' => true,
@@ -336,7 +345,7 @@ try {
                 super_reminder_json_response(400, ['success' => false, 'error' => 'No active survey found']);
             }
 
-            $surveyStmt = $db->prepare("SELECT id, title, status FROM surveys WHERE id = :id LIMIT 1");
+            $surveyStmt = $db->prepare("SELECT id, title, status FROM surveys WHERE id = :id AND archived_at IS NULL LIMIT 1");
             $surveyStmt->execute([':id' => $surveyId]);
             $survey = $surveyStmt->fetch(PDO::FETCH_ASSOC);
             if (!$survey) {
@@ -379,6 +388,7 @@ try {
                     LEFT JOIN programs p ON p.id = g.program_id
                     LEFT JOIN survey_responses sr ON sr.graduate_id = g.id AND sr.survey_id = :survey_id
                     WHERE g.id IN (" . implode(', ', $idPlaceholders) . ")
+                      AND g.archived_at IS NULL
                       AND sr.id IS NULL
                       AND g.email IS NOT NULL
                       AND TRIM(g.email) <> ''

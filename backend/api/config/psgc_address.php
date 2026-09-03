@@ -23,12 +23,102 @@ function gradtrack_psgc_is_list(array $value): bool
     return array_keys($value) === range(0, count($value) - 1);
 }
 
+function gradtrack_psgc_cache_directory(): string
+{
+    $configured = trim((string) (getenv('PSGC_CACHE_DIR') ?: ''));
+    if ($configured !== '') {
+        return rtrim($configured, "\\/");
+    }
+
+    return dirname(__DIR__) . DIRECTORY_SEPARATOR . 'address' . DIRECTORY_SEPARATOR . 'data';
+}
+
+function gradtrack_psgc_cache_file(string $path): string
+{
+    return gradtrack_psgc_cache_directory()
+        . DIRECTORY_SEPARATOR
+        . hash('sha256', ltrim($path, '/'))
+        . '.json';
+}
+
+function gradtrack_psgc_read_cached_collection(string $path): ?array
+{
+    $cacheFile = gradtrack_psgc_cache_file($path);
+    if (!is_file($cacheFile) || !is_readable($cacheFile)) {
+        return null;
+    }
+
+    $decoded = json_decode((string) @file_get_contents($cacheFile), true);
+    if (
+        !is_array($decoded)
+        || ($decoded['path'] ?? null) !== ltrim($path, '/')
+        || !isset($decoded['items'])
+        || !is_array($decoded['items'])
+    ) {
+        return null;
+    }
+
+    $items = [];
+    foreach ($decoded['items'] as $item) {
+        if (!is_array($item) || empty($item['code']) || empty($item['name'])) {
+            return null;
+        }
+
+        $items[] = [
+            'code' => trim((string) $item['code']),
+            'name' => trim((string) $item['name']),
+        ];
+    }
+
+    return [
+        'fetched_at' => max(0, (int) ($decoded['fetched_at'] ?? 0)),
+        'items' => $items,
+    ];
+}
+
+function gradtrack_psgc_write_cached_collection(string $path, array $items): void
+{
+    $cacheDirectory = gradtrack_psgc_cache_directory();
+    if (!is_dir($cacheDirectory) && !@mkdir($cacheDirectory, 0775, true) && !is_dir($cacheDirectory)) {
+        return;
+    }
+
+    $payload = json_encode([
+        'path' => ltrim($path, '/'),
+        'fetched_at' => time(),
+        'items' => array_values($items),
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    if ($payload === false) {
+        return;
+    }
+
+    // A cache failure must never prevent address validation from using live data.
+    @file_put_contents(gradtrack_psgc_cache_file($path), $payload, LOCK_EX);
+}
+
+function gradtrack_psgc_cache_max_age(): int
+{
+    $configured = filter_var(getenv('PSGC_CACHE_MAX_AGE') ?: null, FILTER_VALIDATE_INT);
+    return $configured !== false && $configured >= 0 ? $configured : 604800;
+}
+
 function gradtrack_psgc_fetch_collection(string $path): array
 {
     static $cache = [];
 
     $normalizedPath = ltrim($path, '/');
     if (isset($cache[$normalizedPath])) {
+        return $cache[$normalizedPath];
+    }
+
+    $diskCache = gradtrack_psgc_read_cached_collection($normalizedPath);
+    if (
+        $diskCache !== null
+        && $diskCache['fetched_at'] > 0
+        && (time() - $diskCache['fetched_at']) <= gradtrack_psgc_cache_max_age()
+    ) {
+        $cache[$normalizedPath] = $diskCache['items'];
         return $cache[$normalizedPath];
     }
 
@@ -42,14 +132,32 @@ function gradtrack_psgc_fetch_collection(string $path): array
         ],
     ]);
 
-    $body = @file_get_contents($url, false, $context);
+    $body = false;
     $statusCode = 0;
+    for ($attempt = 0; $attempt < 2; $attempt++) {
+        unset($http_response_header);
+        $body = @file_get_contents($url, false, $context);
+        $statusCode = 0;
 
-    if (isset($http_response_header[0]) && preg_match('/\s(\d{3})\s/', $http_response_header[0], $matches)) {
-        $statusCode = (int) $matches[1];
+        if (isset($http_response_header[0]) && preg_match('/\s(\d{3})\s/', $http_response_header[0], $matches)) {
+            $statusCode = (int) $matches[1];
+        }
+
+        if ($body !== false && $statusCode !== 429 && $statusCode < 500) {
+            break;
+        }
+
+        if ($attempt === 0) {
+            usleep(150000);
+        }
     }
 
     if ($body === false || $statusCode >= 500 || $statusCode === 429) {
+        if ($diskCache !== null) {
+            $cache[$normalizedPath] = $diskCache['items'];
+            return $cache[$normalizedPath];
+        }
+
         throw new GradTrackPsgcUnavailableException('PSGC API unavailable');
     }
 
@@ -59,6 +167,11 @@ function gradtrack_psgc_fetch_collection(string $path): array
 
     $decoded = json_decode((string) $body, true);
     if (!is_array($decoded)) {
+        if ($diskCache !== null) {
+            $cache[$normalizedPath] = $diskCache['items'];
+            return $cache[$normalizedPath];
+        }
+
         throw new GradTrackPsgcUnavailableException('PSGC API returned an invalid response');
     }
 
@@ -79,6 +192,7 @@ function gradtrack_psgc_fetch_collection(string $path): array
     }
 
     $cache[$normalizedPath] = $locations;
+    gradtrack_psgc_write_cached_collection($normalizedPath, $locations);
     return $locations;
 }
 

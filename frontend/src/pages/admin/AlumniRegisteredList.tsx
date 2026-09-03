@@ -7,13 +7,13 @@ import {
   Clock3,
   Download,
   Edit2,
+  Eye,
   FileSpreadsheet,
-  Link2,
+  Archive,
   Loader2,
   RefreshCcw,
   Search,
-  Trash2,
-  Unlink2,
+  RotateCcw,
   Upload,
   UserCheck,
   UserX,
@@ -56,6 +56,18 @@ interface RegisteredAlumni {
   linked_first_name?: string | null;
   linked_middle_name?: string | null;
   linked_last_name?: string | null;
+  linked_student_id?: string | null;
+  linked_graduate_email?: string | null;
+  linked_phone?: string | null;
+  linked_address?: string | null;
+  linked_program_id?: number | null;
+  linked_year_graduated?: number | null;
+  archived_at?: string | null;
+  archived_by?: number | null;
+  archived_by_name?: string | null;
+  restored_at?: string | null;
+  restored_by?: number | null;
+  restored_by_name?: string | null;
 }
 
 interface ProgramOption {
@@ -75,6 +87,7 @@ interface RegistrySummary {
   pending_verification_accounts: number;
   approved_verification_accounts: number;
   rejected_verification_accounts: number;
+  archived_alumni: number;
   course_totals: Record<string, number>;
 }
 
@@ -149,19 +162,6 @@ interface ImportState {
   duplicate_behavior: 'skip' | 'update' | 'cancel';
 }
 
-interface LinkCandidate {
-  account_id: number;
-  graduate_id: number;
-  email: string;
-  account_status: string;
-  full_name: string;
-  program_code?: string | null;
-  program_name?: string | null;
-  batch_year?: number | null;
-  match_strength: 'strong' | 'review' | 'weak';
-  linked_registry_id?: number | null;
-}
-
 interface ReviewAccount {
   account_id: number;
   graduate_id: number;
@@ -195,6 +195,14 @@ interface EditForm {
   course_code: string;
   batch_year: string;
   registration_status: RegistryStatus;
+  linked_first_name: string;
+  linked_middle_name: string;
+  linked_last_name: string;
+  linked_student_id: string;
+  linked_email: string;
+  linked_phone: string;
+  linked_address: string;
+  has_linked_account: boolean;
 }
 
 type ExportScope = 'filtered' | 'all' | 'course' | 'batch' | 'unclaimed' | 'registered';
@@ -211,6 +219,7 @@ const EMPTY_SUMMARY: RegistrySummary = {
   pending_verification_accounts: 0,
   approved_verification_accounts: 0,
   rejected_verification_accounts: 0,
+  archived_alumni: 0,
   course_totals: { BSCS: 0, ACT: 0, BSHM: 0, BSED: 0, BEED: 0 },
 };
 
@@ -391,6 +400,7 @@ export default function AlumniRegisteredList() {
   const [batchYear, setBatchYear] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [surveyAnswerStatus, setSurveyAnswerStatus] = useState<SurveyAnswerStatus>('all');
+  const [archiveView, setArchiveView] = useState<'active' | 'archived'>('active');
   const [sort, setSort] = useState<SortKey>('import_date');
   const [direction, setDirection] = useState<SortDirection>('desc');
   const [page, setPage] = useState(1);
@@ -401,10 +411,6 @@ export default function AlumniRegisteredList() {
   const [rejectAccount, setRejectAccount] = useState<ReviewAccount | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [editForm, setEditForm] = useState<EditForm | null>(null);
-  const [linkRecord, setLinkRecord] = useState<RegisteredAlumni | null>(null);
-  const [linkSearch, setLinkSearch] = useState('');
-  const [linkCandidates, setLinkCandidates] = useState<LinkCandidate[]>([]);
-  const [linkLoading, setLinkLoading] = useState(false);
   const [importState, setImportState] = useState<ImportState>(DEFAULT_IMPORT_STATE);
   const [exportOpen, setExportOpen] = useState(false);
   const [exportScope, setExportScope] = useState<ExportScope>('filtered');
@@ -429,6 +435,7 @@ export default function AlumniRegisteredList() {
     params.set('limit', String(targetLimit));
     params.set('sort', sort);
     params.set('direction', direction);
+    params.set('archive', archiveView);
     if (search.trim()) params.set('search', search.trim());
     if (courseId) params.set('course_id', courseId);
     if (courseCode) params.set('course_code', courseCode);
@@ -436,7 +443,7 @@ export default function AlumniRegisteredList() {
     if (statusFilter) params.set('registration_status', statusFilter);
     if (surveyAnswerStatus !== 'all') params.set('survey_answer_status', surveyAnswerStatus);
     return params;
-  }, [batchYear, courseCode, courseId, direction, limit, page, search, sort, statusFilter, surveyAnswerStatus]);
+  }, [archiveView, batchYear, courseCode, courseId, direction, limit, page, search, sort, statusFilter, surveyAnswerStatus]);
 
   const fetchSummary = useCallback(async () => {
     setSummaryLoading(true);
@@ -566,6 +573,14 @@ export default function AlumniRegisteredList() {
       course_code: record.course_code,
       batch_year: String(record.batch_year),
       registration_status: record.registration_status,
+      linked_first_name: record.linked_first_name || '',
+      linked_middle_name: record.linked_middle_name || '',
+      linked_last_name: record.linked_last_name || '',
+      linked_student_id: record.linked_student_id || '',
+      linked_email: record.linked_email || record.linked_graduate_email || '',
+      linked_phone: record.linked_phone || '',
+      linked_address: record.linked_address || '',
+      has_linked_account: !!record.linked_user_id,
     });
   };
 
@@ -599,8 +614,8 @@ export default function AlumniRegisteredList() {
     }
   };
 
-  const runRecordAction = async (record: RegisteredAlumni, action: 'verify' | 'inactive' | 'unlink') => {
-    const actionLabel = action === 'verify' ? 'Verify' : action === 'inactive' ? 'Mark Inactive' : 'Unlink';
+  const runRecordAction = async (record: RegisteredAlumni, action: 'verify' | 'inactive') => {
+    const actionLabel = action === 'verify' ? 'Verify' : 'Mark Inactive';
     setActionKey(`${action}-${record.id}`);
     try {
       const response = await fetch(`${API_ENDPOINTS.ALUMNI_REGISTRY}?action=${action}`, {
@@ -627,13 +642,11 @@ export default function AlumniRegisteredList() {
     }
   };
 
-  const confirmStatusAction = (record: RegisteredAlumni, action: 'verify' | 'inactive' | 'unlink') => {
-    const title = action === 'verify' ? 'Verify Alumni' : action === 'inactive' ? 'Mark Inactive' : 'Unlink Account';
+  const confirmStatusAction = (record: RegisteredAlumni, action: 'verify' | 'inactive') => {
+    const title = action === 'verify' ? 'Verify Alumni' : 'Mark Inactive';
     const message = action === 'verify'
       ? `Verify ${record.full_name}?`
-      : action === 'inactive'
-        ? `Mark ${record.full_name} as inactive?`
-        : `Unlink ${record.full_name} from the connected account?`;
+      : `Mark ${record.full_name} as inactive?`;
 
     setMsgBox({
       isOpen: true,
@@ -647,15 +660,16 @@ export default function AlumniRegisteredList() {
     });
   };
 
-  const confirmDelete = (record: RegisteredAlumni) => {
+  const confirmArchive = (record: RegisteredAlumni) => {
     setMsgBox({
       isOpen: true,
       type: 'confirm',
-      title: 'Delete Registry Record',
-      message: `Delete ${record.full_name} from the official alumni registry?`,
-      confirmText: 'Delete',
+      title: 'Archive Alumni Record?',
+      message: 'This alumni record will be removed from the active alumni list and moved to Archive. The record and its related data will not be permanently deleted.',
+      confirmText: 'Archive',
+      cancelText: 'Cancel',
       onConfirm: async () => {
-        setActionKey(`delete-${record.id}`);
+        setActionKey(`archive-${record.id}`);
         try {
           const response = await fetch(API_ENDPOINTS.ALUMNI_REGISTRY, {
             method: 'DELETE',
@@ -665,16 +679,17 @@ export default function AlumniRegisteredList() {
           });
           const data = await response.json();
           if (!response.ok || data.success === false) {
-            throw new Error(data.error || 'Unable to delete registry record');
+            throw new Error(data.error || 'Unable to archive alumni record');
           }
 
+          setRecords((current) => current.filter((item) => item.id !== record.id));
           await refreshAll();
-          setMsgBox({ isOpen: true, type: 'success', message: data.message || 'Registry record deleted.' });
+          setMsgBox({ isOpen: true, type: 'success', message: data.message || 'Alumni record archived.' });
         } catch (error) {
           setMsgBox({
             isOpen: true,
             type: 'error',
-            message: error instanceof Error ? error.message : 'Unable to delete registry record',
+            message: error instanceof Error ? error.message : 'Unable to archive alumni record',
           });
         } finally {
           setActionKey('');
@@ -683,69 +698,42 @@ export default function AlumniRegisteredList() {
     });
   };
 
-  const fetchLinkCandidates = useCallback(async (record: RegisteredAlumni, searchText = '') => {
-    setLinkLoading(true);
-    try {
-      const params = new URLSearchParams({ action: 'accounts', registry_id: String(record.id) });
-      if (searchText.trim()) params.set('search', searchText.trim());
-      const response = await fetch(`${API_ENDPOINTS.ALUMNI_REGISTRY}?${params.toString()}`, {
-        credentials: 'include',
-      });
-      const data = await response.json();
-      if (!response.ok || data.success === false) {
-        throw new Error(data.error || 'Unable to load account candidates');
-      }
-      setLinkCandidates(Array.isArray(data.data) ? data.data : []);
-    } catch (error) {
-      setLinkCandidates([]);
-      setMsgBox({
-        isOpen: true,
-        type: 'error',
-        message: error instanceof Error ? error.message : 'Unable to load account candidates',
-      });
-    } finally {
-      setLinkLoading(false);
-    }
-  }, []);
+  const confirmRestore = (record: RegisteredAlumni) => {
+    setMsgBox({
+      isOpen: true,
+      type: 'confirm',
+      title: 'Restore Alumni Record?',
+      message: 'This alumni record will return to the active alumni list. Its original account and related data will remain intact.',
+      confirmText: 'Restore',
+      cancelText: 'Cancel',
+      onConfirm: async () => {
+        setActionKey(`restore-${record.id}`);
+        try {
+          const response = await fetch(`${API_ENDPOINTS.ALUMNI_REGISTRY}?action=restore`, {
+            method: 'PUT',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: record.id }),
+          });
+          const data = await response.json();
+          if (!response.ok || data.success === false) {
+            throw new Error(data.error || 'Unable to restore alumni record');
+          }
 
-  const openLink = (record: RegisteredAlumni) => {
-    setLinkRecord(record);
-    setLinkSearch('');
-    setLinkCandidates([]);
-    void fetchLinkCandidates(record);
-  };
-
-  const linkAccount = async (candidate: LinkCandidate, markVerified: boolean) => {
-    if (!linkRecord) return;
-    setActionKey(`link-${candidate.account_id}`);
-    try {
-      const response = await fetch(`${API_ENDPOINTS.ALUMNI_REGISTRY}?action=link`, {
-        method: 'PUT',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id: linkRecord.id,
-          graduate_account_id: candidate.account_id,
-          mark_verified: markVerified,
-        }),
-      });
-      const data = await response.json();
-      if (!response.ok || data.success === false) {
-        throw new Error(data.error || 'Unable to link account');
-      }
-
-      setLinkRecord(null);
-      await refreshAll();
-      setMsgBox({ isOpen: true, type: 'success', message: data.message || 'Account linked.' });
-    } catch (error) {
-      setMsgBox({
-        isOpen: true,
-        type: 'error',
-        message: error instanceof Error ? error.message : 'Unable to link account',
-      });
-    } finally {
-      setActionKey('');
-    }
+          setRecords((current) => current.filter((item) => item.id !== record.id));
+          await refreshAll();
+          setMsgBox({ isOpen: true, type: 'success', message: data.message || 'Alumni record restored.' });
+        } catch (error) {
+          setMsgBox({
+            isOpen: true,
+            type: 'error',
+            message: error instanceof Error ? error.message : 'Unable to restore alumni record',
+          });
+        } finally {
+          setActionKey('');
+        }
+      },
+    });
   };
 
   const reviewAccountAction = async (account: ReviewAccount, decision: 'approve' | 'reject', reason = '') => {
@@ -1081,27 +1069,27 @@ export default function AlumniRegisteredList() {
 
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[#1b2a4a]">Alumni Registered List</h1>
-          <p className="text-sm text-gray-500">{pagination.total} official alumni record{pagination.total === 1 ? '' : 's'}</p>
+          <h1 className="text-2xl font-bold text-[#1b2a4a]">{archiveView === 'archived' ? 'Alumni Archive' : 'Alumni Registered List'}</h1>
+          <p className="text-sm text-gray-500">{pagination.total} {archiveView === 'archived' ? 'archived' : 'active'} alumni record{pagination.total === 1 ? '' : 's'}</p>
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row">
-          <button
+          {archiveView === 'active' && <button
             type="button"
             onClick={chooseImportFile}
             className="inline-flex items-center justify-center gap-2 rounded-lg border border-blue-200 bg-white px-4 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-50"
           >
             <Upload className="h-4 w-4" />
             Import Alumni List
-          </button>
-          <button
+          </button>}
+          {archiveView === 'active' && <button
             type="button"
             onClick={() => setExportOpen(true)}
             className="inline-flex items-center justify-center gap-2 rounded-lg border border-green-200 bg-white px-4 py-2.5 text-sm font-semibold text-green-700 hover:bg-green-50"
           >
             <Download className="h-4 w-4" />
             Export
-          </button>
+          </button>}
           <button
             type="button"
             onClick={() => void refreshAll()}
@@ -1113,7 +1101,32 @@ export default function AlumniRegisteredList() {
         </div>
       </div>
 
-      <AccountReviewPanel
+      <nav aria-label="Alumni registry sections" className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => { setArchiveView('active'); setPage(1); }}
+          className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold ${archiveView === 'active' ? 'border-blue-700 bg-blue-700 text-white' : 'bg-white text-gray-700'}`}
+        >
+          <UserCheck className="h-4 w-4" />
+          Registered Alumni
+          <span className={`rounded-full px-2 py-0.5 text-xs ${archiveView === 'active' ? 'bg-white/15' : 'bg-gray-100'}`}>
+            {summary.total_official_alumni}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => { setArchiveView('archived'); setSurveyAnswerStatus('all'); setPage(1); }}
+          className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold ${archiveView === 'archived' ? 'border-blue-700 bg-blue-700 text-white' : 'bg-white text-gray-700'}`}
+        >
+          <Archive className="h-4 w-4" />
+          Archive
+          <span className={`rounded-full px-2 py-0.5 text-xs ${archiveView === 'archived' ? 'bg-white/15' : 'bg-gray-100'}`}>
+            {summary.archived_alumni}
+          </span>
+        </button>
+      </nav>
+
+      {archiveView === 'active' && <AccountReviewPanel
         accounts={reviewAccounts}
         loading={reviewLoading}
         summary={summary}
@@ -1127,18 +1140,18 @@ export default function AlumniRegisteredList() {
         onView={setViewAccount}
         onApprove={confirmApproveAccount}
         onReject={openRejectAccount}
-      />
+      />}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      {archiveView === 'active' && <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
         {courseCodeOrder.map((code) => (
           <div key={code} className="rounded-lg border bg-white px-4 py-3 shadow-sm">
             <p className="text-xs font-semibold text-gray-500">{code}</p>
             <p className="mt-1 text-xl font-bold text-[#1b2a4a]">{summary.course_totals?.[code] ?? 0}</p>
           </div>
         ))}
-      </div>
+      </div>}
 
-      <nav aria-label="Survey answer list navigation" className="flex flex-wrap gap-2">
+      {archiveView === 'active' && <nav aria-label="Survey answer list navigation" className="flex flex-wrap gap-2">
         {surveyAnswerTabs.map((tab) => {
           const active = surveyAnswerStatus === tab.value;
           return (
@@ -1163,7 +1176,7 @@ export default function AlumniRegisteredList() {
             </button>
           );
         })}
-      </nav>
+      </nav>}
 
       <div className="rounded-xl border bg-white p-4 shadow-sm">
         <div className="grid gap-3 xl:grid-cols-[1fr_180px_150px_150px_170px_auto] xl:items-center">
@@ -1253,14 +1266,12 @@ export default function AlumniRegisteredList() {
           {loading ? (
             <LoadingBlock label="Loading alumni records..." />
           ) : records.length === 0 ? (
-            <EmptyBlock label="No official alumni records match the current filters." />
+            <EmptyBlock label={archiveView === 'archived' ? 'No archived alumni records.' : 'No official alumni records match the current filters.'} />
           ) : (
             records.map((record, index) => (
-              <button
+              <div
                 key={record.id}
-                type="button"
-                onClick={() => setViewRecord(record)}
-                className="block w-full p-4 text-left transition hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500"
+                className="block w-full p-4 text-left transition hover:bg-gray-50"
               >
                 <div className="grid gap-3">
                   <div className="min-w-0">
@@ -1271,19 +1282,44 @@ export default function AlumniRegisteredList() {
                     <p>{record.course_name}</p>
                     <p className="font-medium text-gray-700">Batch {record.batch_year}</p>
                   </div>
+                  {archiveView === 'archived' && (
+                    <p className="text-xs text-gray-500">Archived {formatDateTime(record.archived_at)} by {record.archived_by_name || 'Administrator'}</p>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={() => setViewRecord(record)} className="inline-flex items-center gap-1 rounded-lg border px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50">
+                      <Eye className="h-4 w-4" /> View
+                    </button>
+                    {archiveView === 'active' ? (
+                      <>
+                        <button type="button" onClick={() => openEdit(record)} className="inline-flex items-center gap-1 rounded-lg border px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-50">
+                          <Edit2 className="h-4 w-4" /> Edit
+                        </button>
+                        <button type="button" onClick={() => confirmArchive(record)} className="inline-flex items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-100">
+                          <Archive className="h-4 w-4" /> Archive
+                        </button>
+                      </>
+                    ) : (
+                      <button type="button" onClick={() => confirmRestore(record)} className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-100">
+                        <RotateCcw className="h-4 w-4" /> Restore
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </button>
+              </div>
             ))
           )}
         </div>
 
         <div className="hidden overflow-x-auto md:block">
-          <table className="w-full min-w-[720px] text-sm">
+          <table className="w-full min-w-[860px] text-sm">
             <colgroup>
               <col className="w-20" />
               <col className="w-[34%]" />
               <col />
               <col className="w-28" />
+              {archiveView === 'archived' && <col className="w-44" />}
+              {archiveView === 'archived' && <col className="w-40" />}
+              <col className="w-40" />
             </colgroup>
             <thead className="border-b bg-gray-50">
               <tr>
@@ -1291,13 +1327,16 @@ export default function AlumniRegisteredList() {
                 <SortableTh label="Alumni Name" sortKey="name" currentSort={sort} direction={direction} onSort={toggleSort} />
                 <SortableTh label="Course" sortKey="course" currentSort={sort} direction={direction} onSort={toggleSort} />
                 <SortableTh label="Batch" sortKey="batch" currentSort={sort} direction={direction} onSort={toggleSort} />
+                {archiveView === 'archived' && <th className="px-4 py-3 text-left font-semibold text-gray-600">Date Archived</th>}
+                {archiveView === 'archived' && <th className="px-4 py-3 text-left font-semibold text-gray-600">Archived By</th>}
+                <th className="px-4 py-3 text-right font-semibold text-gray-600">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={4}><LoadingBlock label="Loading alumni records..." /></td></tr>
+                <tr><td colSpan={archiveView === 'archived' ? 7 : 5}><LoadingBlock label="Loading alumni records..." /></td></tr>
               ) : records.length === 0 ? (
-                <tr><td colSpan={4}><EmptyBlock label="No official alumni records match the current filters." /></td></tr>
+                <tr><td colSpan={archiveView === 'archived' ? 7 : 5}><EmptyBlock label={archiveView === 'archived' ? 'No archived alumni records.' : 'No official alumni records match the current filters.'} /></td></tr>
               ) : (
                 records.map((record, index) => (
                   <tr
@@ -1319,6 +1358,29 @@ export default function AlumniRegisteredList() {
                     </td>
                     <td className="px-4 py-3 text-gray-600">{record.course_name}</td>
                     <td className="px-4 py-3 text-gray-700">{record.batch_year}</td>
+                    {archiveView === 'archived' && <td className="px-4 py-3 text-gray-600">{formatDateTime(record.archived_at)}</td>}
+                    {archiveView === 'archived' && <td className="px-4 py-3 text-gray-600">{record.archived_by_name || '-'}</td>}
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end gap-1" onClick={(event) => event.stopPropagation()}>
+                        <IconButton title="View alumni" onClick={() => setViewRecord(record)} disabled={actionKey !== ''} className="text-blue-600 hover:bg-blue-50">
+                          <Eye className="h-4 w-4" />
+                        </IconButton>
+                        {archiveView === 'active' ? (
+                          <>
+                            <IconButton title="Edit alumni" onClick={() => openEdit(record)} disabled={actionKey !== ''} className="text-blue-600 hover:bg-blue-50">
+                              <Edit2 className="h-4 w-4" />
+                            </IconButton>
+                            <IconButton title="Archive alumni" onClick={() => confirmArchive(record)} disabled={actionKey !== ''} className="text-amber-600 hover:bg-amber-50">
+                              {actionKey === `archive-${record.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
+                            </IconButton>
+                          </>
+                        ) : (
+                          <IconButton title="Restore alumni" onClick={() => confirmRestore(record)} disabled={actionKey !== ''} className="text-emerald-600 hover:bg-emerald-50">
+                            {actionKey === `restore-${record.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                          </IconButton>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 ))
               )}
@@ -1360,17 +1422,17 @@ export default function AlumniRegisteredList() {
             setViewRecord(null);
             openEdit(record);
           }}
-          onLink={(record) => {
-            setViewRecord(null);
-            openLink(record);
-          }}
           onConfirmStatus={(record, action) => {
             setViewRecord(null);
             confirmStatusAction(record, action);
           }}
-          onDelete={(record) => {
+          onArchive={(record) => {
             setViewRecord(null);
-            confirmDelete(record);
+            confirmArchive(record);
+          }}
+          onRestore={(record) => {
+            setViewRecord(null);
+            confirmRestore(record);
           }}
         />
       )}
@@ -1404,20 +1466,6 @@ export default function AlumniRegisteredList() {
           onClose={() => setEditForm(null)}
           onChange={setEditForm}
           onSubmit={saveEdit}
-        />
-      )}
-
-      {linkRecord && (
-        <LinkModal
-          record={linkRecord}
-          search={linkSearch}
-          candidates={linkCandidates}
-          loading={linkLoading}
-          actionKey={actionKey}
-          onSearchChange={setLinkSearch}
-          onSearch={() => void fetchLinkCandidates(linkRecord, linkSearch)}
-          onClose={() => setLinkRecord(null)}
-          onLink={linkAccount}
         />
       )}
 
@@ -1817,16 +1865,14 @@ function ActionButtons({
   record,
   actionKey,
   onEdit,
-  onLink,
   onConfirmStatus,
-  onDelete,
+  onArchive,
 }: {
   record: RegisteredAlumni;
   actionKey: string;
   onEdit: (record: RegisteredAlumni) => void;
-  onLink: (record: RegisteredAlumni) => void;
-  onConfirmStatus: (record: RegisteredAlumni, action: 'verify' | 'inactive' | 'unlink') => void;
-  onDelete: (record: RegisteredAlumni) => void;
+  onConfirmStatus: (record: RegisteredAlumni, action: 'verify' | 'inactive') => void;
+  onArchive: (record: RegisteredAlumni) => void;
 }) {
   const busy = actionKey !== '';
   return (
@@ -1834,23 +1880,14 @@ function ActionButtons({
       <IconButton title="Edit registry information" onClick={() => onEdit(record)} disabled={busy} className="text-blue-600 hover:bg-blue-50">
         <Edit2 className="h-4 w-4" />
       </IconButton>
-      {record.linked_user_id ? (
-        <IconButton title="Unlink account" onClick={() => onConfirmStatus(record, 'unlink')} disabled={busy} className="text-amber-600 hover:bg-amber-50">
-          {actionKey === `unlink-${record.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Unlink2 className="h-4 w-4" />}
-        </IconButton>
-      ) : (
-        <IconButton title="Link to existing alumni account" onClick={() => onLink(record)} disabled={busy} className="text-green-600 hover:bg-green-50">
-          <Link2 className="h-4 w-4" />
-        </IconButton>
-      )}
       <IconButton title="Verify alumni" onClick={() => onConfirmStatus(record, 'verify')} disabled={busy || record.registration_status === 'Verified'} className="text-emerald-600 hover:bg-emerald-50">
         {actionKey === `verify-${record.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCheck className="h-4 w-4" />}
       </IconButton>
       <IconButton title="Mark inactive" onClick={() => onConfirmStatus(record, 'inactive')} disabled={busy || record.registration_status === 'Inactive'} className="text-gray-600 hover:bg-gray-100">
         {actionKey === `inactive-${record.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserX className="h-4 w-4" />}
       </IconButton>
-      <IconButton title="Delete registry record" onClick={() => onDelete(record)} disabled={busy} className="text-red-600 hover:bg-red-50">
-        {actionKey === `delete-${record.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+      <IconButton title="Archive alumni record" onClick={() => onArchive(record)} disabled={busy} className="text-amber-600 hover:bg-amber-50">
+        {actionKey === `archive-${record.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
       </IconButton>
     </>
   );
@@ -1888,17 +1925,17 @@ function DetailModal({
   actionKey,
   onClose,
   onEdit,
-  onLink,
   onConfirmStatus,
-  onDelete,
+  onArchive,
+  onRestore,
 }: {
   record: RegisteredAlumni;
   actionKey: string;
   onClose: () => void;
   onEdit: (record: RegisteredAlumni) => void;
-  onLink: (record: RegisteredAlumni) => void;
-  onConfirmStatus: (record: RegisteredAlumni, action: 'verify' | 'inactive' | 'unlink') => void;
-  onDelete: (record: RegisteredAlumni) => void;
+  onConfirmStatus: (record: RegisteredAlumni, action: 'verify' | 'inactive') => void;
+  onArchive: (record: RegisteredAlumni) => void;
+  onRestore: (record: RegisteredAlumni) => void;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
@@ -1915,6 +1952,11 @@ function DetailModal({
           <Info label="Portal Status" value={record.linked_account_status || '-'} />
           <Info label="Verification Status" value={record.linked_verification_status || '-'} />
           <Info label="Linked Name" value={linkedName(record) || '-'} />
+          {record.linked_user_id && <Info label="Student ID" value={record.linked_student_id || '-'} />}
+          {record.linked_user_id && <Info label="Phone" value={record.linked_phone || '-'} />}
+          {record.linked_user_id && <Info label="Address" value={record.linked_address || '-'} />}
+          {record.archived_at && <Info label="Date Archived" value={formatDateTime(record.archived_at)} />}
+          {record.archived_at && <Info label="Archived By" value={record.archived_by_name || '-'} />}
         </div>
         {record.linked_verification_reason && (
           <div className="mx-5 mb-4 rounded-lg border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -1924,14 +1966,25 @@ function DetailModal({
         )}
         <div className="flex flex-col gap-3 border-t px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap gap-1">
-            <ActionButtons
-              record={record}
-              actionKey={actionKey}
-              onEdit={onEdit}
-              onLink={onLink}
-              onConfirmStatus={onConfirmStatus}
-              onDelete={onDelete}
-            />
+            {record.archived_at ? (
+              <button
+                type="button"
+                onClick={() => onRestore(record)}
+                disabled={actionKey !== ''}
+                className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {actionKey === `restore-${record.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                Restore
+              </button>
+            ) : (
+              <ActionButtons
+                record={record}
+                actionKey={actionKey}
+                onEdit={onEdit}
+                onConfirmStatus={onConfirmStatus}
+                onArchive={onArchive}
+              />
+            )}
           </div>
           <button type="button" onClick={onClose} className="rounded-lg border px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">Close</button>
         </div>
@@ -1957,9 +2010,9 @@ function EditModal({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
-      <div className="w-full max-w-xl overflow-hidden rounded-lg bg-white shadow-2xl">
+      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
         <ModalHeader title="Edit Registry Record" subtitle={form.full_name} onClose={onClose} />
-        <form onSubmit={onSubmit} className="space-y-4 px-5 py-4">
+        <form onSubmit={onSubmit} className="space-y-4 overflow-y-auto px-5 py-4">
           <Field label="Alumni Name">
             <input
               value={form.full_name}
@@ -2003,6 +2056,85 @@ function EditModal({
               ))}
             </select>
           </Field>
+          {form.has_linked_account && (
+            <section className="space-y-4 rounded-lg border border-blue-100 bg-blue-50 p-4">
+              <div>
+                <h3 className="font-semibold text-[#1b2a4a]">Linked portal account</h3>
+                <p className="mt-1 text-xs text-gray-500">
+                  These fields update the graduate profile and sign-in email. Historical survey responses are not changed.
+                </p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="First Name">
+                  <input
+                    value={form.linked_first_name}
+                    onChange={(event) => onChange({ ...form, linked_first_name: event.target.value })}
+                    required
+                    autoComplete="given-name"
+                    maxLength={100}
+                    className="w-full rounded-lg border bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </Field>
+                <Field label="Middle Name">
+                  <input
+                    value={form.linked_middle_name}
+                    onChange={(event) => onChange({ ...form, linked_middle_name: event.target.value })}
+                    autoComplete="additional-name"
+                    maxLength={100}
+                    className="w-full rounded-lg border bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </Field>
+                <Field label="Last Name">
+                  <input
+                    value={form.linked_last_name}
+                    onChange={(event) => onChange({ ...form, linked_last_name: event.target.value })}
+                    required
+                    autoComplete="family-name"
+                    maxLength={100}
+                    className="w-full rounded-lg border bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </Field>
+                <Field label="Student ID">
+                  <input
+                    value={form.linked_student_id}
+                    onChange={(event) => onChange({ ...form, linked_student_id: event.target.value })}
+                    maxLength={50}
+                    className="w-full rounded-lg border bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </Field>
+                <Field label="Email">
+                  <input
+                    type="email"
+                    value={form.linked_email}
+                    onChange={(event) => onChange({ ...form, linked_email: event.target.value })}
+                    required
+                    autoComplete="email"
+                    maxLength={255}
+                    className="w-full rounded-lg border bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </Field>
+                <Field label="Phone">
+                  <input
+                    value={form.linked_phone}
+                    onChange={(event) => onChange({ ...form, linked_phone: event.target.value })}
+                    autoComplete="tel"
+                    maxLength={30}
+                    className="w-full rounded-lg border bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </Field>
+              </div>
+              <Field label="Address">
+                <textarea
+                  value={form.linked_address}
+                  onChange={(event) => onChange({ ...form, linked_address: event.target.value })}
+                  rows={3}
+                  maxLength={500}
+                  autoComplete="street-address"
+                  className="w-full resize-y rounded-lg border bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </Field>
+            </section>
+          )}
           <div className="flex justify-end gap-2 border-t pt-4">
             <button type="button" onClick={onClose} className="rounded-lg border px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">Cancel</button>
             <button type="submit" disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-[#1b2a4a] px-4 py-2 text-sm font-semibold text-white hover:bg-[#263c66] disabled:opacity-60">
@@ -2011,99 +2143,6 @@ function EditModal({
             </button>
           </div>
         </form>
-      </div>
-    </div>
-  );
-}
-
-function LinkModal({
-  record,
-  search,
-  candidates,
-  loading,
-  actionKey,
-  onSearchChange,
-  onSearch,
-  onClose,
-  onLink,
-}: {
-  record: RegisteredAlumni;
-  search: string;
-  candidates: LinkCandidate[];
-  loading: boolean;
-  actionKey: string;
-  onSearchChange: (value: string) => void;
-  onSearch: () => void;
-  onClose: () => void;
-  onLink: (candidate: LinkCandidate, markVerified: boolean) => void;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
-      <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
-        <ModalHeader title="Link Alumni Account" subtitle={`${record.full_name} - ${record.course_code} ${record.batch_year}`} onClose={onClose} />
-        <div className="border-b px-5 py-4">
-          <div className="flex gap-2">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-              <input
-                value={search}
-                onChange={(event) => onSearchChange(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') onSearch();
-                }}
-                className="w-full rounded-lg border px-10 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="Search account name or email"
-              />
-            </div>
-            <button type="button" onClick={onSearch} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800">
-              Search
-            </button>
-          </div>
-        </div>
-        <div className="space-y-3 overflow-y-auto px-5 py-4">
-          {loading ? (
-            <LoadingBlock label="Loading account candidates..." />
-          ) : candidates.length === 0 ? (
-            <EmptyBlock label="No matching alumni accounts found." />
-          ) : (
-            candidates.map((candidate) => (
-              <div key={candidate.account_id} className="rounded-lg border p-4">
-                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-semibold text-[#1b2a4a]">{candidate.full_name}</p>
-                      <MatchBadge strength={candidate.match_strength} />
-                    </div>
-                    <p className="mt-1 text-sm text-gray-500">{candidate.email}</p>
-                    <p className="mt-1 text-sm text-gray-600">
-                      {candidate.program_code || candidate.program_name || '-'} - Batch {candidate.batch_year || '-'}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      disabled={actionKey !== ''}
-                      onClick={() => onLink(candidate, false)}
-                      className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-60"
-                    >
-                      {actionKey === `link-${candidate.account_id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
-                      Link
-                    </button>
-                    <button
-                      type="button"
-                      disabled={actionKey !== ''}
-                      onClick={() => onLink(candidate, true)}
-                      className="inline-flex items-center gap-2 rounded-lg bg-green-600 px-3 py-2 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-60"
-                    >
-                      <CheckCircle2 className="h-4 w-4" />
-                      Link & Verify
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
       </div>
     </div>
   );
@@ -2392,19 +2431,4 @@ function PreviewList({ title, rows, emptyLabel }: { title: string; rows: Array<[
       </div>
     </div>
   );
-}
-
-function MatchBadge({ strength }: { strength: LinkCandidate['match_strength'] }) {
-  const classes = {
-    strong: 'border-green-200 bg-green-50 text-green-700',
-    review: 'border-amber-200 bg-amber-50 text-amber-700',
-    weak: 'border-gray-200 bg-gray-50 text-gray-500',
-  };
-  const labels = {
-    strong: 'Strong match',
-    review: 'Needs review',
-    weak: 'Weak match',
-  };
-
-  return <span className={`rounded-full border px-2 py-1 text-xs font-semibold ${classes[strength]}`}>{labels[strength]}</span>;
 }

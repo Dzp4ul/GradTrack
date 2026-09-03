@@ -556,7 +556,7 @@ if (!function_exists('gradtrack_forum_ensure_schema')) {
             title VARCHAR(255) NOT NULL,
             content TEXT NOT NULL,
             category VARCHAR(100) NOT NULL,
-            status ENUM('approved', 'pending', 'hidden') NOT NULL DEFAULT 'pending',
+            status ENUM('approved', 'hidden') NOT NULL DEFAULT 'approved',
             image_path VARCHAR(255) NULL,
             image_original_name VARCHAR(255) NULL,
             image_mime_type VARCHAR(120) NULL,
@@ -580,6 +580,16 @@ if (!function_exists('gradtrack_forum_ensure_schema')) {
             if (!gradtrack_forum_column_exists($db, 'forum_posts', $column)) {
                 $db->exec($alterSql);
             }
+        }
+
+        // Remove the legacy pre-moderation queue. Existing pending posts are
+        // normal community posts and become visible immediately.
+        $db->exec("UPDATE forum_posts SET status = 'approved' WHERE status = 'pending'");
+        $statusColumnStmt = $db->query("SHOW COLUMNS FROM forum_posts LIKE 'status'");
+        $statusColumn = $statusColumnStmt ? $statusColumnStmt->fetch(PDO::FETCH_ASSOC) : false;
+        $statusType = strtolower((string)($statusColumn['Type'] ?? ''));
+        if (($statusColumn['Default'] ?? '') !== 'approved' || strpos($statusType, 'pending') !== false) {
+            $db->exec("ALTER TABLE forum_posts MODIFY status ENUM('approved', 'hidden') NOT NULL DEFAULT 'approved'");
         }
 
         $db->exec("CREATE TABLE IF NOT EXISTS forum_post_media (
@@ -616,12 +626,17 @@ if (!function_exists('gradtrack_forum_ensure_schema')) {
             post_id INT NOT NULL,
             graduate_id INT NOT NULL,
             comment TEXT NOT NULL,
+            status ENUM('approved', 'hidden') NOT NULL DEFAULT 'approved',
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             INDEX idx_forum_comments_post (post_id, created_at),
             INDEX idx_forum_comments_graduate (graduate_id),
             CONSTRAINT fk_forum_comments_post FOREIGN KEY (post_id) REFERENCES forum_posts(id) ON DELETE CASCADE,
             CONSTRAINT fk_forum_comments_graduate FOREIGN KEY (graduate_id) REFERENCES graduates(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        if (!gradtrack_forum_column_exists($db, 'forum_comments', 'status')) {
+            $db->exec("ALTER TABLE forum_comments ADD COLUMN status ENUM('approved', 'hidden') NOT NULL DEFAULT 'approved' AFTER comment");
+        }
 
         $db->exec("CREATE TABLE IF NOT EXISTS forum_post_likes (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -675,8 +690,9 @@ if (!function_exists('gradtrack_forum_ensure_schema')) {
             target_type ENUM('post', 'comment') NOT NULL,
             post_id INT NULL,
             comment_id INT NULL,
-            reason TEXT NULL,
-            status ENUM('pending', 'reviewed', 'dismissed') NOT NULL DEFAULT 'pending',
+            reason VARCHAR(120) NULL,
+            description TEXT NULL,
+            status ENUM('pending', 'resolved', 'dismissed') NOT NULL DEFAULT 'pending',
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             reviewed_at DATETIME NULL,
             reviewed_by INT NULL,
@@ -688,6 +704,19 @@ if (!function_exists('gradtrack_forum_ensure_schema')) {
             CONSTRAINT fk_forum_reports_post FOREIGN KEY (post_id) REFERENCES forum_posts(id) ON DELETE CASCADE,
             CONSTRAINT fk_forum_reports_comment FOREIGN KEY (comment_id) REFERENCES forum_comments(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        if (!gradtrack_forum_column_exists($db, 'forum_reports', 'description')) {
+            $db->exec("ALTER TABLE forum_reports ADD COLUMN description TEXT NULL AFTER reason");
+        }
+
+        $reportStatusStmt = $db->query("SHOW COLUMNS FROM forum_reports LIKE 'status'");
+        $reportStatusColumn = $reportStatusStmt ? $reportStatusStmt->fetch(PDO::FETCH_ASSOC) : false;
+        $reportStatusType = strtolower((string) ($reportStatusColumn['Type'] ?? ''));
+        if (strpos($reportStatusType, 'resolved') === false || strpos($reportStatusType, 'reviewed') !== false) {
+            $db->exec("ALTER TABLE forum_reports MODIFY status ENUM('pending', 'reviewed', 'resolved', 'dismissed') NOT NULL DEFAULT 'pending'");
+            $db->exec("UPDATE forum_reports SET status = 'resolved' WHERE status = 'reviewed'");
+            $db->exec("ALTER TABLE forum_reports MODIFY status ENUM('pending', 'resolved', 'dismissed') NOT NULL DEFAULT 'pending'");
+        }
 
         $db->exec("CREATE TABLE IF NOT EXISTS forum_activity_logs (
             id INT AUTO_INCREMENT PRIMARY KEY,

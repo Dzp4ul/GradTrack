@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 use PHPMailer\PHPMailer\Exception as MailException;
@@ -86,7 +87,7 @@ function gradtrack_reset_account_by_email(PDO $db, string $email): ?array
 {
     $query = "SELECT ga.id AS account_id, ga.email, g.first_name, g.last_name
               FROM graduate_accounts ga
-              JOIN graduates g ON ga.graduate_id = g.id
+              JOIN graduates g ON ga.graduate_id = g.id AND g.archived_at IS NULL
               WHERE LOWER(ga.email) = :email
               LIMIT 1";
     $stmt = $db->prepare($query);
@@ -343,6 +344,7 @@ function gradtrack_reset_password(PDO $db, string $email, string $resetToken, st
 
 $database = new Database();
 $db = $database->getConnection();
+gradtrack_ensure_archive_schema($db, 'graduates');
 $data = json_decode(file_get_contents('php://input'), true);
 $action = gradtrack_reset_clean_text($data['action'] ?? '');
 

@@ -28,6 +28,9 @@ Thumbs.db
 # Logs
 *.log
 
+# Runtime PSGC last-known-good cache
+backend/api/address/data/*.json
+
 # Elastic Beanstalk
 .elasticbeanstalk/
 

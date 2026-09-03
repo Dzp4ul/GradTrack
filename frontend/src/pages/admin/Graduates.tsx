@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Search, Plus, Edit2, Trash2, X, ChevronLeft, ChevronRight, Download,
+  Search, Plus, Edit2, Archive, RotateCcw, X, ChevronLeft, ChevronRight, Download,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import MessageBox from '../../components/MessageBox';
@@ -26,6 +26,10 @@ interface Graduate {
   is_aligned: string;
   job_title: string;
   company_name: string;
+  archived_at?: string | null;
+  archived_by_name?: string | null;
+  restored_at?: string | null;
+  restored_by_name?: string | null;
 }
 
 interface FormData {
@@ -379,6 +383,12 @@ const getSafeErrorMessage = (error: unknown, fallback: string): string => {
   return message;
 };
 
+const formatDateTime = (value?: string | null): string => {
+  if (!value) return '-';
+  const parsed = new Date(value.replace(' ', 'T'));
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString();
+};
+
 export default function Graduates() {
   const [graduates, setGraduates] = useState<Graduate[]>([]);
   const [loading, setLoading] = useState(true);
@@ -389,6 +399,8 @@ export default function Graduates() {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
+  const [archiveView, setArchiveView] = useState<'active' | 'archived'>('active');
+  const [archiveCounts, setArchiveCounts] = useState({ active: 0, archived: 0 });
   const [showModal, setShowModal] = useState(false);
   const [formData, setFormData] = useState<FormData>(emptyForm);
   const [isEditing, setIsEditing] = useState(false);
@@ -408,6 +420,7 @@ export default function Graduates() {
     const params = new URLSearchParams();
     params.append('page', targetPage.toString());
     params.append('limit', limit.toString());
+    params.append('archive', archiveView);
     if (search) params.append('search', search);
     if (activeTab) params.append('program_id', activeTab);
     if (filterYear) params.append('year_graduated', filterYear);
@@ -430,6 +443,7 @@ export default function Graduates() {
       setGraduates(res.data);
       setTotalPages(res.pagination.pages);
       setTotal(res.pagination.total);
+      setArchiveCounts(res.archive_counts || { active: 0, archived: 0 });
       setSelectedGraduateIds([]);
 
       const fetchedYears = (res.data as Graduate[])
@@ -451,7 +465,7 @@ export default function Graduates() {
 
   useEffect(() => {
     fetchGraduates();
-  }, [page, search, activeTab, filterYear]);
+  }, [page, search, activeTab, filterYear, archiveView]);
 
   const openAdd = () => {
     setFormData({ ...emptyForm, program_id: activeTab });
@@ -539,13 +553,13 @@ export default function Graduates() {
     }
   };
 
-  const handleDelete = (id: number) => {
+  const handleArchive = (id: number) => {
     setMsgBox({
       isOpen: true,
       type: 'confirm',
-      message: 'Are you sure you want to delete this graduate?',
-      confirmText: 'Yes, delete!',
-      cancelText: 'No, keep it.',
+      message: 'Archive Graduate Record?\n\nThis graduate record will be removed from the active Registrar list and moved to Archive. The record and all related data will be preserved.',
+      confirmText: 'Archive',
+      cancelText: 'Cancel',
       onConfirm: async () => {
         try {
           const response = await fetch(`${API_BASE}/graduates/index.php`, {
@@ -557,20 +571,21 @@ export default function Graduates() {
           const res = await response.json();
 
           if (!response.ok || !res.success) {
-            throw new Error(res.error || 'Unable to delete graduate');
+            throw new Error(res.error || 'Unable to archive graduate');
           }
 
+          setGraduates((current) => current.filter((graduate) => graduate.id !== id));
           await fetchGraduates();
           setMsgBox({
             isOpen: true,
             type: 'success',
-            message: 'Graduate deleted successfully.',
+            message: 'Graduate archived successfully.',
           });
         } catch (error) {
           setMsgBox({
             isOpen: true,
             type: 'error',
-            message: getSafeErrorMessage(error, 'Unable to delete graduate'),
+            message: getSafeErrorMessage(error, 'Unable to archive graduate'),
           });
         }
       },
@@ -596,7 +611,7 @@ export default function Graduates() {
     setSelectedGraduateIds(graduates.map((g) => g.id));
   };
 
-  const performDeleteRequest = async (payload: Record<string, unknown>) => {
+  const performArchiveRequest = async (payload: Record<string, unknown>) => {
     const response = await fetch(`${API_BASE}/graduates/index.php`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
@@ -606,47 +621,47 @@ export default function Graduates() {
 
     const res = await response.json();
     if (!response.ok || !res.success) {
-      throw new Error(res.error || 'Unable to delete graduate records');
+      throw new Error(res.error || 'Unable to archive graduate records');
     }
 
     return res;
   };
 
-  const handleDeleteSelected = () => {
+  const handleArchiveSelected = () => {
     if (selectedGraduateIds.length === 0) return;
 
     setMsgBox({
       isOpen: true,
       type: 'confirm',
-      message: `Delete ${selectedGraduateIds.length} selected graduate(s)? This cannot be undone.`,
-      confirmText: 'Yes, delete!',
-      cancelText: 'No, keep it.',
+      message: `Archive ${selectedGraduateIds.length} selected graduate record(s)?\n\nThey will leave the active list, but their accounts, survey responses, profiles, forum history, messages, and job records will be preserved.`,
+      confirmText: 'Archive',
+      cancelText: 'Cancel',
       onConfirm: async () => {
         try {
-          await performDeleteRequest({ ids: selectedGraduateIds });
+          await performArchiveRequest({ ids: selectedGraduateIds });
           await fetchGraduates();
           setMsgBox({
             isOpen: true,
             type: 'success',
-            message: 'Selected graduates deleted successfully.',
+            message: 'Selected graduates archived successfully.',
           });
         } catch (error) {
           setMsgBox({
             isOpen: true,
             type: 'error',
-            message: getSafeErrorMessage(error, 'Unable to delete selected graduates'),
+            message: getSafeErrorMessage(error, 'Unable to archive selected graduates'),
           });
         }
       },
     });
   };
 
-  const handleDeleteByYear = () => {
+  const handleArchiveByYear = () => {
     if (!filterYear) {
       setMsgBox({
         isOpen: true,
         type: 'error',
-        message: 'Select a year first before deleting by year.',
+        message: 'Select a year first before archiving by year.',
       });
       return;
     }
@@ -654,12 +669,12 @@ export default function Graduates() {
     setMsgBox({
       isOpen: true,
       type: 'confirm',
-      message: `Delete all graduates for year ${filterYear} in ${PROGRAM_OPTIONS.find((p) => p.id === activeTab)?.code || 'the selected program'}? This cannot be undone.`,
-      confirmText: 'Yes, delete!',
-      cancelText: 'No, keep it.',
+      message: `Archive all graduates for year ${filterYear} in ${PROGRAM_OPTIONS.find((p) => p.id === activeTab)?.code || 'the selected program'}?\n\nThe records will be moved to Registrar Archive and all related data will be preserved.`,
+      confirmText: 'Archive',
+      cancelText: 'Cancel',
       onConfirm: async () => {
         try {
-          const result = await performDeleteRequest({
+          const result = await performArchiveRequest({
             year_graduated: filterYear,
             program_id: activeTab,
           });
@@ -668,13 +683,47 @@ export default function Graduates() {
           setMsgBox({
             isOpen: true,
             type: 'success',
-            message: `${result.deleted ?? 0} graduate(s) deleted for year ${filterYear}.`,
+            message: `${result.archived ?? 0} graduate(s) archived for year ${filterYear}.`,
           });
         } catch (error) {
           setMsgBox({
             isOpen: true,
             type: 'error',
-            message: getSafeErrorMessage(error, 'Unable to delete graduates by year'),
+            message: getSafeErrorMessage(error, 'Unable to archive graduates by year'),
+          });
+        }
+      },
+    });
+  };
+
+  const handleRestore = (graduate: Graduate) => {
+    setMsgBox({
+      isOpen: true,
+      type: 'confirm',
+      message: 'Restore Graduate Record?\n\nThis record will return to the active Registrar list with all existing relationships intact.',
+      confirmText: 'Restore',
+      cancelText: 'Cancel',
+      onConfirm: async () => {
+        try {
+          const response = await fetch(`${API_BASE}/graduates/index.php`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ id: graduate.id, action: 'restore' }),
+          });
+          const result = await response.json();
+          if (!response.ok || !result.success) {
+            throw new Error(result.error || 'Unable to restore graduate');
+          }
+
+          setGraduates((current) => current.filter((item) => item.id !== graduate.id));
+          await fetchGraduates();
+          setMsgBox({ isOpen: true, type: 'success', message: 'Graduate restored successfully.' });
+        } catch (error) {
+          setMsgBox({
+            isOpen: true,
+            type: 'error',
+            message: getSafeErrorMessage(error, 'Unable to restore graduate'),
           });
         }
       },
@@ -847,8 +896,8 @@ export default function Graduates() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[#1b2a4a]">Manage Graduates</h1>
-          <p className="text-sm text-gray-500">{total} total graduates</p>
+          <h1 className="text-2xl font-bold text-[#1b2a4a]">{archiveView === 'archived' ? 'Registrar Archive' : 'Manage Graduates'}</h1>
+          <p className="text-sm text-gray-500">{total} {archiveView === 'archived' ? 'archived' : 'active'} graduate record{total === 1 ? '' : 's'}</p>
         </div>
 
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
@@ -860,23 +909,43 @@ export default function Graduates() {
             onChange={handleImportExcel}
           />
 
-          <button
+          {archiveView === 'active' && <button
             onClick={handleImportClick}
             disabled={isImporting}
             className="flex w-full items-center justify-center gap-2 border border-blue-200 text-blue-700 px-4 py-2.5 rounded-lg hover:bg-blue-50 transition-colors text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed sm:w-auto"
           >
             <Download className="w-4 h-4" />
             {isImporting ? 'Importing...' : 'Import Excel'}
-          </button>
+          </button>}
 
-          <button
+          {archiveView === 'active' && <button
             onClick={openAdd}
             className="flex w-full items-center justify-center gap-2 bg-[#1b2a4a] text-white px-4 py-2.5 rounded-lg hover:bg-[#263c66] transition-colors text-sm font-medium sm:w-auto"
           >
             <Plus className="w-4 h-4" /> Add Graduate
-          </button>
+          </button>}
         </div>
       </div>
+
+      <nav aria-label="Registrar graduate sections" className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() => { setArchiveView('active'); setPage(1); }}
+          className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold ${archiveView === 'active' ? 'border-blue-700 bg-blue-700 text-white' : 'bg-white text-gray-700'}`}
+        >
+          Manage Graduates
+          <span className={`rounded-full px-2 py-0.5 text-xs ${archiveView === 'active' ? 'bg-white/15' : 'bg-gray-100'}`}>{archiveCounts.active}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => { setArchiveView('archived'); setSelectedGraduateIds([]); setPage(1); }}
+          className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold ${archiveView === 'archived' ? 'border-blue-700 bg-blue-700 text-white' : 'bg-white text-gray-700'}`}
+        >
+          <Archive className="h-4 w-4" />
+          Archive
+          <span className={`rounded-full px-2 py-0.5 text-xs ${archiveView === 'archived' ? 'bg-white/15' : 'bg-gray-100'}`}>{archiveCounts.archived}</span>
+        </button>
+      </nav>
 
       <div className="bg-white rounded-xl shadow-sm border">
         <div className="flex items-center gap-1 px-4 pt-4 border-b overflow-x-auto overflow-y-hidden">
@@ -935,7 +1004,7 @@ export default function Graduates() {
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          {archiveView === 'active' && <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={toggleSelectAllVisible}
               className="px-3 py-2 border rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
@@ -945,23 +1014,23 @@ export default function Graduates() {
             </button>
 
             <button
-              onClick={handleDeleteSelected}
+              onClick={handleArchiveSelected}
               disabled={selectedGraduateIds.length === 0}
               className="px-3 py-2 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               type="button"
             >
-              Delete Selected ({selectedGraduateIds.length})
+              Archive Selected ({selectedGraduateIds.length})
             </button>
 
             <button
-              onClick={handleDeleteByYear}
+              onClick={handleArchiveByYear}
               disabled={!filterYear}
               className="px-3 py-2 rounded-lg text-sm font-medium text-red-700 border border-red-200 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               type="button"
             >
-              Delete By Year
+              Archive By Year
             </button>
-          </div>
+          </div>}
 
           <div className="flex flex-wrap gap-3 pt-2 border-t">
             <select
@@ -983,13 +1052,13 @@ export default function Graduates() {
           {loading ? (
             <div className="py-12 text-center text-gray-400">Loading...</div>
           ) : graduates.length === 0 ? (
-            <div className="py-12 text-center text-gray-400">No graduates found</div>
+            <div className="py-12 text-center text-gray-400">{archiveView === 'archived' ? 'No archived registrar records.' : 'No graduates found'}</div>
           ) : (
             graduates.map((g) => (
               <div key={g.id} className="p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <label className="mb-2 inline-flex items-center gap-2 text-xs text-gray-600">
+                    {archiveView === 'active' && <label className="mb-2 inline-flex items-center gap-2 text-xs text-gray-600">
                       <input
                         type="checkbox"
                         checked={isGraduateSelected(g.id)}
@@ -997,19 +1066,25 @@ export default function Graduates() {
                         className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       />
                       Select
-                    </label>
+                    </label>}
                     <p className="font-semibold text-[#1b2a4a]">
                       {formatGraduateDisplayName(g)}
                     </p>
                     <p className="mt-1 font-mono text-xs text-gray-500">{g.student_id}</p>
                   </div>
                   <div className="flex shrink-0 items-center gap-1">
-                    <button onClick={() => openEdit(g)} className="p-2 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors" aria-label="Edit graduate">
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-                    <button onClick={() => handleDelete(g.id)} className="p-2 rounded-lg hover:bg-red-50 text-red-600 transition-colors" aria-label="Delete graduate">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {archiveView === 'active' ? <>
+                      <button onClick={() => openEdit(g)} className="p-2 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors" aria-label="Edit graduate">
+                        <Edit2 className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => handleArchive(g.id)} className="p-2 rounded-lg hover:bg-amber-50 text-amber-600 transition-colors" aria-label="Archive graduate">
+                        <Archive className="w-4 h-4" />
+                      </button>
+                    </> : (
+                      <button onClick={() => handleRestore(g)} className="p-2 rounded-lg hover:bg-emerald-50 text-emerald-600 transition-colors" aria-label="Restore graduate">
+                        <RotateCcw className="w-4 h-4" />
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2 text-sm text-gray-600">
@@ -1021,6 +1096,7 @@ export default function Graduates() {
                       {g.program_code || '-'}
                     </span>
                   </p>
+                  {archiveView === 'archived' && <p className="col-span-2 text-xs text-gray-500">Archived {formatDateTime(g.archived_at)}{g.archived_by_name ? ` by ${g.archived_by_name}` : ''}</p>}
                 </div>
               </div>
             ))
@@ -1032,13 +1108,13 @@ export default function Graduates() {
             <thead className="bg-gray-50 border-b">
               <tr>
                 <th className="text-center px-4 py-3 font-semibold text-gray-600 w-16">
-                  <input
+                  {archiveView === 'active' && <input
                     type="checkbox"
                     checked={allVisibleSelected}
                     onChange={toggleSelectAllVisible}
                     className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     aria-label="Select all visible graduates"
-                  />
+                  />}
                 </th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Student ID</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Name</th>
@@ -1046,25 +1122,27 @@ export default function Graduates() {
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Contact No.</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Program</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Year</th>
+                {archiveView === 'archived' && <th className="text-left px-4 py-3 font-semibold text-gray-600">Date Archived</th>}
+                {archiveView === 'archived' && <th className="text-left px-4 py-3 font-semibold text-gray-600">Archived By</th>}
                 <th className="text-center px-4 py-3 font-semibold text-gray-600">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-400">Loading...</td></tr>
+                <tr><td colSpan={archiveView === 'archived' ? 10 : 8} className="text-center py-12 text-gray-400">Loading...</td></tr>
               ) : graduates.length === 0 ? (
-                <tr><td colSpan={8} className="text-center py-12 text-gray-400">No graduates found</td></tr>
+                <tr><td colSpan={archiveView === 'archived' ? 10 : 8} className="text-center py-12 text-gray-400">{archiveView === 'archived' ? 'No archived registrar records.' : 'No graduates found'}</td></tr>
               ) : (
                 graduates.map((g) => (
                   <tr key={g.id} className="border-b last:border-0 hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 text-center">
-                      <input
+                      {archiveView === 'active' && <input
                         type="checkbox"
                         checked={isGraduateSelected(g.id)}
                         onChange={() => toggleGraduateSelection(g.id)}
                         className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                         aria-label={`Select graduate ${g.student_id}`}
-                      />
+                      />}
                     </td>
                     <td className="px-4 py-3 font-mono text-xs">{g.student_id}</td>
                     <td className="px-4 py-3">
@@ -1080,14 +1158,22 @@ export default function Graduates() {
                       </span>
                     </td>
                     <td className="px-4 py-3">{g.year_graduated || '-'}</td>
+                    {archiveView === 'archived' && <td className="px-4 py-3 text-gray-600">{formatDateTime(g.archived_at)}</td>}
+                    {archiveView === 'archived' && <td className="px-4 py-3 text-gray-600">{g.archived_by_name || '-'}</td>}
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-center gap-1">
-                        <button onClick={() => openEdit(g)} className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors">
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => handleDelete(g.id)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-600 transition-colors">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {archiveView === 'active' ? <>
+                          <button onClick={() => openEdit(g)} className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors" aria-label="Edit graduate">
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button onClick={() => handleArchive(g.id)} className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 transition-colors" aria-label="Archive graduate">
+                            <Archive className="w-4 h-4" />
+                          </button>
+                        </> : (
+                          <button onClick={() => handleRestore(g)} className="p-1.5 rounded-lg hover:bg-emerald-50 text-emerald-600 transition-colors" aria-label="Restore graduate">
+                            <RotateCcw className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>

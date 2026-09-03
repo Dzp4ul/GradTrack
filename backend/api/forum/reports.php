@@ -38,13 +38,18 @@ try {
     $targetType = gradtrack_forum_clean_text($data['target_type'] ?? '');
     $targetId = isset($data['target_id']) ? (int) $data['target_id'] : 0;
     $reason = gradtrack_forum_clean_text($data['reason'] ?? '');
+    $description = gradtrack_forum_clean_text($data['description'] ?? '');
 
     if (!in_array($targetType, ['post', 'comment'], true) || $targetId <= 0) {
         gradtrack_forum_reports_json_error(400, 'Valid target_type and target_id are required');
     }
 
-    if (strlen($reason) > 1000) {
-        gradtrack_forum_reports_json_error(400, 'Report reason must be 1000 characters or fewer');
+    if ($reason === '' || strlen($reason) > 120) {
+        gradtrack_forum_reports_json_error(400, 'A report reason of 120 characters or fewer is required');
+    }
+
+    if (strlen($description) > 1000) {
+        gradtrack_forum_reports_json_error(400, 'Report description must be 1000 characters or fewer');
     }
 
     $postId = null;
@@ -65,7 +70,7 @@ try {
 
         $postId = $targetId;
     } else {
-        $stmt = $db->prepare("SELECT fc.id, fc.post_id, fc.graduate_id, fp.status
+        $stmt = $db->prepare("SELECT fc.id, fc.post_id, fc.graduate_id, fc.status AS comment_status, fp.status
                               FROM forum_comments fc
                               JOIN forum_posts fp ON fp.id = fc.post_id
                               WHERE fc.id = :id
@@ -73,7 +78,9 @@ try {
         $stmt->execute([':id' => $targetId]);
         $comment = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if (!$comment || (string) ($comment['status'] ?? '') !== 'approved') {
+        if (!$comment
+            || (string) ($comment['status'] ?? '') !== 'approved'
+            || (string) ($comment['comment_status'] ?? '') !== 'approved') {
             gradtrack_forum_reports_json_error(404, 'Comment not found');
         }
 
@@ -106,14 +113,15 @@ try {
     }
 
     $insertStmt = $db->prepare("INSERT INTO forum_reports
-                                (reporter_graduate_id, target_type, post_id, comment_id, reason)
-                                VALUES (:reporter_graduate_id, :target_type, :post_id, :comment_id, :reason)");
+                                (reporter_graduate_id, target_type, post_id, comment_id, reason, description)
+                                VALUES (:reporter_graduate_id, :target_type, :post_id, :comment_id, :reason, :description)");
     $insertStmt->execute([
         ':reporter_graduate_id' => (int) $user['graduate_id'],
         ':target_type' => $targetType,
         ':post_id' => $postId,
         ':comment_id' => $commentId,
-        ':reason' => $reason !== '' ? $reason : null,
+        ':reason' => $reason,
+        ':description' => $description !== '' ? $description : null,
     ]);
 
     echo json_encode([
@@ -122,5 +130,6 @@ try {
         'id' => (int) $db->lastInsertId(),
     ]);
 } catch (Throwable $e) {
-    gradtrack_forum_reports_json_error(500, $e->getMessage());
+    error_log('Forum reports API error: ' . $e->getMessage());
+    gradtrack_forum_reports_json_error(500, 'Unable to submit this report right now');
 }

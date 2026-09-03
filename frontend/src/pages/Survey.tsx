@@ -8,6 +8,16 @@ import { API_ENDPOINTS, API_ROOT } from '../config/api';
 import { useSystemSettings } from '../contexts/SystemSettingsContext';
 import { usePsgcAddress } from '../hooks/usePsgcAddress';
 import { PsgcAddressPayload } from '../services/psgc';
+import {
+  buildOtherSurveyAnswer,
+  classifySurveyTextField,
+  getOtherSurveyAnswerText,
+  isOtherSurveyAnswer,
+  isOtherSurveyOption,
+  sanitizeSurveyDraftText,
+  validateSurveyQuestionAnswer,
+  validateSurveyResponses,
+} from '../utils/surveyValidation';
 import MaintenancePage from './MaintenancePage';
 
 interface Question {
@@ -114,7 +124,13 @@ const sanitizeDraftResponses = (draftResponses: unknown, questions: Question[]):
       return;
     }
 
-    sanitized[questionId] = value as SurveyAnswer;
+    if (Array.isArray(value)) {
+      sanitized[questionId] = value.map((item) => sanitizeSurveyDraftText(item));
+    } else if (typeof value === 'string') {
+      sanitized[questionId] = sanitizeSurveyDraftText(value);
+    } else {
+      sanitized[questionId] = value as SurveyAnswer;
+    }
   });
 
   return sanitized;
@@ -246,11 +262,44 @@ const shouldDisableQuestion = (
   return false;
 };
 
+const shouldShowQuestion = (
+  question: Question,
+  questions: Question[],
+  currentResponses: SurveyResponses,
+) => {
+  if (!questionSectionIncludes(question, 'Employment Data')) {
+    return true;
+  }
+
+  const employedQuestion = questions.find((candidate) =>
+    questionSectionIncludes(candidate, 'Employment Data')
+    && questionIncludes(candidate, 'Are you presently employed')
+  );
+
+  if (!employedQuestion?.id || question.id === employedQuestion.id) {
+    return true;
+  }
+
+  const employedAnswer = currentResponses[employedQuestion.id];
+  const isNotEmployedReason = questionIncludes(question, 'reason(s) why you are not yet employed');
+  if (isNotEmployedReason) {
+    return isNoAnswer(employedAnswer);
+  }
+
+  return isYesAnswer(employedAnswer);
+};
+
 const removeDisabledResponses = (responses: SurveyResponses, questions: Question[]) => {
   const cleanedResponses = { ...responses };
 
   questions.forEach((question) => {
-    if (question.id && shouldDisableQuestion(question, questions, cleanedResponses)) {
+    if (
+      question.id
+      && (
+        shouldDisableQuestion(question, questions, cleanedResponses)
+        || !shouldShowQuestion(question, questions, cleanedResponses)
+      )
+    ) {
       delete cleanedResponses[question.id];
     }
   });
@@ -277,52 +326,14 @@ const splitHeaderText = (text: string) => {
 const isChoiceQuestion = (question: Question) =>
   question.question_type === 'multiple_choice' || question.question_type === 'radio';
 
-const isOtherOption = (option: string) => {
-  const normalized = normalizeComparable(option);
-  return normalized === 'other' || normalized === 'others';
-};
-
-const getOtherOptionLabel = (option: string) =>
-  option.replace(/\s*:+\s*$/, '').trim() || option.trim();
-
-const isOtherStoredValue = (value: string, option: string) => {
-  const trimmedValue = value.trim();
-  const otherLabel = getOtherOptionLabel(option);
-  const normalizedValue = normalizeComparable(trimmedValue);
-  const normalizedOption = normalizeComparable(otherLabel);
-
-  return (
-    normalizedValue === normalizedOption ||
-    trimmedValue.toLowerCase().startsWith(`${otherLabel.toLowerCase()}:`) ||
-    (isOtherOption(option) && /^(other|others)\s*:/.test(trimmedValue.toLowerCase()))
-  );
-};
+const isOtherOption = isOtherSurveyOption;
+const isOtherStoredValue = isOtherSurveyAnswer;
 
 const getOtherOption = (question: Question) =>
   question.options?.find(isOtherOption) || null;
 
-const buildOtherAnswer = (option: string, text: string) => {
-  const trimmedText = text.trim();
-  const otherLabel = getOtherOptionLabel(option);
-  return trimmedText ? `${otherLabel}: ${trimmedText}` : otherLabel;
-};
-
-const getOtherTextFromValue = (value: string, option: string) => {
-  const trimmedValue = value.trim();
-  const lowerValue = trimmedValue.toLowerCase();
-  const optionPrefix = `${getOtherOptionLabel(option).toLowerCase()}:`;
-
-  if (lowerValue.startsWith(optionPrefix)) {
-    return trimmedValue.slice(optionPrefix.length).trimStart();
-  }
-
-  if (isOtherOption(option)) {
-    const fallbackMatch = trimmedValue.match(/^(other|others)\s*:\s*(.*)$/i);
-    return fallbackMatch?.[2] || '';
-  }
-
-  return '';
-};
+const buildOtherAnswer = buildOtherSurveyAnswer;
+const getOtherTextFromValue = getOtherSurveyAnswerText;
 
 const getOtherTextFromAnswer = (answer: SurveyAnswer, option: string) => {
   if (Array.isArray(answer)) {
@@ -342,19 +353,6 @@ const NAME_EXTENSION_OPTIONS = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V', 'VI'];
 
 const isNameExtensionQuestion = (question: Question) =>
   normalizeComparable(question.question_text).includes('name extension');
-
-const hasBlankOtherSelection = (question: Question, answer: SurveyAnswer) => {
-  const otherOption = getOtherOption(question);
-  if (!otherOption) {
-    return false;
-  }
-
-  if (Array.isArray(answer)) {
-    return answer.some((item) => isOtherStoredValue(String(item), otherOption)) && !getOtherTextFromAnswer(answer, otherOption).trim();
-  }
-
-  return typeof answer === 'string' && isOtherStoredValue(answer, otherOption) && !getOtherTextFromAnswer(answer, otherOption).trim();
-};
 
 interface PsgcAddressQuestionMap {
   region?: Question;
@@ -651,6 +649,7 @@ function Survey() {
   const [activeSurvey, setActiveSurvey] = useState<Survey | null>(null);
   const [currentSection, setCurrentSection] = useState(0);
   const [responses, setResponses] = useState<SurveyResponses>({});
+  const [validationErrors, setValidationErrors] = useState<Record<number, string>>({});
   const [autoFilledQuestionIds, setAutoFilledQuestionIds] = useState<Set<number>>(new Set());
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [msgBox, setMsgBox] = useState<{ isOpen: boolean; type: 'success' | 'error' | 'warning' | 'info'; message: string; title?: string }>({ isOpen: false, type: 'info', message: '' });
@@ -845,7 +844,7 @@ function Survey() {
     if (activeSurvey && graduateId && (Object.keys(responses).length > 0 || hasPsgcAddressValue(psgcAddress.draftValue))) {
       const draftKey = getSurveyDraftKey(activeSurvey.id, graduateId);
       const draft = {
-        responses,
+        responses: sanitizeDraftResponses(responses, activeSurvey.questions),
         psgcAddress: psgcAddress.draftValue,
         section: currentSection,
         timestamp: new Date().toISOString(),
@@ -945,7 +944,17 @@ function Survey() {
     }
   };
 
+  const clearQuestionValidationError = (questionId: number) => {
+    setValidationErrors((prev) => {
+      if (!prev[questionId]) return prev;
+      const next = { ...prev };
+      delete next[questionId];
+      return next;
+    });
+  };
+
   const handleResponseChange = (questionId: number, value: SurveyAnswer) => {
+    clearQuestionValidationError(questionId);
     setAutoFilledQuestionIds(prev => {
       if (!prev.has(questionId)) return prev;
       const next = new Set(prev);
@@ -956,6 +965,7 @@ function Survey() {
   };
 
   const handleCheckboxChange = (questionId: number, option: string) => {
+    clearQuestionValidationError(questionId);
     setAutoFilledQuestionIds(prev => {
       if (!prev.has(questionId)) return prev;
       const next = new Set(prev);
@@ -979,6 +989,7 @@ function Survey() {
   };
 
   const handleCheckboxOtherTextChange = (questionId: number, option: string, text: string) => {
+    clearQuestionValidationError(questionId);
     setAutoFilledQuestionIds(prev => {
       if (!prev.has(questionId)) return prev;
       const next = new Set(prev);
@@ -990,6 +1001,40 @@ function Survey() {
       const withoutOther = current.filter((value) => !isOtherStoredValue(value, option));
       return { ...prev, [questionId]: [...withoutOther, buildOtherAnswer(option, text)] };
     });
+  };
+
+  const handleQuestionBlur = (question: Question) => {
+    if (!question.id || isQuestionDisabled(question)) return;
+
+    const result = validateSurveyQuestionAnswer(question, responses[question.id]);
+    if (result.isValid) {
+      clearQuestionValidationError(question.id);
+      setResponses((prev) => ({ ...prev, [question.id!]: result.value }));
+      return;
+    }
+
+    setValidationErrors((prev) => ({
+      ...prev,
+      [question.id!]: result.error || 'Please enter a valid and readable answer.',
+    }));
+  };
+
+  const focusInvalidQuestion = (questionId?: number) => {
+    if (!questionId || !activeSurvey) return;
+
+    const question = activeSurvey.questions.find((candidate) => candidate.id === questionId);
+    if (question) {
+      const sections = Array.from(new Set(activeSurvey.questions.map((candidate) => candidate.section || 'General')));
+      const sectionIndex = sections.indexOf(question.section || 'General');
+      if (sectionIndex >= 0) setCurrentSection(sectionIndex);
+    }
+
+    window.setTimeout(() => {
+      const target = document.querySelector<HTMLElement>(`[data-survey-question-id="${questionId}"]`)
+        || document.getElementById(`survey-question-error-${questionId}`);
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      target?.focus({ preventScroll: true });
+    }, 50);
   };
 
   const extractSurveyProfileData = (): AccountPrefillData => {
@@ -1285,38 +1330,37 @@ function Survey() {
       }
     }
 
-    const requiredQuestions = currentSectionQuestions.filter(
-      q => !isHeaderQuestion(q)
-        && Number(q.is_required) === 1
-        && !isQuestionDisabled(q)
-        && (!q.id || !sectionAddressQuestionIds.has(q.id))
+    const sectionValidationQuestions = currentSectionQuestions.filter(
+      (question) => !isHeaderQuestion(question)
+        && !isQuestionDisabled(question)
+        && (!question.id || !sectionAddressQuestionIds.has(question.id))
     );
-    
-    for (const question of requiredQuestions) {
-      const answer = responses[question.id!];
-      
-      // Check if answer is empty, null, undefined, or empty array
-      if (!answer || 
-          (Array.isArray(answer) && answer.length === 0) || 
-          (typeof answer === 'string' && answer.trim() === '')) {
-        setMsgBox({ isOpen: true, type: 'warning', message: `Please answer the required question: "${question.question_text}"`, title: 'Required Field' });
-        return false;
-      }
-    }
-
-    const blankOtherQuestion = currentSectionQuestions.find(
-      q => !isHeaderQuestion(q) && !isQuestionDisabled(q) && hasBlankOtherSelection(q, responses[q.id!])
+    const sectionValidation = validateSurveyResponses(sectionValidationQuestions, responses);
+    const sectionQuestionIds = new Set(
+      currentSectionQuestions.map((question) => question.id).filter((id): id is number => Boolean(id))
     );
 
-    if (blankOtherQuestion) {
+    setValidationErrors((prev) => {
+      const next = { ...prev };
+      sectionQuestionIds.forEach((questionId) => delete next[questionId]);
+      return { ...next, ...sectionValidation.errors };
+    });
+
+    if (!sectionValidation.isValid) {
+      const firstQuestionId = sectionValidation.firstInvalidQuestionId;
       setMsgBox({
         isOpen: true,
         type: 'warning',
-        message: `Please specify your answer for "Other" in: "${blankOtherQuestion.question_text}"`,
-        title: 'Other Answer Required'
+        message: firstQuestionId
+          ? sectionValidation.errors[firstQuestionId]
+          : 'Please review the highlighted survey answer.',
+        title: 'Please Review Your Answer',
       });
+      focusInvalidQuestion(firstQuestionId);
       return false;
     }
+
+    setResponses(sectionValidation.responses);
     
     return true;
   };
@@ -1356,8 +1400,36 @@ function Survey() {
       )
       : removeDisabledResponses(responses, activeSurvey.questions);
 
+    const addressQuestionIds = getPsgcAddressQuestionIds(addressQuestions);
+    const validationQuestions = activeSurvey.questions.filter(
+      (question) => !isHeaderQuestion(question)
+        && shouldShowQuestion(question, activeSurvey.questions, responsePayload)
+        && !shouldDisableQuestion(question, activeSurvey.questions, responsePayload)
+        && (!question.id || !addressQuestionIds.has(question.id))
+    );
+    const submissionValidation = validateSurveyResponses(validationQuestions, responsePayload);
+
+    if (!submissionValidation.isValid) {
+      setResponses(submissionValidation.responses);
+      setValidationErrors(submissionValidation.errors);
+      const firstQuestionId = submissionValidation.firstInvalidQuestionId;
+      setMsgBox({
+        isOpen: true,
+        type: 'warning',
+        title: 'Please Review Your Answers',
+        message: firstQuestionId
+          ? submissionValidation.errors[firstQuestionId]
+          : 'Please review the highlighted survey answers.',
+      });
+      focusInvalidQuestion(firstQuestionId);
+      return;
+    }
+
+    setResponses(submissionValidation.responses);
+    setValidationErrors({});
+
     const submissionResponses = sanitizeDraftResponses(
-      responsePayload,
+      submissionValidation.responses,
       activeSurvey.questions,
     );
 
@@ -1388,9 +1460,25 @@ function Survey() {
         setPostSubmitModalOpen(true);
         setShowCreateAccountForm(false);
       } else {
-        const errorMsg = response.status >= 500
-          ? 'We could not save your survey right now. Please try again later.'
-          : result.message || result.error || 'Unable to save your survey response.';
+        const backendFieldErrors = result.field_errors && typeof result.field_errors === 'object'
+          ? Object.fromEntries(
+            Object.entries(result.field_errors).map(([questionId, message]) => [
+              Number(questionId),
+              String(message),
+            ])
+          ) as Record<number, string>
+          : {};
+        const firstBackendQuestionId = Number(result.first_invalid_question_id)
+          || Number(Object.keys(backendFieldErrors)[0])
+          || undefined;
+        if (Object.keys(backendFieldErrors).length > 0) {
+          setValidationErrors(backendFieldErrors);
+          focusInvalidQuestion(firstBackendQuestionId);
+        }
+        const errorMsg = result.message
+          || (response.status >= 500
+            ? 'We could not save your survey right now. Please try again later.'
+            : result.error || 'Unable to save your survey response.');
         setMsgBox({ isOpen: true, type: 'error', message: errorMsg, title: 'Submission Error' });
         console.error('Survey submission error:', result);
       }
@@ -1402,8 +1490,11 @@ function Survey() {
 
   const getQuestionFieldClass = (question: Question, disabled = isQuestionDisabled(question)) => {
     const wasAutoFilled = question.id ? autoFilledQuestionIds.has(question.id) : false;
+    const hasValidationError = question.id ? Boolean(validationErrors[question.id]) : false;
     const colorClass = disabled
       ? 'border-gray-200 bg-gray-100 text-gray-500 cursor-not-allowed focus:ring-0 focus:border-gray-200'
+      : hasValidationError
+      ? 'border-red-400 bg-red-50 focus:ring-red-500 focus:border-red-500'
       : wasAutoFilled
       ? 'border-green-300 bg-green-50 focus:ring-green-500 focus:border-green-400'
       : 'border-gray-300 bg-white focus:ring-blue-500 focus:border-transparent';
@@ -1418,6 +1509,30 @@ function Survey() {
 
   const getQuestionLabelClass = (question: Question) =>
     `block text-base font-semibold mb-3 ${isQuestionDisabled(question) ? 'text-gray-500' : 'text-gray-800'}`;
+
+  const renderQuestionValidationError = (question: Question) => {
+    const error = question.id ? validationErrors[question.id] : '';
+    if (!error) return null;
+
+    return (
+      <p
+        id={`survey-question-error-${question.id}`}
+        className="mt-2 text-sm font-medium text-red-700"
+        role="alert"
+        tabIndex={-1}
+      >
+        {error}
+      </p>
+    );
+  };
+
+  const getQuestionValidationProps = (question: Question) => ({
+    'data-survey-question-id': question.id,
+    'aria-invalid': question.id ? Boolean(validationErrors[question.id]) : false,
+    'aria-describedby': question.id && validationErrors[question.id]
+      ? `survey-question-error-${question.id}`
+      : undefined,
+  });
 
   const autoFilledCount = autoFilledQuestionIds.size;
 
@@ -1568,6 +1683,7 @@ function Survey() {
           const normalizedValue = typeof value === 'string' ? value : '';
           return (
             <select
+              {...getQuestionValidationProps(question)}
               value={normalizedValue}
               onChange={(e) => handleResponseChange(question.id!, e.target.value)}
               className={getQuestionFieldClass(question, disabled)}
@@ -1584,9 +1700,12 @@ function Survey() {
 
         return (
           <input
+            {...getQuestionValidationProps(question)}
             type="text"
             value={value}
             onChange={(e) => handleResponseChange(question.id!, e.target.value)}
+            onBlur={() => handleQuestionBlur(question)}
+            inputMode={classifySurveyTextField(question) === 'NUMERIC' ? 'numeric' : undefined}
             className={getQuestionFieldClass(question, disabled)}
             required={question.is_required === 1}
             disabled={disabled}
@@ -1596,6 +1715,7 @@ function Survey() {
       case 'date':
         return (
           <input
+            {...getQuestionValidationProps(question)}
             type="date"
             value={value}
             onChange={(e) => handleResponseChange(question.id!, e.target.value)}
@@ -1616,6 +1736,7 @@ function Survey() {
         return (
           <div className="space-y-2">
             <select
+              {...getQuestionValidationProps(question)}
               value={selectValue}
               onChange={(e) => handleResponseChange(question.id!, e.target.value)}
               className={getQuestionFieldClass(question, disabled)}
@@ -1629,9 +1750,11 @@ function Survey() {
             </select>
             {showOtherInput && (
               <input
+                {...getQuestionValidationProps(question)}
                 type="text"
                 value={getOtherTextFromAnswer(value, otherOption)}
                 onChange={(e) => handleSingleOtherTextChange(question.id!, otherOption, e.target.value)}
+                onBlur={() => handleQuestionBlur(question)}
                 className={getQuestionFieldClass(question, disabled)}
                 placeholder="Please specify"
                 aria-label={`Specify other answer for ${question.question_text}`}
@@ -1662,6 +1785,7 @@ function Survey() {
                       : 'text-gray-700 cursor-pointer hover:bg-blue-100'
                   }`}>
                     <input
+                      {...getQuestionValidationProps(question)}
                       type="radio"
                       name={`question-${question.id}`}
                       value={option}
@@ -1685,9 +1809,11 @@ function Survey() {
                   {isOther && checked && otherOption && (
                     <div className="ml-7 mt-2">
                       <input
+                        {...getQuestionValidationProps(question)}
                         type="text"
                         value={getOtherTextFromAnswer(value, otherOption)}
                         onChange={(e) => handleSingleOtherTextChange(question.id!, otherOption, e.target.value)}
+                        onBlur={() => handleQuestionBlur(question)}
                         className={getQuestionFieldClass(question, disabled)}
                         placeholder="Please specify"
                         aria-label={`Specify other answer for ${question.question_text}`}
@@ -1720,6 +1846,7 @@ function Survey() {
                     disabled ? 'text-gray-500 cursor-not-allowed' : 'text-gray-700 cursor-pointer'
                   }`}>
                     <input
+                      {...getQuestionValidationProps(question)}
                       type="checkbox"
                       checked={checked}
                       onChange={() => handleCheckboxChange(question.id!, option)}
@@ -1731,9 +1858,11 @@ function Survey() {
                   {isOther && checked && otherOption && (
                     <div className="ml-6 mt-2">
                       <input
+                        {...getQuestionValidationProps(question)}
                         type="text"
                         value={getOtherTextFromAnswer(value, otherOption)}
                         onChange={(e) => handleCheckboxOtherTextChange(question.id!, otherOption, e.target.value)}
+                        onBlur={() => handleQuestionBlur(question)}
                         className={getQuestionFieldClass(question, disabled)}
                         placeholder="Please specify"
                         aria-label={`Specify other answer for ${question.question_text}`}
@@ -1753,6 +1882,7 @@ function Survey() {
           <div className="flex space-x-2">
             {[1, 2, 3, 4, 5].map((rating) => (
               <button
+                {...getQuestionValidationProps(question)}
                 key={rating}
                 type="button"
                 onClick={() => handleResponseChange(question.id!, rating)}
@@ -1775,8 +1905,10 @@ function Survey() {
       default:
         return (
           <textarea
+            {...getQuestionValidationProps(question)}
             value={value}
             onChange={(e) => handleResponseChange(question.id!, e.target.value)}
+            onBlur={() => handleQuestionBlur(question)}
             rows={4}
             className={getQuestionFieldClass(question, disabled)}
             required={question.is_required === 1}
@@ -1807,46 +1939,9 @@ function Survey() {
   // Filter questions based on conditional logic
   const getFilteredQuestions = () => {
     const questions = sectionQuestions[currentSectionName] || [];
-    const filtered: Question[] = [];
-
-    const employedQuestion = activeSurvey?.questions.find((question) =>
-      question.question_text.toLowerCase().includes('are you presently employed')
-    );
-    const employedAnswer = employedQuestion?.id ? responses[employedQuestion.id] : null;
-    const employedAnswerText = typeof employedAnswer === 'string' ? employedAnswer.toLowerCase() : '';
-    const isEmploymentSection = currentSectionName.toLowerCase() === 'employment data';
-    
-    questions.forEach((q) => {
-      if (!isEmploymentSection || !employedQuestion?.id) {
-        filtered.push(q);
-        return;
-      }
-
-      const questionText = q.question_text.toLowerCase();
-
-      // Always show the controlling question.
-      if (q.id === employedQuestion.id) {
-        filtered.push(q);
-        return;
-      }
-
-      const isNotEmployedReasonQuestion = questionText.includes('reason(s) why you are not yet employed');
-
-      // Show only unemployment reason when answer is No.
-      if (isNotEmployedReasonQuestion) {
-        if (employedAnswerText === 'no') {
-          filtered.push(q);
-        }
-        return;
-      }
-
-      // All other employment questions are for employed respondents.
-      if (employedAnswerText === 'yes') {
-        filtered.push(q);
-      }
-    });
-    
-    return filtered;
+    return activeSurvey
+      ? questions.filter((question) => shouldShowQuestion(question, activeSurvey.questions, responses))
+      : questions;
   };
   
   const currentSectionQuestions = getFilteredQuestions();
@@ -2148,6 +2243,7 @@ function Survey() {
                               )}
                             </label>
                             {renderQuestion(question)}
+                            {renderQuestionValidationError(question)}
                           </div>
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
@@ -2157,6 +2253,7 @@ function Survey() {
                               )}
                             </label>
                             {renderQuestion(firstNameQ)}
+                            {renderQuestionValidationError(firstNameQ)}
                           </div>
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
@@ -2166,6 +2263,7 @@ function Survey() {
                               )}
                             </label>
                             {renderQuestion(middleNameQ)}
+                            {renderQuestionValidationError(middleNameQ)}
                           </div>
                           {hasNameExtension && maybeNameExtensionQ && (
                             <div>
@@ -2176,6 +2274,7 @@ function Survey() {
                                 )}
                               </label>
                               {renderQuestion(maybeNameExtensionQ)}
+                              {renderQuestionValidationError(maybeNameExtensionQ)}
                             </div>
                           )}
                         </div>
@@ -2206,6 +2305,7 @@ function Survey() {
                               )}
                             </label>
                             {renderQuestion(question)}
+                            {renderQuestionValidationError(question)}
                           </div>
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
@@ -2215,6 +2315,7 @@ function Survey() {
                               )}
                             </label>
                             {renderQuestion(mobileQ)}
+                            {renderQuestionValidationError(mobileQ)}
                           </div>
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
@@ -2224,6 +2325,7 @@ function Survey() {
                               )}
                             </label>
                             {renderQuestion(telephoneQ)}
+                            {renderQuestionValidationError(telephoneQ)}
                           </div>
                         </div>
                       </div>
@@ -2254,6 +2356,7 @@ function Survey() {
                               )}
                             </label>
                             {renderQuestion(question)}
+                            {renderQuestionValidationError(question)}
                           </div>
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
@@ -2263,6 +2366,7 @@ function Survey() {
                               )}
                             </label>
                             {renderQuestion(sexQ)}
+                            {renderQuestionValidationError(sexQ)}
                           </div>
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
@@ -2272,6 +2376,7 @@ function Survey() {
                               )}
                             </label>
                             {renderQuestion(birthdayQ)}
+                            {renderQuestionValidationError(birthdayQ)}
                           </div>
                         </div>
                       </div>
@@ -2301,6 +2406,7 @@ function Survey() {
                               )}
                             </label>
                             {renderQuestion(question)}
+                            {renderQuestionValidationError(question)}
                           </div>
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
@@ -2310,6 +2416,7 @@ function Survey() {
                               )}
                             </label>
                             {renderQuestion(provinceQ)}
+                            {renderQuestionValidationError(provinceQ)}
                           </div>
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
@@ -2319,6 +2426,7 @@ function Survey() {
                               )}
                             </label>
                             {renderQuestion(cityQ)}
+                            {renderQuestionValidationError(cityQ)}
                           </div>
                         </div>
                       </div>
@@ -2344,6 +2452,7 @@ function Survey() {
                               )}
                             </label>
                             {renderQuestion(question)}
+                            {renderQuestionValidationError(question)}
                           </div>
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
@@ -2353,6 +2462,7 @@ function Survey() {
                               )}
                             </label>
                             {renderQuestion(yearGradQ)}
+                            {renderQuestionValidationError(yearGradQ)}
                           </div>
                         </div>
                       </div>
@@ -2370,6 +2480,7 @@ function Survey() {
                           )}
                         </label>
                         {renderQuestion(question)}
+                        {renderQuestionValidationError(question)}
                       </div>
                     );
                     i++;

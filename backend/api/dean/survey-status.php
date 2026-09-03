@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/archive.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     http_response_code(405);
@@ -34,6 +35,8 @@ if (!isset($roleProgramScopes[$role])) {
 $programCodes = $roleProgramScopes[$role];
 $database = new Database();
 $db = $database->getConnection();
+gradtrack_ensure_archive_schema($db, 'graduates');
+gradtrack_ensure_archive_schema($db, 'surveys', true);
 
 try {
     $requestedSurveyId = isset($_GET['survey_id']) && (int) $_GET['survey_id'] > 0
@@ -41,7 +44,7 @@ try {
         : null;
 
     if ($requestedSurveyId !== null) {
-        $surveyStmt = $db->prepare("SELECT id, title, status FROM surveys WHERE id = :id LIMIT 1");
+        $surveyStmt = $db->prepare("SELECT id, title, status FROM surveys WHERE id = :id AND archived_at IS NULL LIMIT 1");
         $surveyStmt->execute([':id' => $requestedSurveyId]);
         $selectedSurvey = $surveyStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -54,6 +57,7 @@ try {
         $surveyStmt = $db->query("
             SELECT id, title, status
             FROM surveys
+            WHERE archived_at IS NULL
             ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, created_at DESC, id DESC
             LIMIT 1
         ");
@@ -62,7 +66,7 @@ try {
 
     $selectedSurveyId = $selectedSurvey ? (int) $selectedSurvey['id'] : null;
 
-    $whereParts = [];
+    $whereParts = ['g.archived_at IS NULL'];
     $params = [];
 
     if ($selectedSurveyId !== null) {

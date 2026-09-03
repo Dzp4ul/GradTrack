@@ -66,7 +66,7 @@ import { destroyRealtimeChatSocket, emitWithAck, getRealtimeChatSocket } from '.
 import type { RealtimeChatStatus } from '../services/realtimeChat';
 
 type PortalTab = 'announcements' | 'dashboard' | 'community_forum' | 'messages' | 'jobs' | 'job_posting' | 'my_profile';
-type ForumStatus = 'approved' | 'pending' | 'hidden';
+type ForumStatus = 'approved' | 'hidden';
 type ApprovalStatus = 'pending' | 'approved' | 'declined';
 
 interface AlumniBadge {
@@ -726,6 +726,10 @@ function forumStatusClass(status: ForumStatus) {
   return 'border-amber-200 bg-amber-50 text-amber-700';
 }
 
+function formatForumStatus(status: ForumStatus) {
+  return status === 'hidden' ? 'HIDDEN' : 'PUBLISHED';
+}
+
 function approvalStatusClass(status?: ApprovalStatus | null) {
   if (status === 'approved') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
   if (status === 'declined') return 'border-rose-200 bg-rose-50 text-rose-700';
@@ -927,7 +931,8 @@ export default function GraduatePortal() {
   const [commentDraft, setCommentDraft] = useState('');
   const [commentSubmitting, setCommentSubmitting] = useState(false);
   const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
-  const [reportReason, setReportReason] = useState('');
+  const [reportReason, setReportReason] = useState('Inappropriate content');
+  const [reportDescription, setReportDescription] = useState('');
   const [reportSubmitting, setReportSubmitting] = useState(false);
 
   const [jobs, setJobs] = useState<JobPost[]>([]);
@@ -1126,8 +1131,7 @@ export default function GraduatePortal() {
     return [participant.full_name, participantProgram, participantBatch ? `Batch ${participantBatch}` : ''].join(' ').toLowerCase().includes(query);
   });
 
-  const pendingForumPostsCount = myForumPosts.filter((post) => post.status === 'pending').length;
-  const approvedForumPostsCount = myForumPosts.filter((post) => post.status === 'approved').length;
+  const publishedForumPostsCount = myForumPosts.filter((post) => post.status === 'approved').length;
   const hiddenForumPostsCount = myForumPosts.filter((post) => post.status === 'hidden').length;
   const unreadMessageCount = useMemo(
     () => rooms.reduce((total, room) => total + Math.max(0, Number(room.unread_count || 0)), 0),
@@ -2567,7 +2571,7 @@ export default function GraduatePortal() {
           method: 'POST',
           body: formData,
         });
-        notify('success', 'Forum post updated and submitted for moderation.', 'Community Forum');
+        notify('success', 'Forum post updated and remains published.', 'Community Forum');
       } else {
         await authenticatedFetch(API_ENDPOINTS.FORUM.POSTS, {
           method: 'POST',
@@ -2765,12 +2769,14 @@ export default function GraduatePortal() {
 
   const openReportModal = (target: ReportTarget) => {
     setReportTarget(target);
-    setReportReason('');
+    setReportReason('Inappropriate content');
+    setReportDescription('');
   };
 
   const closeReportModal = () => {
     setReportTarget(null);
-    setReportReason('');
+    setReportReason('Inappropriate content');
+    setReportDescription('');
   };
 
   const handleSubmitReport = async (event: FormEvent<HTMLFormElement>) => {
@@ -2786,6 +2792,7 @@ export default function GraduatePortal() {
           target_type: reportTarget.target_type,
           target_id: reportTarget.target_id,
           reason: reportReason.trim(),
+          description: reportDescription.trim(),
         }),
       });
 
@@ -3956,8 +3963,8 @@ export default function GraduatePortal() {
               {activeTab === 'dashboard' && (
                 <section className="space-y-6">
                   <div className="grid gap-4 lg:grid-cols-4">
-                    <DashboardCard label="Approved Forum Posts" value={forumPosts.length} caption="Visible in the social feed" tone="blue" />
-                    <DashboardCard label="Pending My Posts" value={pendingForumPostsCount} caption="Waiting for moderator review" tone="amber" />
+                    <DashboardCard label="Published Forum Posts" value={forumPosts.length} caption="Visible in the community feed" tone="blue" />
+                    <DashboardCard label="My Published Posts" value={publishedForumPostsCount} caption="Published immediately after posting" tone="amber" />
                     <DashboardCard label="Conversations" value={rooms.length} caption={`${unreadMessageCount} unread message${unreadMessageCount === 1 ? '' : 's'}`} tone="pink" />
                     <DashboardCard label="Approved Jobs" value={jobs.length} caption={`${myPostedJobs.length} post${myPostedJobs.length === 1 ? '' : 's'} created by you`} tone="emerald" />
                   </div>
@@ -4689,9 +4696,8 @@ export default function GraduatePortal() {
               </button>
             </div>
 
-            <div className="grid gap-3 border-b border-slate-100 px-6 py-5 md:grid-cols-3">
-              <SummaryPill label="Pending" value={pendingForumPostsCount} className="border-amber-200 bg-amber-50 text-amber-700" />
-              <SummaryPill label="Approved" value={approvedForumPostsCount} className="border-emerald-200 bg-emerald-50 text-emerald-700" />
+            <div className="grid gap-3 border-b border-slate-100 px-6 py-5 md:grid-cols-2">
+              <SummaryPill label="Published" value={publishedForumPostsCount} className="border-emerald-200 bg-emerald-50 text-emerald-700" />
               <SummaryPill label="Hidden" value={hiddenForumPostsCount} className="border-rose-200 bg-rose-50 text-rose-700" />
             </div>
 
@@ -4707,7 +4713,7 @@ export default function GraduatePortal() {
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
                           <h3 className="text-lg font-bold text-slate-900">{post.title}</h3>
-                          <span className={`rounded-full border px-3 py-1 text-[11px] font-semibold ${forumStatusClass(post.status)}`}>{post.status.toUpperCase()}</span>
+                          <span className={`rounded-full border px-3 py-1 text-[11px] font-semibold ${forumStatusClass(post.status)}`}>{formatForumStatus(post.status)}</span>
                         </div>
                         <p className="mt-1 text-xs text-slate-500">
                           {post.category} - Updated {formatRelativeTime(post.updated_at)}
@@ -4868,7 +4874,7 @@ export default function GraduatePortal() {
                     <span className="text-sm text-slate-500">
                       {postComments.length} comment{postComments.length === 1 ? '' : 's'}
                     </span>
-                    <span className={`rounded-full border px-3 py-1 text-[11px] font-semibold ${forumStatusClass(selectedPost.status)}`}>{selectedPost.status.toUpperCase()}</span>
+                    <span className={`rounded-full border px-3 py-1 text-[11px] font-semibold ${forumStatusClass(selectedPost.status)}`}>{formatForumStatus(selectedPost.status)}</span>
                   </div>
                 </div>
 
@@ -5087,13 +5093,29 @@ export default function GraduatePortal() {
               </button>
             </div>
 
-            <Field label="Reason">
-              <textarea
+            <Field label="Report Reason">
+              <select
                 value={reportReason}
                 onChange={(event) => setReportReason(event.target.value)}
+                required
+                className="mt-4 w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-500"
+              >
+                <option>Inappropriate content</option>
+                <option>Harassment or bullying</option>
+                <option>Spam or misleading</option>
+                <option>Hate speech</option>
+                <option>Privacy concern</option>
+                <option>Other</option>
+              </select>
+            </Field>
+
+            <Field label="Description (optional)">
+              <textarea
+                value={reportDescription}
+                onChange={(event) => setReportDescription(event.target.value)}
                 rows={5}
                 maxLength={1000}
-                placeholder="Optional details for the moderator"
+                placeholder="Add details that will help the moderator review this report"
                 className="mt-4 w-full resize-none rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-500"
               />
             </Field>
@@ -5811,7 +5833,7 @@ function ProfilePostCard({
             </p>
           </div>
         </button>
-        <span className={`rounded-full border px-3 py-1 text-[11px] font-semibold ${forumStatusClass(post.status)}`}>{post.status.toUpperCase()}</span>
+        <span className={`rounded-full border px-3 py-1 text-[11px] font-semibold ${forumStatusClass(post.status)}`}>{formatForumStatus(post.status)}</span>
       </div>
 
       <button type="button" onClick={() => onOpenPost(post)} className="mt-4 block w-full text-left">

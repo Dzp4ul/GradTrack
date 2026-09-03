@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/archive.php';
 
 if (!function_exists('gradtrack_alumni_registry_admin_roles')) {
     function gradtrack_alumni_registry_admin_roles(): array
@@ -400,6 +401,9 @@ if (!function_exists('gradtrack_alumni_registry_ensure_schema')) {
             CONSTRAINT fk_registered_alumni_linked_user FOREIGN KEY (linked_user_id) REFERENCES graduate_accounts(id) ON DELETE SET NULL,
             CONSTRAINT fk_registered_alumni_import_batch FOREIGN KEY (import_batch_id) REFERENCES alumni_import_history(id) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        gradtrack_ensure_archive_schema($db, 'registered_alumni');
+        gradtrack_ensure_archive_schema($db, 'graduates');
     }
 }
 
@@ -630,7 +634,7 @@ if (!function_exists('gradtrack_alumni_registry_account_context')) {
                                      g.id AS graduate_id, g.first_name, g.middle_name, g.last_name,
                                      g.year_graduated, p.id AS program_id, p.name AS program_name, p.code AS program_code
                               FROM graduate_accounts ga
-                              JOIN graduates g ON g.id = ga.graduate_id
+                              JOIN graduates g ON g.id = ga.graduate_id AND g.archived_at IS NULL
                               LEFT JOIN programs p ON p.id = g.program_id
                               WHERE ga.id = :account_id
                               LIMIT 1");
@@ -701,7 +705,8 @@ if (!function_exists('gradtrack_alumni_registry_sync_for_graduate_account')) {
                               WHERE normalized_name = :normalized_name
                                 AND course_code = :course_code
                                 AND batch_year = :batch_year
-                                AND registration_status <> 'Inactive'");
+                                AND registration_status <> 'Inactive'
+                                AND archived_at IS NULL");
         $stmt->execute([
             ':normalized_name' => $account['normalized_name'],
             ':course_code' => strtoupper((string) $account['program_code']),

@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/survey_reminders.php';
 require_once __DIR__ . '/../../vendor/autoload.php';
 
@@ -191,16 +192,19 @@ $database = new Database();
 $db = $database->getConnection();
 
 try {
+    gradtrack_ensure_archive_schema($db, 'graduates');
+    gradtrack_ensure_archive_schema($db, 'surveys', true);
     gradtrack_survey_reminder_ensure_log_table($db);
 
     $surveyId = isset($data['survey_id']) ? (int) $data['survey_id'] : 0;
     if ($surveyId > 0) {
-        $surveyStmt = $db->prepare("SELECT id, title, status FROM surveys WHERE id = :id LIMIT 1");
+        $surveyStmt = $db->prepare("SELECT id, title, status FROM surveys WHERE id = :id AND archived_at IS NULL LIMIT 1");
         $surveyStmt->execute([':id' => $surveyId]);
     } else {
         $surveyStmt = $db->query("
             SELECT id, title, status
             FROM surveys
+            WHERE archived_at IS NULL
             ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, created_at DESC, id DESC
             LIMIT 1
         ");
@@ -217,7 +221,7 @@ try {
         ? filter_var($data['only_not_answered'], FILTER_VALIDATE_BOOLEAN)
         : true;
 
-    $whereParts = [];
+    $whereParts = ['g.archived_at IS NULL'];
     $params = [':survey_id' => $surveyId];
 
     if ($isDean) {

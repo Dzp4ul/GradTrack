@@ -15,6 +15,7 @@
     "test:message-unread": "php backend/tests/chat_unread_state_integration.php",
     "test:job-notifications": "php backend/tests/job_notification_read_state_integration.php",
     "test:profile-avatars": "php backend/tests/profile_avatar_consistency_integration.php",
+    "test:survey-validation": "php backend/tests/survey_validation_rules_test.php && php backend/tests/psgc_cache_test.php && cd frontend && npm run test:survey-validation",
     "build:frontend": "cd frontend && npm run build",
     "deploy:backend": "cd backend && eb deploy",
     "deploy:frontend": "cd frontend && amplify publish",

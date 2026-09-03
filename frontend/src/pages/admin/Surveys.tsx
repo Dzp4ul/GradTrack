@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import {
-  Plus, Edit2, Trash2, X, ClipboardList, ChevronDown, ChevronUp, ShieldCheck, BarChart3, Briefcase, Info,
+  Plus, Edit2, Archive, RotateCcw, Search, ChevronLeft, ChevronRight, X, ClipboardList, ChevronDown, ChevronUp, ShieldCheck, BarChart3, Briefcase, Info,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import MessageBox from '../../components/MessageBox';
 import { API_ROOT } from '../../config/api';
 
@@ -27,6 +27,10 @@ interface Survey {
   response_count: number;
   created_at: string;
   questions?: Question[];
+  archived_at?: string | null;
+  archived_by_name?: string | null;
+  restored_at?: string | null;
+  restored_by_name?: string | null;
 }
 
 interface FormData {
@@ -62,6 +66,7 @@ const getAnswerableQuestionCount = (questions?: Question[], fallback = 0) =>
   questions ? questions.filter((question) => !isHeaderQuestion(question)).length : fallback;
 
 export default function Surveys() {
+  const [routeSearchParams, setRouteSearchParams] = useSearchParams();
   const [surveys, setSurveys] = useState<Survey[]>([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -70,6 +75,14 @@ export default function Surveys() {
   const [expandedQ, setExpandedQ] = useState<number | null>(null);
   const [expandedSurvey, setExpandedSurvey] = useState<number | null>(null);
   const [showTemplates, setShowTemplates] = useState(false);
+  const [archiveView, setArchiveView] = useState<'active' | 'archived'>(
+    routeSearchParams.get('archive') === 'archived' ? 'archived' : 'active'
+  );
+  const [archiveCounts, setArchiveCounts] = useState({ active: 0, archived: 0 });
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [pagination, setPagination] = useState({ total: 0, page: 1, limit: 10, pages: 1 });
   const navigate = useNavigate();
   const [msgBox, setMsgBox] = useState<{
     isOpen: boolean;
@@ -83,7 +96,13 @@ export default function Surveys() {
 
   const fetchSurveys = () => {
     setLoading(true);
-    fetch(`${API_BASE}/surveys/index.php`, {
+    const params = new URLSearchParams({
+      archive: archiveView,
+      page: String(page),
+      limit: String(limit),
+    });
+    if (search.trim()) params.set('search', search.trim());
+    fetch(`${API_BASE}/surveys/index.php?${params.toString()}`, {
       credentials: 'include',
     })
       .then((r) => r.json())
@@ -91,7 +110,7 @@ export default function Surveys() {
         if (res.success) {
           // Fetch full details for each survey to get questions
           const surveysWithDetails = res.data.map((survey: Survey) => {
-            fetch(`${API_BASE}/surveys/index.php?id=${survey.id}`, {
+            fetch(`${API_BASE}/surveys/index.php?id=${survey.id}&archive=${archiveView}`, {
               credentials: 'include',
             })
               .then((r) => r.json())
@@ -116,15 +135,17 @@ export default function Surveys() {
             return survey;
           });
           setSurveys(surveysWithDetails);
+          setArchiveCounts(res.archive_counts || { active: 0, archived: 0 });
+          setPagination(res.pagination || { total: surveysWithDetails.length, page: 1, limit, pages: 1 });
         }
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { 
+  useEffect(() => {
     fetchSurveys();
-  }, []);
+  }, [archiveView, page, limit, search]);
 
   const activeSurvey = surveys.find((survey) => survey.status === 'active');
   const createSurveyButtonClass = `flex items-center gap-2 text-white px-6 py-2.5 rounded-lg transition-colors font-semibold shadow-md hover:shadow-lg ${
@@ -228,11 +249,14 @@ export default function Surveys() {
     }, 100);
   };
 
-  const clearAllSurveys = () => {
+  const archiveAllSurveys = () => {
     setMsgBox({
       isOpen: true,
       type: 'confirm',
-      message: '⚠️ WARNING: This will permanently delete ALL surveys, questions, and responses. This action cannot be undone. Are you ABSOLUTELY sure?',
+      title: 'Archive all surveys?',
+      message: 'The surveys will be removed from the active survey list, but their questions, responses, and historical data will be preserved. Archived surveys can be restored later.',
+      confirmText: 'Archive All',
+      cancelText: 'Cancel',
       onConfirm: () => {
         fetch(`${API_BASE}/surveys/clear.php`, {
           method: 'POST',
@@ -241,13 +265,14 @@ export default function Surveys() {
           .then((r) => r.json())
           .then((res) => {
             if (res.success) {
-              setMsgBox({ isOpen: true, type: 'success', message: 'All survey data has been cleared successfully.' });
+              setSurveys([]);
+              setMsgBox({ isOpen: true, type: 'success', message: res.message || 'All surveys were archived safely.' });
               fetchSurveys();
             } else {
-              setMsgBox({ isOpen: true, type: 'error', message: 'Error clearing surveys: ' + res.error });
+              setMsgBox({ isOpen: true, type: 'error', message: res.error || 'Unable to archive all surveys.' });
             }
           })
-          .catch(() => setMsgBox({ isOpen: true, type: 'error', message: 'Failed to clear surveys' }));
+          .catch(() => setMsgBox({ isOpen: true, type: 'error', message: 'Failed to archive surveys' }));
       }
     });
   };
@@ -339,13 +364,14 @@ export default function Surveys() {
       });
   };
 
-  const handleDelete = (id: number) => {
+  const handleArchive = (id: number) => {
     setMsgBox({
       isOpen: true,
       type: 'confirm',
-      message: 'Delete this survey and all its responses?',
-      confirmText: 'Yes, Delete!',
-      cancelText: 'No, keep it.',
+      title: 'Archive Survey?',
+      message: 'This survey will no longer be available as an active survey. Existing questions, responses, timestamps, and analytics history will be preserved.',
+      confirmText: 'Archive',
+      cancelText: 'Cancel',
       onConfirm: () => {
         fetch(`${API_BASE}/surveys/index.php`, {
           method: 'DELETE',
@@ -354,8 +380,48 @@ export default function Surveys() {
           body: JSON.stringify({ id }),
         })
           .then((r) => r.json())
-          .then((res) => { if (res.success) fetchSurveys(); });
+          .then((res) => {
+            if (res.success) {
+              setSurveys((current) => current.filter((survey) => survey.id !== id));
+              fetchSurveys();
+              setMsgBox({ isOpen: true, type: 'success', message: res.message || 'Survey archived successfully.' });
+            } else {
+              setMsgBox({ isOpen: true, type: 'error', message: res.error || 'Unable to archive survey.' });
+            }
+          })
+          .catch(() => setMsgBox({ isOpen: true, type: 'error', message: 'Unable to archive survey.' }));
       }
+    });
+  };
+
+  const handleRestore = (survey: Survey) => {
+    setMsgBox({
+      isOpen: true,
+      type: 'confirm',
+      title: 'Restore Survey?',
+      message: 'This survey will return to Survey Management. The same survey, questions, choices, responses, and analytics history will be restored without duplication.',
+      confirmText: 'Restore',
+      cancelText: 'Cancel',
+      onConfirm: () => {
+        fetch(`${API_BASE}/surveys/index.php`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ id: survey.id, action: 'restore' }),
+        })
+          .then((response) => response.json().then((body) => ({ ok: response.ok, body })))
+          .then(({ ok, body }) => {
+            if (!ok || !body.success) throw new Error(body.error || 'Unable to restore survey');
+            setSurveys((current) => current.filter((item) => item.id !== survey.id));
+            fetchSurveys();
+            setMsgBox({ isOpen: true, type: 'success', message: body.message || 'Survey restored successfully.' });
+          })
+          .catch((error) => setMsgBox({
+            isOpen: true,
+            type: 'error',
+            message: error instanceof Error ? error.message : 'Unable to restore survey.',
+          }));
+      },
     });
   };
 
@@ -371,18 +437,49 @@ export default function Surveys() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-blue-900 sm:text-3xl">Survey Management</h1>
-          <p className="text-sm text-gray-500 mt-1">{surveys.length} surveys created</p>
-          {activeSurvey && (
+          <h1 className="text-2xl font-bold text-blue-900 sm:text-3xl">{archiveView === 'archived' ? 'Survey Archive' : 'Survey Management'}</h1>
+          <p className="text-sm text-gray-500 mt-1">{pagination.total} {archiveView === 'archived' ? 'archived' : 'active'} survey{pagination.total === 1 ? '' : 's'}</p>
+          {archiveView === 'active' && activeSurvey && (
             <p className="text-xs text-amber-700 mt-1">
               Set "{activeSurvey.title}" to inactive before creating another survey.
             </p>
           )}
         </div>
         <div className="flex w-full gap-3 sm:w-auto">
-          <button onClick={openAdd} className={`${createSurveyButtonClass} w-full justify-center sm:w-auto`} title={activeSurvey ? 'Inactive the active survey first' : 'Create Survey'}>
+          {archiveView === 'active' && <button onClick={openAdd} className={`${createSurveyButtonClass} w-full justify-center sm:w-auto`} title={activeSurvey ? 'Inactive the active survey first' : 'Create Survey'}>
             <Plus className="w-5 h-5" /> Create Survey
+          </button>}
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-3 rounded-xl border bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+        <nav aria-label="Survey sections" className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => { setArchiveView('active'); setRouteSearchParams({}); setPage(1); }}
+            className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold ${archiveView === 'active' ? 'border-blue-700 bg-blue-700 text-white' : 'bg-white text-gray-700'}`}
+          >
+            Survey Management
+            <span className={`rounded-full px-2 py-0.5 text-xs ${archiveView === 'active' ? 'bg-white/15' : 'bg-gray-100'}`}>{archiveCounts.active}</span>
           </button>
+          <button
+            type="button"
+            onClick={() => { setArchiveView('archived'); setRouteSearchParams({ archive: 'archived' }); setExpandedSurvey(null); setPage(1); }}
+            className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold ${archiveView === 'archived' ? 'border-blue-700 bg-blue-700 text-white' : 'bg-white text-gray-700'}`}
+          >
+            <Archive className="h-4 w-4" /> Archive
+            <span className={`rounded-full px-2 py-0.5 text-xs ${archiveView === 'archived' ? 'bg-white/15' : 'bg-gray-100'}`}>{archiveCounts.archived}</span>
+          </button>
+        </nav>
+        <div className="relative w-full sm:max-w-sm">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <input
+            type="search"
+            value={search}
+            onChange={(event) => { setSearch(event.target.value); setPage(1); }}
+            placeholder="Search survey title"
+            className="w-full rounded-lg border py-2 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
         </div>
       </div>
 
@@ -394,19 +491,19 @@ export default function Surveys() {
       ) : surveys.length === 0 ? (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 text-center sm:p-12">
           <ClipboardList className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <p className="text-gray-600 text-lg font-medium">No surveys yet</p>
-          <p className="text-gray-500 text-sm mb-6">Create your first survey using the Graduate Tracer Study template</p>
-          <button onClick={openAdd} className={`${createSurveyButtonClass} mx-auto`}>
+          <p className="text-gray-600 text-lg font-medium">{archiveView === 'archived' ? 'No archived surveys.' : 'No surveys yet'}</p>
+          <p className="text-gray-500 text-sm mb-6">{archiveView === 'archived' ? 'Archived surveys will appear here and can be restored.' : 'Create your first survey using the Graduate Tracer Study template'}</p>
+          {archiveView === 'active' && <button onClick={openAdd} className={`${createSurveyButtonClass} mx-auto`}>
             <Plus className="w-5 h-5" /> Create Survey
-          </button>
+          </button>}
         </div>
       ) : (
         <>
-          <div className="flex justify-end mb-4">
-            <button onClick={clearAllSurveys} className="flex w-full items-center justify-center gap-2 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors font-semibold text-sm sm:w-auto">
-              <Trash2 className="w-4 h-4" /> Clear All Surveys
+          {archiveView === 'active' && <div className="flex justify-end mb-4">
+            <button onClick={archiveAllSurveys} className="flex w-full items-center justify-center gap-2 border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 transition-colors hover:bg-amber-100 sm:w-auto">
+              <Archive className="w-4 h-4" /> Archive All Surveys
             </button>
-          </div>
+          </div>}
           <div className="grid gap-4">
           {surveys.map((s) => (
             <div key={s.id} className="bg-white rounded-xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow hover:border-yellow-200 overflow-hidden">
@@ -415,8 +512,8 @@ export default function Surveys() {
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap items-center gap-3 mb-2">
                       <h3 className="text-lg font-bold text-blue-900 sm:text-xl">{s.title}</h3>
-                      <span className={`text-xs font-semibold px-3 py-1 rounded-full capitalize ${statusStyle[s.status] || 'bg-gray-100'}`}>
-                        {s.status}
+                      <span className={`text-xs font-semibold px-3 py-1 rounded-full capitalize ${archiveView === 'archived' ? 'bg-amber-100 text-amber-700' : statusStyle[s.status] || 'bg-gray-100'}`}>
+                        {archiveView === 'archived' ? 'Archived' : s.status}
                       </span>
                     </div>
                     <p className="text-gray-600 mb-4">{s.description}</p>
@@ -424,18 +521,26 @@ export default function Surveys() {
                       <span className="flex items-center gap-1"><ClipboardList className="w-4 h-4" /> {getAnswerableQuestionCount(s.questions, s.question_count)} questions</span>
                       <span className="flex items-center gap-1"><ShieldCheck className="w-4 h-4" /> {s.response_count} responses</span>
                       <span>Created: {new Date(s.created_at).toLocaleDateString()}</span>
+                      {archiveView === 'archived' && <span>Archived: {s.archived_at ? new Date(s.archived_at.replace(' ', 'T')).toLocaleDateString() : '-'}</span>}
+                      {archiveView === 'archived' && <span>Archived by: {s.archived_by_name || '-'}</span>}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0 sm:ml-4">
-                    <button onClick={() => navigate(`/admin/surveys/${s.id}`)} className="p-2 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors font-medium" title="View Details">
+                    <button onClick={() => navigate(`/admin/surveys/${s.id}${archiveView === 'archived' ? '?archive=archived' : ''}`)} className="p-2 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors font-medium" title="View Details">
                       <Info className="w-5 h-5" />
                     </button>
-                    <button onClick={() => openEdit(s)} className="p-2 rounded-lg hover:bg-yellow-50 text-yellow-600 transition-colors font-medium" title="Edit">
-                      <Edit2 className="w-5 h-5" />
-                    </button>
-                    <button onClick={() => handleDelete(s.id)} className="p-2 rounded-lg hover:bg-red-50 text-red-600 transition-colors font-medium" title="Delete">
-                      <Trash2 className="w-5 h-5" />
-                    </button>
+                    {archiveView === 'active' ? <>
+                      <button onClick={() => openEdit(s)} className="p-2 rounded-lg hover:bg-yellow-50 text-yellow-600 transition-colors font-medium" title="Edit">
+                        <Edit2 className="w-5 h-5" />
+                      </button>
+                      <button onClick={() => handleArchive(s.id)} className="p-2 rounded-lg hover:bg-amber-50 text-amber-600 transition-colors font-medium" title="Archive">
+                        <Archive className="w-5 h-5" />
+                      </button>
+                    </> : (
+                      <button onClick={() => handleRestore(s)} className="p-2 rounded-lg hover:bg-emerald-50 text-emerald-600 transition-colors font-medium" title="Restore">
+                        <RotateCcw className="w-5 h-5" />
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -488,6 +593,29 @@ export default function Surveys() {
           ))}
         </div>
         </>
+      )}
+
+      {pagination.pages > 1 && (
+        <div className="flex flex-col gap-3 rounded-xl border bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-gray-500">Page {pagination.page} of {pagination.pages}</p>
+          <div className="flex items-center gap-2">
+            <label className="text-sm text-gray-500" htmlFor="survey-page-size">Rows</label>
+            <select
+              id="survey-page-size"
+              value={limit}
+              onChange={(event) => { setLimit(Number(event.target.value)); setPage(1); }}
+              className="rounded-lg border px-2 py-1.5 text-sm"
+            >
+              {[5, 10, 20, 50].map((size) => <option key={size} value={size}>{size}</option>)}
+            </select>
+            <button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page <= 1} className="rounded-lg border p-2 hover:bg-gray-50 disabled:opacity-40" aria-label="Previous survey page">
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button type="button" onClick={() => setPage((current) => Math.min(pagination.pages, current + 1))} disabled={page >= pagination.pages} className="rounded-lg border p-2 hover:bg-gray-50 disabled:opacity-40" aria-label="Next survey page">
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
       )}
 
       {/* Template Selection Modal */}

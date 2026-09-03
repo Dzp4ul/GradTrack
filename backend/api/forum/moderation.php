@@ -24,103 +24,317 @@ function gradtrack_forum_moderation_request_data(): array
 
 function gradtrack_forum_moderation_summary(PDO $db): array
 {
-    $stmt = $db->query("SELECT status, COUNT(*) AS total
-                        FROM forum_posts
-                        GROUP BY status");
-
-    $summary = [
-        'approved' => 0,
-        'pending' => 0,
-        'hidden' => 0,
-    ];
-
+    $summary = ['pending' => 0, 'resolved' => 0, 'dismissed' => 0];
+    $stmt = $db->query("SELECT status, COUNT(*) AS total FROM forum_reports GROUP BY status");
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $status = (string) ($row['status'] ?? '');
         if (array_key_exists($status, $summary)) {
             $summary[$status] = (int) $row['total'];
         }
     }
-
+    $summary['all'] = array_sum($summary);
     return $summary;
 }
 
-function gradtrack_forum_moderation_comments_by_post(PDO $db, array $postIds): array
+function gradtrack_forum_moderation_filters(PDO $db): array
 {
-    if (count($postIds) === 0) {
-        return [];
-    }
-
-    $placeholders = [];
-    $params = [];
-    foreach ($postIds as $index => $postId) {
-        $placeholder = ':post_id_' . $index;
-        $placeholders[] = $placeholder;
-        $params[$placeholder] = (int) $postId;
-    }
-
-    $stmt = $db->prepare("SELECT fc.id, fc.post_id, fc.graduate_id, fc.comment, fc.created_at,
-                                 g.first_name, g.last_name
-                          FROM forum_comments fc
-                          JOIN graduates g ON g.id = fc.graduate_id
-                          WHERE fc.post_id IN (" . implode(', ', $placeholders) . ")
-                          ORDER BY fc.created_at DESC, fc.id DESC");
-    $stmt->execute($params);
-
-    $grouped = [];
-    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $postId = (int) $row['post_id'];
-        if (!isset($grouped[$postId])) {
-            $grouped[$postId] = [];
-        }
-
-        $row['id'] = (int) $row['id'];
-        $row['post_id'] = $postId;
-        $row['graduate_id'] = (int) $row['graduate_id'];
-        $row['commenter_name'] = trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? ''));
-        $grouped[$postId][] = $row;
-    }
-
-    return $grouped;
+    $reasonStmt = $db->query("SELECT DISTINCT reason
+                              FROM forum_reports
+                              WHERE reason IS NOT NULL AND TRIM(reason) <> ''
+                              ORDER BY reason ASC");
+    return [
+        'types' => ['post', 'comment'],
+        'reasons' => array_values(array_filter(array_map(static function (array $row): string {
+            return trim((string) ($row['reason'] ?? ''));
+        }, $reasonStmt->fetchAll(PDO::FETCH_ASSOC)))),
+        'statuses' => ['pending', 'resolved', 'dismissed'],
+    ];
 }
 
-function gradtrack_forum_moderation_reports_by_post(PDO $db, array $postIds): array
+function gradtrack_forum_moderation_where(array $input, array &$params): string
 {
-    if (count($postIds) === 0) {
-        return [];
+    $where = [];
+    $status = strtolower(gradtrack_forum_clean_text($input['status'] ?? 'pending'));
+    if (!in_array($status, ['pending', 'resolved', 'dismissed', 'all'], true)) {
+        $status = 'pending';
+    }
+    if ($status !== 'all') {
+        $where[] = 'fr.status = :report_status';
+        $params[':report_status'] = $status;
     }
 
-    $placeholders = [];
-    $params = [];
-    foreach ($postIds as $index => $postId) {
-        $placeholder = ':report_post_id_' . $index;
-        $placeholders[] = $placeholder;
-        $params[$placeholder] = (int) $postId;
+    $type = strtolower(gradtrack_forum_clean_text($input['type'] ?? ''));
+    if (in_array($type, ['post', 'comment'], true)) {
+        $where[] = 'fr.target_type = :report_type';
+        $params[':report_type'] = $type;
     }
 
-    $stmt = $db->prepare("SELECT fr.id, fr.target_type, fr.post_id, fr.comment_id, fr.reason, fr.status, fr.created_at,
-                                 g.first_name, g.last_name
-                          FROM forum_reports fr
-                          JOIN graduates g ON g.id = fr.reporter_graduate_id
-                          WHERE fr.post_id IN (" . implode(', ', $placeholders) . ")
-                            AND fr.status = 'pending'
-                          ORDER BY fr.created_at DESC, fr.id DESC");
-    $stmt->execute($params);
+    $reason = gradtrack_forum_clean_text($input['reason'] ?? '');
+    if ($reason !== '') {
+        $where[] = 'fr.reason = :report_reason';
+        $params[':report_reason'] = $reason;
+    }
 
-    $grouped = [];
-    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $postId = (int) $row['post_id'];
-        if (!isset($grouped[$postId])) {
-            $grouped[$postId] = [];
+    $search = gradtrack_forum_clean_text($input['search'] ?? '');
+    if ($search !== '') {
+        $term = '%' . $search . '%';
+        $where[] = "(
+            fp.title LIKE :search_title
+            OR fp.content LIKE :search_post_content
+            OR fc.comment LIKE :search_comment
+            OR author.first_name LIKE :search_author_first
+            OR author.last_name LIKE :search_author_last
+            OR reporter.first_name LIKE :search_reporter_first
+            OR reporter.last_name LIKE :search_reporter_last
+            OR fr.reason LIKE :search_reason
+            OR fr.description LIKE :search_description
+        )";
+        foreach ([
+            ':search_title', ':search_post_content', ':search_comment',
+            ':search_author_first', ':search_author_last',
+            ':search_reporter_first', ':search_reporter_last',
+            ':search_reason', ':search_description',
+        ] as $placeholder) {
+            $params[$placeholder] = $term;
         }
-
-        $row['id'] = (int) $row['id'];
-        $row['post_id'] = $postId;
-        $row['comment_id'] = isset($row['comment_id']) ? (int) $row['comment_id'] : null;
-        $row['reporter_name'] = trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? ''));
-        $grouped[$postId][] = $row;
     }
 
-    return $grouped;
+    return count($where) > 0 ? 'WHERE ' . implode(' AND ', $where) : '';
+}
+
+function gradtrack_forum_moderation_from_sql(): string
+{
+    return "FROM forum_reports fr
+            JOIN forum_posts fp ON fp.id = fr.post_id
+            LEFT JOIN forum_comments fc ON fc.id = fr.comment_id
+            JOIN graduates reporter ON reporter.id = fr.reporter_graduate_id
+            JOIN graduates author ON author.id = CASE
+                WHEN fr.target_type = 'comment' THEN fc.graduate_id
+                ELSE fp.graduate_id
+            END
+            LEFT JOIN programs author_program ON author_program.id = author.program_id";
+}
+
+function gradtrack_forum_moderation_reports_for_group(
+    PDO $db,
+    string $targetType,
+    int $postId,
+    ?int $commentId,
+    string $status
+): array {
+    $targetClause = $targetType === 'comment' ? 'fr.comment_id = :target_id' : 'fr.post_id = :target_id';
+    $stmt = $db->prepare("SELECT fr.id, fr.reporter_graduate_id, fr.target_type, fr.post_id, fr.comment_id,
+                                fr.reason, fr.description, fr.status, fr.created_at, fr.reviewed_at, fr.reviewed_by,
+                                CONCAT(TRIM(reporter.first_name), ' ', TRIM(reporter.last_name)) AS reporter_name,
+                                reviewer.full_name AS reviewed_by_name
+                         FROM forum_reports fr
+                         JOIN graduates reporter ON reporter.id = fr.reporter_graduate_id
+                         LEFT JOIN admin_users reviewer ON reviewer.id = fr.reviewed_by
+                         WHERE {$targetClause} AND fr.target_type = :target_type AND fr.status = :status
+                         ORDER BY fr.created_at DESC, fr.id DESC");
+    $stmt->execute([
+        ':target_id' => $targetType === 'comment' ? (int) $commentId : $postId,
+        ':target_type' => $targetType,
+        ':status' => $status,
+    ]);
+
+    return array_map(static function (array $row): array {
+        $row['id'] = (int) $row['id'];
+        $row['reporter_graduate_id'] = (int) $row['reporter_graduate_id'];
+        $row['post_id'] = (int) $row['post_id'];
+        $row['comment_id'] = $row['comment_id'] !== null ? (int) $row['comment_id'] : null;
+        $row['reviewed_by'] = $row['reviewed_by'] !== null ? (int) $row['reviewed_by'] : null;
+        return $row;
+    }, $stmt->fetchAll(PDO::FETCH_ASSOC));
+}
+
+function gradtrack_forum_moderation_handle_list(PDO $db, array $moderator): void
+{
+    $params = [];
+    $where = gradtrack_forum_moderation_where($_GET, $params);
+    $page = isset($_GET['page']) ? max(1, (int) $_GET['page']) : 1;
+    $limit = isset($_GET['limit']) ? min(50, max(5, (int) $_GET['limit'])) : 10;
+    $offset = ($page - 1) * $limit;
+    $from = gradtrack_forum_moderation_from_sql();
+
+    $groupColumns = 'fr.target_type, fr.post_id, fr.comment_id, fr.status';
+    $countSql = "SELECT COUNT(*) AS total FROM (
+                    SELECT 1 {$from} {$where} GROUP BY {$groupColumns}
+                 ) grouped_reports";
+    $countStmt = $db->prepare($countSql);
+    $countStmt->execute($params);
+    $total = (int) ($countStmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0);
+
+    $sql = "SELECT MIN(fr.id) AS report_id,
+                   fr.target_type,
+                   fr.post_id,
+                   fr.comment_id,
+                   fr.status AS report_status,
+                   COUNT(*) AS report_count,
+                   MIN(fr.created_at) AS first_reported_at,
+                   MAX(fr.created_at) AS last_reported_at,
+                   MAX(fr.reviewed_at) AS reviewed_at,
+                   fp.title AS post_title,
+                   fp.content AS post_content,
+                   fp.category AS post_category,
+                   fp.status AS post_status,
+                   fp.image_path,
+                   fp.image_original_name,
+                   fp.image_mime_type,
+                   fp.image_file_size_bytes,
+                   fc.comment AS comment_content,
+                   fc.status AS comment_status,
+                   author.id AS author_graduate_id,
+                   author.first_name AS author_first_name,
+                   author.last_name AS author_last_name,
+                   author_program.code AS author_program_code,
+                   author_program.name AS author_program_name
+            {$from}
+            {$where}
+            GROUP BY {$groupColumns}, fp.title, fp.content, fp.category, fp.status,
+                     fp.image_path, fp.image_original_name, fp.image_mime_type, fp.image_file_size_bytes,
+                     fc.comment, fc.status, author.id, author.first_name, author.last_name,
+                     author_program.code, author_program.name
+            ORDER BY CASE fr.status WHEN 'pending' THEN 0 WHEN 'resolved' THEN 1 ELSE 2 END,
+                     MAX(fr.created_at) DESC, MIN(fr.id) DESC
+            LIMIT {$limit} OFFSET {$offset}";
+    $stmt = $db->prepare($sql);
+    $stmt->execute($params);
+    $items = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    $postIds = array_values(array_unique(array_map(static function (array $item): int {
+        return (int) $item['post_id'];
+    }, $items)));
+    $mediaByPost = gradtrack_forum_post_media_by_post_ids($db, $postIds);
+
+    foreach ($items as &$item) {
+        $item['report_id'] = (int) $item['report_id'];
+        $item['post_id'] = (int) $item['post_id'];
+        $item['comment_id'] = $item['comment_id'] !== null ? (int) $item['comment_id'] : null;
+        $item['target_id'] = $item['target_type'] === 'comment' ? $item['comment_id'] : $item['post_id'];
+        $item['report_count'] = (int) $item['report_count'];
+        $item['author_graduate_id'] = (int) $item['author_graduate_id'];
+        $item['author_name'] = trim((string) $item['author_first_name'] . ' ' . (string) $item['author_last_name']);
+        $item['content_status'] = $item['target_type'] === 'comment'
+            ? (string) $item['comment_status']
+            : (string) $item['post_status'];
+        $item['content'] = $item['target_type'] === 'comment'
+            ? (string) ($item['comment_content'] ?? '')
+            : (string) ($item['post_content'] ?? '');
+        $item['media'] = $mediaByPost[$item['post_id']] ?? [];
+        $item['reports'] = gradtrack_forum_moderation_reports_for_group(
+            $db,
+            (string) $item['target_type'],
+            $item['post_id'],
+            $item['comment_id'],
+            (string) $item['report_status']
+        );
+    }
+    unset($item);
+
+    echo json_encode([
+        'success' => true,
+        'moderator' => $moderator,
+        'summary' => gradtrack_forum_moderation_summary($db),
+        'filters' => gradtrack_forum_moderation_filters($db),
+        'data' => $items,
+        'pagination' => [
+            'total' => $total,
+            'page' => $page,
+            'limit' => $limit,
+            'pages' => max(1, (int) ceil($total / max(1, $limit))),
+        ],
+    ]);
+}
+
+function gradtrack_forum_moderation_handle_action(PDO $db, array $moderator): void
+{
+    $data = gradtrack_forum_moderation_request_data();
+    $reportId = isset($data['report_id']) ? (int) $data['report_id'] : 0;
+    $action = strtolower(gradtrack_forum_clean_text($data['action'] ?? ''));
+    if ($reportId <= 0 || !in_array($action, ['hide', 'restore', 'resolve', 'dismiss'], true)) {
+        gradtrack_forum_moderation_json_error(400, 'A valid report_id and moderation action are required');
+    }
+
+    $stmt = $db->prepare("SELECT fr.id, fr.target_type, fr.post_id, fr.comment_id, fr.status,
+                                 fp.title, author_program.code AS program_code
+                          FROM forum_reports fr
+                          JOIN forum_posts fp ON fp.id = fr.post_id
+                          LEFT JOIN forum_comments fc ON fc.id = fr.comment_id
+                          JOIN graduates author ON author.id = CASE
+                              WHEN fr.target_type = 'comment' THEN fc.graduate_id
+                              ELSE fp.graduate_id
+                          END
+                          LEFT JOIN programs author_program ON author_program.id = author.program_id
+                          WHERE fr.id = :id LIMIT 1");
+    $stmt->execute([':id' => $reportId]);
+    $report = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$report) {
+        gradtrack_forum_moderation_json_error(404, 'Forum report not found');
+    }
+
+    $targetType = (string) $report['target_type'];
+    $targetId = $targetType === 'comment' ? (int) $report['comment_id'] : (int) $report['post_id'];
+    $targetClause = $targetType === 'comment' ? 'comment_id = :target_id' : 'post_id = :target_id';
+    $message = '';
+
+    $db->beginTransaction();
+    try {
+        if ($action === 'hide' || $action === 'restore') {
+            $contentStatus = $action === 'hide' ? 'hidden' : 'approved';
+            $contentTable = $targetType === 'comment' ? 'forum_comments' : 'forum_posts';
+            $contentStmt = $db->prepare("UPDATE {$contentTable} SET status = :status WHERE id = :id");
+            $contentStmt->execute([':status' => $contentStatus, ':id' => $targetId]);
+
+            if ($action === 'hide') {
+                $reportStmt = $db->prepare("UPDATE forum_reports
+                                            SET status = 'resolved', reviewed_at = NOW(), reviewed_by = :reviewed_by
+                                            WHERE target_type = :target_type
+                                              AND {$targetClause}
+                                              AND status IN ('pending', 'dismissed')");
+                $reportStmt->execute([
+                    ':reviewed_by' => (int) $moderator['id'],
+                    ':target_type' => $targetType,
+                    ':target_id' => $targetId,
+                ]);
+            }
+            $message = $action === 'hide' ? 'Reported content hidden and reports resolved.' : 'Content restored to public view.';
+        } else {
+            $nextStatus = $action === 'dismiss' ? 'dismissed' : 'resolved';
+            $reportStmt = $db->prepare("UPDATE forum_reports
+                                        SET status = :status, reviewed_at = NOW(), reviewed_by = :reviewed_by
+                                        WHERE target_type = :target_type AND {$targetClause} AND status = 'pending'");
+            $reportStmt->execute([
+                ':status' => $nextStatus,
+                ':reviewed_by' => (int) $moderator['id'],
+                ':target_type' => $targetType,
+                ':target_id' => $targetId,
+            ]);
+            $message = $action === 'dismiss' ? 'Report dismissed; content remains visible.' : 'Report resolved.';
+        }
+        $db->commit();
+    } catch (Throwable $e) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+        throw $e;
+    }
+
+    $auditAction = ucfirst($action);
+    logAuditTrail(
+        $moderator['id'],
+        $moderator['full_name'] ?: $moderator['email'],
+        $moderator['role'],
+        $report['program_code'] ?? null,
+        $auditAction,
+        'Community Forum',
+        "{$auditAction} action completed for reported {$targetType} with record ID {$targetId}.",
+        $targetId,
+        null,
+        ['report_id' => $reportId, 'target_type' => $targetType]
+    );
+
+    echo json_encode(['success' => true, 'message' => $message]);
 }
 
 $database = new Database();
@@ -132,218 +346,17 @@ try {
     $moderator = gradtrack_forum_require_moderator($db);
 
     if ($method === 'GET') {
-        $status = gradtrack_forum_clean_text($_GET['status'] ?? 'pending');
-        $category = gradtrack_forum_clean_text($_GET['category'] ?? '');
-        $search = gradtrack_forum_clean_text($_GET['search'] ?? '');
-
-        if (!in_array($status, ['approved', 'pending', 'hidden', 'all'], true)) {
-            $status = 'pending';
-        }
-
-        $params = [];
-        $sql = "SELECT fp.id, fp.graduate_id, fp.title, fp.content, fp.category, fp.status,
-                       fp.image_path, fp.image_original_name, fp.image_mime_type, fp.image_file_size_bytes,
-                       fp.created_at, fp.updated_at,
-                       g.first_name, g.middle_name, g.last_name,
-                       p.name AS author_program_name, p.code AS author_program_code,
-                       (
-                           SELECT COUNT(*)
-                           FROM forum_comments fc
-                           WHERE fc.post_id = fp.id
-                       ) AS comment_count,
-                       (
-                           SELECT COUNT(*)
-                           FROM forum_reports fr
-                           WHERE fr.post_id = fp.id
-                             AND fr.status = 'pending'
-                       ) AS report_count
-                FROM forum_posts fp
-                JOIN graduates g ON g.id = fp.graduate_id
-                LEFT JOIN programs p ON p.id = g.program_id
-                WHERE 1=1";
-
-        if ($status !== 'all') {
-            $sql .= ' AND fp.status = :status';
-            $params[':status'] = $status;
-        }
-
-        if ($category !== '' && gradtrack_forum_valid_category($category)) {
-            $sql .= ' AND fp.category = :category';
-            $params[':category'] = $category;
-        }
-
-        if ($search !== '') {
-            $sql .= " AND (
-                fp.title LIKE :search_title
-                OR fp.content LIKE :search_content
-                OR fp.category LIKE :search_category
-                OR g.first_name LIKE :search_first_name
-                OR g.last_name LIKE :search_last_name
-            )";
-            $searchTerm = '%' . $search . '%';
-            $params[':search_title'] = $searchTerm;
-            $params[':search_content'] = $searchTerm;
-            $params[':search_category'] = $searchTerm;
-            $params[':search_first_name'] = $searchTerm;
-            $params[':search_last_name'] = $searchTerm;
-        }
-
-        $sql .= " ORDER BY CASE fp.status
-                              WHEN 'pending' THEN 0
-                              WHEN 'hidden' THEN 1
-                              ELSE 2
-                          END,
-                          fp.created_at DESC,
-                          fp.id DESC";
-
-        $stmt = $db->prepare($sql);
-        $stmt->execute($params);
-        $posts = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-        $postIds = [];
-        foreach ($posts as &$post) {
-            $post['id'] = (int) $post['id'];
-            $post['graduate_id'] = (int) $post['graduate_id'];
-            $post['comment_count'] = (int) ($post['comment_count'] ?? 0);
-            $post['report_count'] = (int) ($post['report_count'] ?? 0);
-            $post['image_file_size_bytes'] = isset($post['image_file_size_bytes']) ? (int) $post['image_file_size_bytes'] : null;
-            $post['author_name'] = trim((string) ($post['first_name'] ?? '') . ' ' . (string) ($post['last_name'] ?? ''));
-            $postIds[] = $post['id'];
-        }
-        unset($post);
-
-        $posts = gradtrack_forum_attach_media_to_posts($db, $posts);
-        $commentsByPost = gradtrack_forum_moderation_comments_by_post($db, $postIds);
-        $reportsByPost = gradtrack_forum_moderation_reports_by_post($db, $postIds);
-        foreach ($posts as &$post) {
-            $post['comments'] = $commentsByPost[$post['id']] ?? [];
-            $post['reports'] = $reportsByPost[$post['id']] ?? [];
-        }
-        unset($post);
-
-        echo json_encode([
-            'success' => true,
-            'moderator' => $moderator,
-            'summary' => gradtrack_forum_moderation_summary($db),
-            'categories' => gradtrack_forum_categories(),
-            'data' => $posts,
-        ]);
+        gradtrack_forum_moderation_handle_list($db, $moderator);
         exit;
     }
 
     if ($method === 'PUT') {
-        $data = gradtrack_forum_moderation_request_data();
-        $postId = isset($data['id']) ? (int) $data['id'] : 0;
-        $status = gradtrack_forum_clean_text($data['status'] ?? '');
-
-        if ($postId <= 0 || !in_array($status, ['approved', 'pending', 'hidden'], true)) {
-            gradtrack_forum_moderation_json_error(400, 'Valid id and status are required');
-        }
-
-        $existsStmt = $db->prepare('SELECT fp.id, fp.title, p.code AS program_code
-                                    FROM forum_posts fp
-                                    JOIN graduates g ON g.id = fp.graduate_id
-                                    LEFT JOIN programs p ON p.id = g.program_id
-                                    WHERE fp.id = :id
-                                    LIMIT 1');
-        $existsStmt->execute([':id' => $postId]);
-        $post = $existsStmt->fetch(PDO::FETCH_ASSOC);
-        if (!$post) {
-            gradtrack_forum_moderation_json_error(404, 'Forum post not found');
-        }
-
-        $stmt = $db->prepare('UPDATE forum_posts SET status = :status, updated_at = NOW() WHERE id = :id');
-        $stmt->execute([
-            ':status' => $status,
-            ':id' => $postId,
-        ]);
-
-        $auditAction = $status === 'approved' ? 'Approve' : ($status === 'hidden' ? 'Reject' : 'Update');
-        $auditVerb = $auditAction === 'Approve' ? 'Approved' : ($auditAction === 'Reject' ? 'Rejected' : 'Updated');
-
-        // Audit Trail: call logAuditTrail() after a moderator updates a community forum post status.
-        logAuditTrail(
-            $moderator['id'],
-            $moderator['full_name'] ?: $moderator['email'],
-            $moderator['role'],
-            $post['program_code'] ?? null,
-            $auditAction,
-            'Community Forum',
-            "{$auditVerb} forum post with record ID {$postId}.",
-            $postId,
-            null,
-            ['status' => $status]
-        );
-
-        echo json_encode([
-            'success' => true,
-            'message' => 'Forum post status updated successfully',
-        ]);
+        gradtrack_forum_moderation_handle_action($db, $moderator);
         exit;
-    }
-
-    if ($method === 'DELETE') {
-        $data = gradtrack_forum_moderation_request_data();
-        $postId = isset($_GET['post_id']) ? (int) $_GET['post_id'] : (isset($data['post_id']) ? (int) $data['post_id'] : 0);
-        $commentId = isset($_GET['comment_id']) ? (int) $_GET['comment_id'] : (isset($data['comment_id']) ? (int) $data['comment_id'] : 0);
-
-        if ($postId > 0) {
-            $existsStmt = $db->prepare('SELECT fp.id, fp.title, fp.image_path, p.code AS program_code
-                                        FROM forum_posts fp
-                                        JOIN graduates g ON g.id = fp.graduate_id
-                                        LEFT JOIN programs p ON p.id = g.program_id
-                                        WHERE fp.id = :id
-                                        LIMIT 1');
-            $existsStmt->execute([':id' => $postId]);
-            $post = $existsStmt->fetch(PDO::FETCH_ASSOC);
-            if (!$post) {
-                gradtrack_forum_moderation_json_error(404, 'Forum post not found');
-            }
-
-            gradtrack_forum_remove_post_media_files($db, $postId);
-            $deleteStmt = $db->prepare('DELETE FROM forum_posts WHERE id = :id');
-            $deleteStmt->execute([':id' => $postId]);
-
-            // Audit Trail: call logAuditTrail() after a moderator deletes a community forum post.
-            logAuditTrail(
-                $moderator['id'],
-                $moderator['full_name'] ?: $moderator['email'],
-                $moderator['role'],
-                $post['program_code'] ?? null,
-                'Delete',
-                'Community Forum',
-                "Deleted forum post with record ID {$postId}.",
-                $postId
-            );
-
-            echo json_encode([
-                'success' => true,
-                'message' => 'Forum post deleted successfully',
-            ]);
-            exit;
-        }
-
-        if ($commentId > 0) {
-            $existsStmt = $db->prepare('SELECT id FROM forum_comments WHERE id = :id LIMIT 1');
-            $existsStmt->execute([':id' => $commentId]);
-            if (!$existsStmt->fetch(PDO::FETCH_ASSOC)) {
-                gradtrack_forum_moderation_json_error(404, 'Comment not found');
-            }
-
-            $deleteStmt = $db->prepare('DELETE FROM forum_comments WHERE id = :id');
-            $deleteStmt->execute([':id' => $commentId]);
-
-            echo json_encode([
-                'success' => true,
-                'message' => 'Comment deleted successfully',
-            ]);
-            exit;
-        }
-
-        gradtrack_forum_moderation_json_error(400, 'post_id or comment_id is required');
     }
 
     gradtrack_forum_moderation_json_error(405, 'Method not allowed');
 } catch (Throwable $e) {
-    gradtrack_forum_moderation_json_error(500, $e->getMessage());
+    error_log('Forum moderation API error: ' . $e->getMessage());
+    gradtrack_forum_moderation_json_error(500, 'Unable to process forum reports right now');
 }

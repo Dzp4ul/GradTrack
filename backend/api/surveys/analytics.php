@@ -2,10 +2,13 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/survey_response_analytics.php';
+require_once __DIR__ . '/../config/archive.php';
 
 $database = new Database();
 $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
+gradtrack_ensure_archive_schema($db, 'graduates');
+gradtrack_ensure_archive_schema($db, 'surveys', true);
 
 try {
     if ($method !== 'GET') {
@@ -156,7 +159,7 @@ function isDisplayOnlyQuestion($question) {
 
 function calculateResponseRate($db, $surveyId) {
     // Get total graduates
-    $stmt = $db->query("SELECT COUNT(*) as total FROM graduates WHERE status = 'active'");
+    $stmt = $db->query("SELECT COUNT(*) as total FROM graduates WHERE status = 'active' AND archived_at IS NULL");
     $totalGraduates = (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
     
     // Get total responses
@@ -863,7 +866,7 @@ function getGraduateTotalsByProgramYear($db, $programs) {
         SELECT p.code, g.year_graduated, COUNT(*) AS total
         FROM graduates g
         LEFT JOIN programs p ON p.id = g.program_id
-        WHERE p.code IN ($placeholders) AND g.status = 'active'
+        WHERE p.code IN ($placeholders) AND g.status = 'active' AND g.archived_at IS NULL
         GROUP BY p.code, g.year_graduated
         ORDER BY g.year_graduated
     ");

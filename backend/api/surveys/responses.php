@@ -4,6 +4,8 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../config/psgc_address.php';
 require_once __DIR__ . '/../config/system_settings.php';
+require_once __DIR__ . '/../config/archive.php';
+require_once __DIR__ . '/../config/survey_validation.php';
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 use PHPMailer\PHPMailer\Exception as MailException;
@@ -391,6 +393,8 @@ HTML;
 
 $database = new Database();
 $conn = $database->getConnection();
+gradtrack_ensure_archive_schema($conn, 'surveys', true);
+gradtrack_ensure_archive_schema($conn, 'graduates');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         gradtrack_system_require_feature_enabled($conn, 'graduate_survey', 'Graduate Tracer Survey');
@@ -404,18 +408,72 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $submittedPsgcAddress = $data['psgc_address'] ?? ($responses['__psgc_address'] ?? null);
 
     try {
+        $activeSurveyStmt = $conn->prepare("SELECT id FROM surveys
+                                            WHERE id = :survey_id
+                                              AND status = 'active'
+                                              AND archived_at IS NULL
+                                            LIMIT 1");
+        $activeSurveyStmt->execute([':survey_id' => (int)$surveyId]);
+        if (!$activeSurveyStmt->fetch(PDO::FETCH_ASSOC)) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'This survey is not active']);
+            exit();
+        }
+
+        if ($graduateId) {
+            $activeGraduateStmt = $conn->prepare('SELECT id FROM graduates WHERE id = :id AND archived_at IS NULL LIMIT 1');
+            $activeGraduateStmt->execute([':id' => (int)$graduateId]);
+            if (!$activeGraduateStmt->fetch(PDO::FETCH_ASSOC)) {
+                http_response_code(403);
+                echo json_encode(['success' => false, 'error' => 'Graduate record is not active']);
+                exit();
+            }
+        }
+
         $validatedPsgcAddress = $surveyId
             ? survey_response_validate_psgc_submission($conn, (int) $surveyId, $responses, $submittedPsgcAddress)
             : null;
+
+        $questionStmt = $conn->prepare(
+            'SELECT id, section, question_text, question_type, options, is_required, sort_order
+             FROM survey_questions
+             WHERE survey_id = :survey_id
+             ORDER BY sort_order ASC, id ASC'
+        );
+        $questionStmt->execute([':survey_id' => (int) $surveyId]);
+        $surveyQuestions = $questionStmt->fetchAll(PDO::FETCH_ASSOC);
+        $psgcQuestionIds = array_values(survey_response_psgc_question_map($conn, (int) $surveyId));
+        $surveyValidation = gradtrack_survey_validate_responses($surveyQuestions, $responses, $psgcQuestionIds);
+
+        if (!$surveyValidation['is_valid']) {
+            http_response_code(422);
+            echo json_encode([
+                'success' => false,
+                'error' => 'Invalid survey answers',
+                'message' => 'Please review the highlighted survey answers.',
+                'field_errors' => $surveyValidation['errors'],
+                'first_invalid_question_id' => $surveyValidation['first_invalid_question_id'],
+            ], JSON_UNESCAPED_UNICODE);
+            exit();
+        }
+
+        // Only normalized answers for current, active questions are persisted.
+        // Hidden conditional answers and unknown client-supplied keys are ignored.
+        $responses = $surveyValidation['responses'];
 
         $conn->beginTransaction();
         
         // If token provided, validate it
         if ($token) {
-            $tokenQuery = "SELECT * FROM survey_tokens 
-                          WHERE token = :token 
-                          AND survey_id = :survey_id
-                          AND submitted_at IS NULL";
+            $tokenQuery = "SELECT st.* FROM survey_tokens st
+                          JOIN surveys s ON s.id = st.survey_id
+                          JOIN graduates g ON g.id = st.graduate_id
+                          WHERE st.token = :token
+                          AND st.survey_id = :survey_id
+                          AND st.submitted_at IS NULL
+                          AND s.status = 'active'
+                          AND s.archived_at IS NULL
+                          AND g.archived_at IS NULL";
             $tokenStmt = $conn->prepare($tokenQuery);
             $tokenStmt->bindParam(':token', $token);
             $tokenStmt->bindParam(':survey_id', $surveyId);

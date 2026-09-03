@@ -30,6 +30,38 @@ function gradtrack_forum_posts_json_error(int $statusCode, string $message): voi
     exit;
 }
 
+function gradtrack_forum_posts_validate_content(string $title, string $content, string $category): void
+{
+    if (strlen($title) > 255) {
+        gradtrack_forum_posts_json_error(400, 'Forum post title must be 255 characters or fewer');
+    }
+
+    if (strlen($content) > 20000) {
+        gradtrack_forum_posts_json_error(400, 'Forum post content must be 20,000 characters or fewer');
+    }
+
+    // Preserve the existing server-side English and Tagalog content check for
+    // both new posts and edits. Publication no longer depends on admin review.
+    $badWords = [
+        'fuck', 'fucking', 'fuck you', 'fck', 'fuk', 'shit', 'bitch', 'asshole',
+        'motherfucker', 'dick', 'piss', 'cunt', 'bastard', 'damn',
+        'putangina', 'puta', 'tangina', 'tngina', 'bobo', 'tanga', 'gago', 'gaga',
+        'ulol', 'baliw', 'lintik', 'leche', 'buwisit', 'bwisit', 'peste',
+        'siraulo', 'hindot', 'tarantado', 'pokpok', 'bading',
+        'engot', 'pakyu', 'kupal', 'kantot', 'kantutan', 'suso',
+        'tite', 'pekpek', 'animal', 'hayop', 'inutil', 'walang kwenta',
+        'pota', 'ulul', 'tang ina', 'putang ina', 'bobo ka', 'tanga ka', 'gago ka', 'gunggong',
+    ];
+    $combinedText = function_exists('mb_strtolower')
+        ? mb_strtolower($title . ' ' . $content . ' ' . $category, 'UTF-8')
+        : strtolower($title . ' ' . $content . ' ' . $category);
+    foreach ($badWords as $badWord) {
+        if (preg_match('/' . preg_quote($badWord, '/') . '/i', $combinedText)) {
+            gradtrack_forum_posts_json_error(400, 'Your post was blocked by moderation. Please remove inappropriate language and try again.');
+        }
+    }
+}
+
 function gradtrack_forum_posts_detail_query(): string
 {
     return "SELECT fp.id, fp.graduate_id, fp.title, fp.content, fp.category, fp.status,
@@ -42,6 +74,7 @@ function gradtrack_forum_posts_detail_query(): string
                        SELECT COUNT(*)
                        FROM forum_comments fc
                        WHERE fc.post_id = fp.id
+                         AND fc.status = 'approved'
                    ) AS comment_count,
                    (
                        SELECT COUNT(*)
@@ -133,7 +166,7 @@ try {
             $isOwner = $graduateUser !== null && (int) $post['graduate_id'] === (int) $graduateUser['graduate_id'];
             $canModerate = $moderator !== null;
 
-            if (($post['status'] ?? 'pending') !== 'approved' && !$isOwner && !$canModerate) {
+            if (($post['status'] ?? 'approved') !== 'approved' && !$isOwner && !$canModerate) {
                 gradtrack_forum_posts_json_error(404, 'Forum post not found');
             }
 
@@ -154,7 +187,7 @@ try {
             $sql .= ' AND fp.graduate_id = :graduate_id';
             $params[':graduate_id'] = (int) $user['graduate_id'];
 
-            if (in_array($status, ['approved', 'pending', 'hidden'], true)) {
+            if (in_array($status, ['approved', 'hidden'], true)) {
                 $sql .= ' AND fp.status = :status';
                 $params[':status'] = $status;
             }
@@ -221,23 +254,7 @@ try {
             gradtrack_forum_posts_json_error(400, 'Invalid forum category');
         }
 
-        // Server-side moderation check for bad words (English & Tagalog)
-        $badWords = [
-            'fuck', 'fucking', 'fuck you', 'fck', 'fuk', 'shit', 'bitch', 'asshole',
-            'motherfucker', 'dick', 'piss', 'cunt', 'bastard', 'damn',
-            'putangina', 'puta', 'tangina', 'tngina', 'bobo', 'tanga', 'gago', 'gaga',
-            'ulol', 'baliw', 'lintik', 'leche', 'buwisit', 'bwisit', 'peste',
-            'siraulo', 'hindot', 'tarantado', 'pokpok', 'bading',
-            'engot', 'pakyu', 'kupal', 'kantot', 'kantutan', 'suso',
-            'tite', 'pekpek', 'animal', 'hayop', 'inutil', 'walang kwenta',
-            'pota', 'ulul', 'tang ina', 'putang ina', 'bobo ka', 'tanga ka', 'gago ka', 'gunggong',
-        ];
-        $combinedText = mb_strtolower($title . ' ' . $content . ' ' . $category);
-        foreach ($badWords as $badWord) {
-            if (preg_match('/' . preg_quote($badWord, '/') . '/i', $combinedText)) {
-                gradtrack_forum_posts_json_error(400, 'Your post was blocked by moderation. Please remove inappropriate language and try again.');
-            }
-        }
+        gradtrack_forum_posts_validate_content($title, $content, $category);
 
         $newMediaReferences = [];
         $db->beginTransaction();
@@ -324,6 +341,8 @@ try {
             gradtrack_forum_posts_json_error(400, 'Invalid forum category');
         }
 
+        gradtrack_forum_posts_validate_content($title, $content, $category);
+
         $clearMedia = isset($data['remove_media'])
             && ((string) $data['remove_media'] === '1' || (string) $data['remove_media'] === 'true');
         $clearMedia = $clearMedia || (isset($data['remove_image'])
@@ -350,7 +369,6 @@ try {
                       SET title = :title,
                           content = :content,
                           category = :category,
-                          status = 'pending',
                           updated_at = NOW()";
             $params = [
             ':title' => $title,
@@ -392,8 +410,7 @@ try {
 
         echo json_encode([
             'success' => true,
-            'message' => 'Forum post updated and submitted for review',
-            'status' => 'pending',
+            'message' => 'Forum post updated successfully',
         ]);
         exit;
     }

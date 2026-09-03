@@ -43,7 +43,8 @@ function alumni_registry_normalize_status($value): string
 
 function alumni_registry_filter_clause(array $input, array &$params): string
 {
-    $where = [];
+    $archiveScope = strtolower(gradtrack_alumni_registry_clean_text($input['archive'] ?? 'active', 20));
+    $where = [$archiveScope === 'archived' ? 'ra.archived_at IS NOT NULL' : 'ra.archived_at IS NULL'];
 
     $search = gradtrack_alumni_registry_clean_text($input['search'] ?? '', 120);
     if ($search !== '') {
@@ -126,6 +127,11 @@ function alumni_registry_cast_record(array $row): array
     if (isset($row['linked_graduate_id'])) {
         $row['linked_graduate_id'] = $row['linked_graduate_id'] !== null ? (int) $row['linked_graduate_id'] : null;
     }
+    foreach (['archived_by', 'restored_by'] as $key) {
+        if (array_key_exists($key, $row)) {
+            $row[$key] = $row[$key] !== null ? (int) $row[$key] : null;
+        }
+    }
 
     return $row;
 }
@@ -187,10 +193,10 @@ function alumni_registry_account_review_select(): string
                    ra.batch_year AS linked_registry_batch_year,
                    reviewer.full_name AS reviewed_by_name
             FROM graduate_accounts ga
-            JOIN graduates g ON g.id = ga.graduate_id
+            JOIN graduates g ON g.id = ga.graduate_id AND g.archived_at IS NULL
             LEFT JOIN programs p ON p.id = g.program_id
             LEFT JOIN survey_responses sr ON sr.id = ga.source_survey_response_id
-            LEFT JOIN registered_alumni ra ON ra.linked_user_id = ga.id
+            LEFT JOIN registered_alumni ra ON ra.linked_user_id = ga.id AND ra.archived_at IS NULL
             LEFT JOIN admin_users reviewer ON reviewer.id = ga.alumni_verification_reviewed_by";
 }
 
@@ -208,15 +214,22 @@ function alumni_registry_base_select(): string
     return "SELECT ra.id, ra.full_name, ra.normalized_name, ra.course_id, ra.course_name, ra.course_code,
                    ra.batch_year, ra.registration_status, ra.linked_user_id, ra.source_file,
                    ra.import_batch_id, ra.created_at, ra.updated_at,
+                   ra.archived_at, ra.archived_by, ra.restored_at, ra.restored_by,
+                   archiver.full_name AS archived_by_name, restorer.full_name AS restored_by_name,
                    ga.email AS linked_email, ga.status AS linked_account_status,
                    ga.alumni_verification_status AS linked_verification_status,
                    ga.alumni_verification_reason AS linked_verification_reason,
                    ga.alumni_verification_reviewed_at AS linked_verification_reviewed_at,
                    g.id AS linked_graduate_id, g.first_name AS linked_first_name,
-                   g.middle_name AS linked_middle_name, g.last_name AS linked_last_name
+                   g.middle_name AS linked_middle_name, g.last_name AS linked_last_name,
+                   g.student_id AS linked_student_id, g.email AS linked_graduate_email,
+                   g.phone AS linked_phone, g.address AS linked_address,
+                   g.program_id AS linked_program_id, g.year_graduated AS linked_year_graduated
             FROM registered_alumni ra
             LEFT JOIN graduate_accounts ga ON ga.id = ra.linked_user_id
-            LEFT JOIN graduates g ON g.id = ga.graduate_id";
+            LEFT JOIN graduates g ON g.id = ga.graduate_id
+            LEFT JOIN admin_users archiver ON archiver.id = ra.archived_by
+            LEFT JOIN admin_users restorer ON restorer.id = ra.restored_by";
 }
 
 function alumni_registry_handle_list(PDO $db): void
@@ -244,7 +257,7 @@ function alumni_registry_handle_list(PDO $db): void
             'total' => $total,
             'page' => $page,
             'limit' => $limit,
-            'pages' => (int) ceil($total / max(1, $limit)),
+            'pages' => max(1, (int) ceil($total / max(1, $limit))),
         ],
     ]);
 }
@@ -258,20 +271,28 @@ function alumni_registry_handle_summary(PDO $db): void
             SUM(CASE WHEN registration_status = 'Verified' THEN 1 ELSE 0 END) AS verified_alumni,
             SUM(CASE WHEN registration_status IN ('Registered', 'Verified') THEN 1 ELSE 0 END) AS answered_alumni,
             SUM(CASE WHEN registration_status = 'Unclaimed' THEN 1 ELSE 0 END) AS not_answered_alumni
-        FROM registered_alumni");
+        FROM registered_alumni
+        WHERE archived_at IS NULL");
     $summary = $summaryStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
+    $archivedSummaryStmt = $db->query("SELECT COUNT(*) AS archived_total
+                                       FROM registered_alumni
+                                       WHERE archived_at IS NOT NULL");
+    $archivedSummary = $archivedSummaryStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
     $accountSummaryStmt = $db->query("SELECT
-            COUNT(*) AS total_graduate_accounts,
-            SUM(CASE WHEN status = 'pending_verification' OR alumni_verification_status = 'pending' THEN 1 ELSE 0 END) AS pending_verification_accounts,
-            SUM(CASE WHEN status = 'active' AND alumni_verification_status = 'approved' THEN 1 ELSE 0 END) AS approved_verification_accounts,
-            SUM(CASE WHEN status = 'rejected' OR alumni_verification_status = 'rejected' THEN 1 ELSE 0 END) AS rejected_verification_accounts
-        FROM graduate_accounts");
+            COUNT(ga.id) AS total_graduate_accounts,
+            SUM(CASE WHEN ga.status = 'pending_verification' OR ga.alumni_verification_status = 'pending' THEN 1 ELSE 0 END) AS pending_verification_accounts,
+            SUM(CASE WHEN ga.status = 'active' AND ga.alumni_verification_status = 'approved' THEN 1 ELSE 0 END) AS approved_verification_accounts,
+            SUM(CASE WHEN ga.status = 'rejected' OR ga.alumni_verification_status = 'rejected' THEN 1 ELSE 0 END) AS rejected_verification_accounts
+        FROM graduate_accounts ga
+        JOIN graduates g ON g.id = ga.graduate_id AND g.archived_at IS NULL");
     $accountSummary = $accountSummaryStmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
     $courseTotals = array_fill_keys(array_keys(gradtrack_alumni_registry_canonical_courses()), 0);
     $courseStmt = $db->query("SELECT course_code, COUNT(*) AS total
                               FROM registered_alumni
+                              WHERE archived_at IS NULL
                               GROUP BY course_code");
     foreach ($courseStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $code = strtoupper((string) ($row['course_code'] ?? ''));
@@ -306,6 +327,7 @@ function alumni_registry_handle_summary(PDO $db): void
             'pending_verification_accounts' => (int) ($accountSummary['pending_verification_accounts'] ?? 0),
             'approved_verification_accounts' => (int) ($accountSummary['approved_verification_accounts'] ?? 0),
             'rejected_verification_accounts' => (int) ($accountSummary['rejected_verification_accounts'] ?? 0),
+            'archived_alumni' => (int) ($archivedSummary['archived_total'] ?? 0),
             'course_totals' => $courseTotals,
         ],
         'filters' => [
@@ -340,89 +362,6 @@ function alumni_registry_handle_detail(PDO $db): void
     }
 
     echo json_encode(['success' => true, 'data' => $record]);
-}
-
-function alumni_registry_handle_accounts(PDO $db): void
-{
-    $registryId = isset($_GET['registry_id']) ? (int) $_GET['registry_id'] : 0;
-    $search = gradtrack_alumni_registry_clean_text($_GET['search'] ?? '', 120);
-    $record = $registryId > 0 ? alumni_registry_fetch_record($db, $registryId) : null;
-
-    $params = [];
-    $where = ["(linked_ra.id IS NULL OR linked_ra.id = :registry_id)"];
-    $params[':registry_id'] = $registryId;
-
-    if ($record) {
-        $where[] = "(p.code = :record_course_code OR g.year_graduated = :record_batch_year OR CONCAT(g.first_name, ' ', COALESCE(g.middle_name, ''), ' ', g.last_name) LIKE :record_name)";
-        $params[':record_course_code'] = $record['course_code'];
-        $params[':record_batch_year'] = $record['batch_year'];
-        $nameParts = explode(' ', (string) $record['normalized_name']);
-        $lastNameProbe = end($nameParts) ?: (string) $record['full_name'];
-        $params[':record_name'] = '%' . $lastNameProbe . '%';
-    }
-
-    if ($search !== '') {
-        $where[] = "(ga.email LIKE :search_email
-                     OR g.first_name LIKE :search_first
-                     OR g.middle_name LIKE :search_middle
-                     OR g.last_name LIKE :search_last
-                     OR CONCAT(g.first_name, ' ', COALESCE(g.middle_name, ''), ' ', g.last_name) LIKE :search_full
-                     OR p.code LIKE :search_program)";
-        $term = '%' . $search . '%';
-        $params[':search_email'] = $term;
-        $params[':search_first'] = $term;
-        $params[':search_middle'] = $term;
-        $params[':search_last'] = $term;
-        $params[':search_full'] = $term;
-        $params[':search_program'] = $term;
-    }
-
-    if (!$record && $search === '') {
-        alumni_registry_json_error(400, 'Search text or registry_id is required');
-    }
-
-    $sql = "SELECT ga.id AS account_id, ga.email, ga.status AS account_status,
-                   g.id AS graduate_id, g.first_name, g.middle_name, g.last_name,
-                   g.year_graduated, p.id AS program_id, p.name AS program_name, p.code AS program_code,
-                   linked_ra.id AS linked_registry_id
-            FROM graduate_accounts ga
-            JOIN graduates g ON g.id = ga.graduate_id
-            LEFT JOIN programs p ON p.id = g.program_id
-            LEFT JOIN registered_alumni linked_ra ON linked_ra.linked_user_id = ga.id
-            WHERE " . implode(' AND ', $where) . "
-            ORDER BY CASE WHEN p.code = :order_course_code THEN 0 ELSE 1 END,
-                     CASE WHEN g.year_graduated = :order_batch_year THEN 0 ELSE 1 END,
-                     g.last_name ASC,
-                     g.first_name ASC
-            LIMIT 30";
-
-    $params[':order_course_code'] = $record['course_code'] ?? '';
-    $params[':order_batch_year'] = $record['batch_year'] ?? 0;
-
-    $stmt = $db->prepare($sql);
-    $stmt->execute($params);
-
-    $accounts = [];
-    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $account = [
-            'account_id' => (int) $row['account_id'],
-            'graduate_id' => (int) $row['graduate_id'],
-            'email' => (string) ($row['email'] ?? ''),
-            'account_status' => (string) ($row['account_status'] ?? ''),
-            'full_name' => trim((string) ($row['first_name'] ?? '') . ' ' . ((string) ($row['middle_name'] ?? '') !== '' ? (string) $row['middle_name'] . ' ' : '') . (string) ($row['last_name'] ?? '')),
-            'normalized_name' => '',
-            'program_id' => $row['program_id'] !== null ? (int) $row['program_id'] : null,
-            'program_name' => $row['program_name'],
-            'program_code' => $row['program_code'],
-            'batch_year' => $row['year_graduated'] !== null ? (int) $row['year_graduated'] : null,
-            'linked_registry_id' => $row['linked_registry_id'] !== null ? (int) $row['linked_registry_id'] : null,
-        ];
-        $account['normalized_name'] = gradtrack_alumni_registry_normalize_name($account['full_name']);
-        $account['match_strength'] = $record ? gradtrack_alumni_registry_match_strength($record, $account) : 'review';
-        $accounts[] = $account;
-    }
-
-    echo json_encode(['success' => true, 'data' => $accounts]);
 }
 
 function alumni_registry_handle_pending_accounts(PDO $db): void
@@ -498,6 +437,7 @@ function alumni_registry_verified_registry_for_account(PDO $db, int $accountId):
     $stmt = $db->prepare("SELECT id, full_name, course_code, batch_year, registration_status
                           FROM registered_alumni
                           WHERE linked_user_id = :account_id
+                            AND archived_at IS NULL
                           LIMIT 1");
     $stmt->execute([':account_id' => $accountId]);
     $record = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -877,6 +817,9 @@ function alumni_registry_handle_update(PDO $db, array $admin): void
     if (!$existing) {
         alumni_registry_json_error(404, 'Alumni registry record not found');
     }
+    if (!empty($existing['archived_at'])) {
+        alumni_registry_json_error(409, 'Restore this alumni record before editing it');
+    }
 
     $fullName = gradtrack_alumni_registry_clean_text($data['full_name'] ?? $existing['full_name'], 180);
     if ($fullName === '' || gradtrack_alumni_registry_is_placeholder_name($fullName)) {
@@ -899,6 +842,70 @@ function alumni_registry_handle_update(PDO $db, array $admin): void
     $duplicate = gradtrack_alumni_registry_duplicate_lookup($db, $normalizedName, (string) $courseMatch['course_code'], $batchYear, $id);
     if ($duplicate) {
         alumni_registry_json_error(409, 'Another registry record already has the same normalized name, course, and batch');
+    }
+
+    $linkedUpdate = null;
+    if (!empty($existing['linked_user_id']) && !empty($existing['linked_graduate_id'])) {
+        $firstName = gradtrack_alumni_registry_clean_text($data['linked_first_name'] ?? $existing['linked_first_name'], 50);
+        $middleName = gradtrack_alumni_registry_clean_text($data['linked_middle_name'] ?? $existing['linked_middle_name'], 100);
+        $lastName = gradtrack_alumni_registry_clean_text($data['linked_last_name'] ?? $existing['linked_last_name'], 50);
+        $studentId = gradtrack_alumni_registry_clean_text($data['linked_student_id'] ?? $existing['linked_student_id'], 20);
+        $email = strtolower(gradtrack_alumni_registry_clean_text(
+            $data['linked_email'] ?? ($existing['linked_email'] ?? $existing['linked_graduate_email']),
+            150
+        ));
+        $phone = gradtrack_alumni_registry_clean_text($data['linked_phone'] ?? $existing['linked_phone'], 20);
+        $address = gradtrack_alumni_registry_clean_text($data['linked_address'] ?? $existing['linked_address'], 2000);
+
+        if ($firstName === '' || $lastName === '') {
+            alumni_registry_json_error(400, 'Linked account first name and last name are required');
+        }
+        if ($email === '' || filter_var($email, FILTER_VALIDATE_EMAIL) === false) {
+            alumni_registry_json_error(400, 'Enter a valid alumni account email address');
+        }
+        if ($phone !== '' && preg_match('/^[0-9+()\-\s]{7,20}$/', $phone) !== 1) {
+            alumni_registry_json_error(400, 'Enter a valid contact number');
+        }
+
+        if ($studentId !== '') {
+            $studentCheck = $db->prepare('SELECT id FROM graduates WHERE student_id = :student_id AND id <> :graduate_id LIMIT 1');
+            $studentCheck->execute([
+                ':student_id' => $studentId,
+                ':graduate_id' => (int) $existing['linked_graduate_id'],
+            ]);
+            if ($studentCheck->fetch(PDO::FETCH_ASSOC)) {
+                alumni_registry_json_error(409, 'Student ID already belongs to another graduate');
+            }
+        }
+
+        if ($email !== '') {
+            $graduateEmailCheck = $db->prepare('SELECT id FROM graduates WHERE email = :email AND id <> :graduate_id LIMIT 1');
+            $graduateEmailCheck->execute([
+                ':email' => $email,
+                ':graduate_id' => (int) $existing['linked_graduate_id'],
+            ]);
+            if ($graduateEmailCheck->fetch(PDO::FETCH_ASSOC)) {
+                alumni_registry_json_error(409, 'Email already belongs to another graduate');
+            }
+            $accountEmailCheck = $db->prepare('SELECT id FROM graduate_accounts WHERE email = :email AND id <> :account_id LIMIT 1');
+            $accountEmailCheck->execute([
+                ':email' => $email,
+                ':account_id' => (int) $existing['linked_user_id'],
+            ]);
+            if ($accountEmailCheck->fetch(PDO::FETCH_ASSOC)) {
+                alumni_registry_json_error(409, 'Email already belongs to another graduate account');
+            }
+        }
+
+        $linkedUpdate = [
+            'first_name' => $firstName,
+            'middle_name' => $middleName !== '' ? $middleName : null,
+            'last_name' => $lastName,
+            'student_id' => $studentId !== '' ? $studentId : null,
+            'email' => $email !== '' ? $email : null,
+            'phone' => $phone !== '' ? $phone : null,
+            'address' => $address !== '' ? $address : null,
+        ];
     }
 
     try {
@@ -926,6 +933,37 @@ function alumni_registry_handle_update(PDO $db, array $admin): void
 
         if (!empty($existing['linked_user_id'])) {
             $accountId = (int) $existing['linked_user_id'];
+            if ($linkedUpdate !== null) {
+                $graduateStmt = $db->prepare("UPDATE graduates
+                                               SET student_id = :student_id,
+                                                   first_name = :first_name,
+                                                   middle_name = :middle_name,
+                                                   last_name = :last_name,
+                                                   email = :email,
+                                                   phone = :phone,
+                                                   address = :address,
+                                                   program_id = :program_id,
+                                                   year_graduated = :year_graduated
+                                               WHERE id = :graduate_id");
+                $graduateStmt->execute([
+                    ':student_id' => $linkedUpdate['student_id'],
+                    ':first_name' => $linkedUpdate['first_name'],
+                    ':middle_name' => $linkedUpdate['middle_name'],
+                    ':last_name' => $linkedUpdate['last_name'],
+                    ':email' => $linkedUpdate['email'],
+                    ':phone' => $linkedUpdate['phone'],
+                    ':address' => $linkedUpdate['address'],
+                    ':program_id' => $courseMatch['course_id'],
+                    ':year_graduated' => $batchYear,
+                    ':graduate_id' => (int) $existing['linked_graduate_id'],
+                ]);
+
+                $accountEmailStmt = $db->prepare('UPDATE graduate_accounts SET email = :email WHERE id = :account_id');
+                $accountEmailStmt->execute([
+                    ':email' => $linkedUpdate['email'],
+                    ':account_id' => $accountId,
+                ]);
+            }
             if ($status === 'Verified') {
                 gradtrack_update_graduate_account_verification($db, $accountId, 'approved', (int) $admin['id']);
             } elseif ($status === 'Inactive') {
@@ -968,138 +1006,6 @@ function alumni_registry_handle_update(PDO $db, array $admin): void
     echo json_encode(['success' => true, 'message' => 'Registry record updated successfully']);
 }
 
-function alumni_registry_handle_link(PDO $db, array $admin): void
-{
-    $data = alumni_registry_request_data();
-    $id = isset($data['id']) ? (int) $data['id'] : 0;
-    $accountId = isset($data['graduate_account_id']) ? (int) $data['graduate_account_id'] : 0;
-    if ($id <= 0 || $accountId <= 0) {
-        alumni_registry_json_error(400, 'Registry record ID and graduate account ID are required');
-    }
-
-    $record = alumni_registry_fetch_record($db, $id);
-    $account = gradtrack_alumni_registry_account_context($db, $accountId);
-    if (!$record) {
-        alumni_registry_json_error(404, 'Alumni registry record not found');
-    }
-    if (!$account) {
-        alumni_registry_json_error(404, 'Graduate account not found');
-    }
-
-    $linkedStmt = $db->prepare('SELECT id FROM registered_alumni WHERE linked_user_id = :account_id AND id <> :id LIMIT 1');
-    $linkedStmt->execute([':account_id' => $accountId, ':id' => $id]);
-    if ($linkedStmt->fetch(PDO::FETCH_ASSOC)) {
-        alumni_registry_json_error(409, 'This graduate account is already linked to another registry record');
-    }
-
-    $strength = gradtrack_alumni_registry_match_strength($record, $account);
-    $status = !empty($data['mark_verified']) ? 'Verified' : 'Registered';
-
-    try {
-        $db->beginTransaction();
-
-        $stmt = $db->prepare("UPDATE registered_alumni
-                              SET linked_user_id = :linked_user_id,
-                                  registration_status = :registration_status
-                              WHERE id = :id");
-        $stmt->execute([
-            ':linked_user_id' => $accountId,
-            ':registration_status' => $status,
-            ':id' => $id,
-        ]);
-
-        if ($status === 'Verified') {
-            gradtrack_update_graduate_account_verification($db, $accountId, 'approved', (int) $admin['id']);
-        }
-
-        $db->commit();
-    } catch (Throwable $e) {
-        if ($db->inTransaction()) {
-            $db->rollBack();
-        }
-
-        throw $e;
-    }
-
-    logAuditTrail(
-        $admin['id'],
-        $admin['full_name'] ?: $admin['email'],
-        $admin['role'],
-        $record['course_code'] ?? null,
-        'Link',
-        'Alumni Registered List',
-        "Linked alumni record with ID {$id} to a graduate account.",
-        $id,
-        null,
-        [
-            'linked_user_id' => $accountId,
-            'registration_status' => $status,
-            'account_status' => $status === 'Verified' ? 'active' : $account['account_status'],
-        ],
-        ['match_strength' => $strength]
-    );
-
-    echo json_encode([
-        'success' => true,
-        'message' => 'Registry record linked successfully',
-        'match_strength' => $strength,
-    ]);
-}
-
-function alumni_registry_handle_unlink(PDO $db, array $admin): void
-{
-    $data = alumni_registry_request_data();
-    $id = isset($data['id']) ? (int) $data['id'] : 0;
-    $record = $id > 0 ? alumni_registry_fetch_record($db, $id) : null;
-    if (!$record) {
-        alumni_registry_json_error(404, 'Alumni registry record not found');
-    }
-
-    $nextStatus = $record['registration_status'] === 'Inactive' ? 'Inactive' : 'Unclaimed';
-    try {
-        $db->beginTransaction();
-
-        $stmt = $db->prepare('UPDATE registered_alumni SET linked_user_id = NULL, registration_status = :status WHERE id = :id');
-        $stmt->execute([':status' => $nextStatus, ':id' => $id]);
-
-        if (!empty($record['linked_user_id'])) {
-            gradtrack_update_graduate_account_verification(
-                $db,
-                (int) $record['linked_user_id'],
-                'pending',
-                null,
-                'Account unlinked from the official alumni registry and requires alumni verification review.'
-            );
-        }
-
-        $db->commit();
-    } catch (Throwable $e) {
-        if ($db->inTransaction()) {
-            $db->rollBack();
-        }
-
-        throw $e;
-    }
-
-    logAuditTrail(
-        $admin['id'],
-        $admin['full_name'] ?: $admin['email'],
-        $admin['role'],
-        $record['course_code'] ?? null,
-        'Unlink',
-        'Alumni Registered List',
-        "Unlinked alumni record with ID {$id}.",
-        $id,
-        ['registration_status' => $record['registration_status'] ?? null],
-        [
-            'registration_status' => $nextStatus,
-            'linked_account_status' => !empty($record['linked_user_id']) ? 'pending_verification' : null,
-        ]
-    );
-
-    echo json_encode(['success' => true, 'message' => 'Registry record unlinked successfully']);
-}
-
 function alumni_registry_handle_status(PDO $db, array $admin, string $status, string $action): void
 {
     $data = alumni_registry_request_data();
@@ -1107,6 +1013,9 @@ function alumni_registry_handle_status(PDO $db, array $admin, string $status, st
     $record = $id > 0 ? alumni_registry_fetch_record($db, $id) : null;
     if (!$record) {
         alumni_registry_json_error(404, 'Alumni registry record not found');
+    }
+    if (!empty($record['archived_at'])) {
+        alumni_registry_json_error(409, 'Restore this alumni record before changing its status');
     }
 
     try {
@@ -1160,7 +1069,7 @@ function alumni_registry_handle_status(PDO $db, array $admin, string $status, st
     echo json_encode(['success' => true, 'message' => "Registry record marked as {$status}"]);
 }
 
-function alumni_registry_handle_delete(PDO $db, array $admin): void
+function alumni_registry_handle_archive(PDO $db, array $admin): void
 {
     $data = alumni_registry_request_data();
     $id = isset($_GET['id']) ? (int) $_GET['id'] : (isset($data['id']) ? (int) $data['id'] : 0);
@@ -1168,44 +1077,64 @@ function alumni_registry_handle_delete(PDO $db, array $admin): void
     if (!$record) {
         alumni_registry_json_error(404, 'Alumni registry record not found');
     }
-
-    try {
-        $db->beginTransaction();
-
-        if (!empty($record['linked_user_id'])) {
-            gradtrack_update_graduate_account_verification(
-                $db,
-                (int) $record['linked_user_id'],
-                'pending',
-                null,
-                'Official alumni registry record was deleted and the account requires alumni verification review.'
-            );
-        }
-
-        $stmt = $db->prepare('DELETE FROM registered_alumni WHERE id = :id');
-        $stmt->execute([':id' => $id]);
-
-        $db->commit();
-    } catch (Throwable $e) {
-        if ($db->inTransaction()) {
-            $db->rollBack();
-        }
-
-        throw $e;
+    if (!empty($record['archived_at'])) {
+        alumni_registry_json_error(409, 'Alumni registry record is already archived');
     }
+
+    $stmt = $db->prepare("UPDATE registered_alumni
+                          SET archived_at = NOW(),
+                              archived_by = :archived_by,
+                              restored_at = NULL,
+                              restored_by = NULL
+                          WHERE id = :id AND archived_at IS NULL");
+    $stmt->execute([':archived_by' => (int) $admin['id'], ':id' => $id]);
 
     logAuditTrail(
         $admin['id'],
         $admin['full_name'] ?: $admin['email'],
         $admin['role'],
         $record['course_code'] ?? null,
-        'Delete',
+        'Archive',
         'Alumni Registered List',
-        "Deleted alumni record with ID {$id}.",
+        "Archived alumni record with ID {$id}.",
         $id
     );
 
-    echo json_encode(['success' => true, 'message' => 'Registry record deleted successfully']);
+    echo json_encode(['success' => true, 'message' => 'Alumni record archived successfully']);
+}
+
+function alumni_registry_handle_restore(PDO $db, array $admin): void
+{
+    $data = alumni_registry_request_data();
+    $id = isset($data['id']) ? (int) $data['id'] : 0;
+    $record = $id > 0 ? alumni_registry_fetch_record($db, $id) : null;
+    if (!$record) {
+        alumni_registry_json_error(404, 'Alumni registry record not found');
+    }
+    if (empty($record['archived_at'])) {
+        alumni_registry_json_error(409, 'Alumni registry record is already active');
+    }
+
+    $stmt = $db->prepare("UPDATE registered_alumni
+                          SET archived_at = NULL,
+                              archived_by = NULL,
+                              restored_at = NOW(),
+                              restored_by = :restored_by
+                          WHERE id = :id AND archived_at IS NOT NULL");
+    $stmt->execute([':restored_by' => (int) $admin['id'], ':id' => $id]);
+
+    logAuditTrail(
+        $admin['id'],
+        $admin['full_name'] ?: $admin['email'],
+        $admin['role'],
+        $record['course_code'] ?? null,
+        'Restore',
+        'Alumni Registered List',
+        "Restored alumni record with ID {$id}.",
+        $id
+    );
+
+    echo json_encode(['success' => true, 'message' => 'Alumni record restored successfully']);
 }
 
 $database = new Database();
@@ -1225,10 +1154,6 @@ try {
         }
         if ($action === 'detail' || isset($_GET['id'])) {
             alumni_registry_handle_detail($db);
-            exit;
-        }
-        if ($action === 'accounts') {
-            alumni_registry_handle_accounts($db);
             exit;
         }
         if ($action === 'pending_accounts') {
@@ -1266,20 +1191,12 @@ try {
             alumni_registry_handle_update($db, $admin);
             exit;
         }
-        if ($action === 'link') {
-            alumni_registry_handle_link($db, $admin);
-            exit;
-        }
         if ($action === 'approve_account') {
             alumni_registry_handle_account_review($db, $admin, 'approve');
             exit;
         }
         if ($action === 'reject_account') {
             alumni_registry_handle_account_review($db, $admin, 'reject');
-            exit;
-        }
-        if ($action === 'unlink') {
-            alumni_registry_handle_unlink($db, $admin);
             exit;
         }
         if ($action === 'verify') {
@@ -1290,12 +1207,16 @@ try {
             alumni_registry_handle_status($db, $admin, 'Inactive', 'Deactivate');
             exit;
         }
+        if ($action === 'restore') {
+            alumni_registry_handle_restore($db, $admin);
+            exit;
+        }
 
         alumni_registry_json_error(400, 'Unsupported alumni registry PUT action');
     }
 
     if ($method === 'DELETE') {
-        alumni_registry_handle_delete($db, $admin);
+        alumni_registry_handle_archive($db, $admin);
         exit;
     }
 

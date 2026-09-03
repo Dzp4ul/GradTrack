@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/engagement_approval.php';
 require_once __DIR__ . '/../config/forum.php';
@@ -133,19 +134,20 @@ function gradtrack_notifications_add_announcements(PDO $db, array &$notification
 
 function gradtrack_notifications_add_admin_surveys(PDO $db, array &$notifications): void
 {
-    $totalGraduates = (int) ($db->query('SELECT COUNT(*) AS total FROM graduates')->fetch(PDO::FETCH_ASSOC)['total'] ?? 0);
+    $totalGraduates = (int) ($db->query('SELECT COUNT(*) AS total FROM graduates WHERE archived_at IS NULL')->fetch(PDO::FETCH_ASSOC)['total'] ?? 0);
 
     $stmt = $db->query("SELECT id, title, updated_at, created_at
                        FROM surveys
-                       WHERE status = 'active'
+                       WHERE status = 'active' AND archived_at IS NULL
                        ORDER BY updated_at DESC, id DESC
                        LIMIT 3");
 
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $survey) {
-        $responseStmt = $db->prepare("SELECT COUNT(DISTINCT graduate_id) AS total
-                                     FROM survey_responses
-                                     WHERE survey_id = :survey_id
-                                       AND graduate_id IS NOT NULL");
+        $responseStmt = $db->prepare("SELECT COUNT(DISTINCT sr.graduate_id) AS total
+                                     FROM survey_responses sr
+                                     JOIN graduates g ON g.id = sr.graduate_id
+                                     WHERE sr.survey_id = :survey_id
+                                       AND g.archived_at IS NULL");
         $responseStmt->execute([':survey_id' => (int) $survey['id']]);
         $answered = (int) ($responseStmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0);
         $pending = max(0, $totalGraduates - $answered);
@@ -199,6 +201,7 @@ function gradtrack_notifications_add_registrar(PDO $db, array &$notifications): 
     $stmt = $db->query("SELECT g.id, g.first_name, g.last_name, g.created_at, p.code AS program_code
                        FROM graduates g
                        LEFT JOIN programs p ON p.id = g.program_id
+                       WHERE g.archived_at IS NULL
                        ORDER BY g.created_at DESC, g.id DESC
                        LIMIT 5");
 
@@ -253,13 +256,14 @@ function gradtrack_notifications_add_dean(PDO $db, array &$notifications, string
     $totalStmt = $db->prepare("SELECT COUNT(*) AS total
                               FROM graduates g
                               JOIN programs p ON p.id = g.program_id
-                              WHERE p.code IN ($totalPlaceholders)");
+                              WHERE p.code IN ($totalPlaceholders)
+                                AND g.archived_at IS NULL");
     $totalStmt->execute($totalParams);
     $totalGraduates = (int) ($totalStmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0);
 
     $surveyStmt = $db->query("SELECT id, title, updated_at, created_at
                              FROM surveys
-                             WHERE status = 'active'
+                             WHERE status = 'active' AND archived_at IS NULL
                              ORDER BY updated_at DESC, id DESC
                              LIMIT 1");
     $survey = $surveyStmt->fetch(PDO::FETCH_ASSOC);
@@ -272,7 +276,8 @@ function gradtrack_notifications_add_dean(PDO $db, array &$notifications, string
                                    JOIN graduates g ON g.id = sr.graduate_id
                                    JOIN programs p ON p.id = g.program_id
                                    WHERE sr.survey_id = :survey_id
-                                     AND p.code IN ($answerPlaceholders)");
+                                     AND p.code IN ($answerPlaceholders)
+                                     AND g.archived_at IS NULL");
         $answerStmt->execute($answerParams);
         $answered = (int) ($answerStmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0);
         $pending = max(0, $totalGraduates - $answered);
@@ -295,26 +300,29 @@ function gradtrack_notifications_add_dean(PDO $db, array &$notifications, string
 
 function gradtrack_notifications_add_forum_moderator(PDO $db, array &$notifications): void
 {
-    if (!gradtrack_forum_table_exists($db, 'forum_posts')) {
+    if (!gradtrack_forum_table_exists($db, 'forum_reports')) {
         return;
     }
 
-    $stmt = $db->query("SELECT fp.id, fp.title, fp.category, fp.created_at,
-                               g.first_name, g.last_name
-                        FROM forum_posts fp
-                        JOIN graduates g ON g.id = fp.graduate_id
-                        WHERE fp.status = 'pending'
-                        ORDER BY fp.created_at DESC, fp.id DESC
+    $stmt = $db->query("SELECT MIN(fr.id) AS id, fr.target_type, fr.post_id, fr.comment_id,
+                               COUNT(*) AS report_count, MAX(fr.created_at) AS created_at,
+                               fp.title
+                        FROM forum_reports fr
+                        JOIN forum_posts fp ON fp.id = fr.post_id
+                        WHERE fr.status = 'pending'
+                        GROUP BY fr.target_type, fr.post_id, fr.comment_id, fp.title
+                        ORDER BY created_at DESC
                         LIMIT 5");
 
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $name = trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? ''));
+        $reportCount = (int) ($row['report_count'] ?? 1);
+        $targetLabel = ($row['target_type'] ?? 'post') === 'comment' ? 'a comment' : 'a post';
         gradtrack_notifications_add(
             $notifications,
-            'forum-review:' . $row['id'],
+            'forum-report:' . $row['target_type'] . ':' . $row['post_id'] . ':' . ($row['comment_id'] ?? 0) . ':' . $reportCount,
             'forum',
-            'Forum post needs review',
-            '"' . ($row['title'] ?? 'Forum post') . '" in ' . ($row['category'] ?? 'General Discussion') . ' was submitted by ' . ($name !== '' ? $name : 'a graduate') . '.',
+            'Forum report requires review',
+            $reportCount . ' report' . ($reportCount === 1 ? '' : 's') . ' concern ' . $targetLabel . ' in "' . ($row['title'] ?? 'Forum discussion') . '".',
             $row['created_at'],
             '/admin/forum-moderation',
             'high'
@@ -362,6 +370,7 @@ function gradtrack_notifications_add_graduate(PDO $db, array &$notifications, ar
     $surveyStmt = $db->prepare("SELECT s.id, s.title, s.updated_at, s.created_at
                                FROM surveys s
                                WHERE s.status = 'active'
+                                 AND s.archived_at IS NULL
                                  AND NOT EXISTS (
                                     SELECT 1
                                     FROM survey_responses sr
@@ -764,6 +773,8 @@ $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
 
 try {
+    gradtrack_ensure_archive_schema($db, 'graduates');
+    gradtrack_ensure_archive_schema($db, 'surveys', true);
     gradtrack_forum_ensure_schema($db);
     gradtrack_announcements_ensure_schema($db);
     gradtrack_notifications_ensure_schema($db);

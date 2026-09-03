@@ -2,9 +2,12 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/survey_response_analytics.php';
+require_once __DIR__ . '/../config/archive.php';
 
 $database = new Database();
 $db = $database->getConnection();
+gradtrack_ensure_archive_schema($db, 'graduates');
+gradtrack_ensure_archive_schema($db, 'surveys', true);
 
 function getSelectedSurveyId(PDO $db): ?int
 {
@@ -16,7 +19,7 @@ function getSelectedSurveyId(PDO $db): ?int
     $stmt = $db->query("
         SELECT id
         FROM surveys
-        WHERE status = 'active'
+        WHERE status = 'active' AND archived_at IS NULL
         ORDER BY created_at DESC, id DESC
         LIMIT 1
     ");
@@ -247,7 +250,7 @@ function getSurveyTitle(PDO $db, ?int $surveyId): string
 
 function getTotalEligibleGraduates(PDO $db): int
 {
-    $stmt = $db->query("SELECT COUNT(*) as total FROM graduates WHERE status = 'active' OR status IS NULL");
+    $stmt = $db->query("SELECT COUNT(*) as total FROM graduates WHERE (status = 'active' OR status IS NULL) AND archived_at IS NULL");
     return (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
 }
 
@@ -255,7 +258,7 @@ try {
     $selectedSurveyId = getSelectedSurveyId($db);
 
     if ($selectedSurveyId === null) {
-        $stmt = $db->query("SELECT COUNT(*) as total FROM surveys WHERE status = 'active'");
+        $stmt = $db->query("SELECT COUNT(*) as total FROM surveys WHERE status = 'active' AND archived_at IS NULL");
         $activeSurveys = (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
         $totalEligibleGraduates = getTotalEligibleGraduates($db);
 
@@ -585,7 +588,7 @@ try {
     }
 
     // Active surveys
-    $stmt = $db->query("SELECT COUNT(*) as total FROM surveys WHERE status = 'active'");
+    $stmt = $db->query("SELECT COUNT(*) as total FROM surveys WHERE status = 'active' AND archived_at IS NULL");
     $activeSurveys = $stmt->fetch(PDO::FETCH_ASSOC)['total'];
 
     echo json_encode([

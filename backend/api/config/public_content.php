@@ -112,10 +112,10 @@ if (!function_exists('gradtrack_public_content_seed')) {
                     ['Can survey questions be customized?', 'Yes. The survey can include sections and different question types such as text, multiple choice, radio buttons, checkboxes, and date fields. Saved survey responses can also be reviewed through analytics and reports.'],
                 ]],
                 ['Graduate Portal', [
-                    ['What can graduates do in the Graduate Portal?', 'Graduates can update their profile, browse approved forum discussions, create their own Community Forum posts, comment on approved posts, browse approved job opportunities, and manage their own job posts if they meet the requirements.'],
+                    ['What can graduates do in the Graduate Portal?', 'Graduates can update their profile, browse and create published Community Forum discussions, comment on posts, report inappropriate content, browse approved job opportunities, and manage their own job posts if they meet the requirements.'],
                     ['Why are some portal features locked?', 'GradTrack unlocks some features based on survey information. Job posting is available to graduates marked as employed. The Community Forum is available to authenticated graduates, while posts still go through moderator review before they appear publicly.'],
-                    ['How do forum posts and job posts appear in the portal?', 'Graduates can submit Community Forum posts or job posts from the portal. New or updated submissions are reviewed first, and only approved active items appear in the forum feed or Browse Jobs.'],
-                    ['Can graduates comment on forum posts?', 'Yes. Graduates can open an approved forum post, read the full discussion, and leave comments that are connected to that post.'],
+                    ['How do forum posts and job posts appear in the portal?', 'Community Forum posts are published immediately after validation. Reported content can be reviewed and hidden by the Alumni Admin. Job posts continue to follow the existing approval workflow before they appear in Browse Jobs.'],
+                    ['Can graduates comment on forum posts?', 'Yes. Graduates can open a published forum post, read the full discussion, leave comments, and report inappropriate content.'],
                 ]],
                 ['Data & Reports', [
                     ['What reports can GradTrack generate?', 'GradTrack can produce reports for survey participation, response rates, employment status, program and year trends, salary distribution, and course-career alignment. Reports can support academic planning, accreditation, and graduate outcome review.'],

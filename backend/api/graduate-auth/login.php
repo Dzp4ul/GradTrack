@@ -28,10 +28,13 @@ try {
     gradtrack_system_block_if_maintenance($db, 'graduate');
 
     gradtrack_ensure_graduate_account_verification_schema($db);
+    gradtrack_ensure_archive_schema($db, 'graduates');
 
-    $query = "SELECT id, password_hash, status, alumni_verification_status, alumni_verification_reason
-              FROM graduate_accounts
-              WHERE email = :email";
+    $query = "SELECT ga.id, ga.password_hash, ga.status, ga.alumni_verification_status, ga.alumni_verification_reason
+              FROM graduate_accounts ga
+              JOIN graduates g ON g.id = ga.graduate_id
+              WHERE ga.email = :email
+                AND g.archived_at IS NULL";
     $stmt = $db->prepare($query);
     $stmt->bindParam(':email', $email);
     $stmt->execute();

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/storage.php';
+require_once __DIR__ . '/archive.php';
 
 if (!function_exists('gradtrack_start_session_if_needed')) {
     function gradtrack_start_session_if_needed(): void
@@ -130,6 +131,7 @@ if (!function_exists('gradtrack_update_graduate_account_verification')) {
         ?string $reason = null
     ): void {
         gradtrack_ensure_graduate_account_verification_schema($db);
+        gradtrack_ensure_archive_schema($db, 'graduates');
 
         $verificationStatus = strtolower(trim($verificationStatus));
         if (!in_array($verificationStatus, ['pending', 'approved', 'rejected'], true)) {
@@ -234,7 +236,8 @@ if (!function_exists('gradtrack_current_graduate_user')) {
                   FROM graduate_accounts ga
                   JOIN graduates g ON ga.graduate_id = g.id
                   LEFT JOIN programs p ON g.program_id = p.id
-                  WHERE ga.id = :account_id";
+                  WHERE ga.id = :account_id
+                    AND g.archived_at IS NULL";
 
         $stmt = $db->prepare($query);
         $stmt->bindParam(':account_id', $accountId);

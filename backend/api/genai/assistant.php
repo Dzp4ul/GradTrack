@@ -2,6 +2,10 @@
 define('GRADTRACK_REPORTS_INDEX_NO_RUN', true);
 require_once __DIR__ . '/../reports/index.php';
 require_once __DIR__ . '/../config/admin_roles.php';
+require_once __DIR__ . '/../config/archive.php';
+
+gradtrack_ensure_archive_schema($db, 'graduates');
+gradtrack_ensure_archive_schema($db, 'surveys', true);
 
 function gradtrack_genai_json_error(int $statusCode, string $message): void
 {
@@ -110,7 +114,7 @@ function gradtrack_genai_role_policies(): array
                     'label' => 'Alumni Verification',
                     'route' => '/admin/alumni-registered-list',
                     'description' => 'Review alumni accounts, approve or reject verification, import or export the alumni registry, edit registry records, and link eligible alumni accounts.',
-                    'keywords' => ['alumni verification', 'verify an alumni', 'verify alumni', 'alumni registry', 'registered alumni', 'import alumni', 'link alumni account'],
+                    'keywords' => ['alumni verification', 'verify an alumni', 'verify alumni', 'alumni registry', 'registered alumni', 'import alumni'],
                 ],
                 'announcements' => [
                     'label' => 'Announcements',
@@ -503,6 +507,7 @@ function gradtrack_genai_active_survey_id(PDO $db): ?int
     $stmt = $db->query("
         SELECT id
         FROM surveys
+        WHERE archived_at IS NULL
         ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, created_at DESC, id DESC
         LIMIT 1
     ");
@@ -1099,7 +1104,7 @@ function gradtrack_genai_collect_survey_participation(
     }
 
     $filters = $effectiveContext['overview_filters'];
-    $whereParts = [];
+    $whereParts = ['g.archived_at IS NULL'];
     $bindings = [
         ':participation_survey_id' => ['value' => $surveyId, 'type' => PDO::PARAM_INT],
     ];
