@@ -1604,22 +1604,21 @@ function AccountReviewPanel({
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[920px] text-sm">
+        <table className="w-full min-w-[760px] text-sm">
           <thead className="border-b bg-gray-50">
             <tr>
               <th className="px-4 py-3 text-left font-semibold text-gray-600">Graduate</th>
               <th className="px-4 py-3 text-left font-semibold text-gray-600">Program</th>
               <th className="px-4 py-3 text-left font-semibold text-gray-600">Submitted</th>
-              <th className="px-4 py-3 text-left font-semibold text-gray-600">Registry Evidence</th>
               <th className="px-4 py-3 text-left font-semibold text-gray-600">Status</th>
               <th className="px-4 py-3 text-right font-semibold text-gray-600">Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6}><LoadingBlock label="Loading alumni account verification queue..." /></td></tr>
+              <tr><td colSpan={5}><LoadingBlock label="Loading alumni account verification queue..." /></td></tr>
             ) : accounts.length === 0 ? (
-              <tr><td colSpan={6}><EmptyBlock label="No alumni accounts match this verification filter." /></td></tr>
+              <tr><td colSpan={5}><EmptyBlock label="No alumni accounts match this verification filter." /></td></tr>
             ) : (
               accounts.map((account) => (
                 <tr key={account.account_id} className="border-b last:border-0">
@@ -1634,19 +1633,6 @@ function AccountReviewPanel({
                   </td>
                   <td className="px-4 py-3 text-gray-600">
                     {formatDateTime(account.alumni_verification_submitted_at || account.survey_submitted_at)}
-                  </td>
-                  <td className="px-4 py-3 text-gray-600">
-                    {account.linked_registry_id ? (
-                      <>
-                        <p className="font-medium text-gray-800">{account.linked_registry_name}</p>
-                        <p className="mt-1 text-xs text-gray-500">
-                          {account.linked_registry_course_code || '-'} Batch {account.linked_registry_batch_year || '-'}
-                        </p>
-                        <p className="mt-1 text-xs text-gray-500">Registry: {account.linked_registry_status || '-'}</p>
-                      </>
-                    ) : (
-                      <span className="text-amber-700">No linked registry record</span>
-                    )}
                   </td>
                   <td className="px-4 py-3">
                     <VerificationBadge status={account.alumni_verification_status} />
