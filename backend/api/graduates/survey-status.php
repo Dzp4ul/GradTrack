@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/archive.php';
+require_once __DIR__ . '/../config/admin_auth.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     http_response_code(405);
@@ -9,24 +10,9 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     exit;
 }
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
-if (!isset($_SESSION['user_id'])) {
-    http_response_code(401);
-    echo json_encode(["success" => false, "error" => "Authentication required"]);
-    exit;
-}
-
-if (($_SESSION['role'] ?? '') !== 'admin') {
-    http_response_code(403);
-    echo json_encode(["success" => false, "error" => "Only admin accounts can access graduate survey status"]);
-    exit;
-}
-
 $database = new Database();
 $db = $database->getConnection();
+$authUser = gradtrack_require_admin_auth($db, ['admin'], 'Only admin accounts can access graduate survey status');
 gradtrack_ensure_archive_schema($db, 'graduates');
 gradtrack_ensure_archive_schema($db, 'surveys', true);
 

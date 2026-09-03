@@ -4,6 +4,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../config/announcements.php';
+require_once __DIR__ . '/../config/admin_auth.php';
 
 function gradtrack_announcements_json_error(int $statusCode, string $message): void
 {
@@ -63,9 +64,9 @@ function gradtrack_announcements_actor(PDO $db): ?array
         return ['type' => 'graduate', 'id' => (int) $graduate['graduate_id'], 'user' => $graduate];
     }
 
-    gradtrack_start_session_if_needed();
-    if (isset($_SESSION['user_id']) && gradtrack_audit_role_is_allowed($_SESSION['role'] ?? '')) {
-        return ['type' => 'admin', 'id' => (int) $_SESSION['user_id'], 'user' => gradtrack_audit_current_admin_context()];
+    $admin = gradtrack_current_admin_user($db);
+    if ($admin !== null && gradtrack_audit_role_is_allowed($admin['role'] ?? '')) {
+        return ['type' => 'admin', 'id' => (int) $admin['id'], 'user' => gradtrack_admin_audit_context($admin)];
     }
 
     return null;

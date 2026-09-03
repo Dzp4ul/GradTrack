@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/archive.php';
+require_once __DIR__ . '/../config/admin_auth.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     http_response_code(405);
@@ -9,32 +10,17 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     exit;
 }
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
-if (!isset($_SESSION['user_id'])) {
-    http_response_code(401);
-    echo json_encode(["success" => false, "error" => "Authentication required"]);
-    exit;
-}
-
-$role = $_SESSION['role'] ?? '';
 $roleProgramScopes = [
     'dean_cs' => ['BSCS', 'ACT'],
     'dean_coed' => ['BSED', 'BEED'],
     'dean_hm' => ['BSHM'],
 ];
 
-if (!isset($roleProgramScopes[$role])) {
-    http_response_code(403);
-    echo json_encode(["success" => false, "error" => "Only dean accounts can access this endpoint"]);
-    exit;
-}
-
-$programCodes = $roleProgramScopes[$role];
 $database = new Database();
 $db = $database->getConnection();
+$authUser = gradtrack_require_admin_auth($db, array_keys($roleProgramScopes), 'Only dean accounts can access this endpoint');
+$role = (string) $authUser['role'];
+$programCodes = $roleProgramScopes[$role];
 gradtrack_ensure_archive_schema($db, 'graduates');
 gradtrack_ensure_archive_schema($db, 'surveys', true);
 

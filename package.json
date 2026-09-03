@@ -11,6 +11,7 @@
     "dev:backend": "cd backend && php -S localhost:8000",
     "dev:realtime": "node backend/realtime/socket-server.js",
     "test:realtime": "node backend/tests/realtime_messaging_integration.js",
+    "test:auth-isolation": "php backend/tests/auth_session_isolation_integration.php",
     "test:message-split": "php backend/tests/chat_message_split_integration.php",
     "test:message-unread": "php backend/tests/chat_unread_state_integration.php",
     "test:job-notifications": "php backend/tests/job_notification_read_state_integration.php",

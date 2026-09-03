@@ -505,10 +505,6 @@ function gradtrack_notifications_add_graduate(PDO $db, array &$notifications, ar
 
 function gradtrack_notifications_current_user(PDO $db, string $audience = ''): array
 {
-    if (session_status() === PHP_SESSION_NONE) {
-        session_start();
-    }
-
     if ($audience === 'graduate') {
         $graduate = gradtrack_current_graduate_user($db);
         if ($graduate) {
@@ -525,15 +521,13 @@ function gradtrack_notifications_current_user(PDO $db, string $audience = ''): a
     }
 
     if ($audience === 'admin') {
-        if (isset($_SESSION['user_id'])) {
+        $admin = gradtrack_current_admin_user($db);
+        if ($admin !== null) {
             return [
                 'target_type' => 'admin',
-                'target_id' => (int) $_SESSION['user_id'],
-                'role' => (string) ($_SESSION['role'] ?? ''),
-                'user' => [
-                    'id' => (int) $_SESSION['user_id'],
-                    'role' => (string) ($_SESSION['role'] ?? ''),
-                ],
+                'target_id' => (int) $admin['id'],
+                'role' => (string) $admin['role'],
+                'user' => $admin,
             ];
         }
 
@@ -541,15 +535,13 @@ function gradtrack_notifications_current_user(PDO $db, string $audience = ''): a
         return [];
     }
 
-    if (isset($_SESSION['user_id'])) {
+    $admin = gradtrack_current_admin_user($db);
+    if ($admin !== null) {
         return [
             'target_type' => 'admin',
-            'target_id' => (int) $_SESSION['user_id'],
-            'role' => (string) ($_SESSION['role'] ?? ''),
-            'user' => [
-                'id' => (int) $_SESSION['user_id'],
-                'role' => (string) ($_SESSION['role'] ?? ''),
-            ],
+            'target_id' => (int) $admin['id'],
+            'role' => (string) $admin['role'],
+            'user' => $admin,
         ];
     }
 

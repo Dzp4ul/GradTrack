@@ -3,14 +3,11 @@ require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/engagement_approval.php';
 require_once __DIR__ . '/../config/audit_trail.php';
+require_once __DIR__ . '/../config/admin_auth.php';
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 use PHPMailer\PHPMailer\Exception as MailException;
 use PHPMailer\PHPMailer\PHPMailer;
-
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
 
 function gradtrack_moderation_json_error(int $statusCode, string $message): void
 {
@@ -149,38 +146,19 @@ HTML;
 
 function gradtrack_moderation_reviewer(PDO $db): array
 {
-    if (!isset($_SESSION['user_id'])) {
-        $sessionEmail = isset($_SESSION['email']) ? trim((string) $_SESSION['email']) : '';
-        $sessionRole = isset($_SESSION['role']) ? trim((string) $_SESSION['role']) : '';
-
-        if ($sessionEmail !== '') {
-            $fallbackStmt = $db->prepare('SELECT id, role FROM admin_users WHERE email = :email LIMIT 1');
-            $fallbackStmt->execute([':email' => $sessionEmail]);
-            $fallbackUser = $fallbackStmt->fetch(PDO::FETCH_ASSOC);
-
-            if ($fallbackUser) {
-                $_SESSION['user_id'] = (int) $fallbackUser['id'];
-                if ($sessionRole === '') {
-                    $_SESSION['role'] = (string) ($fallbackUser['role'] ?? '');
-                }
-            }
-        }
-    }
-
-    if (!isset($_SESSION['user_id'])) {
-        gradtrack_moderation_json_error(401, 'Authentication required');
-    }
-
-    $role = $_SESSION['role'] ?? '';
-    $canReviewAll = in_array($role, gradtrack_engagement_admin_roles(), true);
-
-    if (!$canReviewAll) {
-        gradtrack_moderation_json_error(403, 'Only Alumni Admin accounts can review graduate portal approvals');
-    }
+    $user = gradtrack_require_admin_auth(
+        $db,
+        gradtrack_engagement_admin_roles(),
+        'Only Alumni Admin accounts can review graduate portal approvals'
+    );
+    $role = (string) $user['role'];
 
     return [
-        'id' => (int) $_SESSION['user_id'],
+        'id' => (int) $user['id'],
         'role' => $role,
+        'full_name' => (string) ($user['full_name'] ?? ''),
+        'username' => (string) ($user['username'] ?? ''),
+        'email' => (string) ($user['email'] ?? ''),
         'program_scope' => [],
         'can_review_all' => true,
     ];
@@ -414,7 +392,7 @@ try {
             }
         }
 
-        $auditUser = gradtrack_audit_current_admin_context();
+        $auditUser = gradtrack_admin_audit_context($reviewer);
         $auditAction = $approvalStatus === 'approved' ? 'Approve' : 'Reject';
         $auditDescription = ($approvalStatus === 'approved' ? 'Approved' : 'Rejected') . " job posting with record ID {$itemId}.";
         logAuditTrail(

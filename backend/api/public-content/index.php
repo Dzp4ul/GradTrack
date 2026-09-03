@@ -3,18 +3,11 @@ require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/public_content.php';
 require_once __DIR__ . '/../config/audit_trail.php';
+require_once __DIR__ . '/../config/admin_auth.php';
 
-if (session_status() === PHP_SESSION_NONE) session_start();
-
-function gradtrack_public_content_require_super_admin(): int
+function gradtrack_public_content_require_super_admin(PDO $db): array
 {
-    if (empty($_SESSION['user_id'])) {
-        http_response_code(401); echo json_encode(['success' => false, 'error' => 'Authentication required']); exit;
-    }
-    if (($_SESSION['role'] ?? '') !== 'super_admin') {
-        http_response_code(403); echo json_encode(['success' => false, 'error' => 'Only Super Admin can manage public website content']); exit;
-    }
-    return (int) $_SESSION['user_id'];
+    return gradtrack_require_admin_auth($db, ['super_admin'], 'Only Super Admin can manage public website content');
 }
 
 function gradtrack_public_content_json_body(): array
@@ -35,12 +28,13 @@ try {
 
     if ($method === 'GET') {
         $admin = $scope === 'admin';
-        if ($admin) gradtrack_public_content_require_super_admin();
+        if ($admin) gradtrack_public_content_require_super_admin($db);
         echo json_encode(gradtrack_public_content_payload($db, $page, $admin), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         exit;
     }
 
-    $adminId = gradtrack_public_content_require_super_admin();
+    $authUser = gradtrack_public_content_require_super_admin($db);
+    $adminId = (int) $authUser['id'];
     if ($method === 'POST' && $page === 'about' && strtolower((string) ($_GET['action'] ?? '')) === 'upload') {
         if (!isset($_FILES['image']) || !is_array($_FILES['image'])) throw new InvalidArgumentException('An image file is required.');
         $contentId = isset($_POST['content_id']) ? (int) $_POST['content_id'] : 0;
@@ -95,7 +89,7 @@ try {
     foreach ($replacedAboutPaths as $oldPath) gradtrack_storage_delete_quietly($oldPath);
     $after = gradtrack_public_content_payload($db, $page, true);
     $labels = ['about' => 'About page content', 'faq' => 'FAQ', 'privacy' => 'Privacy Policy'];
-    logAuditTrail($adminId, trim((string) ($_SESSION['full_name'] ?? $_SESSION['username'] ?? 'Super Admin')), 'super_admin', null, 'Update', 'Public Website Content', 'Updated ' . ($labels[$page] ?? $page) . '.', $page, $before, $after);
+    logAuditTrail($adminId, trim((string) ($authUser['full_name'] ?? $authUser['username'] ?? 'Super Admin')), 'super_admin', null, 'Update', 'Public Website Content', 'Updated ' . ($labels[$page] ?? $page) . '.', $page, $before, $after);
     echo json_encode($after + ['message' => ($labels[$page] ?? 'Public website content') . ' updated successfully.'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 } catch (InvalidArgumentException $e) {
     http_response_code(422); echo json_encode(['success' => false, 'error' => $e->getMessage()]);

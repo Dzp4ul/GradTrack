@@ -3,10 +3,10 @@ require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../config/survey_response_analytics.php';
+require_once __DIR__ . '/../config/admin_auth.php';
 
 $database = new Database();
 $db = $database->getConnection();
-$auditUser = gradtrack_audit_current_admin_context();
 
 class ReportValidationException extends Exception
 {
@@ -664,13 +664,15 @@ function getSurveyResponseCount(PDO $db, ?int $surveyId): int
 
 if (!defined('GRADTRACK_REPORTS_INDEX_NO_RUN')) {
 try {
+    $authUser = gradtrack_require_admin_auth($db, ['admin'], 'Only Admin accounts can access reports and analytics');
+    $auditUser = gradtrack_admin_audit_context($authUser);
     $reportType = isset($_GET['type']) ? $_GET['type'] : 'overview';
     $filterYear = getOptionalQueryValue(['year']);
     $filterDepartmentParam = getOptionalQueryValue(['department']);
     $filterDepartment = $filterDepartmentParam !== null ? strtoupper(trim($filterDepartmentParam)) : null;
     $selectedSurveyId = getSelectedSurveyId($db);
 
-    $role = $_SESSION['role'] ?? '';
+    $role = (string) $authUser['role'];
     $roleProgramScopes = [
         'dean_cs' => ['BSCS', 'ACT'],
         'dean_coed' => ['BSED', 'BEED'],

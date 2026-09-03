@@ -413,25 +413,30 @@ if (!function_exists('gradtrack_audit_payload_for_output')) {
 }
 
 if (!function_exists('gradtrack_audit_current_admin_context')) {
-    function gradtrack_audit_current_admin_context(): array
+    function gradtrack_audit_current_admin_context(?array $user = null): array
     {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
+        if ($user === null) {
+            return [
+                'user_id' => null,
+                'user_name' => 'Guest',
+                'user_role' => 'guest',
+                'department' => null,
+            ];
         }
 
-        $role = (string) ($_SESSION['role'] ?? 'guest');
-        $name = trim((string) ($_SESSION['full_name'] ?? ''));
+        $role = (string) ($user['role'] ?? 'guest');
+        $name = trim((string) ($user['full_name'] ?? ''));
 
         if ($name === '') {
-            $name = trim((string) ($_SESSION['username'] ?? ''));
+            $name = trim((string) ($user['username'] ?? ''));
         }
 
         if ($name === '') {
-            $name = trim((string) ($_SESSION['email'] ?? ''));
+            $name = trim((string) ($user['email'] ?? ''));
         }
 
         return [
-            'user_id' => isset($_SESSION['user_id']) ? (int) $_SESSION['user_id'] : null,
+            'user_id' => isset($user['id']) ? (int) $user['id'] : null,
             'user_name' => $name !== '' ? $name : 'Guest',
             'user_role' => $role,
             'department' => gradtrack_audit_role_department($role),

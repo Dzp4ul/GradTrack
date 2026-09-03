@@ -1,13 +1,12 @@
 <?php
+require_once __DIR__ . '/session.php';
 require_once __DIR__ . '/storage.php';
 require_once __DIR__ . '/archive.php';
 
 if (!function_exists('gradtrack_start_session_if_needed')) {
     function gradtrack_start_session_if_needed(): void
     {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
+        gradtrack_start_session();
     }
 }
 

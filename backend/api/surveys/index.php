@@ -4,15 +4,15 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/admin_roles.php';
-
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
+require_once __DIR__ . '/../config/admin_auth.php';
 
 $database = new Database();
 $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
-$auditUser = gradtrack_audit_current_admin_context();
+$authenticatedAdmin = gradtrack_current_admin_user($db);
+$auditUser = $authenticatedAdmin !== null
+    ? gradtrack_admin_audit_context($authenticatedAdmin)
+    : ['user_id' => null, 'user_name' => 'Guest', 'user_role' => 'guest', 'department' => null];
 
 function gradtrack_column_exists(PDO $db, string $table, string $column): bool
 {
@@ -44,17 +44,18 @@ function gradtrack_ensure_survey_audit_columns(PDO $db): bool
 
 function gradtrack_current_admin_display_name(): string
 {
-    $fullName = isset($_SESSION['full_name']) ? trim((string) $_SESSION['full_name']) : '';
+    global $authenticatedAdmin;
+    $fullName = trim((string) ($authenticatedAdmin['full_name'] ?? ''));
     if ($fullName !== '') {
         return $fullName;
     }
 
-    $username = isset($_SESSION['username']) ? trim((string) $_SESSION['username']) : '';
+    $username = trim((string) ($authenticatedAdmin['username'] ?? ''));
     if ($username !== '') {
         return $username;
     }
 
-    $email = isset($_SESSION['email']) ? trim((string) $_SESSION['email']) : '';
+    $email = trim((string) ($authenticatedAdmin['email'] ?? ''));
     if ($email !== '') {
         return $email;
     }
@@ -85,19 +86,22 @@ function gradtrack_backfill_survey_audit(PDO $db, string $fallbackName): void
 
 function gradtrack_survey_staff_viewer(): bool
 {
-    return isset($_SESSION['user_id'], $_SESSION['role'])
-        && in_array((string) $_SESSION['role'], gradtrack_admin_role_values(), true);
+    global $authenticatedAdmin;
+    return $authenticatedAdmin !== null
+        && in_array((string) $authenticatedAdmin['role'], gradtrack_admin_role_values(), true);
 }
 
 function gradtrack_survey_manager(): bool
 {
-    return isset($_SESSION['user_id'], $_SESSION['role'])
-        && in_array((string) $_SESSION['role'], ['admin', 'super_admin'], true);
+    global $authenticatedAdmin;
+    return $authenticatedAdmin !== null
+        && in_array((string) $authenticatedAdmin['role'], ['admin'], true);
 }
 
 function gradtrack_require_survey_manager(): void
 {
-    if (!isset($_SESSION['user_id'])) {
+    global $authenticatedAdmin;
+    if ($authenticatedAdmin === null) {
         http_response_code(401);
         echo json_encode(['success' => false, 'error' => 'Authentication required']);
         exit;

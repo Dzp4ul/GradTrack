@@ -4,6 +4,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/admin_profile_image.php';
 require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../config/system_settings.php';
+require_once __DIR__ . '/../config/admin_auth.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -56,10 +57,25 @@ try {
         exit;
     }
 
-    if (!password_verify($password, $user['password']) && $user['password'] !== $password) {
+    $storedPassword = (string) $user['password'];
+    $passwordInfo = password_get_info($storedPassword);
+    $isLegacyPlaintext = empty($passwordInfo['algo']);
+    $passwordValid = $isLegacyPlaintext
+        ? hash_equals($storedPassword, (string) $password)
+        : password_verify($password, $storedPassword);
+
+    if (!$passwordValid) {
         http_response_code(401);
         echo json_encode(["error" => "Invalid email or password"]);
         exit;
+    }
+
+    if ($isLegacyPlaintext || password_needs_rehash($storedPassword, PASSWORD_DEFAULT)) {
+        $passwordUpgradeStmt = $conn->prepare('UPDATE admin_users SET password = :password WHERE id = :id');
+        $passwordUpgradeStmt->execute([
+            ':password' => password_hash((string) $password, PASSWORD_DEFAULT),
+            ':id' => (int) $user['id'],
+        ]);
     }
 
     gradtrack_system_block_if_maintenance($conn, (string) $user['role']);
@@ -70,14 +86,9 @@ try {
     $profileImagePath = gradtrack_admin_profile_image_path($conn, (int) $user['id']);
     $user['profile_image_path'] = $profileImagePath;
 
-    // Start session
-    session_start();
-    $_SESSION['user_id'] = $user['id'];
-    $_SESSION['email'] = $user['email'];
-    $_SESSION['username'] = $user['username'];
-    $_SESSION['full_name'] = $user['full_name'];
-    $_SESSION['role'] = $user['role'];
-    $_SESSION['profile_image_path'] = $profileImagePath;
+    // Rotate the cookie-backed session and store only the server-side identity.
+    // Role and profile data are reloaded from the database for every request.
+    gradtrack_establish_session_identity('admin_user_id', (int) $user['id']);
 
     $loginName = trim((string)($user['full_name'] ?? '')) ?: ($user['username'] ?? $user['email']);
     // Audit Trail: call logAuditTrail() after a login session is successfully created.
@@ -94,7 +105,7 @@ try {
     http_response_code(200);
     echo json_encode([
         "success" => true,
-        "user" => $user
+        "user" => gradtrack_public_admin_user($user)
     ]);
 
 } catch(PDOException $e) {

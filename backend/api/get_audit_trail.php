@@ -2,30 +2,11 @@
 require_once __DIR__ . '/config/cors.php';
 require_once __DIR__ . '/config/database.php';
 require_once __DIR__ . '/config/audit_trail.php';
+require_once __DIR__ . '/config/admin_auth.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     http_response_code(405);
     echo json_encode(['success' => false, 'error' => 'Method not allowed']);
-    exit;
-}
-
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
-if (!isset($_SESSION['user_id'])) {
-    http_response_code(401);
-    echo json_encode(['success' => false, 'error' => 'Authentication required']);
-    exit;
-}
-
-$role = (string) ($_SESSION['role'] ?? '');
-if (!gradtrack_audit_viewer_role_is_allowed($role)) {
-    http_response_code(403);
-    echo json_encode([
-        'success' => false,
-        'error' => 'Unauthorized access. You do not have permission to view the audit trail.',
-    ]);
     exit;
 }
 
@@ -106,10 +87,12 @@ function gradtrack_audit_write_csv(array $rows, array $filters): void
 
 $database = new Database();
 $db = $database->getConnection();
+$authUser = gradtrack_require_admin_auth($db, ['super_admin'], 'You do not have permission to view the audit trail');
+$role = (string) $authUser['role'];
 gradtrack_ensure_audit_trail_table($db);
 
 try {
-    $viewerUserId = isset($_SESSION['user_id']) ? (int) $_SESSION['user_id'] : null;
+    $viewerUserId = (int) $authUser['id'];
     $conditions = gradtrack_audit_build_conditions($_GET, $role, $viewerUserId);
     $whereClause = $conditions['where_clause'];
     $params = $conditions['params'];
@@ -140,7 +123,7 @@ try {
         $stmt->execute($params);
         $rows = array_map('gradtrack_audit_public_row', $stmt->fetchAll(PDO::FETCH_ASSOC));
 
-        $auditUser = gradtrack_audit_current_admin_context();
+        $auditUser = gradtrack_admin_audit_context($authUser);
         logAuditTrail(
             $auditUser['user_id'],
             $auditUser['user_name'],

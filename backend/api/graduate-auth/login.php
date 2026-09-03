@@ -53,8 +53,7 @@ try {
         exit;
     }
 
-    gradtrack_start_session_if_needed();
-    $_SESSION['graduate_account_id'] = (int) $account['id'];
+    gradtrack_establish_session_identity('graduate_account_id', (int) $account['id']);
 
     $touchLoginStmt = $db->prepare('UPDATE graduate_accounts SET last_login_at = NOW() WHERE id = :id');
     $touchLoginStmt->bindParam(':id', $account['id']);

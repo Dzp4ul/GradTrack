@@ -593,7 +593,7 @@ export default function Reports() {
     const params = new URLSearchParams({ survey_id: surveyId.toString() });
     params.set('program', getSurveyProgramFilterParam(surveyDepartment));
 
-    fetch(`${API_BASE}/surveys/analytics.php?${params.toString()}`)
+    fetch(`${API_BASE}/surveys/analytics.php?${params.toString()}`, { credentials: 'include' })
       .then((r) => r.json())
       .then((res) => {
         if (res.success) {
@@ -912,6 +912,7 @@ export default function Reports() {
       headers: {
         'Content-Type': 'application/json',
       },
+      credentials: 'include',
       body: JSON.stringify({
         report_data: reportData,
         selected_survey_id: selectedSurveyId,
@@ -1570,7 +1571,7 @@ export default function Reports() {
         aiSummaryLines.push(...splitAiText(aiSummary));
         aiConclusionLines.push(...splitAiText(aiConclusion));
       } else {
-        const aiResponse = await fetch(`${API_BASE}/reports/ai-analytics.php`);
+        const aiResponse = await fetch(`${API_BASE}/reports/ai-analytics.php`, { credentials: 'include' });
         const aiResult = await aiResponse.json();
         if (aiResult.success && aiResult.data) {
           aiAnalysisLines.push(...splitAiText(String(aiResult.data.ai_analysis || '')));

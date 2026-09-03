@@ -3,28 +3,14 @@ require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../config/admin_roles.php';
-
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
-if (!isset($_SESSION['user_id'])) {
-    http_response_code(401);
-    echo json_encode(["success" => false, "error" => "Authentication required"]);
-    exit;
-}
-
-if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'super_admin') {
-    http_response_code(403);
-    echo json_encode(["success" => false, "error" => "Only super admin can manage users"]);
-    exit;
-}
+require_once __DIR__ . '/../config/admin_auth.php';
 
 $allowedRoles = gradtrack_admin_role_values();
 $database = new Database();
 $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
-$auditUser = gradtrack_audit_current_admin_context();
+$authUser = gradtrack_require_admin_auth($db, ['super_admin'], 'Only super admin can manage users');
+$auditUser = gradtrack_admin_audit_context($authUser);
 
 gradtrack_ensure_admin_role_column($db);
 gradtrack_ensure_admin_is_active_column($db);
@@ -171,8 +157,8 @@ try {
 
             if (
                 $nextIsActive === 0
-                && (int) $_SESSION['user_id'] === $id
-                && ($_SESSION['role'] ?? '') === 'super_admin'
+                && (int) $authUser['id'] === $id
+                && $authUser['role'] === 'super_admin'
             ) {
                 http_response_code(400);
                 echo json_encode(["success" => false, "error" => "Logged-in super admin account cannot be deactivated"]);
@@ -258,7 +244,7 @@ try {
                 break;
             }
 
-            if ((int) $_SESSION['user_id'] === $id) {
+            if ((int) $authUser['id'] === $id) {
                 http_response_code(400);
                 echo json_encode(["success" => false, "error" => "Logged-in user account cannot be deleted"]);
                 break;

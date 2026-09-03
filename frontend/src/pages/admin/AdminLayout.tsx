@@ -157,7 +157,7 @@ export default function AdminLayout() {
       confirmText: 'Logout',
       onConfirm: async () => {
         await logout();
-        navigate('/signin');
+        navigate('/admin/signin');
       }
     });
   };

@@ -1,9 +1,11 @@
 <?php
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/admin_auth.php';
 
 $database = new Database();
 $db = $database->getConnection();
+$authUser = gradtrack_require_admin_auth($db, ['admin'], 'Only Admin accounts can access predictive analytics');
 
 try {
     // Get historical data by year

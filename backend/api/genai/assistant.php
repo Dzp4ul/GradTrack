@@ -227,27 +227,8 @@ function gradtrack_genai_role_policies(): array
 
 function gradtrack_genai_current_admin(PDO $db): array
 {
-    if (session_status() === PHP_SESSION_NONE) {
-        session_start();
-    }
-
-    if (!isset($_SESSION['user_id'])) {
-        gradtrack_genai_json_error(401, 'Administrator authentication required.');
-    }
-
-    $stmt = $db->prepare('SELECT id, username, email, full_name, role, is_active FROM admin_users WHERE id = :id LIMIT 1');
-    try {
-        $stmt->bindValue(':id', (int)$_SESSION['user_id'], PDO::PARAM_INT);
-        $stmt->execute();
-        $user = $stmt->fetch(PDO::FETCH_ASSOC);
-    } catch (PDOException $exception) {
-        $stmt = $db->prepare('SELECT id, username, email, full_name, role, 1 AS is_active FROM admin_users WHERE id = :id LIMIT 1');
-        $stmt->bindValue(':id', (int)$_SESSION['user_id'], PDO::PARAM_INT);
-        $stmt->execute();
-        $user = $stmt->fetch(PDO::FETCH_ASSOC);
-    }
-
-    if (!$user || (int)($user['is_active'] ?? 1) !== 1) {
+    $user = gradtrack_current_admin_user($db);
+    if ($user === null) {
         gradtrack_genai_json_error(401, 'Administrator authentication required.');
     }
 

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/archive.php';
+require_once __DIR__ . '/admin_auth.php';
 
 if (!function_exists('gradtrack_alumni_registry_admin_roles')) {
     function gradtrack_alumni_registry_admin_roles(): array
@@ -410,40 +411,21 @@ if (!function_exists('gradtrack_alumni_registry_ensure_schema')) {
 if (!function_exists('gradtrack_alumni_registry_current_admin')) {
     function gradtrack_alumni_registry_current_admin(PDO $db): ?array
     {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
-
-        if (!isset($_SESSION['user_id'])) {
-            $sessionEmail = gradtrack_alumni_registry_clean_text($_SESSION['email'] ?? '');
-            if ($sessionEmail !== '') {
-                $stmt = $db->prepare('SELECT id, role, full_name, email FROM admin_users WHERE email = :email LIMIT 1');
-                $stmt->execute([':email' => $sessionEmail]);
-                $row = $stmt->fetch(PDO::FETCH_ASSOC);
-
-                if ($row) {
-                    $_SESSION['user_id'] = (int) $row['id'];
-                    $_SESSION['role'] = (string) ($row['role'] ?? '');
-                    $_SESSION['full_name'] = (string) ($row['full_name'] ?? '');
-                    $_SESSION['email'] = (string) ($row['email'] ?? $sessionEmail);
-                }
-            }
-        }
-
-        if (!isset($_SESSION['user_id'])) {
+        $user = gradtrack_current_admin_user($db);
+        if ($user === null) {
             return null;
         }
 
-        $role = (string) ($_SESSION['role'] ?? '');
+        $role = (string) ($user['role'] ?? '');
         if (!in_array($role, gradtrack_alumni_registry_admin_roles(), true)) {
             return null;
         }
 
         return [
-            'id' => (int) $_SESSION['user_id'],
+            'id' => (int) $user['id'],
             'role' => $role,
-            'full_name' => (string) ($_SESSION['full_name'] ?? ''),
-            'email' => (string) ($_SESSION['email'] ?? ''),
+            'full_name' => (string) ($user['full_name'] ?? ''),
+            'email' => (string) ($user['email'] ?? ''),
         ];
     }
 }

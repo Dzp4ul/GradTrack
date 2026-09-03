@@ -57,7 +57,7 @@ export default function SurveyAnalytics() {
 
   const fetchAnalytics = () => {
     setLoading(true);
-    fetch(`${API_BASE}/surveys/analytics.php?survey_id=${surveyId}`)
+    fetch(`${API_BASE}/surveys/analytics.php?survey_id=${surveyId}`, { credentials: 'include' })
       .then((r) => r.json())
       .then((res) => {
         if (res.success) setAnalytics(res.data);

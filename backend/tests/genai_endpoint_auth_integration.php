@@ -2,6 +2,7 @@
 
 ob_start();
 require_once __DIR__ . '/../api/config/database.php';
+require_once __DIR__ . '/../api/config/session.php';
 
 $failures = 0;
 $sessions = [];
@@ -35,7 +36,7 @@ function genai_auth_test_request(string $endpoint, ?string $sessionId = null): a
 {
     $headers = ['Accept: application/json'];
     if ($sessionId !== null) {
-        $headers[] = 'Cookie: PHPSESSID=' . $sessionId;
+        $headers[] = 'Cookie: ' . gradtrack_session_cookie_name() . '=' . $sessionId;
     }
 
     $context = stream_context_create([
@@ -63,6 +64,7 @@ function genai_auth_test_request(string $endpoint, ?string $sessionId = null): a
 
 ini_set('session.use_cookies', '0');
 ini_set('session.use_only_cookies', '0');
+ini_set('session.use_strict_mode', '0');
 session_cache_limiter('');
 
 $database = new Database();
@@ -101,7 +103,7 @@ foreach ($expectedLabels as $role => $expectedLabel) {
 
     foreach ($userIds as $userId) {
         $sessionId = genai_auth_test_session([
-            'user_id' => (int)$userId,
+            'admin_user_id' => (int)$userId,
             'role' => $role === 'super_admin' ? 'admin' : 'super_admin',
         ]);
         $response = genai_auth_test_request($endpoint, $sessionId);

@@ -50,6 +50,7 @@ const allowedOrigin = (process.env.CORS_ALLOWED_ORIGINS || process.env.FRONTEND_
   .map((value) => value.trim())
   .find((value) => value && value !== '*') || 'http://localhost:5173';
 const storageDriver = String(process.env.STORAGE_DRIVER || process.env.APP_STORAGE_DRIVER || 'local').trim().toLowerCase();
+const sessionCookieName = String(process.env.SESSION_COOKIE_NAME || process.env.PHP_SESSION_COOKIE_NAME || 'GRADTRACKSESSID').trim() || 'GRADTRACKSESSID';
 
 function expectedMediaReference(reference) {
   const value = String(reference || '').trim();
@@ -91,6 +92,8 @@ function isRecentServerTimestamp(value, maxAgeMs = 2 * 60 * 1000) {
 function createGraduateSession(accountId) {
   const sessionId = `gradtrack-test-${crypto.randomBytes(18).toString('hex')}`;
   const php = [
+    "require 'backend/api/config/session.php';",
+    "ini_set('session.use_strict_mode', '0');",
     `session_id('${sessionId}');`,
     'session_start();',
     `$_SESSION['graduate_account_id'] = ${Number(accountId)};`,
@@ -106,6 +109,8 @@ function createGraduateSession(accountId) {
 function destroyGraduateSession(sessionId) {
   if (!sessionId) return;
   const php = [
+    "require 'backend/api/config/session.php';",
+    "ini_set('session.use_strict_mode', '0');",
     `session_id('${sessionId}');`,
     'session_start();',
     '$_SESSION = [];',
@@ -123,7 +128,7 @@ function connectSocket(sessionId, { reconnection = false } = {}) {
       reconnectionDelay: 100,
       timeout: 5000,
       extraHeaders: {
-        Cookie: `PHPSESSID=${sessionId}`,
+        Cookie: `${sessionCookieName}=${sessionId}`,
         Origin: allowedOrigin,
       },
     });
@@ -160,7 +165,7 @@ async function saveMessageViaRest(sessionId, payload) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Cookie: `PHPSESSID=${sessionId}`,
+      Cookie: `${sessionCookieName}=${sessionId}`,
       Origin: allowedOrigin,
     },
     body: JSON.stringify(payload),

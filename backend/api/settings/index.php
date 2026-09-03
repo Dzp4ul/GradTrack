@@ -3,29 +3,16 @@ require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/system_settings.php';
 require_once __DIR__ . '/../config/audit_trail.php';
-
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
+require_once __DIR__ . '/../config/admin_auth.php';
 
 $database = new Database();
 $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
 $scope = strtolower(trim((string) ($_GET['scope'] ?? $_GET['action'] ?? 'admin')));
 
-function gradtrack_settings_require_super_admin(): void
+function gradtrack_settings_require_super_admin(PDO $db): array
 {
-    if (!isset($_SESSION['user_id'])) {
-        http_response_code(401);
-        echo json_encode(['success' => false, 'error' => 'Authentication required']);
-        exit;
-    }
-
-    if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'super_admin') {
-        http_response_code(403);
-        echo json_encode(['success' => false, 'error' => 'Only super admin can manage system settings']);
-        exit;
-    }
+    return gradtrack_require_admin_auth($db, ['super_admin'], 'Only super admin can manage system settings');
 }
 
 function gradtrack_settings_request_payload(): array
@@ -120,7 +107,7 @@ try {
         exit;
     }
 
-    gradtrack_settings_require_super_admin();
+    $authUser = gradtrack_settings_require_super_admin($db);
 
     switch ($method) {
         case 'GET':
@@ -141,7 +128,7 @@ try {
             $promotions = $prepared['promotions'];
             $db->beginTransaction();
             try {
-                $settings = gradtrack_save_system_settings($db, $prepared['settings'], (int) $_SESSION['user_id']);
+                $settings = gradtrack_save_system_settings($db, $prepared['settings'], (int) $authUser['id']);
                 $db->commit();
             } catch (Throwable $e) {
                 if ($db->inTransaction()) $db->rollBack();
@@ -157,8 +144,8 @@ try {
             $after = gradtrack_system_settings_assoc($settings);
 
             logAuditTrail(
-                (int) $_SESSION['user_id'],
-                trim((string) ($_SESSION['full_name'] ?? $_SESSION['username'] ?? 'Super Admin')),
+                (int) $authUser['id'],
+                trim((string) ($authUser['full_name'] ?? $authUser['username'] ?? 'Super Admin')),
                 'super_admin',
                 null,
                 'Update',
@@ -194,10 +181,10 @@ try {
                 break;
             }
 
-            $upload = gradtrack_save_system_branding_upload($db, $imageType, $file, (int) $_SESSION['user_id']);
+            $upload = gradtrack_save_system_branding_upload($db, $imageType, $file, (int) $authUser['id']);
             logAuditTrail(
-                (int) $_SESSION['user_id'],
-                trim((string) ($_SESSION['full_name'] ?? $_SESSION['username'] ?? 'Super Admin')),
+                (int) $authUser['id'],
+                trim((string) ($authUser['full_name'] ?? $authUser['username'] ?? 'Super Admin')),
                 'super_admin',
                 null,
                 'Upload',

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/env.php';
+require_once __DIR__ . '/session.php';
 
 gradtrack_load_env_file();
 
@@ -26,13 +27,17 @@ if ($configuredOrigins !== false && trim($configuredOrigins) !== '') {
 
 $origin = isset($_SERVER['HTTP_ORIGIN']) ? $_SERVER['HTTP_ORIGIN'] : '';
 $allowAnyOrigin = in_array('*', $allowedOrigins, true);
+$originAllowed = $origin === '' || $allowAnyOrigin || in_array($origin, $allowedOrigins, true);
 
-if ($origin !== '' && ($allowAnyOrigin || in_array($origin, $allowedOrigins, true))) {
+if (!$originAllowed && strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')) !== 'OPTIONS') {
+    http_response_code(403);
+    echo json_encode(['success' => false, 'error' => 'Request origin is not allowed']);
+    exit;
+}
+
+if ($origin !== '' && $originAllowed) {
     header("Access-Control-Allow-Origin: $origin");
     header('Vary: Origin');
-} elseif (!empty($allowedOrigins)) {
-    // Fallback keeps local development working when Origin is absent.
-    header('Access-Control-Allow-Origin: ' . $allowedOrigins[0]);
 }
 
 header('Access-Control-Allow-Credentials: true');
@@ -41,42 +46,8 @@ header('Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS');
 header('Access-Control-Max-Age: 3600');
 header('Access-Control-Allow-Headers: Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With');
 
-$isHttps = (
-    (!empty($_SERVER['HTTPS']) && strtolower((string) $_SERVER['HTTPS']) !== 'off')
-    || (isset($_SERVER['SERVER_PORT']) && (int) $_SERVER['SERVER_PORT'] === 443)
-    || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && strtolower((string) $_SERVER['HTTP_X_FORWARDED_PROTO']) === 'https')
-);
-
-$secureFromEnv = getenv('SESSION_COOKIE_SECURE');
-$isSecureCookie = $secureFromEnv !== false && $secureFromEnv !== ''
-    ? filter_var($secureFromEnv, FILTER_VALIDATE_BOOLEAN)
-    : $isHttps;
-
-$sameSite = getenv('SESSION_COOKIE_SAMESITE');
-$sameSite = $sameSite !== false && $sameSite !== '' ? ucfirst(strtolower($sameSite)) : ($isSecureCookie ? 'None' : 'Lax');
-
-if (!in_array($sameSite, ['Lax', 'Strict', 'None'], true)) {
-    $sameSite = $isSecureCookie ? 'None' : 'Lax';
-}
-
-if ($sameSite === 'None' && !$isSecureCookie) {
-    // Browsers reject SameSite=None without Secure on HTTP.
-    $sameSite = 'Lax';
-}
-
-$cookieDomain = getenv('SESSION_COOKIE_DOMAIN') ?: '';
-$cookiePath = getenv('SESSION_COOKIE_PATH') ?: '/';
-
-if (session_status() === PHP_SESSION_NONE) {
-    session_set_cookie_params([
-        'lifetime' => 0,
-        'path' => $cookiePath,
-        'domain' => $cookieDomain,
-        'secure' => $isSecureCookie,
-        'httponly' => true,
-        'samesite' => $sameSite
-    ]);
-}
+header('X-Content-Type-Options: nosniff');
+header('Referrer-Policy: same-origin');
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);

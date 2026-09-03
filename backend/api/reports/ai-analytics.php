@@ -2,9 +2,11 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/survey_response_analytics.php';
+require_once __DIR__ . '/../config/admin_auth.php';
 
 $database = new Database();
 $db = $database->getConnection();
+$authUser = gradtrack_require_admin_auth($db, ['admin'], 'Only Admin accounts can access AI analytics');
 
 function getSelectedSurveyId(PDO $db): ?int
 {

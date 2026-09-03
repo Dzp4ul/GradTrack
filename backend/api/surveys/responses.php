@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/admin_auth.php';
 require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../config/psgc_address.php';
 require_once __DIR__ . '/../config/system_settings.php';
@@ -661,28 +662,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     try {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
-
-        if (!isset($_SESSION['user_id'])) {
-            http_response_code(401);
-            echo json_encode(["success" => false, "error" => "Authentication required"]);
-            exit();
-        }
-
-        $role = $_SESSION['role'] ?? '';
         $roleProgramScopes = [
             'dean_cs' => ['BSCS', 'ACT'],
             'dean_coed' => ['BSED', 'BEED'],
             'dean_hm' => ['BSHM'],
         ];
 
-        if ($role !== 'admin' && !isset($roleProgramScopes[$role])) {
-            http_response_code(403);
-            echo json_encode(["success" => false, "error" => "Not authorized to view survey responses"]);
-            exit();
-        }
+        $authUser = gradtrack_require_admin_auth(
+            $conn,
+            array_merge(['admin'], array_keys($roleProgramScopes)),
+            'Not authorized to view survey responses'
+        );
+        $role = (string) $authUser['role'];
 
         $responseId = isset($_GET['response_id']) && (int) $_GET['response_id'] > 0 ? (int) $_GET['response_id'] : null;
         $surveyId = isset($_GET['survey_id']) && (int) $_GET['survey_id'] > 0 ? (int) $_GET['survey_id'] : null;

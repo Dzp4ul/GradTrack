@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/survey_reminders.php';
+require_once __DIR__ . '/../config/admin_auth.php';
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 use PHPMailer\PHPMailer\Exception as MailException;
@@ -14,29 +15,20 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
-if (!isset($_SESSION['user_id'])) {
-    http_response_code(401);
-    echo json_encode(["success" => false, "error" => "Authentication required"]);
-    exit;
-}
-
-$role = $_SESSION['role'] ?? '';
 $roleProgramScopes = [
     'dean_cs' => ['BSCS', 'ACT'],
     'dean_coed' => ['BSED', 'BEED'],
     'dean_hm' => ['BSHM'],
 ];
+$database = new Database();
+$db = $database->getConnection();
+$authUser = gradtrack_require_admin_auth(
+    $db,
+    array_merge(['admin'], array_keys($roleProgramScopes)),
+    'Only admin and dean accounts can send graduate survey reminders'
+);
+$role = (string) $authUser['role'];
 $isDean = isset($roleProgramScopes[$role]);
-
-if ($role !== 'admin' && !$isDean) {
-    http_response_code(403);
-    echo json_encode(["success" => false, "error" => "Only admin and dean accounts can send graduate survey reminders"]);
-    exit;
-}
 
 function notify_json_response(int $statusCode, array $payload): void
 {
@@ -187,9 +179,6 @@ $data = json_decode(file_get_contents("php://input"), true);
 if (!is_array($data)) {
     notify_json_response(400, ["success" => false, "error" => "Invalid JSON payload"]);
 }
-
-$database = new Database();
-$db = $database->getConnection();
 
 try {
     gradtrack_ensure_archive_schema($db, 'graduates');

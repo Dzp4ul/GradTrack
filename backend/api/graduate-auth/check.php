@@ -23,6 +23,7 @@ if (gradtrack_system_maintenance_enabled($db)) {
 }
 
 $user = gradtrack_current_graduate_user($db);
+gradtrack_send_private_no_store_headers();
 
 echo json_encode([
     'authenticated' => $user !== null,

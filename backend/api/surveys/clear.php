@@ -3,10 +3,7 @@ require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../config/archive.php';
-
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
+require_once __DIR__ . '/../config/admin_auth.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -14,21 +11,10 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-if (!isset($_SESSION['user_id'])) {
-    http_response_code(401);
-    echo json_encode(['success' => false, 'error' => 'Authentication required']);
-    exit;
-}
-
-if (!isset($_SESSION['role']) || !in_array((string)$_SESSION['role'], ['admin', 'super_admin'], true)) {
-    http_response_code(403);
-    echo json_encode(['success' => false, 'error' => 'Only authorized administrators can archive surveys']);
-    exit;
-}
-
 $database = new Database();
 $db = $database->getConnection();
-$auditUser = gradtrack_audit_current_admin_context();
+$authUser = gradtrack_require_admin_auth($db, ['admin'], 'Only Admin accounts can archive surveys');
+$auditUser = gradtrack_admin_audit_context($authUser);
 
 try {
     gradtrack_ensure_archive_schema($db, 'surveys', true);

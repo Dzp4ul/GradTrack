@@ -26,7 +26,7 @@ if ($graduateAccountId !== null) {
     );
 }
 
-unset($_SESSION['graduate_account_id']);
+gradtrack_destroy_current_session();
 
 echo json_encode([
     'success' => true,

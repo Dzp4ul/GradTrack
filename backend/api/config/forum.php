@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/storage.php';
+require_once __DIR__ . '/admin_auth.php';
 
 if (!function_exists('gradtrack_forum_categories')) {
     function gradtrack_forum_categories(): array
@@ -739,40 +740,21 @@ if (!function_exists('gradtrack_forum_ensure_schema')) {
 if (!function_exists('gradtrack_forum_current_moderator')) {
     function gradtrack_forum_current_moderator(PDO $db): ?array
     {
-        if (session_status() === PHP_SESSION_NONE) {
-            session_start();
-        }
-
-        if (!isset($_SESSION['user_id'])) {
-            $sessionEmail = gradtrack_forum_clean_text($_SESSION['email'] ?? '');
-
-            if ($sessionEmail !== '') {
-                $stmt = $db->prepare('SELECT id, role, full_name, email FROM admin_users WHERE email = :email LIMIT 1');
-                $stmt->execute([':email' => $sessionEmail]);
-                $row = $stmt->fetch(PDO::FETCH_ASSOC);
-
-                if ($row) {
-                    $_SESSION['user_id'] = (int) $row['id'];
-                    $_SESSION['role'] = (string) ($row['role'] ?? '');
-                    $_SESSION['full_name'] = (string) ($row['full_name'] ?? '');
-                }
-            }
-        }
-
-        if (!isset($_SESSION['user_id'])) {
+        $user = gradtrack_current_admin_user($db);
+        if ($user === null) {
             return null;
         }
 
-        $role = (string) ($_SESSION['role'] ?? '');
+        $role = (string) ($user['role'] ?? '');
         if (!in_array($role, gradtrack_forum_moderator_roles(), true)) {
             return null;
         }
 
         return [
-            'id' => (int) $_SESSION['user_id'],
+            'id' => (int) $user['id'],
             'role' => $role,
-            'full_name' => (string) ($_SESSION['full_name'] ?? ''),
-            'email' => (string) ($_SESSION['email'] ?? ''),
+            'full_name' => (string) ($user['full_name'] ?? ''),
+            'email' => (string) ($user['email'] ?? ''),
         ];
     }
 }

@@ -2,6 +2,9 @@
 
 require_once __DIR__ . '/config/cors.php';
 require_once __DIR__ . '/config/storage.php';
+require_once __DIR__ . '/config/database.php';
+require_once __DIR__ . '/config/admin_auth.php';
+require_once __DIR__ . '/config/graduate_auth.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     http_response_code(405);
@@ -9,19 +12,10 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     exit;
 }
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
-$isAuthenticated = isset($_SESSION['graduate_account_id']) || isset($_SESSION['user_id']);
-
-// Avatar, cover, and forum images are commonly requested in parallel. Keep
-// only the authentication snapshot and release PHP's per-session lock before
-// generating an S3 redirect so duplicate image requests cannot block each
-// other during page refresh.
-if (session_status() === PHP_SESSION_ACTIVE) {
-    session_write_close();
-}
+$database = new Database();
+$db = $database->getConnection();
+$isAuthenticated = gradtrack_current_admin_user($db) !== null
+    || gradtrack_current_graduate_user($db) !== null;
 
 // Graduate media is private to authenticated GradTrack portal sessions. The
 // endpoint intentionally accepts only the two media namespaces rendered by

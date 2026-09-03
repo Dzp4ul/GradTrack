@@ -46,6 +46,7 @@ export function GraduateAuthProvider({ children }: { children: React.ReactNode }
       const response = await fetch(API_ENDPOINTS.GRADUATE_AUTH.CHECK, {
         method: 'GET',
         credentials: 'include',
+        cache: 'no-store',
       });
       const data = await response.json();
 
@@ -67,6 +68,7 @@ export function GraduateAuthProvider({ children }: { children: React.ReactNode }
   }, []);
 
   const login = async (email: string, password: string) => {
+    await notifyRealtimeChatLogout();
     const response = await fetch(API_ENDPOINTS.GRADUATE_AUTH.LOGIN, {
       method: 'POST',
       headers: {

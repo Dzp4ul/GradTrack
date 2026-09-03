@@ -96,7 +96,7 @@ const presenceRecoveryGraceMs = Math.max(presenceOfflineGraceMs, Number(process.
 const pingInterval = Math.max(5000, Number(process.env.REALTIME_PING_INTERVAL_MS || 25000));
 const pingTimeout = Math.max(5000, Number(process.env.REALTIME_PING_TIMEOUT_MS || 20000));
 const authTimeoutMs = Math.max(5000, Number(process.env.REALTIME_AUTH_TIMEOUT_MS || 12000));
-const sessionCookieName = String(process.env.PHP_SESSION_COOKIE_NAME || 'PHPSESSID').trim() || 'PHPSESSID';
+const sessionCookieName = String(process.env.SESSION_COOKIE_NAME || process.env.PHP_SESSION_COOKIE_NAME || 'GRADTRACKSESSID').trim() || 'GRADTRACKSESSID';
 const storageDriver = String(process.env.STORAGE_DRIVER || process.env.APP_STORAGE_DRIVER || 'local').trim().toLowerCase();
 
 function mediaAccessReference(reference) {

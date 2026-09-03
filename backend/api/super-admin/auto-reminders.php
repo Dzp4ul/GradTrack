@@ -3,29 +3,15 @@ require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/survey_reminders.php';
+require_once __DIR__ . '/../config/admin_auth.php';
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 use PHPMailer\PHPMailer\Exception as MailException;
 use PHPMailer\PHPMailer\PHPMailer;
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
-if (!isset($_SESSION['user_id'])) {
-    http_response_code(401);
-    echo json_encode(["success" => false, "error" => "Authentication required"]);
-    exit;
-}
-
-if (!isset($_SESSION['role']) || $_SESSION['role'] !== 'super_admin') {
-    http_response_code(403);
-    echo json_encode(["success" => false, "error" => "Only super admin can manage auto reminders"]);
-    exit;
-}
-
 $database = new Database();
 $db = $database->getConnection();
+$authUser = gradtrack_require_admin_auth($db, ['super_admin'], 'Only super admin can manage auto reminders');
 $method = $_SERVER['REQUEST_METHOD'];
 
 function super_reminder_json_response(int $statusCode, array $payload): void

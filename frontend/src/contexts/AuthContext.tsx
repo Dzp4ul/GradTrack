@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { API_ENDPOINTS } from '../config/api';
+import { notifyRealtimeChatLogout } from '../services/realtimeChat';
 
 export interface User {
   id: number;
@@ -31,10 +32,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const response = await fetch(API_ENDPOINTS.AUTH.CHECK, {
         credentials: 'include',
+        cache: 'no-store',
       });
       const data = await response.json();
 
-      if (data.authenticated && data.user) {
+      if (response.ok && data.authenticated && data.user) {
         setUser(data.user);
         setIsAuthenticated(true);
       } else {
@@ -55,6 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const login = async (email: string, password: string) => {
+    await notifyRealtimeChatLogout();
     const response = await fetch(API_ENDPOINTS.AUTH.LOGIN, {
       method: 'POST',
       headers: {
@@ -80,6 +83,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = async () => {
     try {
+      await notifyRealtimeChatLogout();
       await fetch(API_ENDPOINTS.AUTH.LOGOUT, {
         method: 'POST',
         credentials: 'include',

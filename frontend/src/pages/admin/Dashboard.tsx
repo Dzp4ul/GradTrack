@@ -106,7 +106,7 @@ export default function Dashboard() {
       ? `${API_BASE}/dashboard/stats.php?${params.toString()}`
       : `${API_BASE}/dashboard/stats.php`;
 
-    fetch(dashboardUrl)
+    fetch(dashboardUrl, { credentials: 'include' })
       .then((res) => res.json())
       .then((res) => {
         if (res.success) {

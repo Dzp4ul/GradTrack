@@ -54,10 +54,6 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     ai_moderate_json_error(405, 'Method not allowed');
 }
 
-if (session_status() === PHP_SESSION_NONE) {
-    session_start();
-}
-
 $database = new Database();
 $db = $database->getConnection();
 $graduateUser = gradtrack_current_graduate_user($db);
