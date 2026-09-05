@@ -4595,7 +4595,11 @@ export default function GraduatePortal() {
                                     <div className="min-w-0 flex-1">
                                       <div className="flex items-start justify-between gap-3">
                                         <p className={`truncate text-sm text-slate-900 dark:text-slate-100 ${(room.unread_count || 0) > 0 ? 'font-bold' : 'font-semibold'}`}>{getRoomLabel(room, currentGraduateId)}</p>
-                                        <span className="shrink-0 text-[11px] text-slate-400">{formatRelativeTime(room.last_message_at || room.updated_at)}</span>
+                                        {!room.is_group && getRoomOtherParticipants(room, currentGraduateId)[0]?.is_online ? (
+                                          <span className="shrink-0 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">Active now</span>
+                                        ) : (
+                                          <span className="shrink-0 text-[11px] text-slate-400">{formatRelativeTime(room.last_message_at || room.updated_at)}</span>
+                                        )}
                                       </div>
                                       <div className="mt-1 flex items-center gap-2">
                                         <p className={`min-w-0 flex-1 truncate text-xs dark:text-slate-400 ${(room.unread_count || 0) > 0 ? 'font-bold text-slate-800 dark:text-slate-200' : 'text-slate-500'}`}>{room.last_message || 'No messages yet'}</p>
