@@ -6,6 +6,7 @@ export interface MessagingParticipant {
   profile_image_path?: string | null;
   last_active_at?: string | null;
   is_online?: boolean;
+  role?: 'admin' | 'member';
 }
 
 export interface MessageAttachment {
@@ -33,7 +34,7 @@ export interface MessagingRoom {
   created_at: string;
   updated_at: string;
   last_message?: string | null;
-  last_message_type?: 'text' | 'image' | 'file' | 'mixed' | null;
+  last_message_type?: 'text' | 'image' | 'file' | 'mixed' | 'system' | null;
   last_message_at?: string | null;
   last_message_sender_id?: number | null;
   unread_count?: number;
@@ -55,6 +56,7 @@ export interface ConversationInformation {
   permissions: {
     can_change_group_photo: boolean;
     can_leave_group: boolean;
+    can_add_members: boolean;
   };
 }
 
@@ -63,7 +65,7 @@ export interface MessagingMessage {
   room_id: number;
   graduate_id: number;
   message: string;
-  message_type?: 'text' | 'image' | 'file' | 'mixed';
+  message_type?: 'text' | 'image' | 'file' | 'mixed' | 'system';
   client_message_id?: string | null;
   created_at: string;
   updated_at?: string | null;

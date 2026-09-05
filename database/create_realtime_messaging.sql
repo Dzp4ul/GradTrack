@@ -106,8 +106,10 @@ ALTER TABLE forum_chat_messages MODIFY message TEXT NULL;
 CALL gradtrack_add_column_if_missing(
   'forum_chat_messages',
   'message_type',
-  'ALTER TABLE forum_chat_messages ADD COLUMN message_type ENUM(''text'', ''image'', ''file'', ''mixed'') NOT NULL DEFAULT ''text'' AFTER message'
+  'ALTER TABLE forum_chat_messages ADD COLUMN message_type ENUM(''text'', ''image'', ''file'', ''mixed'', ''system'') NOT NULL DEFAULT ''text'' AFTER message'
 );
+ALTER TABLE forum_chat_messages
+  MODIFY COLUMN message_type ENUM('text', 'image', 'file', 'mixed', 'system') NOT NULL DEFAULT 'text';
 CALL gradtrack_add_column_if_missing(
   'forum_chat_messages',
   'client_message_id',

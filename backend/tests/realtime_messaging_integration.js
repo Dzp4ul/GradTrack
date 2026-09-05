@@ -45,6 +45,8 @@ const realtimeUrl = `http://127.0.0.1:${testPort}`;
 const useExistingServer = String(process.env.REALTIME_TEST_USE_EXISTING || '').toLowerCase() === 'true';
 const apiBaseUrl = (process.env.GRADTRACK_API_BASE_URL || 'http://localhost/GradTrack/backend').replace(/\/+$/, '');
 const chatMessagesUrl = `${apiBaseUrl}/api/forum/chat-messages.php`;
+const chatsUrl = `${apiBaseUrl}/api/forum/chats.php`;
+const conversationInfoUrl = `${apiBaseUrl}/api/forum/conversation-info.php`;
 const allowedOrigin = (process.env.CORS_ALLOWED_ORIGINS || process.env.FRONTEND_URL || 'http://localhost:5173')
   .split(',')
   .map((value) => value.trim())
@@ -177,6 +179,25 @@ async function saveMessageViaRest(sessionId, payload) {
   return result.data.message;
 }
 
+async function requestJsonViaRest(url, sessionId, payload) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Cookie: `${sessionCookieName}=${sessionId}`,
+      Origin: allowedOrigin,
+    },
+    body: JSON.stringify(payload),
+  });
+  let result = {};
+  try {
+    result = await response.json();
+  } catch {
+    result = {};
+  }
+  return { ok: response.ok, status: response.status, result };
+}
+
 function waitForEvent(socket, eventName, predicate, timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -293,6 +314,7 @@ async function main() {
   const sockets = [];
   let server;
   let serverOutput = '';
+  let temporaryGroupRoomId = 0;
 
   try {
     const senderSession = createGraduateSession(fixture.sender_account_id);
@@ -361,6 +383,14 @@ async function main() {
     if (outsiderSession) {
       outsider = await connectSocket(outsiderSession);
       sockets.push(outsider);
+      const communityPresence = await emitWithAck(outsider, 'presence:sync', { graduate_ids: [Number(fixture.sender_id)] });
+      const visibleForumGraduate = communityPresence.users?.find(
+        (presence) => Number(presence.graduate_id) === Number(fixture.sender_id),
+      );
+      assert(
+        communityPresence.success === true && visibleForumGraduate?.is_online === true,
+        'an authenticated forum viewer can subscribe to a displayed graduate through the shared presence channel',
+      );
       const outsiderJoin = await emitWithAck(outsider, 'conversation:join', { room_id: Number(fixture.room_id) });
       assert(outsiderJoin.success === false, 'an authenticated non-participant cannot join the conversation room');
       const outsiderSend = await emitWithAck(outsider, 'message:send', {
@@ -515,6 +545,93 @@ async function main() {
     );
     assert(Number(afterReplyCount.total) === Number(beforeCount.total), 'bidirectional replay remains idempotent and does not insert test data');
 
+    const [groupCandidateRows] = await pool.query(
+      `SELECT account.id AS account_id, account.graduate_id
+         FROM graduate_accounts account
+         JOIN graduates graduate ON graduate.id = account.graduate_id
+        WHERE account.status = 'active'
+          AND account.alumni_verification_status = 'approved'
+          AND graduate.status = 'active'
+          AND account.graduate_id <> ?
+        ORDER BY account.id ASC
+        LIMIT 3`,
+      [fixture.sender_id],
+    );
+    assert(groupCandidateRows.length === 3, 'three eligible graduates are available for realtime group membership validation');
+    const groupSessions = groupCandidateRows.map((candidate) => createGraduateSession(candidate.account_id));
+    sessions.push(...groupSessions);
+    const groupSockets = [];
+    for (const groupSession of groupSessions) {
+      const groupSocket = await connectSocket(groupSession);
+      groupSockets.push(groupSocket);
+      sockets.push(groupSocket);
+    }
+
+    const createGroup = await requestJsonViaRest(chatsUrl, senderSession, {
+      is_group: true,
+      name: `Realtime Group ${crypto.randomBytes(4).toString('hex')}`,
+      participant_ids: groupCandidateRows.slice(0, 2).map((candidate) => Number(candidate.graduate_id)),
+    });
+    temporaryGroupRoomId = Number(createGroup.result?.room_id || 0);
+    assert(createGroup.ok && temporaryGroupRoomId > 0, 'a temporary group is persisted through the existing authenticated chat API');
+
+    const addedCandidate = groupCandidateRows[2];
+    const addMember = await requestJsonViaRest(conversationInfoUrl, senderSession, {
+      room_id: temporaryGroupRoomId,
+      action: 'add_members',
+      participant_ids: [Number(addedCandidate.graduate_id)],
+    });
+    const systemMessageId = Number(addMember.result?.data?.system_message_id || 0);
+    assert(addMember.ok && systemMessageId > 0, 'the group administrator persists a new member and system event before realtime publication');
+
+    const candidateConversation = waitForEvent(
+      groupSockets[2],
+      'conversation:updated',
+      (payload) => Number(payload?.conversation?.id) === temporaryGroupRoomId
+        && Number(payload?.conversation?.participant_count) === 4,
+    );
+    const candidateSystemMessage = waitForEvent(
+      groupSockets[2],
+      'message:new',
+      (payload) => Number(payload?.message?.id) === systemMessageId
+        && payload?.message?.message_type === 'system',
+    );
+    const memberListUpdated = waitForEvent(
+      groupSockets[0],
+      'conversation:members-updated',
+      (payload) => Number(payload?.room_id) === temporaryGroupRoomId
+        && payload?.added_member_ids?.includes(Number(addedCandidate.graduate_id)),
+    );
+    const membersAddedAck = await emitWithAck(sender, 'conversation:members-added', {
+      room_id: temporaryGroupRoomId,
+      system_message_id: systemMessageId,
+      added_member_ids: [Number(addedCandidate.graduate_id)],
+    });
+    await Promise.all([candidateConversation, candidateSystemMessage, memberListUpdated]);
+    assert(membersAddedAck.success === true, 'added members and connected group participants receive the membership update without refresh');
+
+    const nonAdminBroadcast = await emitWithAck(groupSockets[0], 'conversation:members-added', {
+      room_id: temporaryGroupRoomId,
+      system_message_id: systemMessageId,
+      added_member_ids: [Number(addedCandidate.graduate_id)],
+    });
+    assert(nonAdminBroadcast.success === false, 'a regular group member cannot forge a realtime member-add broadcast');
+
+    const duplicateMember = await requestJsonViaRest(conversationInfoUrl, senderSession, {
+      room_id: temporaryGroupRoomId,
+      action: 'add_members',
+      participant_ids: [Number(addedCandidate.graduate_id)],
+    });
+    const [[membershipCount]] = await pool.query(
+      'SELECT COUNT(*) AS total FROM forum_chat_members WHERE room_id = ? AND graduate_id = ?',
+      [temporaryGroupRoomId, addedCandidate.graduate_id],
+    );
+    assert(!duplicateMember.ok && Number(membershipCount.total) === 1, 'duplicate realtime-era member submissions remain idempotent at the database boundary');
+
+    await pool.query('DELETE FROM forum_chat_rooms WHERE id = ?', [temporaryGroupRoomId]);
+    temporaryGroupRoomId = 0;
+    groupSockets.forEach((groupSocket) => groupSocket.close());
+
     const recipientOffline = waitForEvent(
       sender,
       'user:status',
@@ -624,6 +741,9 @@ async function main() {
     sockets.forEach((socket) => socket.close());
     if (server && server.exitCode === null) server.kill();
     sessions.forEach(destroyGraduateSession);
+    if (temporaryGroupRoomId > 0) {
+      await pool.query('DELETE FROM forum_chat_rooms WHERE id = ?', [temporaryGroupRoomId]);
+    }
     await pool.end();
   }
 }

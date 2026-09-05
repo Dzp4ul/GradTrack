@@ -127,6 +127,10 @@ function userRoom(graduateId) {
   return `graduate:${graduateId}`;
 }
 
+function presenceRoom(graduateId) {
+  return `presence:graduate:${graduateId}`;
+}
+
 function isAllowedOrigin(origin) {
   if (!origin) return true;
   return allowedOrigins.includes('*') || allowedOrigins.includes(origin);
@@ -175,6 +179,19 @@ async function addIndexIfMissing(table, indexName, columns, requireUnique, sql) 
   }
 }
 
+async function enumHasValue(table, column, value) {
+  const [rows] = await pool.query(
+    `SELECT COLUMN_TYPE
+       FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = ?
+        AND COLUMN_NAME = ?
+      LIMIT 1`,
+    [table, column],
+  );
+  return String(rows[0]?.COLUMN_TYPE || '').includes(`'${value}'`);
+}
+
 async function ensureSchema() {
   await pool.query(`CREATE TABLE IF NOT EXISTS forum_chat_rooms (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -221,12 +238,15 @@ async function ensureSchema() {
   await addColumnIfMissing('forum_chat_members', 'created_at', 'ALTER TABLE forum_chat_members ADD created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER last_read_message_id');
   await addColumnIfMissing('forum_chat_members', 'updated_at', 'ALTER TABLE forum_chat_members ADD updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at');
   await pool.query('ALTER TABLE forum_chat_messages MODIFY message TEXT NULL');
-  await addColumnIfMissing('forum_chat_messages', 'message_type', "ALTER TABLE forum_chat_messages ADD message_type ENUM('text', 'image', 'file', 'mixed') NOT NULL DEFAULT 'text' AFTER message");
+  await addColumnIfMissing('forum_chat_messages', 'message_type', "ALTER TABLE forum_chat_messages ADD message_type ENUM('text', 'image', 'file', 'mixed', 'system') NOT NULL DEFAULT 'text' AFTER message");
   await addColumnIfMissing('forum_chat_messages', 'client_message_id', 'ALTER TABLE forum_chat_messages ADD client_message_id VARCHAR(80) NULL AFTER message_type');
   await addColumnIfMissing('forum_chat_messages', 'delivered_at', 'ALTER TABLE forum_chat_messages ADD delivered_at DATETIME NULL AFTER client_message_id');
   await addColumnIfMissing('forum_chat_messages', 'read_at', 'ALTER TABLE forum_chat_messages ADD read_at DATETIME NULL AFTER delivered_at');
   await addColumnIfMissing('forum_chat_messages', 'updated_at', 'ALTER TABLE forum_chat_messages ADD updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at');
   await addColumnIfMissing('forum_chat_messages', 'deleted_at', 'ALTER TABLE forum_chat_messages ADD deleted_at DATETIME NULL AFTER updated_at');
+  if (!(await enumHasValue('forum_chat_messages', 'message_type', 'system'))) {
+    await pool.query("ALTER TABLE forum_chat_messages MODIFY message_type ENUM('text', 'image', 'file', 'mixed', 'system') NOT NULL DEFAULT 'text'");
+  }
 
   await addIndexIfMissing('forum_chat_rooms', 'idx_forum_chat_rooms_last_message', ['last_message_at', 'updated_at', 'id'], false, 'ALTER TABLE forum_chat_rooms ADD INDEX idx_forum_chat_rooms_last_message (last_message_at, updated_at, id)');
   await addIndexIfMissing('forum_chat_members', 'idx_forum_chat_members_read', ['room_id', 'graduate_id', 'last_read_at'], false, 'ALTER TABLE forum_chat_members ADD INDEX idx_forum_chat_members_read (room_id, graduate_id, last_read_at)');
@@ -356,7 +376,7 @@ async function getRoomParticipants(roomId) {
 
 async function requireRoomMember(roomId, graduateId) {
   const [rows] = await pool.query(
-    `SELECT r.id, r.name, r.is_group
+    `SELECT r.id, r.created_by, r.name, r.is_group
        FROM forum_chat_rooms r
        JOIN forum_chat_members fcm
          ON fcm.room_id = r.id
@@ -568,6 +588,7 @@ async function getConversationForViewer(roomId, viewerGraduateId) {
     `SELECT g.id AS graduate_id,
             TRIM(CONCAT(COALESCE(g.first_name, ''), ' ', COALESCE(g.last_name, ''))) AS full_name,
             p.code AS program_code,
+            g.year_graduated,
             gpi.file_path AS profile_image_path,
             gp.last_active_at
        FROM forum_chat_members fcm
@@ -597,9 +618,11 @@ async function getConversationForViewer(roomId, viewerGraduateId) {
       graduate_id: Number(participant.graduate_id),
       full_name: participant.full_name || 'Graduate',
       program_code: participant.program_code || null,
+      year_graduated: participant.year_graduated === null ? null : Number(participant.year_graduated),
       profile_image_path: mediaAccessReference(participant.profile_image_path),
       last_active_at: participant.last_active_at || null,
       is_online: isGraduateOnline(participant.graduate_id),
+      role: Number(room.created_by) === Number(participant.graduate_id) ? 'admin' : 'member',
     })),
     participant_count: participants.length,
     group_image_url: Number(room.is_group) === 1 && room.group_image_path
@@ -663,12 +686,21 @@ async function emitUserStatus(graduateId, isOnline) {
     [graduateId],
   );
 
-  for (const participant of participantRows) {
-    io.to(userRoom(participant.graduate_id)).emit('user:status', status);
-  }
+  io.to([
+    presenceRoom(graduateId),
+    ...participantRows.map((participant) => userRoom(participant.graduate_id)),
+  ]).emit('user:status', status);
 }
 
-async function getPresenceSnapshot(graduateId) {
+function normalizePresenceTargetIds(rawIds) {
+  if (!Array.isArray(rawIds)) return [];
+  return Array.from(new Set(rawIds
+    .map((value) => Number(value))
+    .filter((value) => Number.isInteger(value) && value > 0)))
+    .slice(0, 500);
+}
+
+async function getPresenceSnapshot(graduateId, requestedIds = []) {
   const [rows] = await pool.query(
     `SELECT DISTINCT visible_members.graduate_id, gp.last_active_at
        FROM forum_chat_members mine
@@ -678,11 +710,45 @@ async function getPresenceSnapshot(graduateId) {
     [graduateId],
   );
 
-  return rows.map((row) => ({
+  const byGraduateId = new Map(rows.map((row) => [Number(row.graduate_id), row]));
+  const targetIds = normalizePresenceTargetIds(requestedIds);
+  if (targetIds.length > 0) {
+    const [requestedRows] = await pool.query(
+      `SELECT g.id AS graduate_id, presence.last_active_at
+         FROM graduates g
+         JOIN graduate_accounts account
+           ON account.graduate_id = g.id
+          AND account.status = 'active'
+          AND account.alumni_verification_status = 'approved'
+         LEFT JOIN graduate_presence presence ON presence.graduate_id = g.id
+        WHERE g.status = 'active'
+          AND g.id IN (?)`,
+      [targetIds],
+    );
+    for (const row of requestedRows) {
+      byGraduateId.set(Number(row.graduate_id), row);
+    }
+  }
+
+  return Array.from(byGraduateId.values()).map((row) => ({
     graduate_id: Number(row.graduate_id),
     is_online: isGraduateOnline(row.graduate_id),
     last_active_at: row.last_active_at || null,
   }));
+}
+
+async function subscribeSocketToPresence(socket, users) {
+  const targetIds = normalizePresenceTargetIds(users.map((user) => user.graduate_id));
+  await Promise.all(targetIds.map((targetId) => socket.join(presenceRoom(targetId))));
+}
+
+function subscribeGraduateSocketsToPresence(graduateIds, targetIds) {
+  const normalizedTargets = normalizePresenceTargetIds(targetIds);
+  for (const graduateId of normalizePresenceTargetIds(graduateIds)) {
+    for (const targetId of normalizedTargets) {
+      io.in(userRoom(graduateId)).socketsJoin(presenceRoom(targetId));
+    }
+  }
 }
 
 function runInBackground(label, task) {
@@ -952,9 +1018,11 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('presence:sync', async (_payload, ack) => {
+  socket.on('presence:sync', async (payload, ack) => {
     try {
-      ack?.({ success: true, users: await getPresenceSnapshot(graduateId) });
+      const users = await getPresenceSnapshot(graduateId, payload?.graduate_ids);
+      await subscribeSocketToPresence(socket, users);
+      ack?.({ success: true, users });
     } catch (error) {
       ack?.({ success: false, error: error.message || 'Unable to synchronize presence' });
     }
@@ -1093,6 +1161,50 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('conversation:members-added', async (payload, ack) => {
+    try {
+      const roomId = Number(payload?.room_id || payload?.conversation_id || 0);
+      const systemMessageId = Number(payload?.system_message_id || 0);
+      const addedMemberIds = normalizePresenceTargetIds(payload?.added_member_ids);
+      const room = await requireRoomMember(roomId, graduateId);
+      if (Number(room.is_group) !== 1 || Number(room.created_by) !== graduateId) {
+        throw new Error('Only the group administrator can synchronize added members');
+      }
+      if (!systemMessageId || addedMemberIds.length === 0) {
+        throw new Error('The saved membership event is required');
+      }
+
+      const message = await fetchMessage(systemMessageId);
+      if (!message
+        || Number(message.room_id) !== roomId
+        || Number(message.graduate_id) !== graduateId
+        || message.message_type !== 'system') {
+        throw new Error('Saved membership event not found');
+      }
+
+      const participantIds = await getRoomParticipants(roomId);
+      if (addedMemberIds.some((memberId) => !participantIds.includes(memberId))) {
+        throw new Error('One or more added members are unavailable');
+      }
+
+      subscribeGraduateSocketsToPresence(participantIds, participantIds);
+      emitSavedMessage(roomId, participantIds, message);
+      io.to([socketRoom(roomId), ...participantIds.map((memberId) => userRoom(memberId))]).emit('conversation:members-updated', {
+        room_id: roomId,
+        member_ids: participantIds,
+        added_member_ids: addedMemberIds,
+      });
+      await emitConversationUpdated(roomId);
+      await Promise.all(addedMemberIds.map(async (memberId) => {
+        const users = await getPresenceSnapshot(memberId, participantIds);
+        io.to(userRoom(memberId)).emit('presence:snapshot', { users });
+      }));
+      ack?.({ success: true, message });
+    } catch (error) {
+      ack?.({ success: false, error: error.message || 'Unable to synchronize added members' });
+    }
+  });
+
   socket.on('conversation:policy-changed', async (payload, ack) => {
     try {
       const roomId = Number(payload?.room_id || payload?.conversation_id || 0);
@@ -1130,6 +1242,7 @@ io.on('connection', (socket) => {
     pendingMembershipChanges.delete(token);
     try {
       const roomId = Number(payload?.room_id || payload?.conversation_id || 0);
+      const systemMessageId = Number(payload?.system_message_id || 0);
       if (!prepared
         || prepared.socketId !== socket.id
         || prepared.graduateId !== graduateId
@@ -1151,6 +1264,23 @@ io.on('connection', (socket) => {
       );
       if (!rooms.length) throw new Error('Group membership has not been removed');
 
+      const participantIds = await getRoomParticipants(roomId);
+      if (systemMessageId > 0) {
+        const message = await fetchMessage(systemMessageId);
+        if (!message
+          || Number(message.room_id) !== roomId
+          || Number(message.graduate_id) !== graduateId
+          || message.message_type !== 'system') {
+          throw new Error('Saved group departure event not found');
+        }
+        emitSavedMessage(roomId, participantIds, message);
+      }
+      subscribeGraduateSocketsToPresence(participantIds, participantIds);
+      io.to([socketRoom(roomId), ...participantIds.map((memberId) => userRoom(memberId))]).emit('conversation:members-updated', {
+        room_id: roomId,
+        member_ids: participantIds,
+        removed_member_ids: [graduateId],
+      });
       await emitConversationUpdated(roomId);
       io.to(userRoom(graduateId)).emit('conversation:removed', { room_id: roomId });
       ack?.({ success: true });
@@ -1187,7 +1317,9 @@ io.on('connection', (socket) => {
       await emitUserStatus(graduateId, true);
       console.log(`[Realtime] User online: ${graduateId}`);
     }
-    socket.emit('presence:snapshot', { users: await getPresenceSnapshot(graduateId) });
+    const users = await getPresenceSnapshot(graduateId);
+    await subscribeSocketToPresence(socket, users);
+    socket.emit('presence:snapshot', { users });
     io.to(userRoom(graduateId)).emit('unread-count:updated', await getUnreadSummary(graduateId));
   });
 });

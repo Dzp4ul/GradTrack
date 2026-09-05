@@ -45,6 +45,9 @@ import type { Socket } from 'socket.io-client';
 import { API_BASE_URL, API_ENDPOINTS } from '../config/api';
 import RealtimeMessagingWorkspace from '../components/messaging/RealtimeMessagingWorkspace';
 import FloatingChatWindow from '../components/messaging/FloatingChatWindow';
+import AddGroupMembersModal from '../components/messaging/AddGroupMembersModal';
+import GraduateMiniProfile from '../components/messaging/GraduateMiniProfile';
+import type { GraduateMiniProfileData } from '../components/messaging/GraduateMiniProfile';
 import type {
   ConversationInformation,
   MessageAttachment,
@@ -980,6 +983,13 @@ export default function GraduatePortal() {
   const [conversationInfo, setConversationInfo] = useState<ConversationInformation | null>(null);
   const [conversationInfoLoading, setConversationInfoLoading] = useState(false);
   const [conversationActionLoading, setConversationActionLoading] = useState(false);
+  const [miniProfileGraduateId, setMiniProfileGraduateId] = useState<number | null>(null);
+  const [addMembersOpen, setAddMembersOpen] = useState(false);
+  const [addMemberCandidates, setAddMemberCandidates] = useState<ChatParticipant[]>([]);
+  const [addMemberSelectedIds, setAddMemberSelectedIds] = useState<number[]>([]);
+  const [addMemberSearch, setAddMemberSearch] = useState('');
+  const [addMembersLoading, setAddMembersLoading] = useState(false);
+  const [addMembersSubmitting, setAddMembersSubmitting] = useState(false);
 
   const [msgBox, setMsgBox] = useState<MessageBoxState>({
     isOpen: false,
@@ -1345,6 +1355,15 @@ export default function GraduatePortal() {
     }
   }, [authenticatedFetch, isViewingOwnProfile, profileTargetGraduateId]);
 
+  const loadMiniProfile = useCallback(async (graduateId: number): Promise<GraduateMiniProfileData> => {
+    const response = await authenticatedFetch(`${API_ENDPOINTS.GRADUATE_MINI_PROFILE}?graduate_id=${graduateId}`);
+    const profile = response.data?.profile as GraduateMiniProfileData | undefined;
+    if (!profile || Number(profile.graduate_id) !== graduateId) {
+      throw new Error('Graduate profile not found');
+    }
+    return profile;
+  }, [authenticatedFetch]);
+
   const loadProfileForumPosts = useCallback(async () => {
     const requestId = ++viewedProfilePostsRequestRef.current;
     if (!communityAvailable || profileTargetGraduateId <= 0) {
@@ -1602,7 +1621,10 @@ export default function GraduatePortal() {
     try {
       const response = await authenticatedFetch(`${API_ENDPOINTS.FORUM.CONVERSATION_INFO}?room_id=${roomId}`);
       if (requestId !== conversationInfoRequestRef.current || selectedRoomIdRef.current !== roomId) return null;
-      const nextInfo = (response.data as ConversationInformation | undefined) || null;
+      const responseInfo = (response.data as ConversationInformation | undefined) || null;
+      const nextInfo = responseInfo
+        ? { ...responseInfo, room: mergeKnownPresenceIntoRoom(responseInfo.room, chatPresenceByGraduateRef.current) }
+        : null;
       setConversationInfo(nextInfo);
       if (nextInfo?.room) upsertConversation(nextInfo.room);
       return nextInfo;
@@ -1639,6 +1661,8 @@ export default function GraduatePortal() {
     setRooms((current) => current.map((room) => ({ ...room, participants: room.participants.map(updateParticipant) })));
     setDirectory((current) => current.map(updateParticipant));
     setActiveRoom((current) => current ? { ...current, participants: current.participants.map(updateParticipant) } : current);
+    setConversationInfo((current) => current ? { ...current, room: { ...current.room, participants: current.room.participants.map(updateParticipant) } } : current);
+    setAddMemberCandidates((current) => current.map(updateParticipant));
   }, []);
 
   const applyPresenceStatus = useCallback((status: ChatPresenceStatus) => {
@@ -2301,6 +2325,13 @@ export default function GraduatePortal() {
       }
     };
 
+    const handleConversationMembersUpdated = (payload: { room_id?: number }) => {
+      const roomId = Number(payload.room_id || 0);
+      if (roomId && selectedRoomIdRef.current === roomId && conversationInfoOpenRef.current) {
+        void loadConversationInfo(roomId, true);
+      }
+    };
+
     const handleConversationRemoved = (payload: { room_id?: number }) => {
       const roomId = Number(payload.room_id || 0);
       if (!roomId) return;
@@ -2336,6 +2367,7 @@ export default function GraduatePortal() {
     socket.on('typing:update', handleTypingUpdate);
     socket.on('conversation:updated', handleConversationUpdated);
     socket.on('conversation:policy-updated', handleConversationPolicyUpdated);
+    socket.on('conversation:members-updated', handleConversationMembersUpdated);
     socket.on('conversation:removed', handleConversationRemoved);
     socket.on('unread-count:updated', handleUnreadUpdated);
     socket.on('user:status', applyPresenceStatus);
@@ -2369,6 +2401,7 @@ export default function GraduatePortal() {
       socket.off('typing:update', handleTypingUpdate);
       socket.off('conversation:updated', handleConversationUpdated);
       socket.off('conversation:policy-updated', handleConversationPolicyUpdated);
+      socket.off('conversation:members-updated', handleConversationMembersUpdated);
       socket.off('conversation:removed', handleConversationRemoved);
       socket.off('unread-count:updated', handleUnreadUpdated);
       socket.off('user:status', applyPresenceStatus);
@@ -2381,6 +2414,58 @@ export default function GraduatePortal() {
       chatTypingLastEmittedAtRef.current = 0;
     };
   }, [applyMessageDelivery, applyMessageRead, applyPresenceStatus, applyPresenceStatuses, chatRealtimeEnabled, currentGraduateId, loadChats, loadConversationInfo, upsertConversation]);
+
+  const sharedPresenceTargetKey = useMemo(() => {
+    const ids = new Set<number>();
+    rooms.forEach((room) => room.participants.forEach((participant) => ids.add(participant.graduate_id)));
+    directory.forEach((participant) => ids.add(participant.graduate_id));
+    forumPosts.forEach((post) => ids.add(post.graduate_id));
+    postComments.forEach((comment) => ids.add(comment.graduate_id));
+    mediaViewerComments.forEach((comment) => ids.add(comment.graduate_id));
+    addMemberCandidates.forEach((participant) => ids.add(participant.graduate_id));
+    if (miniProfileGraduateId) ids.add(miniProfileGraduateId);
+    return Array.from(ids).filter((id) => id > 0).sort((a, b) => a - b).slice(0, 500).join(',');
+  }, [addMemberCandidates, directory, forumPosts, mediaViewerComments, miniProfileGraduateId, postComments, rooms]);
+
+  useEffect(() => {
+    const socket = chatSocketRef.current;
+    if (!socket?.connected || chatConnectionStatus !== 'connected' || !sharedPresenceTargetKey) return;
+    const graduateIds = sharedPresenceTargetKey.split(',').map(Number).filter((id) => id > 0);
+    void emitWithAck<{ users?: ChatPresenceStatus[] }>(socket, 'presence:sync', { graduate_ids: graduateIds }).then((response) => {
+      if (response.success && Array.isArray(response.users)) applyPresenceStatuses(response.users);
+    });
+  }, [applyPresenceStatuses, chatConnectionStatus, sharedPresenceTargetKey]);
+
+  useEffect(() => {
+    if (!addMembersOpen || !selectedRoomId) return undefined;
+    let cancelled = false;
+    const timeout = window.setTimeout(() => {
+      setAddMembersLoading(true);
+      const endpoint = `${API_ENDPOINTS.FORUM.CONVERSATION_INFO}?room_id=${selectedRoomId}&action=eligible_members&q=${encodeURIComponent(addMemberSearch.trim())}`;
+      void authenticatedFetch(endpoint)
+        .then((response) => {
+          if (cancelled) return;
+          const candidates = Array.isArray(response.data?.candidates)
+            ? (response.data.candidates as ChatParticipant[]).map((participant) => mergeKnownPresenceIntoParticipant(participant, chatPresenceByGraduateRef.current))
+            : [];
+          setAddMemberCandidates(candidates);
+        })
+        .catch((error) => {
+          if (!cancelled) {
+            setAddMemberCandidates([]);
+            notify('error', error instanceof Error ? error.message : 'Unable to search eligible graduates', 'Add Members');
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setAddMembersLoading(false);
+        });
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [addMemberSearch, addMembersOpen, authenticatedFetch, notify, selectedRoomId]);
 
   useEffect(() => {
     if (!chatSurfaceOpen || chatConnectionStatus === 'connected') return undefined;
@@ -2894,6 +2979,12 @@ export default function GraduatePortal() {
     setChatModalOpen(true);
   };
 
+  const openMiniProfile = useCallback((graduateId?: number | null) => {
+    const targetId = Number(graduateId || 0);
+    if (!Number.isInteger(targetId) || targetId <= 0) return;
+    setMiniProfileGraduateId(targetId);
+  }, []);
+
   const openCommunityProfile = useCallback((graduateId?: number | null) => {
     const targetId = Number(graduateId || 0);
     if (!Number.isInteger(targetId) || targetId <= 0) {
@@ -2906,6 +2997,7 @@ export default function GraduatePortal() {
     setMediaViewer(null);
     setReportTarget(null);
     setChatModalOpen(false);
+    setMiniProfileGraduateId(null);
     setProfileMenuOpen(false);
     setMobileNavOpen(false);
     setActiveTab('my_profile');
@@ -3347,6 +3439,76 @@ export default function GraduatePortal() {
     void loadConversationInfo(selectedRoomId);
   };
 
+  const openAddMembers = () => {
+    if (!selectedRoomId || !activeRoom?.is_group || !conversationInfo?.permissions.can_add_members) return;
+    setAddMemberSearch('');
+    setAddMemberSelectedIds([]);
+    setAddMemberCandidates([]);
+    setAddMembersOpen(true);
+  };
+
+  const closeAddMembers = () => {
+    if (addMembersSubmitting) return;
+    setAddMembersOpen(false);
+    setAddMemberSelectedIds([]);
+    setAddMemberSearch('');
+  };
+
+  const toggleAddMember = (graduateId: number) => {
+    setAddMemberSelectedIds((current) => (
+      current.includes(graduateId)
+        ? current.filter((id) => id !== graduateId)
+        : [...current, graduateId]
+    ));
+  };
+
+  const handleAddMembers = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const roomId = selectedRoomIdRef.current;
+    const selectedIds = Array.from(new Set(addMemberSelectedIds));
+    if (!roomId || selectedIds.length === 0) return;
+
+    setAddMembersSubmitting(true);
+    try {
+      const response = await authenticatedFetch(API_ENDPOINTS.FORUM.CONVERSATION_INFO, {
+        method: 'POST',
+        body: JSON.stringify({ room_id: roomId, action: 'add_members', participant_ids: selectedIds }),
+      });
+      const updatedRoom = response.data?.room as ChatRoom | undefined;
+      const addedMembers = Array.isArray(response.data?.added_members) ? response.data.added_members as ChatParticipant[] : [];
+      const systemMessageId = Number(response.data?.system_message_id || 0);
+
+      if (updatedRoom) {
+        const synchronizedRoom = mergeKnownPresenceIntoRoom(updatedRoom, chatPresenceByGraduateRef.current);
+        upsertConversation(synchronizedRoom);
+        setConversationInfo((current) => current ? { ...current, room: synchronizedRoom } : current);
+      }
+
+      const socket = chatSocketRef.current;
+      if (socket?.connected && systemMessageId > 0) {
+        const realtimeResponse = await emitWithAck(socket, 'conversation:members-added', {
+          room_id: roomId,
+          system_message_id: systemMessageId,
+          added_member_ids: addedMembers.map((member) => member.graduate_id),
+        }, 5000);
+        if (!realtimeResponse.success && import.meta.env.DEV) {
+          console.warn(`[Realtime] Added members were saved but immediate broadcast failed: ${realtimeResponse.error || 'Unknown error'}`);
+        }
+      }
+
+      setAddMembersOpen(false);
+      setAddMemberSelectedIds([]);
+      setAddMemberSearch('');
+      await Promise.all([loadChats(), loadConversationInfo(roomId, true)]);
+      if (!socket?.connected) await loadRoomMessages(roomId, true);
+      notify('success', `${addedMembers.length} member${addedMembers.length === 1 ? '' : 's'} added to the group.`, 'Members Added');
+    } catch (error) {
+      notify('error', error instanceof Error ? error.message : 'Unable to add group members', 'Add Members');
+    } finally {
+      setAddMembersSubmitting(false);
+    }
+  };
+
   const publishConversationPolicyChange = (roomId: number) => {
     const socket = chatSocketRef.current;
     if (socket?.connected) {
@@ -3416,13 +3578,17 @@ export default function GraduatePortal() {
               // Leaving is committed by the authenticated REST endpoint; realtime is best effort.
             }
           }
-          await authenticatedFetch(API_ENDPOINTS.FORUM.CONVERSATION_INFO, {
+          const leaveResponse = await authenticatedFetch(API_ENDPOINTS.FORUM.CONVERSATION_INFO, {
             method: 'POST',
             body: JSON.stringify({ room_id: roomId, action: 'leave_group' }),
           });
           if (socket?.connected && leaveToken) {
             try {
-              await emitWithAck(socket, 'conversation:leave-confirm', { room_id: roomId, token: leaveToken }, 3000);
+              await emitWithAck(socket, 'conversation:leave-confirm', {
+                room_id: roomId,
+                token: leaveToken,
+                system_message_id: Number(leaveResponse.data?.system_message_id || 0),
+              }, 3000);
             } catch {
               // The local list is refreshed below even if the realtime acknowledgement is lost.
             }
@@ -3971,6 +4137,7 @@ export default function GraduatePortal() {
           resolveAssetUrl={resolveAssetUrl}
           onSearchChange={setChatSearch}
           onSelectRoom={(roomId) => {
+            setAddMembersOpen(false);
             setSelectedRoomId(roomId);
             setChatMobileConversationOpen(true);
           }}
@@ -3986,7 +4153,7 @@ export default function GraduatePortal() {
           onRemoveAttachment={removeChatAttachment}
           onRetryAttachment={handleRetryAttachment}
           onOpenNewConversation={() => openChatModal('direct')}
-          onOpenProfile={openCommunityProfile}
+          onOpenProfile={openMiniProfile}
           conversationInfoOpen={conversationInfoOpen}
           conversationInfo={conversationInfo?.room.id === selectedRoomId ? conversationInfo : null}
           conversationInfoLoading={conversationInfoLoading}
@@ -3996,6 +4163,7 @@ export default function GraduatePortal() {
           onBlockToggle={confirmBlockToggle}
           onLeaveGroup={confirmLeaveGroup}
           onGroupPhotoSelected={handleGroupPhotoSelected}
+          onOpenAddMembers={openAddMembers}
       />
     );
   };
@@ -4336,8 +4504,11 @@ export default function GraduatePortal() {
                         filteredForumPosts.map((post) => (
                           <article key={post.id} className="overflow-hidden rounded-[32px] border border-slate-200 bg-white shadow-sm">
                             <div className="flex items-start justify-between gap-4 px-5 py-5 sm:px-6">
-                              <button type="button" onClick={() => openCommunityProfile(post.graduate_id)} className="flex min-w-0 items-center gap-3 text-left">
-                                <Avatar src={resolveAssetUrl(post.author_profile_image_path)} label={post.author_name} size="md" />
+                              <button type="button" onClick={() => openMiniProfile(post.graduate_id)} className="flex min-w-0 items-center gap-3 text-left">
+                                <span className="relative shrink-0">
+                                  <Avatar src={resolveAssetUrl(post.author_profile_image_path)} label={post.author_name} size="md" />
+                                  {chatPresenceByGraduateRef.current.get(post.graduate_id)?.is_online && <span className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900" aria-label="Online" />}
+                                </span>
                                 <div className="min-w-0">
                                   <p className="truncate text-sm font-semibold text-slate-900 transition hover:text-blue-700">
                                     {post.author_name}
@@ -4417,7 +4588,10 @@ export default function GraduatePortal() {
                             ) : (
                               rooms.slice(0, 4).map((room) => (
                                   <button key={room.id} type="button" onClick={() => openFloatingChat(room.id)} className="flex w-full items-start gap-3 rounded-2xl border border-transparent bg-white px-3 py-3 text-left transition hover:border-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:hover:border-slate-700 dark:hover:bg-slate-800">
-                                    <Avatar src={resolveAssetUrl((room.is_group && room.group_image_url) || getRoomOtherParticipants(room, currentGraduateId)[0]?.profile_image_path || room.participants[0]?.profile_image_path)} label={getRoomLabel(room, currentGraduateId)} size="sm" />
+                                    <span className="relative shrink-0">
+                                      <Avatar src={resolveAssetUrl((room.is_group && room.group_image_url) || getRoomOtherParticipants(room, currentGraduateId)[0]?.profile_image_path || room.participants[0]?.profile_image_path)} label={getRoomLabel(room, currentGraduateId)} size="sm" />
+                                      {!room.is_group && getRoomOtherParticipants(room, currentGraduateId)[0]?.is_online && <span className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900" aria-label="Online" />}
+                                    </span>
                                     <div className="min-w-0 flex-1">
                                       <div className="flex items-start justify-between gap-3">
                                         <p className={`truncate text-sm text-slate-900 dark:text-slate-100 ${(room.unread_count || 0) > 0 ? 'font-bold' : 'font-semibold'}`}>{getRoomLabel(room, currentGraduateId)}</p>
@@ -4809,7 +4983,7 @@ export default function GraduatePortal() {
                       onToggleLike={(postId) => void toggleLike(postId)}
                       onEditPost={openForumComposer}
                       onDeletePost={handleForumDelete}
-                      onOpenProfile={openCommunityProfile}
+                      onOpenProfile={openMiniProfile}
                     />
                   )}
                 </section>
@@ -4991,7 +5165,7 @@ export default function GraduatePortal() {
           onZoomReset={() => setMediaViewerZoom(1)}
           onCommentDraftChange={setMediaViewerCommentDraft}
           onCommentSubmit={handleMediaViewerCommentSubmit}
-          onOpenProfile={openCommunityProfile}
+          onOpenProfile={openMiniProfile}
         />
       )}
 
@@ -5058,7 +5232,7 @@ export default function GraduatePortal() {
               <div className="grid flex-1 gap-0 overflow-hidden xl:grid-cols-[minmax(0,1fr)_360px]">
                 <div className="overflow-y-auto px-6 py-5">
                   <div className="flex items-start justify-between gap-4">
-                    <button type="button" onClick={() => openCommunityProfile(selectedPost.graduate_id)} className="flex items-center gap-3 text-left">
+                    <button type="button" onClick={() => openMiniProfile(selectedPost.graduate_id)} className="flex items-center gap-3 text-left">
                       <Avatar src={resolveAssetUrl(selectedPost.author_profile_image_path)} label={selectedPost.author_name} size="md" />
                       <div>
                         <p className="font-semibold text-slate-900 transition hover:text-blue-700">{selectedPost.author_name}</p>
@@ -5134,7 +5308,7 @@ export default function GraduatePortal() {
                         >
                           <div className="flex items-start gap-3">
                             <div className="min-w-0 flex-1">
-                              <button type="button" onClick={() => openCommunityProfile(comment.graduate_id)} className="flex items-start gap-3 text-left">
+                              <button type="button" onClick={() => openMiniProfile(comment.graduate_id)} className="flex items-start gap-3 text-left">
                                 <Avatar src={resolveAssetUrl(comment.commenter_profile_image_path)} label={comment.commenter_name} size="sm" />
                                 <span className="min-w-0">
                                   <span className="flex flex-wrap items-center gap-2">
@@ -5394,9 +5568,32 @@ export default function GraduatePortal() {
           onAttachmentSelected={handleChatAttachmentSelected}
           onRemoveAttachment={removeChatAttachment}
           onRetryAttachment={handleRetryAttachment}
-          onOpenProfile={openCommunityProfile}
+          onOpenProfile={openMiniProfile}
         />
       )}
+
+      <AddGroupMembersModal
+        open={addMembersOpen}
+        candidates={addMemberCandidates}
+        selectedIds={addMemberSelectedIds}
+        search={addMemberSearch}
+        loading={addMembersLoading}
+        submitting={addMembersSubmitting}
+        resolveAssetUrl={resolveAssetUrl}
+        onSearchChange={setAddMemberSearch}
+        onToggle={toggleAddMember}
+        onClose={closeAddMembers}
+        onSubmit={handleAddMembers}
+      />
+
+      <GraduateMiniProfile
+        graduateId={miniProfileGraduateId}
+        presence={miniProfileGraduateId ? chatPresenceByGraduateRef.current.get(miniProfileGraduateId) : null}
+        loadProfile={loadMiniProfile}
+        resolveAssetUrl={resolveAssetUrl}
+        onClose={() => setMiniProfileGraduateId(null)}
+        onViewProfile={(graduateId) => openCommunityProfile(graduateId)}
+      />
 
       <MessageBox
         isOpen={msgBox.isOpen}

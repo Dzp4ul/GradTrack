@@ -583,7 +583,7 @@ CREATE TABLE `forum_chat_messages` (
     `room_id` INT NOT NULL,
     `graduate_id` INT NOT NULL,
     `message` TEXT DEFAULT NULL,
-    `message_type` ENUM('text','image','file') DEFAULT 'text',
+    `message_type` ENUM('text','image','file','mixed','system') DEFAULT 'text',
     `file_url` VARCHAR(500) DEFAULT NULL,
     `file_name` VARCHAR(255) DEFAULT NULL,
     `file_size` INT DEFAULT NULL,

@@ -116,6 +116,25 @@ if (!function_exists('gradtrack_chat_column_is_nullable')) {
     }
 }
 
+if (!function_exists('gradtrack_chat_enum_has_value')) {
+    function gradtrack_chat_enum_has_value(PDO $db, string $table, string $column, string $value): bool
+    {
+        $stmt = $db->prepare("SELECT COLUMN_TYPE
+                              FROM INFORMATION_SCHEMA.COLUMNS
+                              WHERE TABLE_SCHEMA = DATABASE()
+                                AND TABLE_NAME = :table_name
+                                AND COLUMN_NAME = :column_name
+                              LIMIT 1");
+        $stmt->execute([
+            ':table_name' => $table,
+            ':column_name' => $column,
+        ]);
+
+        $columnType = (string) ($stmt->fetch(PDO::FETCH_ASSOC)['COLUMN_TYPE'] ?? '');
+        return str_contains($columnType, "'" . str_replace("'", "''", $value) . "'");
+    }
+}
+
 if (!function_exists('gradtrack_chat_ensure_schema')) {
     function gradtrack_chat_ensure_schema(PDO $db): void
     {
@@ -156,7 +175,7 @@ if (!function_exists('gradtrack_chat_ensure_schema')) {
         }
 
         $messageColumns = [
-            'message_type' => "ALTER TABLE forum_chat_messages ADD message_type ENUM('text', 'image', 'file', 'mixed') NOT NULL DEFAULT 'text' AFTER message",
+            'message_type' => "ALTER TABLE forum_chat_messages ADD message_type ENUM('text', 'image', 'file', 'mixed', 'system') NOT NULL DEFAULT 'text' AFTER message",
             'client_message_id' => "ALTER TABLE forum_chat_messages ADD client_message_id VARCHAR(80) NULL AFTER message_type",
             'delivered_at' => "ALTER TABLE forum_chat_messages ADD delivered_at DATETIME NULL AFTER client_message_id",
             'read_at' => "ALTER TABLE forum_chat_messages ADD read_at DATETIME NULL AFTER delivered_at",
@@ -168,6 +187,10 @@ if (!function_exists('gradtrack_chat_ensure_schema')) {
             if (!gradtrack_chat_column_exists($db, 'forum_chat_messages', $column)) {
                 $db->exec($sql);
             }
+        }
+
+        if (!gradtrack_chat_enum_has_value($db, 'forum_chat_messages', 'message_type', 'system')) {
+            $db->exec("ALTER TABLE forum_chat_messages MODIFY message_type ENUM('text', 'image', 'file', 'mixed', 'system') NOT NULL DEFAULT 'text'");
         }
 
         $indexes = [
@@ -414,8 +437,10 @@ if (!function_exists('gradtrack_chat_participants')) {
                                      p.code AS program_code,
                                      g.year_graduated,
                                      gpi.file_path AS profile_image_path,
-                                     gp.last_active_at
+                                     gp.last_active_at,
+                                     room.created_by
                               FROM forum_chat_members fcm
+                              JOIN forum_chat_rooms room ON room.id = fcm.room_id
                               JOIN graduates g ON g.id = fcm.graduate_id
                               LEFT JOIN graduate_accounts ga ON ga.graduate_id = g.id
                               LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
@@ -435,6 +460,7 @@ if (!function_exists('gradtrack_chat_participants')) {
                 'profile_image_path' => gradtrack_storage_media_access_reference($row['profile_image_path'] ?? null),
                 'last_active_at' => gradtrack_chat_datetime_iso($row['last_active_at'] ?? null),
                 'is_online' => false,
+                'role' => (int) ($row['created_by'] ?? 0) === (int) $row['graduate_id'] ? 'admin' : 'member',
             ];
         }
 

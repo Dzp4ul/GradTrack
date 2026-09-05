@@ -63,6 +63,207 @@ function gradtrack_conversation_info_attachments(PDO $db, int $roomId): array
     return ['photos' => $photos, 'files' => $files];
 }
 
+function gradtrack_conversation_info_assert_group_creator(array $room, int $graduateId): void
+{
+    if (empty($room['is_group'])) {
+        throw new RuntimeException('This action is only available for group conversations');
+    }
+    if ((int) $room['created_by'] !== $graduateId) {
+        throw new DomainException('Only the group administrator can add members');
+    }
+}
+
+function gradtrack_conversation_info_eligible_members(PDO $db, int $roomId, int $graduateId, string $query): array
+{
+    $room = gradtrack_chat_require_room_member($db, $roomId, $graduateId);
+    gradtrack_conversation_info_assert_group_creator($room, $graduateId);
+
+    $trimmedQuery = trim($query);
+    $boundedQuery = function_exists('mb_substr')
+        ? mb_substr($trimmedQuery, 0, 100)
+        : substr($trimmedQuery, 0, 100);
+    $search = '%' . $boundedQuery . '%';
+    $stmt = $db->prepare("SELECT g.id AS graduate_id,
+                                 TRIM(CONCAT(COALESCE(g.first_name, ''), ' ', COALESCE(g.last_name, ''))) AS full_name,
+                                 p.code AS program_code,
+                                 g.year_graduated,
+                                 gpi.file_path AS profile_image_path,
+                                 presence.last_active_at
+                          FROM graduates g
+                          JOIN graduate_accounts account
+                            ON account.graduate_id = g.id
+                           AND account.status = 'active'
+                           AND account.alumni_verification_status = 'approved'
+                          LEFT JOIN programs p ON p.id = g.program_id
+                          LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = account.id
+                          LEFT JOIN graduate_presence presence ON presence.graduate_id = g.id
+                          WHERE g.status = 'active'
+                            AND NOT EXISTS (
+                                SELECT 1
+                                FROM forum_chat_members member
+                                WHERE member.room_id = :room_id
+                                  AND member.graduate_id = g.id
+                            )
+                            AND (
+                                :empty_query = ''
+                                OR CONCAT_WS(' ', g.first_name, g.middle_name, g.last_name) LIKE :name_query
+                                OR COALESCE(p.code, '') LIKE :program_query
+                                OR COALESCE(p.name, '') LIKE :program_name_query
+                                OR CAST(g.year_graduated AS CHAR) LIKE :year_query
+                            )
+                          ORDER BY g.first_name ASC, g.last_name ASC
+                          LIMIT 50");
+    $stmt->execute([
+        ':room_id' => $roomId,
+        ':empty_query' => trim($query),
+        ':name_query' => $search,
+        ':program_query' => $search,
+        ':program_name_query' => $search,
+        ':year_query' => $search,
+    ]);
+
+    return array_map(static function (array $row): array {
+        return [
+            'graduate_id' => (int) $row['graduate_id'],
+            'full_name' => trim((string) ($row['full_name'] ?? '')) ?: 'Graduate',
+            'program_code' => $row['program_code'] ?? null,
+            'year_graduated' => $row['year_graduated'] !== null ? (int) $row['year_graduated'] : null,
+            'profile_image_path' => gradtrack_storage_media_access_reference($row['profile_image_path'] ?? null),
+            'last_active_at' => gradtrack_chat_datetime_iso($row['last_active_at'] ?? null),
+            'is_online' => false,
+            'role' => 'member',
+        ];
+    }, $stmt->fetchAll(PDO::FETCH_ASSOC));
+}
+
+function gradtrack_conversation_info_member_event_names(array $members): string
+{
+    $names = array_values(array_map(
+        static fn (array $member): string => trim((string) ($member['full_name'] ?? '')) ?: 'a graduate',
+        $members
+    ));
+    if (count($names) <= 2) {
+        return implode(' and ', $names);
+    }
+    return $names[0] . ', ' . $names[1] . ', and ' . (count($names) - 2) . ' others';
+}
+
+function gradtrack_conversation_info_system_message(
+    PDO $db,
+    int $roomId,
+    int $graduateId,
+    string $message,
+    string $eventType
+): int {
+    $clientMessageId = 'system-' . $eventType . '-' . bin2hex(random_bytes(12));
+    $stmt = $db->prepare("INSERT INTO forum_chat_messages
+                            (room_id, graduate_id, message, message_type, client_message_id)
+                          VALUES
+                            (:room_id, :graduate_id, :message, 'system', :client_message_id)");
+    $stmt->execute([
+        ':room_id' => $roomId,
+        ':graduate_id' => $graduateId,
+        ':message' => $message,
+        ':client_message_id' => $clientMessageId,
+    ]);
+    $messageId = (int) $db->lastInsertId();
+
+    $roomStmt = $db->prepare('UPDATE forum_chat_rooms SET last_message_at = NOW(), updated_at = NOW() WHERE id = :room_id');
+    $roomStmt->execute([':room_id' => $roomId]);
+    return $messageId;
+}
+
+function gradtrack_conversation_info_add_members(PDO $db, int $roomId, int $graduateId, array $rawIds): array
+{
+    $requestedIds = [];
+    foreach ($rawIds as $rawId) {
+        $id = (int) $rawId;
+        if ($id > 0) {
+            $requestedIds[$id] = $id;
+        }
+    }
+    $requestedIds = array_values($requestedIds);
+    if (count($requestedIds) === 0 || count($requestedIds) > 50) {
+        throw new RuntimeException('Select between 1 and 50 eligible graduates');
+    }
+
+    $db->beginTransaction();
+    try {
+        $roomStmt = $db->prepare('SELECT id, created_by, is_group FROM forum_chat_rooms WHERE id = :room_id FOR UPDATE');
+        $roomStmt->execute([':room_id' => $roomId]);
+        $room = $roomStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$room) {
+            throw new RuntimeException('Group conversation not found');
+        }
+        $room['is_group'] = (int) $room['is_group'] === 1;
+        gradtrack_conversation_info_assert_group_creator($room, $graduateId);
+
+        $membershipStmt = $db->prepare('SELECT graduate_id FROM forum_chat_members WHERE room_id = :room_id FOR UPDATE');
+        $membershipStmt->execute([':room_id' => $roomId]);
+        $existingIds = array_map('intval', $membershipStmt->fetchAll(PDO::FETCH_COLUMN));
+        if (!in_array($graduateId, $existingIds, true)) {
+            throw new DomainException('You are no longer a member of this group');
+        }
+        if (array_intersect($requestedIds, $existingIds)) {
+            throw new RuntimeException('One or more selected graduates are already members');
+        }
+
+        $params = [];
+        $placeholders = gradtrack_chat_placeholders($requestedIds, 'new_member', $params);
+        $graduateStmt = $db->prepare("SELECT g.id AS graduate_id,
+                                             TRIM(CONCAT(COALESCE(g.first_name, ''), ' ', COALESCE(g.last_name, ''))) AS full_name
+                                      FROM graduates g
+                                      JOIN graduate_accounts account
+                                        ON account.graduate_id = g.id
+                                       AND account.status = 'active'
+                                       AND account.alumni_verification_status = 'approved'
+                                      WHERE g.status = 'active'
+                                        AND g.id IN ($placeholders)
+                                      ORDER BY g.first_name ASC, g.last_name ASC");
+        $graduateStmt->execute($params);
+        $eligible = $graduateStmt->fetchAll(PDO::FETCH_ASSOC);
+        if (count($eligible) !== count($requestedIds)) {
+            throw new RuntimeException('One or more selected graduates are unavailable');
+        }
+
+        $insertStmt = $db->prepare('INSERT INTO forum_chat_members (room_id, graduate_id) VALUES (:room_id, :graduate_id)');
+        foreach ($requestedIds as $newMemberId) {
+            $insertStmt->execute([':room_id' => $roomId, ':graduate_id' => $newMemberId]);
+        }
+
+        $actorStmt = $db->prepare("SELECT TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))) FROM graduates WHERE id = :graduate_id");
+        $actorStmt->execute([':graduate_id' => $graduateId]);
+        $actorName = trim((string) $actorStmt->fetchColumn()) ?: 'A group administrator';
+        $systemMessageId = gradtrack_conversation_info_system_message(
+            $db,
+            $roomId,
+            $graduateId,
+            $actorName . ' added ' . gradtrack_conversation_info_member_event_names($eligible) . ' to the group.',
+            'members-added'
+        );
+
+        $db->commit();
+    } catch (Throwable $error) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+        throw $error;
+    }
+
+    $room = gradtrack_conversation_info_room($db, $roomId, $graduateId);
+    $addedIdLookup = array_fill_keys($requestedIds, true);
+    $addedMembers = array_values(array_filter(
+        $room['participants'],
+        static fn (array $participant): bool => isset($addedIdLookup[(int) $participant['graduate_id']])
+    ));
+
+    return [
+        'room' => $room,
+        'added_members' => $addedMembers,
+        'system_message_id' => $systemMessageId,
+    ];
+}
+
 function gradtrack_conversation_info_serve_avatar(PDO $db, int $roomId, int $graduateId): never
 {
     $room = gradtrack_chat_require_room_member($db, $roomId, $graduateId);
@@ -175,6 +376,21 @@ try {
             gradtrack_conversation_info_serve_avatar($db, $roomId, $currentGraduateId);
         }
 
+        if ((string) ($_GET['action'] ?? '') === 'eligible_members') {
+            echo json_encode([
+                'success' => true,
+                'data' => [
+                    'candidates' => gradtrack_conversation_info_eligible_members(
+                        $db,
+                        $roomId,
+                        $currentGraduateId,
+                        (string) ($_GET['q'] ?? '')
+                    ),
+                ],
+            ]);
+            exit;
+        }
+
         $room = gradtrack_conversation_info_room($db, $roomId, $currentGraduateId);
         $attachments = gradtrack_conversation_info_attachments($db, $roomId);
         $block = !empty($room['is_group']) ? null : gradtrack_chat_direct_block_state($db, $roomId, $currentGraduateId);
@@ -189,6 +405,7 @@ try {
                 'permissions' => [
                     'can_change_group_photo' => !empty($room['is_group']),
                     'can_leave_group' => !empty($room['is_group']) && (int) $room['participant_count'] > 1,
+                    'can_add_members' => !empty($room['is_group']) && (int) $room['created_by'] === $currentGraduateId,
                 ],
             ],
         ]);
@@ -206,6 +423,21 @@ try {
         if ($action === 'group_photo') {
             $room = gradtrack_conversation_info_change_photo($db, $roomId, $currentGraduateId);
             echo json_encode(['success' => true, 'message' => 'Group photo updated', 'data' => ['room' => $room]]);
+            exit;
+        }
+
+        if ($action === 'add_members') {
+            $result = gradtrack_conversation_info_add_members(
+                $db,
+                $roomId,
+                $currentGraduateId,
+                (array) ($data['participant_ids'] ?? [])
+            );
+            echo json_encode([
+                'success' => true,
+                'message' => count($result['added_members']) === 1 ? 'Member added' : 'Members added',
+                'data' => $result,
+            ]);
             exit;
         }
 
@@ -240,6 +472,7 @@ try {
             $roomLockStmt = $db->prepare("SELECT created_by, is_group FROM forum_chat_rooms WHERE id = :room_id FOR UPDATE");
             $memberStmt = $db->prepare("SELECT graduate_id FROM forum_chat_members WHERE room_id = :room_id ORDER BY joined_at ASC, id ASC FOR UPDATE");
             $db->beginTransaction();
+            $systemMessageId = 0;
             try {
                 $roomLockStmt->execute([':room_id' => $roomId]);
                 $lockedRoom = $roomLockStmt->fetch(PDO::FETCH_ASSOC);
@@ -263,6 +496,17 @@ try {
                     $ownerStmt->execute([':created_by' => $nextCreator, ':room_id' => $roomId]);
                 }
 
+                $leaverStmt = $db->prepare("SELECT TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))) FROM graduates WHERE id = :graduate_id");
+                $leaverStmt->execute([':graduate_id' => $currentGraduateId]);
+                $leaverName = trim((string) $leaverStmt->fetchColumn()) ?: 'A graduate';
+                $systemMessageId = gradtrack_conversation_info_system_message(
+                    $db,
+                    $roomId,
+                    $currentGraduateId,
+                    $leaverName . ' left the group.',
+                    'member-left'
+                );
+
                 $leaveStmt = $db->prepare("DELETE FROM forum_chat_members WHERE room_id = :room_id AND graduate_id = :graduate_id");
                 $leaveStmt->execute([':room_id' => $roomId, ':graduate_id' => $currentGraduateId]);
                 if ($leaveStmt->rowCount() !== 1) {
@@ -276,7 +520,11 @@ try {
                 throw $error;
             }
 
-            echo json_encode(['success' => true, 'message' => 'You left the group', 'data' => ['room_id' => $roomId]]);
+            echo json_encode([
+                'success' => true,
+                'message' => 'You left the group',
+                'data' => ['room_id' => $roomId, 'system_message_id' => $systemMessageId],
+            ]);
             exit;
         }
 

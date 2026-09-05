@@ -21,6 +21,7 @@ import {
   Send,
   Smile,
   Upload,
+  UserPlus,
   Users,
   X,
 } from 'lucide-react';
@@ -34,6 +35,7 @@ import type {
 } from './types';
 import type { RealtimeChatStatus } from '../../services/realtimeChat';
 import ProfileAvatar from '../ProfileAvatar';
+import { formatPresenceLabel } from '../../utils/presence';
 
 interface CurrentGraduate {
   graduate_id: number;
@@ -85,6 +87,7 @@ interface RealtimeMessagingWorkspaceProps {
   onBlockToggle: () => void;
   onLeaveGroup: () => void;
   onGroupPhotoSelected: (file: File) => void;
+  onOpenAddMembers: () => void;
 }
 
 function parseDate(value?: string | null) {
@@ -144,29 +147,6 @@ function formatConversationTime(value?: string | null) {
   });
 }
 
-function formatLastActiveTime(value?: string | null) {
-  const parsed = parseDate(value);
-  if (!parsed) return '';
-
-  const seconds = Math.max(0, Math.floor((Date.now() - parsed.getTime()) / 1000));
-  if (seconds < 60) return 'just now';
-
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
-
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`;
-
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  if (isSameDay(parsed, yesterday)) return `yesterday at ${formatShortTime(value)}`;
-
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days} day${days === 1 ? '' : 's'} ago`;
-
-  return `${parsed.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: parsed.getFullYear() === new Date().getFullYear() ? undefined : 'numeric' })} at ${formatShortTime(value)}`;
-}
-
 function formatBytes(value?: number | null) {
   if (!value || value <= 0) return '';
   if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
@@ -195,11 +175,7 @@ function getRecipient(room: MessagingRoom | null, currentGraduateId: number) {
 }
 
 function getPresenceLabel(participant: MessagingParticipant | null) {
-  if (!participant) return 'Offline';
-  if (participant.is_online) return 'Online';
-  const lastActive = parseDate(participant.last_active_at);
-  if (!lastActive) return 'Offline';
-  return `Last active ${formatLastActiveTime(participant.last_active_at)}`;
+  return formatPresenceLabel(participant);
 }
 
 function PresenceText({ participant }: { participant?: MessagingParticipant | null }) {
@@ -546,31 +522,53 @@ function AttachmentTile({
 
 function MessageBubble({
   message,
+  showSenderIdentity,
   resolveAssetUrl,
   onRetry,
   onImageOpen,
   onOpenProfile,
 }: {
   message: MessagingMessage;
+  showSenderIdentity: boolean;
   resolveAssetUrl: (path?: string | null) => string;
   onRetry: (message: MessagingMessage) => void;
   onImageOpen: (attachment: MessageAttachment) => void;
   onOpenProfile?: (graduateId?: number | null) => void;
 }) {
+  if (message.message_type === 'system') {
+    return (
+      <div className="flex justify-center px-4 py-2">
+        <p className="max-w-xl rounded-full bg-slate-200/70 px-4 py-2 text-center text-xs font-semibold text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+          {message.message}
+        </p>
+      </div>
+    );
+  }
+
   const isMine = message.is_mine;
   const attachments = message.attachments || [];
   const hasText = message.message.trim().length > 0;
   const metadataClass = isMine ? 'justify-end text-slate-500' : 'text-slate-400';
 
-  const senderLink = !isMine ? (
-    <button type="button" onClick={() => onOpenProfile?.(message.graduate_id)} className="mb-1 block text-left text-xs font-bold text-slate-500 transition hover:text-blue-700">
+  const senderLink = !isMine && showSenderIdentity ? (
+    <button type="button" onClick={() => onOpenProfile?.(message.graduate_id)} className="mb-1 block text-left text-xs font-bold text-slate-500 transition hover:text-blue-700 dark:text-slate-400 dark:hover:text-blue-300">
       {message.sender_name}
     </button>
   ) : null;
 
   return (
     <div className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
+      {!isMine && (
+        <div className="mr-2 w-10 shrink-0 self-start">
+          {showSenderIdentity && (
+            <button type="button" onClick={() => onOpenProfile?.(message.graduate_id)} aria-label={`Open ${message.sender_name} mini profile`}>
+              <Avatar src={message.sender_profile_image_path} label={message.sender_name} size="sm" resolveAssetUrl={resolveAssetUrl} />
+            </button>
+          )}
+        </div>
+      )}
       <div className={`flex max-w-[82%] flex-col gap-2 sm:max-w-[72%] ${isMine ? 'items-end' : 'items-start'}`}>
+        {senderLink}
         {hasText && (
           <div className={`rounded-lg px-4 py-3 text-sm shadow-sm ${
             isMine
@@ -579,7 +577,6 @@ function MessageBubble({
                 : 'bg-blue-700 text-white'
               : 'border border-slate-200 bg-white text-slate-800'
           }`}>
-            {senderLink}
             <p className="whitespace-pre-wrap break-words leading-6">{message.message}</p>
             <div className={`mt-2 flex items-center gap-1 text-[11px] ${isMine ? 'justify-end text-blue-100' : 'text-slate-400'}`}>
               <span>{formatShortTime(message.created_at)}</span>
@@ -588,9 +585,8 @@ function MessageBubble({
           </div>
         )}
 
-        {attachments.map((attachment, index) => (
+        {attachments.map((attachment) => (
           <div key={attachment.id} className={`flex max-w-full flex-col ${isMine ? 'items-end' : 'items-start'}`}>
-            {!hasText && index === 0 && senderLink}
             <AttachmentTile attachment={attachment} resolveAssetUrl={resolveAssetUrl} onImageOpen={onImageOpen} />
             <div className={`mt-1 flex items-center gap-1 px-1 text-[11px] ${metadataClass}`}>
               <span>{formatShortTime(message.created_at)}</span>
@@ -669,16 +665,24 @@ function MessageList({
   const resizeFrameRef = useRef<number | null>(null);
 
   const items = useMemo(() => {
-    const output: Array<{ type: 'date'; id: string; label: string } | { type: 'message'; id: string; message: MessagingMessage }> = [];
+    const output: Array<{ type: 'date'; id: string; label: string } | { type: 'message'; id: string; message: MessagingMessage; showSenderIdentity: boolean }> = [];
     let lastDate = '';
+    let previousMessage: MessagingMessage | null = null;
 
     messages.forEach((message) => {
       const label = formatMessageDate(message.created_at);
       if (label !== lastDate) {
         output.push({ type: 'date', id: `date-${message.id}-${label}`, label });
         lastDate = label;
+        previousMessage = null;
       }
-      output.push({ type: 'message', id: `message-${message.client_message_id || message.id}`, message });
+      const showSenderIdentity = !message.is_mine
+        && message.message_type !== 'system'
+        && (!previousMessage
+          || previousMessage.message_type === 'system'
+          || previousMessage.graduate_id !== message.graduate_id);
+      output.push({ type: 'message', id: `message-${message.client_message_id || message.id}`, message, showSenderIdentity });
+      previousMessage = message;
     });
 
     return output;
@@ -836,7 +840,7 @@ function MessageList({
                   <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-500 shadow-sm">{item.label}</span>
                 </div>
               ) : (
-                <MessageBubble key={item.id} message={item.message} resolveAssetUrl={resolveAssetUrl} onRetry={onRetryMessage} onImageOpen={onImageOpen} onOpenProfile={onOpenProfile} />
+                <MessageBubble key={item.id} message={item.message} showSenderIdentity={item.showSenderIdentity} resolveAssetUrl={resolveAssetUrl} onRetry={onRetryMessage} onImageOpen={onImageOpen} onOpenProfile={onOpenProfile} />
               ))}
               <TypingIndicator names={typingNames} />
             </div>
@@ -1165,6 +1169,7 @@ function ConversationInfoPanel({
   onBlockToggle,
   onLeaveGroup,
   onGroupPhotoSelected,
+  onOpenAddMembers,
 }: {
   info: ConversationInformation | null;
   loading: boolean;
@@ -1177,10 +1182,12 @@ function ConversationInfoPanel({
   onBlockToggle: () => void;
   onLeaveGroup: () => void;
   onGroupPhotoSelected: (file: File) => void;
+  onOpenAddMembers: () => void;
 }) {
   const photoInputRef = useRef<HTMLInputElement | null>(null);
   const [photosOpen, setPhotosOpen] = useState(true);
   const [filesOpen, setFilesOpen] = useState(true);
+  const [membersOpen, setMembersOpen] = useState(true);
   const room = info?.room || null;
   const recipient = getRecipient(room, currentGraduateId);
   const label = room ? getRoomLabel(room, currentGraduateId) : 'Conversation information';
@@ -1216,6 +1223,40 @@ function ConversationInfoPanel({
                 </span>
               )}
             </div>
+
+            {room.is_group && (
+              <section className="border-t border-slate-200 pt-4 dark:border-slate-700">
+                <button type="button" onClick={() => setMembersOpen((open) => !open)} className="flex w-full items-center justify-between py-2 text-left font-bold text-slate-900 dark:text-slate-100" aria-expanded={membersOpen}>
+                  <span>Members <span className="font-medium text-slate-400">({room.participants.length})</span></span>
+                  {membersOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+                </button>
+                {membersOpen && (
+                  <div className="mt-2 max-h-64 space-y-1 overflow-y-auto pr-1">
+                    {room.participants.map((member) => {
+                      const isAdmin = member.role === 'admin' || member.graduate_id === room.created_by;
+                      return (
+                        <button key={member.graduate_id} type="button" onClick={() => onOpenProfile?.(member.graduate_id)} className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800">
+                          <span className="relative shrink-0">
+                            <Avatar src={member.profile_image_path} label={member.full_name} size="sm" resolveAssetUrl={resolveAssetUrl} />
+                            {member.is_online && <span className="absolute bottom-0 right-0 h-3 w-3 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900" aria-label="Online" />}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-bold text-slate-900 dark:text-slate-100">{member.full_name}</span>
+                            <span className="block truncate text-xs text-slate-500 dark:text-slate-400">{member.program_code || 'Graduate'}{member.year_graduated ? ` • Batch ${member.year_graduated}` : ''}</span>
+                          </span>
+                          {isAdmin && <span className="rounded-full bg-blue-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-blue-700 dark:bg-blue-950 dark:text-blue-300">Admin</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                {info.permissions.can_add_members && (
+                  <button type="button" onClick={onOpenAddMembers} disabled={actionLoading} className="mt-2 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-bold text-blue-700 transition hover:bg-blue-50 disabled:opacity-50 dark:text-blue-300 dark:hover:bg-blue-950/50">
+                    <UserPlus className="h-5 w-5" /> Add Members
+                  </button>
+                )}
+              </section>
+            )}
 
             <section className="border-t border-slate-200 pt-4">
               <button type="button" onClick={() => setPhotosOpen((open) => !open)} className="flex w-full items-center justify-between py-2 text-left font-bold text-slate-900" aria-expanded={photosOpen}>
@@ -1332,6 +1373,7 @@ export default function RealtimeMessagingWorkspace({
   onBlockToggle,
   onLeaveGroup,
   onGroupPhotoSelected,
+  onOpenAddMembers,
 }: RealtimeMessagingWorkspaceProps) {
   const [previewAttachment, setPreviewAttachment] = useState<MessageAttachment | null>(null);
 
@@ -1408,6 +1450,7 @@ export default function RealtimeMessagingWorkspace({
               onBlockToggle={onBlockToggle}
               onLeaveGroup={onLeaveGroup}
               onGroupPhotoSelected={onGroupPhotoSelected}
+              onOpenAddMembers={onOpenAddMembers}
             />
           )}
         </div>

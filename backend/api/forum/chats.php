@@ -67,6 +67,8 @@ function gradtrack_forum_chats_validate_participants(PDO $db, array $participant
                           LEFT JOIN programs p ON p.id = g.program_id
                           LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
                           WHERE ga.status = 'active'
+                            AND ga.alumni_verification_status = 'approved'
+                            AND g.status = 'active'
                             AND g.id IN ($placeholders)");
     $stmt->execute($params);
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -98,6 +100,8 @@ function gradtrack_forum_chats_directory(PDO $db, int $currentGraduateId): array
                           LEFT JOIN programs p ON p.id = g.program_id
                           LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
                           WHERE ga.status = 'active'
+                            AND ga.alumni_verification_status = 'approved'
+                            AND g.status = 'active'
                             AND g.id <> :graduate_id
                           ORDER BY g.first_name ASC, g.last_name ASC");
     $stmt->execute([':graduate_id' => $currentGraduateId]);
@@ -130,8 +134,10 @@ function gradtrack_forum_chats_participants_by_room(PDO $db, array $roomIds): ar
                                  p.code AS program_code,
                                  g.year_graduated,
                                  gpi.file_path AS profile_image_path,
-                                 gp.last_active_at
+                                 gp.last_active_at,
+                                 room.created_by
                           FROM forum_chat_members fcm
+                          JOIN forum_chat_rooms room ON room.id = fcm.room_id
                           JOIN graduates g ON g.id = fcm.graduate_id
                           LEFT JOIN graduate_accounts ga ON ga.graduate_id = g.id
                           LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
@@ -156,6 +162,7 @@ function gradtrack_forum_chats_participants_by_room(PDO $db, array $roomIds): ar
             'profile_image_path' => gradtrack_storage_media_access_reference($row['profile_image_path'] ?? null),
             'last_active_at' => gradtrack_chat_datetime_iso($row['last_active_at'] ?? null),
             'is_online' => false,
+            'role' => (int) ($row['created_by'] ?? 0) === (int) $row['graduate_id'] ? 'admin' : 'member',
         ];
     }
 
