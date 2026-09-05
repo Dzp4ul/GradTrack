@@ -404,7 +404,19 @@ function alumni_registry_handle_pending_accounts(PDO $db): void
     }
 
     $whereClause = count($where) > 0 ? ' WHERE ' . implode(' AND ', $where) : '';
+    $requestedPage = isset($_GET['page']) ? max(1, (int) $_GET['page']) : 1;
     $limit = isset($_GET['limit']) ? min(100, max(5, (int) $_GET['limit'])) : 25;
+
+    $countStmt = $db->prepare("SELECT COUNT(DISTINCT ga.id) AS total
+        FROM graduate_accounts ga
+        JOIN graduates g ON g.id = ga.graduate_id AND g.archived_at IS NULL
+        LEFT JOIN programs p ON p.id = g.program_id
+        {$whereClause}");
+    $countStmt->execute($params);
+    $total = (int) ($countStmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0);
+    $pages = max(1, (int) ceil($total / max(1, $limit)));
+    $page = min($requestedPage, $pages);
+    $offset = ($page - 1) * $limit;
 
     $stmt = $db->prepare(alumni_registry_account_review_select() . "
         {$whereClause}
@@ -416,7 +428,7 @@ function alumni_registry_handle_pending_accounts(PDO $db): void
             END,
             COALESCE(ga.alumni_verification_submitted_at, ga.created_at) DESC,
             ga.id DESC
-        LIMIT {$limit}");
+        LIMIT {$limit} OFFSET {$offset}");
     $stmt->execute($params);
 
     $accounts = array_map('alumni_registry_cast_account_review_row', $stmt->fetchAll(PDO::FETCH_ASSOC));
@@ -426,6 +438,12 @@ function alumni_registry_handle_pending_accounts(PDO $db): void
         'filter' => [
             'verification_status' => $verificationStatus,
             'limit' => $limit,
+        ],
+        'pagination' => [
+            'total' => $total,
+            'page' => $page,
+            'limit' => $limit,
+            'pages' => $pages,
         ],
     ]);
 }

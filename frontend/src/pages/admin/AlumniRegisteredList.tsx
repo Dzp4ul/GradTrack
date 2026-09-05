@@ -394,6 +394,8 @@ export default function AlumniRegisteredList() {
   const [actionKey, setActionKey] = useState('');
   const [reviewFilter, setReviewFilter] = useState<AccountReviewFilter>('pending');
   const [reviewSearch, setReviewSearch] = useState('');
+  const [reviewPage, setReviewPage] = useState(1);
+  const [reviewPagination, setReviewPagination] = useState<Pagination>({ total: 0, page: 1, limit: 10, pages: 1 });
   const [search, setSearch] = useState('');
   const [courseId, setCourseId] = useState('');
   const [courseCode, setCourseCode] = useState('');
@@ -503,7 +505,8 @@ export default function AlumniRegisteredList() {
       const params = new URLSearchParams({
         action: 'pending_accounts',
         verification_status: reviewFilter,
-        limit: '50',
+        page: String(reviewPage),
+        limit: '10',
       });
       if (reviewSearch.trim()) params.set('search', reviewSearch.trim());
 
@@ -516,8 +519,12 @@ export default function AlumniRegisteredList() {
       }
 
       setReviewAccounts(Array.isArray(data.data) ? data.data : []);
+      const nextPagination = data.pagination || { total: 0, page: reviewPage, limit: 10, pages: 1 };
+      setReviewPagination(nextPagination);
+      if (nextPagination.page !== reviewPage) setReviewPage(nextPagination.page);
     } catch (error) {
       setReviewAccounts([]);
+      setReviewPagination({ total: 0, page: 1, limit: 10, pages: 1 });
       setMsgBox({
         isOpen: true,
         type: 'error',
@@ -526,7 +533,7 @@ export default function AlumniRegisteredList() {
     } finally {
       setReviewLoading(false);
     }
-  }, [reviewFilter, reviewSearch]);
+  }, [reviewFilter, reviewPage, reviewSearch]);
 
   useEffect(() => {
     void fetchSummary();
@@ -1133,9 +1140,17 @@ export default function AlumniRegisteredList() {
         summaryLoading={summaryLoading}
         filter={reviewFilter}
         search={reviewSearch}
+        pagination={reviewPagination}
         actionKey={actionKey}
-        onFilterChange={setReviewFilter}
-        onSearchChange={setReviewSearch}
+        onFilterChange={(nextFilter) => {
+          setReviewFilter(nextFilter);
+          setReviewPage(1);
+        }}
+        onSearchChange={(nextSearch) => {
+          setReviewSearch(nextSearch);
+          setReviewPage(1);
+        }}
+        onPageChange={setReviewPage}
         onRefresh={fetchReviewAccounts}
         onView={setViewAccount}
         onApprove={confirmApproveAccount}
@@ -1522,9 +1537,11 @@ function AccountReviewPanel({
   summaryLoading,
   filter,
   search,
+  pagination,
   actionKey,
   onFilterChange,
   onSearchChange,
+  onPageChange,
   onRefresh,
   onView,
   onApprove,
@@ -1536,9 +1553,11 @@ function AccountReviewPanel({
   summaryLoading: boolean;
   filter: AccountReviewFilter;
   search: string;
+  pagination: Pagination;
   actionKey: string;
   onFilterChange: (filter: AccountReviewFilter) => void;
   onSearchChange: (search: string) => void;
+  onPageChange: (page: number) => void;
   onRefresh: () => void | Promise<void>;
   onView: (account: ReviewAccount) => void;
   onApprove: (account: ReviewAccount) => void;
@@ -1670,6 +1689,35 @@ function AccountReviewPanel({
             )}
           </tbody>
         </table>
+      </div>
+
+      <div className="flex flex-col gap-3 border-t bg-gray-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-gray-500">
+          Showing {pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.limit + 1}-{Math.min(pagination.total, pagination.page * pagination.limit)} of {pagination.total}
+        </p>
+        <div className="flex items-center gap-3">
+          <p className="text-sm text-gray-500">Page {pagination.page} of {Math.max(1, pagination.pages)}</p>
+          <div className="flex gap-1">
+            <button
+              type="button"
+              onClick={() => onPageChange(Math.max(1, pagination.page - 1))}
+              disabled={loading || pagination.page <= 1}
+              className="rounded-lg p-2 hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="Previous verification page"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onPageChange(Math.min(Math.max(1, pagination.pages), pagination.page + 1))}
+              disabled={loading || pagination.page >= Math.max(1, pagination.pages)}
+              className="rounded-lg p-2 hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="Next verification page"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
       </div>
     </section>
   );
