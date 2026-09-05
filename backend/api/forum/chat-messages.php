@@ -175,6 +175,12 @@ function gradtrack_forum_chat_messages_fetch_client_batch(PDO $db, int $roomId, 
 
 function gradtrack_forum_chat_messages_insert(PDO $db, int $roomId, int $currentGraduateId, string $message, string $clientMessageId, array $attachmentIds): array
 {
+    try {
+        gradtrack_chat_assert_message_allowed($db, $roomId, $currentGraduateId);
+    } catch (DomainException $e) {
+        gradtrack_forum_chat_messages_json_error(403, $e->getMessage());
+    }
+
     $message = gradtrack_chat_normalize_message($message);
     $messageLength = function_exists('mb_strlen') ? mb_strlen($message, 'UTF-8') : strlen($message);
     if ($messageLength > 5000) {

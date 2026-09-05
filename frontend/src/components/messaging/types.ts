@@ -39,6 +39,23 @@ export interface MessagingRoom {
   unread_count?: number;
   participants: MessagingParticipant[];
   participant_count: number;
+  group_image_url?: string | null;
+  group_image_updated_at?: string | null;
+}
+
+export interface ConversationInformation {
+  room: MessagingRoom;
+  photos: MessageAttachment[];
+  files: MessageAttachment[];
+  block: {
+    blocked: boolean;
+    blocked_by_me: boolean;
+    blocked_by_other: boolean;
+  } | null;
+  permissions: {
+    can_change_group_photo: boolean;
+    can_leave_group: boolean;
+  };
 }
 
 export interface MessagingMessage {

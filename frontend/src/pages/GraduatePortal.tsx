@@ -44,7 +44,9 @@ import type { LucideIcon } from 'lucide-react';
 import type { Socket } from 'socket.io-client';
 import { API_BASE_URL, API_ENDPOINTS } from '../config/api';
 import RealtimeMessagingWorkspace from '../components/messaging/RealtimeMessagingWorkspace';
+import FloatingChatWindow from '../components/messaging/FloatingChatWindow';
 import type {
+  ConversationInformation,
   MessageAttachment,
   MessagePagination,
   MessagingMessage,
@@ -601,11 +603,11 @@ function formatBytes(value?: number | null) {
   return `${value} B`;
 }
 
-const chatAttachmentAccept = '.jpg,.jpeg,.png,.webp,.pdf,.docx,.xlsx,.pptx,.txt,.csv';
+const chatAttachmentAccept = '.jpg,.jpeg,.png,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv';
 const chatImageMaxBytes = 10 * 1024 * 1024;
 const chatDocumentMaxBytes = 25 * 1024 * 1024;
 const chatImageExtensions = ['jpg', 'jpeg', 'png', 'webp'];
-const chatDocumentExtensions = ['pdf', 'docx', 'xlsx', 'pptx', 'txt', 'csv'];
+const chatDocumentExtensions = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'csv'];
 const chatDangerousExtensions = ['exe', 'bat', 'cmd', 'sh', 'js', 'mjs', 'cjs', 'php', 'php3', 'php4', 'php5', 'php7', 'php8', 'phtml', 'phar', 'jar', 'msi', 'com', 'scr', 'vbs', 'ps1', 'html', 'htm', 'svg', 'xhtml'];
 const chatAllowedMimeTypes = [
   'image/jpeg',
@@ -972,6 +974,12 @@ export default function GraduatePortal() {
   const [chatModalProgramFilter, setChatModalProgramFilter] = useState('all');
   const [chatModalBatchFilter, setChatModalBatchFilter] = useState('all');
   const [chatCreating, setChatCreating] = useState(false);
+  const [floatingChatOpen, setFloatingChatOpen] = useState(false);
+  const [floatingChatMinimized, setFloatingChatMinimized] = useState(false);
+  const [conversationInfoOpen, setConversationInfoOpen] = useState(false);
+  const [conversationInfo, setConversationInfo] = useState<ConversationInformation | null>(null);
+  const [conversationInfoLoading, setConversationInfoLoading] = useState(false);
+  const [conversationActionLoading, setConversationActionLoading] = useState(false);
 
   const [msgBox, setMsgBox] = useState<MessageBoxState>({
     isOpen: false,
@@ -990,6 +998,7 @@ export default function GraduatePortal() {
   const chatTypingRoomIdRef = useRef<number | null>(null);
   const chatTypingLastEmittedAtRef = useRef(0);
   const chatConversationSurfaceOpenRef = useRef(false);
+  const conversationInfoOpenRef = useRef(false);
   const chatJoinedRoomIdRef = useRef<number | null>(null);
   const selectedRoomIdRef = useRef<number | null>(null);
   const previousSelectedRoomIdRef = useRef<number | null>(null);
@@ -999,6 +1008,7 @@ export default function GraduatePortal() {
   const chatSelectedAttachmentRef = useRef<SelectedAttachment | null>(null);
   const chatTypingExpiryTimeoutsRef = useRef<Map<string, number>>(new Map());
   const roomLoadRequestRef = useRef(0);
+  const conversationInfoRequestRef = useRef(0);
   const loadMissedRoomMessagesRef = useRef<(roomId: number) => Promise<void>>(async () => undefined);
   const markVisibleMessagesAsReadRef = useRef<(roomId?: number, messages?: ChatMessage[]) => Promise<void>>(async () => undefined);
   const lastMarkedReadIdByRoomRef = useRef<Map<number, number>>(new Map());
@@ -1585,6 +1595,27 @@ export default function GraduatePortal() {
     ));
   }, []);
 
+  const loadConversationInfo = useCallback(async (roomId: number, silent = false) => {
+    const requestId = ++conversationInfoRequestRef.current;
+    if (!silent) setConversationInfoLoading(true);
+
+    try {
+      const response = await authenticatedFetch(`${API_ENDPOINTS.FORUM.CONVERSATION_INFO}?room_id=${roomId}`);
+      if (requestId !== conversationInfoRequestRef.current || selectedRoomIdRef.current !== roomId) return null;
+      const nextInfo = (response.data as ConversationInformation | undefined) || null;
+      setConversationInfo(nextInfo);
+      if (nextInfo?.room) upsertConversation(nextInfo.room);
+      return nextInfo;
+    } catch (error) {
+      if (!silent && requestId === conversationInfoRequestRef.current) {
+        notify('error', error instanceof Error ? error.message : 'Unable to load conversation information', 'Conversation Information');
+      }
+      return null;
+    } finally {
+      if (!silent && requestId === conversationInfoRequestRef.current) setConversationInfoLoading(false);
+    }
+  }, [authenticatedFetch, notify, upsertConversation]);
+
   const applyPresenceStatuses = useCallback((statuses: ChatPresenceStatus[]) => {
     if (!Array.isArray(statuses) || statuses.length === 0) return;
 
@@ -1983,13 +2014,23 @@ export default function GraduatePortal() {
 
   const chatRealtimeEnabled = messagingAvailable;
   const chatSurfaceOpen = messagingAvailable;
+  const floatingConversationSurfaceOpen = messagingAvailable
+    && activeTab === 'community_forum'
+    && floatingChatOpen
+    && !floatingChatMinimized;
   const chatConversationSurfaceOpen = messagingAvailable
-    && activeTab === 'messages'
-    && (isDesktopMessagingLayout || chatMobileConversationOpen);
+    && (
+      (activeTab === 'messages' && (isDesktopMessagingLayout || chatMobileConversationOpen))
+      || floatingConversationSurfaceOpen
+    );
 
   useEffect(() => {
     chatConversationSurfaceOpenRef.current = chatConversationSurfaceOpen;
   }, [chatConversationSurfaceOpen]);
+
+  useEffect(() => {
+    conversationInfoOpenRef.current = conversationInfoOpen;
+  }, [conversationInfoOpen]);
 
   useEffect(() => {
     const socket = chatSocketRef.current;
@@ -2005,6 +2046,8 @@ export default function GraduatePortal() {
         return null;
       });
       setChatNewMessageAvailable(false);
+      setConversationInfo(null);
+      setConversationInfoOpen(false);
     }
 
     if (chatTypingStopTimeoutRef.current) {
@@ -2027,6 +2070,7 @@ export default function GraduatePortal() {
 
     setChatTypingUsers((current) => ({ ...current, [selectedRoomId]: {} }));
     void loadRoomMessages(selectedRoomId);
+    void loadConversationInfo(selectedRoomId, true);
 
     if (socket?.connected) {
       void (async () => {
@@ -2039,7 +2083,7 @@ export default function GraduatePortal() {
         }
       })();
     }
-  }, [chatConversationSurfaceOpen, loadRoomMessages, selectedRoomId]);
+  }, [chatConversationSurfaceOpen, loadConversationInfo, loadRoomMessages, selectedRoomId]);
 
   useEffect(() => {
     roomMessagesRef.current = roomMessages;
@@ -2235,6 +2279,10 @@ export default function GraduatePortal() {
 
     const handleConversationUpdated = (payload: { conversation?: ChatRoom | null }) => {
       upsertConversation(payload.conversation);
+      const roomId = Number(payload.conversation?.id || 0);
+      if (roomId && selectedRoomIdRef.current === roomId && conversationInfoOpenRef.current) {
+        void loadConversationInfo(roomId, true);
+      }
     };
 
     const handleUnreadUpdated = (payload: { rooms?: Record<string, number> }) => {
@@ -2244,6 +2292,28 @@ export default function GraduatePortal() {
         if (typeof unreadCount !== 'number') return room;
         return { ...room, unread_count: unreadCount };
       }));
+    };
+
+    const handleConversationPolicyUpdated = (payload: { room_id?: number }) => {
+      const roomId = Number(payload.room_id || 0);
+      if (roomId && selectedRoomIdRef.current === roomId) {
+        void loadConversationInfo(roomId, true);
+      }
+    };
+
+    const handleConversationRemoved = (payload: { room_id?: number }) => {
+      const roomId = Number(payload.room_id || 0);
+      if (!roomId) return;
+      setRooms((current) => current.filter((room) => room.id !== roomId));
+      if (selectedRoomIdRef.current === roomId) {
+        setSelectedRoomId(null);
+        setActiveRoom(null);
+        setRoomMessages([]);
+        setConversationInfo(null);
+        setConversationInfoOpen(false);
+        setFloatingChatOpen(false);
+      }
+      void loadChats();
     };
 
     const handlePresenceSnapshot = (payload: { users?: ChatPresenceStatus[] }) => {
@@ -2265,6 +2335,8 @@ export default function GraduatePortal() {
     socket.on('message:read', applyMessageRead);
     socket.on('typing:update', handleTypingUpdate);
     socket.on('conversation:updated', handleConversationUpdated);
+    socket.on('conversation:policy-updated', handleConversationPolicyUpdated);
+    socket.on('conversation:removed', handleConversationRemoved);
     socket.on('unread-count:updated', handleUnreadUpdated);
     socket.on('user:status', applyPresenceStatus);
     socket.on('presence:snapshot', handlePresenceSnapshot);
@@ -2296,6 +2368,8 @@ export default function GraduatePortal() {
       socket.off('message:read', applyMessageRead);
       socket.off('typing:update', handleTypingUpdate);
       socket.off('conversation:updated', handleConversationUpdated);
+      socket.off('conversation:policy-updated', handleConversationPolicyUpdated);
+      socket.off('conversation:removed', handleConversationRemoved);
       socket.off('unread-count:updated', handleUnreadUpdated);
       socket.off('user:status', applyPresenceStatus);
       socket.off('presence:snapshot', handlePresenceSnapshot);
@@ -2306,7 +2380,7 @@ export default function GraduatePortal() {
       chatTypingRoomIdRef.current = null;
       chatTypingLastEmittedAtRef.current = 0;
     };
-  }, [applyMessageDelivery, applyMessageRead, applyPresenceStatus, applyPresenceStatuses, chatRealtimeEnabled, currentGraduateId, loadChats, upsertConversation]);
+  }, [applyMessageDelivery, applyMessageRead, applyPresenceStatus, applyPresenceStatuses, chatRealtimeEnabled, currentGraduateId, loadChats, loadConversationInfo, upsertConversation]);
 
   useEffect(() => {
     if (!chatSurfaceOpen || chatConnectionStatus === 'connected') return undefined;
@@ -3256,6 +3330,151 @@ export default function GraduatePortal() {
       });
   };
 
+  const openFloatingChat = (roomId: number) => {
+    setSelectedRoomId(roomId);
+    setFloatingChatOpen(true);
+    setFloatingChatMinimized(false);
+    setConversationInfoOpen(false);
+  };
+
+  const toggleConversationInfo = () => {
+    if (!selectedRoomId) return;
+    if (conversationInfoOpen) {
+      setConversationInfoOpen(false);
+      return;
+    }
+    setConversationInfoOpen(true);
+    void loadConversationInfo(selectedRoomId);
+  };
+
+  const publishConversationPolicyChange = (roomId: number) => {
+    const socket = chatSocketRef.current;
+    if (socket?.connected) {
+      void emitWithAck(socket, 'conversation:policy-changed', { room_id: roomId }, 3000).catch(() => undefined);
+    }
+  };
+
+  const changeBlockState = async (action: 'block' | 'unblock') => {
+    const roomId = selectedRoomIdRef.current;
+    if (!roomId) return;
+    setConversationActionLoading(true);
+    try {
+      const response = await authenticatedFetch(API_ENDPOINTS.FORUM.CONVERSATION_INFO, {
+        method: 'POST',
+        body: JSON.stringify({ room_id: roomId, action }),
+      });
+      setConversationInfo((current) => current ? { ...current, block: response.data?.block || current.block } : current);
+      if (action === 'block') {
+        setChatMessageDraft('');
+        removeChatAttachment();
+      }
+      publishConversationPolicyChange(roomId);
+      notify('success', action === 'block' ? 'This graduate can no longer message you directly.' : 'Direct messaging is available again.', action === 'block' ? 'Graduate Blocked' : 'Graduate Unblocked');
+    } catch (error) {
+      notify('error', error instanceof Error ? error.message : `Unable to ${action} this graduate`, 'Conversation Information');
+    } finally {
+      setConversationActionLoading(false);
+    }
+  };
+
+  const confirmBlockToggle = () => {
+    if (!conversationInfo?.block) return;
+    const shouldUnblock = conversationInfo.block.blocked_by_me;
+    setMsgBox({
+      isOpen: true,
+      type: 'confirm',
+      title: shouldUnblock ? 'Unblock Graduate' : 'Block Graduate',
+      message: shouldUnblock
+        ? 'Unblock this graduate and allow direct messages again?'
+        : 'Block this graduate? Neither participant will be able to send direct messages until you unblock them.',
+      confirmText: shouldUnblock ? 'Unblock' : 'Block',
+      cancelText: 'Cancel',
+      onConfirm: () => changeBlockState(shouldUnblock ? 'unblock' : 'block'),
+    });
+  };
+
+  const confirmLeaveGroup = () => {
+    const roomId = selectedRoomIdRef.current;
+    if (!roomId || !activeRoom?.is_group) return;
+    setMsgBox({
+      isOpen: true,
+      type: 'confirm',
+      title: 'Leave Group',
+      message: 'Are you sure you want to leave this group? The conversation will be removed from your message list, but it will remain available to other members.',
+      confirmText: 'Leave Group',
+      cancelText: 'Cancel',
+      onConfirm: async () => {
+        setConversationActionLoading(true);
+        try {
+          const socket = chatSocketRef.current;
+          let leaveToken = '';
+          if (socket?.connected) {
+            try {
+              const prepared = await emitWithAck<{ token?: string }>(socket, 'conversation:leave-prepare', { room_id: roomId }, 3000);
+              if (prepared.success) leaveToken = prepared.token || '';
+            } catch {
+              // Leaving is committed by the authenticated REST endpoint; realtime is best effort.
+            }
+          }
+          await authenticatedFetch(API_ENDPOINTS.FORUM.CONVERSATION_INFO, {
+            method: 'POST',
+            body: JSON.stringify({ room_id: roomId, action: 'leave_group' }),
+          });
+          if (socket?.connected && leaveToken) {
+            try {
+              await emitWithAck(socket, 'conversation:leave-confirm', { room_id: roomId, token: leaveToken }, 3000);
+            } catch {
+              // The local list is refreshed below even if the realtime acknowledgement is lost.
+            }
+          }
+          if (socket?.connected) socket.emit('conversation:leave', { room_id: roomId });
+          setRooms((current) => current.filter((room) => room.id !== roomId));
+          setActiveRoom(null);
+          setRoomMessages([]);
+          setConversationInfo(null);
+          setConversationInfoOpen(false);
+          setFloatingChatOpen(false);
+          setSelectedRoomId(null);
+          await loadChats();
+          notify('success', 'You left the group. The group and its messages remain available to the other members.', 'Group Left');
+        } catch (error) {
+          notify('error', error instanceof Error ? error.message : 'Unable to leave this group', 'Conversation Information');
+        } finally {
+          setConversationActionLoading(false);
+        }
+      },
+    });
+  };
+
+  const handleGroupPhotoSelected = async (file: File) => {
+    const roomId = selectedRoomIdRef.current;
+    if (!roomId) return;
+    const validationError = validateChatAttachmentFile(file);
+    if (validationError || !file.type.startsWith('image/')) {
+      notify('warning', validationError || 'Choose a supported JPG, PNG, or WebP image.', 'Group Photo');
+      return;
+    }
+
+    const formData = new FormData();
+    formData.append('room_id', String(roomId));
+    formData.append('action', 'group_photo');
+    formData.append('photo', file);
+    setConversationActionLoading(true);
+    try {
+      const response = await authenticatedFetch(API_ENDPOINTS.FORUM.CONVERSATION_INFO, { method: 'POST', body: formData });
+      const updatedRoom = response.data?.room as ChatRoom | undefined;
+      if (updatedRoom) upsertConversation(updatedRoom);
+      await loadConversationInfo(roomId, true);
+      const socket = chatSocketRef.current;
+      if (socket?.connected) void emitWithAck(socket, 'conversation:refresh', { room_id: roomId }, 3000).catch(() => undefined);
+      notify('success', 'The new group photo is now visible across GradTrack messaging.', 'Group Photo Updated');
+    } catch (error) {
+      notify('error', error instanceof Error ? error.message : 'Unable to change the group photo', 'Conversation Information');
+    } finally {
+      setConversationActionLoading(false);
+    }
+  };
+
   const handleChatNearBottomChange = useCallback((nearBottom: boolean) => {
     chatNearBottomRef.current = nearBottom;
     if (nearBottom) {
@@ -3714,12 +3933,16 @@ export default function GraduatePortal() {
 
   const profileInputClass = 'w-full rounded-2xl border border-[var(--border-strong)] bg-[var(--input)] px-4 py-3 text-sm text-[var(--text-primary)] outline-none transition focus:border-blue-500';
 
+  const activeTypingNames = selectedRoomId
+    ? Object.values(chatTypingUsers[selectedRoomId] || {})
+        .filter((typing) => typing.expiresAt > Date.now())
+        .map((typing) => typing.name)
+    : [];
+  const displayedChatRoom = activeRoom?.id === selectedRoomId
+    ? activeRoom
+    : rooms.find((room) => room.id === selectedRoomId) || null;
+
   const renderChatWorkspace = () => {
-    const activeTypingNames = selectedRoomId
-      ? Object.values(chatTypingUsers[selectedRoomId] || {})
-          .filter((typing) => typing.expiresAt > Date.now())
-          .map((typing) => typing.name)
-      : [];
 
     return (
       <RealtimeMessagingWorkspace
@@ -3764,6 +3987,15 @@ export default function GraduatePortal() {
           onRetryAttachment={handleRetryAttachment}
           onOpenNewConversation={() => openChatModal('direct')}
           onOpenProfile={openCommunityProfile}
+          conversationInfoOpen={conversationInfoOpen}
+          conversationInfo={conversationInfo?.room.id === selectedRoomId ? conversationInfo : null}
+          conversationInfoLoading={conversationInfoLoading}
+          conversationActionLoading={conversationActionLoading}
+          onToggleConversationInfo={toggleConversationInfo}
+          onCloseConversationInfo={() => setConversationInfoOpen(false)}
+          onBlockToggle={confirmBlockToggle}
+          onLeaveGroup={confirmLeaveGroup}
+          onGroupPhotoSelected={handleGroupPhotoSelected}
       />
     );
   };
@@ -4184,8 +4416,8 @@ export default function GraduatePortal() {
                               </div>
                             ) : (
                               rooms.slice(0, 4).map((room) => (
-                                  <button key={room.id} type="button" onClick={() => { setSelectedRoomId(room.id); setChatMobileConversationOpen(true); selectTab('messages'); }} className="flex w-full items-start gap-3 rounded-2xl border border-transparent bg-white px-3 py-3 text-left transition hover:border-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:hover:border-slate-700 dark:hover:bg-slate-800">
-                                    <Avatar src={resolveAssetUrl(getRoomOtherParticipants(room, currentGraduateId)[0]?.profile_image_path || room.participants[0]?.profile_image_path)} label={getRoomLabel(room, currentGraduateId)} size="sm" />
+                                  <button key={room.id} type="button" onClick={() => openFloatingChat(room.id)} className="flex w-full items-start gap-3 rounded-2xl border border-transparent bg-white px-3 py-3 text-left transition hover:border-slate-200 hover:bg-slate-50 dark:bg-slate-900 dark:hover:border-slate-700 dark:hover:bg-slate-800">
+                                    <Avatar src={resolveAssetUrl((room.is_group && room.group_image_url) || getRoomOtherParticipants(room, currentGraduateId)[0]?.profile_image_path || room.participants[0]?.profile_image_path)} label={getRoomLabel(room, currentGraduateId)} size="sm" />
                                     <div className="min-w-0 flex-1">
                                       <div className="flex items-start justify-between gap-3">
                                         <p className={`truncate text-sm text-slate-900 dark:text-slate-100 ${(room.unread_count || 0) > 0 ? 'font-bold' : 'font-semibold'}`}>{getRoomLabel(room, currentGraduateId)}</p>
@@ -5131,6 +5363,39 @@ export default function GraduatePortal() {
             </div>
           </form>
         </div>
+      )}
+
+      {floatingChatOpen && activeTab === 'community_forum' && (
+        <FloatingChatWindow
+          currentGraduateId={currentGraduateId}
+          room={displayedChatRoom}
+          messages={activeRoom?.id === selectedRoomId ? roomMessages : []}
+          draft={chatMessageDraft}
+          loading={roomLoading}
+          minimized={floatingChatMinimized}
+          loadingOlder={olderMessagesLoading}
+          hasMoreOlder={!!messagePagination?.has_more_older}
+          typingNames={activeTypingNames}
+          selectedAttachment={chatSelectedAttachment}
+          newMessageAvailable={chatNewMessageAvailable}
+          conversationInfo={conversationInfo?.room.id === selectedRoomId ? conversationInfo : null}
+          resolveAssetUrl={resolveAssetUrl}
+          onMinimize={() => setFloatingChatMinimized(true)}
+          onReopen={() => setFloatingChatMinimized(false)}
+          onClose={() => { setFloatingChatOpen(false); setFloatingChatMinimized(false); stopChatTyping(); }}
+          onOpenFull={() => { setFloatingChatOpen(false); setChatMobileConversationOpen(true); selectTab('messages'); }}
+          onDraftChange={handleChatDraftInput}
+          onTypingStop={() => stopChatTyping()}
+          onSend={handleSendMessage}
+          onRetryMessage={handleRetryMessage}
+          onLoadOlder={loadOlderRoomMessages}
+          onNearBottomChange={handleChatNearBottomChange}
+          onScrollToNewest={handleScrollToNewest}
+          onAttachmentSelected={handleChatAttachmentSelected}
+          onRemoveAttachment={removeChatAttachment}
+          onRetryAttachment={handleRetryAttachment}
+          onOpenProfile={openCommunityProfile}
+        />
       )}
 
       <MessageBox

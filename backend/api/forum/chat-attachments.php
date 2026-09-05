@@ -85,6 +85,9 @@ try {
 
         try {
             gradtrack_chat_require_room_member($db, $roomId, $currentGraduateId);
+            gradtrack_chat_assert_message_allowed($db, $roomId, $currentGraduateId);
+        } catch (DomainException $e) {
+            gradtrack_chat_attachments_json_error(403, $e->getMessage());
         } catch (RuntimeException $e) {
             gradtrack_chat_attachments_json_error(404, 'Chat room not found');
         }

@@ -14,6 +14,8 @@
     "test:auth-isolation": "php backend/tests/auth_session_isolation_integration.php",
     "test:message-split": "php backend/tests/chat_message_split_integration.php",
     "test:message-unread": "php backend/tests/chat_unread_state_integration.php",
+    "test:conversation-info": "php backend/tests/conversation_information_integration.php",
+    "test:conversation-info-http": "php backend/tests/conversation_information_http_integration.php",
     "test:job-notifications": "php backend/tests/job_notification_read_state_integration.php",
     "test:profile-avatars": "php backend/tests/profile_avatar_consistency_integration.php",
     "test:survey-validation": "php backend/tests/survey_validation_rules_test.php && php backend/tests/psgc_cache_test.php && cd frontend && npm run test:survey-validation",

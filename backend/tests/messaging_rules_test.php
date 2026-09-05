@@ -28,6 +28,9 @@ messaging_test_assert($blankName === 'attachment', 'blank or directory-only file
 $config = gradtrack_chat_attachment_config();
 messaging_test_assert(isset($config['image/jpeg']), 'JPEG attachments are allowed');
 messaging_test_assert(isset($config['application/pdf']), 'PDF attachments are allowed');
+messaging_test_assert(isset($config['application/msword']), 'legacy DOC attachments are allowed');
+messaging_test_assert(isset($config['application/vnd.ms-excel']), 'legacy XLS attachments are allowed');
+messaging_test_assert(isset($config['application/vnd.ms-powerpoint']), 'legacy PPT attachments are allowed');
 messaging_test_assert(!isset($config['application/x-msdownload']), 'executables are not allowed by MIME config');
 messaging_test_assert((int) $config['image/jpeg']['max_size'] === 10 * 1024 * 1024, 'image upload max size is configurable and defaults to 10 MB');
 messaging_test_assert((int) $config['application/pdf']['max_size'] === 25 * 1024 * 1024, 'document upload max size is configurable and defaults to 25 MB');

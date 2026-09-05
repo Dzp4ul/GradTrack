@@ -3,11 +3,16 @@ import { createPortal } from 'react-dom';
 import {
   AlertCircle,
   ArrowLeft,
+  Ban,
   Check,
   CheckCheck,
+  ChevronDown,
+  ChevronRight,
   Download,
   FileText,
   ImageOff,
+  Info,
+  LogOut,
   Loader2,
   Paperclip,
   Plus,
@@ -15,11 +20,13 @@ import {
   Search,
   Send,
   Smile,
+  Upload,
   Users,
   X,
 } from 'lucide-react';
 import type {
   MessageAttachment,
+  ConversationInformation,
   MessagingMessage,
   MessagingParticipant,
   MessagingRoom,
@@ -69,6 +76,15 @@ interface RealtimeMessagingWorkspaceProps {
   onRetryAttachment: () => void;
   onOpenNewConversation: () => void;
   onOpenProfile?: (graduateId?: number | null) => void;
+  conversationInfoOpen: boolean;
+  conversationInfo: ConversationInformation | null;
+  conversationInfoLoading: boolean;
+  conversationActionLoading: boolean;
+  onToggleConversationInfo: () => void;
+  onCloseConversationInfo: () => void;
+  onBlockToggle: () => void;
+  onLeaveGroup: () => void;
+  onGroupPhotoSelected: (file: File) => void;
 }
 
 function parseDate(value?: string | null) {
@@ -168,6 +184,7 @@ function getRoomLabel(room: MessagingRoom, currentGraduateId: number) {
 }
 
 function getRoomAvatar(room: MessagingRoom, currentGraduateId: number) {
+  if (room.is_group && room.group_image_url) return room.group_image_url;
   const participant = getOtherParticipants(room, currentGraduateId)[0] || room.participants[0];
   return participant?.profile_image_path || null;
 }
@@ -400,12 +417,16 @@ function ChatHeader({
   resolveAssetUrl,
   onBack,
   onOpenProfile,
+  onOpenInfo,
+  infoOpen = false,
 }: {
   room: MessagingRoom | null;
   currentGraduateId: number;
   resolveAssetUrl: (path?: string | null) => string;
   onBack: () => void;
   onOpenProfile?: (graduateId?: number | null) => void;
+  onOpenInfo?: () => void;
+  infoOpen?: boolean;
 }) {
   const recipient = getRecipient(room, currentGraduateId);
   const label = room ? getRoomLabel(room, currentGraduateId) : 'Select a conversation';
@@ -424,7 +445,7 @@ function ChatHeader({
       {room ? (
         <>
           <button type="button" onClick={handleIdentityClick} disabled={!canOpenRecipient} className="relative shrink-0 disabled:cursor-default" aria-label={canOpenRecipient ? `Open ${label} profile` : undefined}>
-            <Avatar src={recipient?.profile_image_path} label={label} size="lg" resolveAssetUrl={resolveAssetUrl} />
+            <Avatar src={getRoomAvatar(room, currentGraduateId)} label={label} size="lg" resolveAssetUrl={resolveAssetUrl} />
             {room.is_group
               ? <span className="absolute -bottom-0.5 -right-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-blue-700 text-white"><Users className="h-3 w-3" /></span>
               : recipient?.is_online && <span className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" />}
@@ -435,6 +456,18 @@ function ChatHeader({
               {room.is_group ? `${room.participant_count} member${room.participant_count === 1 ? '' : 's'}` : <PresenceText participant={recipient} />}
             </p>
           </div>
+          {onOpenInfo && (
+            <button
+              type="button"
+              onClick={onOpenInfo}
+              className={`ml-auto inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition ${infoOpen ? 'bg-blue-100 text-blue-700' : 'text-slate-500 hover:bg-slate-100 hover:text-blue-700'}`}
+              aria-label="Conversation information"
+              title="Conversation information"
+              aria-pressed={infoOpen}
+            >
+              <Info className="h-5 w-5" />
+            </button>
+          )}
         </>
       ) : (
         <div>
@@ -889,6 +922,7 @@ function MessageComposer({
   onAttachmentSelected,
   onRemoveAttachment,
   onRetryAttachment,
+  disabledReason,
 }: {
   draft: string;
   disabled: boolean;
@@ -899,6 +933,7 @@ function MessageComposer({
   onAttachmentSelected: (file: File) => void;
   onRemoveAttachment: () => void;
   onRetryAttachment: () => void;
+  disabledReason?: string;
 }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1002,7 +1037,7 @@ function MessageComposer({
           onKeyDown={handleKeyDown}
           rows={1}
           maxLength={5000}
-          placeholder="Type a message"
+          placeholder={disabledReason || 'Type a message'}
           className="max-h-[14.25rem] min-h-11 flex-1 resize-none rounded-lg border border-slate-200 bg-[#f8fafc] px-4 py-3 text-sm leading-5 outline-none transition focus:border-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
           aria-label="Message"
         />
@@ -1118,6 +1153,143 @@ function ImagePreviewModal({
   );
 }
 
+function ConversationInfoPanel({
+  info,
+  loading,
+  actionLoading,
+  currentGraduateId,
+  resolveAssetUrl,
+  onClose,
+  onImageOpen,
+  onOpenProfile,
+  onBlockToggle,
+  onLeaveGroup,
+  onGroupPhotoSelected,
+}: {
+  info: ConversationInformation | null;
+  loading: boolean;
+  actionLoading: boolean;
+  currentGraduateId: number;
+  resolveAssetUrl: (path?: string | null) => string;
+  onClose: () => void;
+  onImageOpen: (attachment: MessageAttachment) => void;
+  onOpenProfile?: (graduateId?: number | null) => void;
+  onBlockToggle: () => void;
+  onLeaveGroup: () => void;
+  onGroupPhotoSelected: (file: File) => void;
+}) {
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
+  const [photosOpen, setPhotosOpen] = useState(true);
+  const [filesOpen, setFilesOpen] = useState(true);
+  const room = info?.room || null;
+  const recipient = getRecipient(room, currentGraduateId);
+  const label = room ? getRoomLabel(room, currentGraduateId) : 'Conversation information';
+  const avatar = room ? getRoomAvatar(room, currentGraduateId) : null;
+
+  return (
+    <aside className="absolute inset-0 z-20 flex min-h-0 flex-col border-l border-slate-200 bg-white shadow-xl xl:static xl:z-auto xl:shadow-none" aria-label="Conversation information">
+      <div className="flex min-h-[76px] items-center justify-between border-b border-slate-200 px-4">
+        <h2 className="font-bold text-slate-900">Conversation Information</h2>
+        <button type="button" onClick={onClose} className="inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100" aria-label="Close conversation information">
+          <X className="h-5 w-5" />
+        </button>
+      </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5">
+        {loading || !info || !room ? (
+          <div className="flex min-h-48 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-blue-700" /></div>
+        ) : (
+          <div className="space-y-5">
+            <div className="text-center">
+              <button type="button" onClick={() => !room.is_group && onOpenProfile?.(recipient?.graduate_id)} disabled={room.is_group || !recipient} className="relative mx-auto block disabled:cursor-default">
+                <Avatar src={avatar} label={label} size="lg" resolveAssetUrl={resolveAssetUrl} />
+              </button>
+              <h3 className="mt-3 truncate text-lg font-bold text-slate-900">{label}</h3>
+              <p className="text-sm text-slate-500">
+                {room.is_group
+                  ? `${room.participant_count} member${room.participant_count === 1 ? '' : 's'}`
+                  : recipient?.program_code || 'Graduate'}
+              </p>
+              {!room.is_group && info.block?.blocked && (
+                <span className="mt-3 inline-flex rounded-full bg-rose-50 px-3 py-1 text-xs font-bold text-rose-700">
+                  {info.block.blocked_by_me ? 'You blocked this graduate' : 'Messaging is unavailable'}
+                </span>
+              )}
+            </div>
+
+            <section className="border-t border-slate-200 pt-4">
+              <button type="button" onClick={() => setPhotosOpen((open) => !open)} className="flex w-full items-center justify-between py-2 text-left font-bold text-slate-900" aria-expanded={photosOpen}>
+                <span>Photos <span className="font-medium text-slate-400">({info.photos.length})</span></span>
+                {photosOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              </button>
+              {photosOpen && (info.photos.length === 0 ? (
+                <p className="py-3 text-sm text-slate-500">No photos shared in this conversation.</p>
+              ) : (
+                <div className="grid grid-cols-3 gap-2 py-2">
+                  {info.photos.map((photo) => (
+                    <button key={photo.id} type="button" onClick={() => onImageOpen(photo)} className="aspect-square overflow-hidden rounded-lg bg-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500" title={photo.original_name}>
+                      <img src={resolveAssetUrl(photo.url)} alt={photo.original_name} className="h-full w-full object-cover" loading="lazy" />
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </section>
+
+            <section className="border-t border-slate-200 pt-2">
+              <button type="button" onClick={() => setFilesOpen((open) => !open)} className="flex w-full items-center justify-between py-2 text-left font-bold text-slate-900" aria-expanded={filesOpen}>
+                <span>Files <span className="font-medium text-slate-400">({info.files.length})</span></span>
+                {filesOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+              </button>
+              {filesOpen && (info.files.length === 0 ? (
+                <p className="py-3 text-sm text-slate-500">No files shared in this conversation.</p>
+              ) : (
+                <div className="space-y-2 py-2">
+                  {info.files.map((file) => (
+                    <a key={file.id} href={resolveAssetUrl(file.download_url)} download className="flex items-center gap-3 rounded-lg border border-slate-200 p-3 transition hover:bg-slate-50">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-700"><FileText className="h-5 w-5" /></span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-bold text-slate-900">{file.original_name}</span>
+                        <span className="block truncate text-[11px] text-slate-500">{file.mime_type} {formatBytes(file.file_size)} · {formatMessageDate(file.created_at)}</span>
+                      </span>
+                      <Download className="h-4 w-4 shrink-0 text-slate-400" />
+                    </a>
+                  ))}
+                </div>
+              ))}
+            </section>
+
+            {room.is_group ? (
+              <section className="space-y-2 border-t border-slate-200 pt-4">
+                {info.permissions.can_change_group_photo && (
+                  <>
+                    <button type="button" onClick={() => photoInputRef.current?.click()} disabled={actionLoading} className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left font-bold text-blue-700 transition hover:bg-blue-50 disabled:opacity-60">
+                      <Upload className="h-5 w-5" /> Change Group Photo
+                    </button>
+                    <input ref={photoInputRef} type="file" className="hidden" accept="image/jpeg,image/png,image/webp,.jpg,.jpeg,.png,.webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) onGroupPhotoSelected(file); event.currentTarget.value = ''; }} />
+                  </>
+                )}
+                <button type="button" onClick={onLeaveGroup} disabled={actionLoading || !info.permissions.can_leave_group} className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left font-bold text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50" title={!info.permissions.can_leave_group ? 'The only remaining member cannot leave this group' : undefined}>
+                  <LogOut className="h-5 w-5" /> Leave Group
+                </button>
+              </section>
+            ) : (
+              <section className="border-t border-slate-200 pt-4">
+                {info.block?.blocked_by_other && !info.block.blocked_by_me ? (
+                  <p className="rounded-lg bg-slate-50 px-3 py-3 text-sm text-slate-600">You cannot send messages in this conversation.</p>
+                ) : (
+                  <button type="button" onClick={onBlockToggle} disabled={actionLoading} className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left font-bold text-rose-700 transition hover:bg-rose-50 disabled:opacity-60">
+                    <Ban className="h-5 w-5" /> {info.block?.blocked_by_me ? 'Unblock' : 'Block'}
+                  </button>
+                )}
+              </section>
+            )}
+          </div>
+        )}
+      </div>
+    </aside>
+  );
+}
+
 export default function RealtimeMessagingWorkspace({
   currentGraduate,
   rooms,
@@ -1151,6 +1323,15 @@ export default function RealtimeMessagingWorkspace({
   onRetryAttachment,
   onOpenNewConversation,
   onOpenProfile,
+  conversationInfoOpen,
+  conversationInfo,
+  conversationInfoLoading,
+  conversationActionLoading,
+  onToggleConversationInfo,
+  onCloseConversationInfo,
+  onBlockToggle,
+  onLeaveGroup,
+  onGroupPhotoSelected,
 }: RealtimeMessagingWorkspaceProps) {
   const [previewAttachment, setPreviewAttachment] = useState<MessageAttachment | null>(null);
 
@@ -1176,8 +1357,9 @@ export default function RealtimeMessagingWorkspace({
           />
         </div>
 
-        <div className={`${mobileChatOpen ? 'flex' : 'hidden lg:flex'} min-h-0 flex-col bg-white`}>
-          <ChatHeader room={activeRoom} currentGraduateId={currentGraduate.graduate_id} resolveAssetUrl={resolveAssetUrl} onBack={onBackToList} onOpenProfile={onOpenProfile} />
+        <div className={`${mobileChatOpen ? 'grid' : 'hidden lg:grid'} relative min-h-0 grid-cols-1 bg-white ${conversationInfoOpen ? 'xl:grid-cols-[minmax(0,1fr)_340px]' : ''}`}>
+          <div className="flex min-h-0 min-w-0 flex-col">
+          <ChatHeader room={activeRoom} currentGraduateId={currentGraduate.graduate_id} resolveAssetUrl={resolveAssetUrl} onBack={onBackToList} onOpenProfile={onOpenProfile} onOpenInfo={activeRoom ? onToggleConversationInfo : undefined} infoOpen={conversationInfoOpen} />
           {(connectionStatus === 'reconnecting' || connectionStatus === 'error') && (
             <div className="flex items-center justify-center gap-2 border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800" role="status">
               {connectionStatus === 'reconnecting' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
@@ -1202,7 +1384,8 @@ export default function RealtimeMessagingWorkspace({
           />
           <MessageComposer
             draft={draft}
-            disabled={!activeRoom}
+            disabled={!activeRoom || !!conversationInfo?.block?.blocked}
+            disabledReason={conversationInfo?.block?.blocked ? 'Messaging is unavailable while this conversation is blocked' : undefined}
             selectedAttachment={selectedAttachment}
             onDraftChange={onDraftChange}
             onTypingStop={onTypingStop}
@@ -1211,6 +1394,22 @@ export default function RealtimeMessagingWorkspace({
             onRemoveAttachment={onRemoveAttachment}
             onRetryAttachment={onRetryAttachment}
           />
+          </div>
+          {conversationInfoOpen && (
+            <ConversationInfoPanel
+              info={conversationInfo}
+              loading={conversationInfoLoading}
+              actionLoading={conversationActionLoading}
+              currentGraduateId={currentGraduate.graduate_id}
+              resolveAssetUrl={resolveAssetUrl}
+              onClose={onCloseConversationInfo}
+              onImageOpen={setPreviewAttachment}
+              onOpenProfile={onOpenProfile}
+              onBlockToggle={onBlockToggle}
+              onLeaveGroup={onLeaveGroup}
+              onGroupPhotoSelected={onGroupPhotoSelected}
+            />
+          )}
         </div>
       </div>
 
@@ -1226,6 +1425,7 @@ export {
   ChatHeader,
   ConversationItem,
   ConversationList,
+  ConversationInfoPanel,
   ImagePreviewModal,
   MessageBubble,
   MessageComposer,

@@ -1,5 +1,6 @@
 const http = require('http');
 const path = require('path');
+const crypto = require('crypto');
 const { Server } = require('socket.io');
 const mysql = require('mysql2/promise');
 const dotenv = require('dotenv');
@@ -90,6 +91,7 @@ pool.on('connection', (connection) => {
 const onlineSocketsByGraduate = new Map();
 const pendingOfflineTimersByGraduate = new Map();
 const presenceVersionByGraduate = new Map();
+const pendingMembershipChanges = new Map();
 const autoMigrate = String(process.env.REALTIME_AUTO_MIGRATE || '').toLowerCase() === 'true';
 const presenceOfflineGraceMs = Math.max(0, Number(process.env.REALTIME_PRESENCE_OFFLINE_GRACE_MS || 1500));
 const presenceRecoveryGraceMs = Math.max(presenceOfflineGraceMs, Number(process.env.REALTIME_PRESENCE_RECOVERY_GRACE_MS || 5000));
@@ -210,6 +212,10 @@ async function ensureSchema() {
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 
   await addColumnIfMissing('forum_chat_rooms', 'last_message_at', 'ALTER TABLE forum_chat_rooms ADD last_message_at DATETIME NULL AFTER updated_at');
+  await addColumnIfMissing('forum_chat_rooms', 'group_image_path', 'ALTER TABLE forum_chat_rooms ADD group_image_path VARCHAR(255) NULL AFTER is_group');
+  await addColumnIfMissing('forum_chat_rooms', 'group_image_original_name', 'ALTER TABLE forum_chat_rooms ADD group_image_original_name VARCHAR(255) NULL AFTER group_image_path');
+  await addColumnIfMissing('forum_chat_rooms', 'group_image_mime_type', 'ALTER TABLE forum_chat_rooms ADD group_image_mime_type VARCHAR(120) NULL AFTER group_image_original_name');
+  await addColumnIfMissing('forum_chat_rooms', 'group_image_updated_at', 'ALTER TABLE forum_chat_rooms ADD group_image_updated_at DATETIME NULL AFTER group_image_mime_type');
   await addColumnIfMissing('forum_chat_members', 'last_read_at', 'ALTER TABLE forum_chat_members ADD last_read_at DATETIME NULL AFTER joined_at');
   await addColumnIfMissing('forum_chat_members', 'last_read_message_id', 'ALTER TABLE forum_chat_members ADD last_read_message_id INT NULL AFTER last_read_at');
   await addColumnIfMissing('forum_chat_members', 'created_at', 'ALTER TABLE forum_chat_members ADD created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER last_read_message_id');
@@ -259,6 +265,19 @@ async function ensureSchema() {
     CONSTRAINT fk_graduate_presence_graduate FOREIGN KEY (graduate_id) REFERENCES graduates(id) ON DELETE CASCADE
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 
+  await pool.query(`CREATE TABLE IF NOT EXISTS forum_chat_blocks (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    blocker_id INT NOT NULL,
+    blocked_id INT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uniq_forum_chat_block (blocker_id, blocked_id),
+    INDEX idx_forum_chat_blocks_blocked (blocked_id, blocker_id),
+    CONSTRAINT fk_forum_chat_blocks_blocker FOREIGN KEY (blocker_id) REFERENCES graduates(id) ON DELETE CASCADE,
+    CONSTRAINT fk_forum_chat_blocks_blocked FOREIGN KEY (blocked_id) REFERENCES graduates(id) ON DELETE CASCADE,
+    CONSTRAINT chk_forum_chat_blocks_distinct CHECK (blocker_id <> blocked_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
   await pool.query(`UPDATE forum_chat_rooms r
     SET r.last_message_at = (
       SELECT MAX(fcm.created_at)
@@ -290,6 +309,8 @@ async function verifySchema() {
   await pool.query('SELECT id, room_id, message_id, uploaded_by FROM forum_chat_message_attachments WHERE 1 = 0');
   await pool.query('SELECT room_id, graduate_id, last_read_message_id FROM forum_chat_members WHERE 1 = 0');
   await pool.query('SELECT graduate_id, last_active_at FROM graduate_presence WHERE 1 = 0');
+  await pool.query('SELECT group_image_path, group_image_updated_at FROM forum_chat_rooms WHERE 1 = 0');
+  await pool.query('SELECT blocker_id, blocked_id FROM forum_chat_blocks WHERE 1 = 0');
 }
 
 async function verifyDatabaseTimezone() {
@@ -358,6 +379,28 @@ function onlineSocketCount(graduateId) {
 
 function isGraduateOnline(graduateId) {
   return onlineSocketCount(graduateId) > 0;
+}
+
+async function assertMessageAllowed(roomId, graduateId) {
+  const room = await requireRoomMember(roomId, graduateId);
+  if (Number(room.is_group) === 1) return;
+
+  const [participants] = await pool.query(
+    'SELECT graduate_id FROM forum_chat_members WHERE room_id = ? ORDER BY id ASC',
+    [roomId],
+  );
+  if (participants.length !== 2) throw new Error('Direct conversation participants are invalid');
+  const peer = participants.find((participant) => Number(participant.graduate_id) !== Number(graduateId));
+  if (!peer) throw new Error('Direct conversation participants are invalid');
+
+  const [blocks] = await pool.query(
+    `SELECT id FROM forum_chat_blocks
+      WHERE (blocker_id = ? AND blocked_id = ?)
+         OR (blocker_id = ? AND blocked_id = ?)
+      LIMIT 1`,
+    [graduateId, peer.graduate_id, peer.graduate_id, graduateId],
+  );
+  if (blocks.length > 0) throw new Error('Messages are unavailable while this conversation is blocked');
 }
 
 function cookieValue(cookieHeader, name) {
@@ -489,7 +532,8 @@ function previewText(message, messageType) {
 
 async function getConversationForViewer(roomId, viewerGraduateId) {
   const [rows] = await pool.query(
-    `SELECT r.id, r.created_by, r.name, r.is_group, r.created_at, r.updated_at,
+    `SELECT r.id, r.created_by, r.name, r.is_group, r.group_image_path, r.group_image_updated_at,
+            r.created_at, r.updated_at,
             lm.message AS last_message, lm.message_type AS last_message_type, lm.created_at AS last_message_at,
             lm.graduate_id AS last_message_sender_id,
             (
@@ -558,6 +602,10 @@ async function getConversationForViewer(roomId, viewerGraduateId) {
       is_online: isGraduateOnline(participant.graduate_id),
     })),
     participant_count: participants.length,
+    group_image_url: Number(room.is_group) === 1 && room.group_image_path
+      ? `api/forum/conversation-info.php?room_id=${Number(room.id)}&avatar=1&v=${encodeURIComponent(String(room.group_image_updated_at || ''))}`
+      : null,
+    group_image_updated_at: room.group_image_updated_at || null,
   };
 }
 
@@ -668,7 +716,7 @@ function emitSavedMessage(roomId, participantIds, message) {
 }
 
 async function publishPersistedMessage(roomId, messageId, graduateId) {
-  await requireRoomMember(roomId, graduateId);
+  await assertMessageAllowed(roomId, graduateId);
   let message = await fetchMessage(messageId);
   if (!message || Number(message.room_id) !== roomId || Number(message.graduate_id) !== graduateId) {
     throw new Error('Saved message not found');
@@ -970,7 +1018,7 @@ io.on('connection', (socket) => {
       if (Number(socket.data.activeConversationId || 0) !== roomId || !socket.rooms.has(socketRoom(roomId))) {
         throw new Error('Join the conversation before sending typing events');
       }
-      await requireRoomMember(roomId, graduateId);
+      await assertMessageAllowed(roomId, graduateId);
       socket.data.typingConversationId = roomId;
       socket.to(socketRoom(roomId)).emit('typing:update', {
         room_id: roomId,
@@ -1032,6 +1080,83 @@ io.on('connection', (socket) => {
       });
     }, offlineGraceMs);
     pendingOfflineTimersByGraduate.set(graduateId, timeout);
+  });
+
+  socket.on('conversation:refresh', async (payload, ack) => {
+    try {
+      const roomId = Number(payload?.room_id || payload?.conversation_id || 0);
+      await requireRoomMember(roomId, graduateId);
+      await emitConversationUpdated(roomId);
+      ack?.({ success: true });
+    } catch (error) {
+      ack?.({ success: false, error: error.message || 'Unable to refresh conversation' });
+    }
+  });
+
+  socket.on('conversation:policy-changed', async (payload, ack) => {
+    try {
+      const roomId = Number(payload?.room_id || payload?.conversation_id || 0);
+      await requireRoomMember(roomId, graduateId);
+      const participants = await getRoomParticipants(roomId);
+      io.to(participants.map((id) => userRoom(id))).emit('conversation:policy-updated', { room_id: roomId });
+      ack?.({ success: true });
+    } catch (error) {
+      ack?.({ success: false, error: error.message || 'Unable to refresh conversation policy' });
+    }
+  });
+
+  socket.on('conversation:leave-prepare', async (payload, ack) => {
+    try {
+      const roomId = Number(payload?.room_id || payload?.conversation_id || 0);
+      const room = await requireRoomMember(roomId, graduateId);
+      if (Number(room.is_group) !== 1) throw new Error('Only group conversations can be left');
+      const token = crypto.randomUUID();
+      pendingMembershipChanges.set(token, {
+        socketId: socket.id,
+        graduateId,
+        roomId,
+        expiresAt: Date.now() + 30000,
+      });
+      setTimeout(() => pendingMembershipChanges.delete(token), 31000).unref();
+      ack?.({ success: true, token });
+    } catch (error) {
+      ack?.({ success: false, error: error.message || 'Unable to prepare group departure' });
+    }
+  });
+
+  socket.on('conversation:leave-confirm', async (payload, ack) => {
+    const token = String(payload?.token || '');
+    const prepared = pendingMembershipChanges.get(token);
+    pendingMembershipChanges.delete(token);
+    try {
+      const roomId = Number(payload?.room_id || payload?.conversation_id || 0);
+      if (!prepared
+        || prepared.socketId !== socket.id
+        || prepared.graduateId !== graduateId
+        || prepared.roomId !== roomId
+        || prepared.expiresAt < Date.now()) {
+        throw new Error('Group departure confirmation expired');
+      }
+      const [rooms] = await pool.query(
+        `SELECT r.id
+           FROM forum_chat_rooms r
+          WHERE r.id = ?
+            AND r.is_group = 1
+            AND NOT EXISTS (
+              SELECT 1 FROM forum_chat_members member
+               WHERE member.room_id = r.id AND member.graduate_id = ?
+            )
+          LIMIT 1`,
+        [roomId, graduateId],
+      );
+      if (!rooms.length) throw new Error('Group membership has not been removed');
+
+      await emitConversationUpdated(roomId);
+      io.to(userRoom(graduateId)).emit('conversation:removed', { room_id: roomId });
+      ack?.({ success: true });
+    } catch (error) {
+      ack?.({ success: false, error: error.message || 'Unable to synchronize group departure' });
+    }
   });
 
   socket.on('message:publish', async (payload, ack) => {

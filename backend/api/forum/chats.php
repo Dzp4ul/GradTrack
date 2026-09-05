@@ -164,7 +164,9 @@ function gradtrack_forum_chats_participants_by_room(PDO $db, array $roomIds): ar
 
 function gradtrack_forum_chats_rooms(PDO $db, int $currentGraduateId): array
 {
-    $stmt = $db->prepare("SELECT r.id, r.created_by, r.name, r.is_group, r.created_at, r.updated_at,
+    $stmt = $db->prepare("SELECT r.id, r.created_by, r.name, r.is_group, r.group_image_path,
+                                 r.group_image_original_name, r.group_image_mime_type, r.group_image_updated_at,
+                                 r.created_at, r.updated_at,
                                  lm.message AS last_message,
                                  lm.message_type AS last_message_type,
                                  lm.created_at AS last_message_at,
@@ -208,6 +210,11 @@ function gradtrack_forum_chats_rooms(PDO $db, int $currentGraduateId): array
         $room['created_at'] = gradtrack_chat_datetime_iso($room['created_at'] ?? null);
         $room['updated_at'] = gradtrack_chat_datetime_iso($room['updated_at'] ?? null);
         $room['last_message_at'] = gradtrack_chat_datetime_iso($room['last_message_at'] ?? null);
+        $room['group_image_updated_at'] = gradtrack_chat_datetime_iso($room['group_image_updated_at'] ?? null);
+        $room['group_image_url'] = $room['is_group'] && !empty($room['group_image_path'])
+            ? 'api/forum/conversation-info.php?room_id=' . $room['id'] . '&avatar=1&v=' . rawurlencode((string) ($room['group_image_updated_at'] ?? ''))
+            : null;
+        unset($room['group_image_path'], $room['group_image_original_name'], $room['group_image_mime_type']);
         $roomIds[] = $room['id'];
     }
     unset($room);

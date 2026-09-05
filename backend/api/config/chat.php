@@ -123,6 +123,10 @@ if (!function_exists('gradtrack_chat_ensure_schema')) {
 
         $roomColumns = [
             'last_message_at' => "ALTER TABLE forum_chat_rooms ADD last_message_at DATETIME NULL AFTER updated_at",
+            'group_image_path' => "ALTER TABLE forum_chat_rooms ADD group_image_path VARCHAR(255) NULL AFTER is_group",
+            'group_image_original_name' => "ALTER TABLE forum_chat_rooms ADD group_image_original_name VARCHAR(255) NULL AFTER group_image_path",
+            'group_image_mime_type' => "ALTER TABLE forum_chat_rooms ADD group_image_mime_type VARCHAR(120) NULL AFTER group_image_original_name",
+            'group_image_updated_at' => "ALTER TABLE forum_chat_rooms ADD group_image_updated_at DATETIME NULL AFTER group_image_mime_type",
         ];
 
         foreach ($roomColumns as $column => $sql) {
@@ -220,6 +224,19 @@ if (!function_exists('gradtrack_chat_ensure_schema')) {
             CONSTRAINT fk_graduate_presence_graduate FOREIGN KEY (graduate_id) REFERENCES graduates(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
+        $db->exec("CREATE TABLE IF NOT EXISTS forum_chat_blocks (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            blocker_id INT NOT NULL,
+            blocked_id INT NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_forum_chat_block (blocker_id, blocked_id),
+            INDEX idx_forum_chat_blocks_blocked (blocked_id, blocker_id),
+            CONSTRAINT fk_forum_chat_blocks_blocker FOREIGN KEY (blocker_id) REFERENCES graduates(id) ON DELETE CASCADE,
+            CONSTRAINT fk_forum_chat_blocks_blocked FOREIGN KEY (blocked_id) REFERENCES graduates(id) ON DELETE CASCADE,
+            CONSTRAINT chk_forum_chat_blocks_distinct CHECK (blocker_id <> blocked_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
         $db->exec("UPDATE forum_chat_rooms r
                    SET r.last_message_at = (
                        SELECT MAX(fcm.created_at)
@@ -286,7 +303,9 @@ if (!function_exists('gradtrack_chat_placeholders')) {
 if (!function_exists('gradtrack_chat_require_room_member')) {
     function gradtrack_chat_require_room_member(PDO $db, int $roomId, int $graduateId): array
     {
-        $stmt = $db->prepare("SELECT r.id, r.created_by, r.name, r.is_group, r.created_at, r.updated_at, r.last_message_at
+        $stmt = $db->prepare("SELECT r.id, r.created_by, r.name, r.is_group, r.group_image_path,
+                                     r.group_image_original_name, r.group_image_mime_type, r.group_image_updated_at,
+                                     r.created_at, r.updated_at, r.last_message_at
                               FROM forum_chat_rooms r
                               JOIN forum_chat_members fcm
                                 ON fcm.room_id = r.id
@@ -309,8 +328,81 @@ if (!function_exists('gradtrack_chat_require_room_member')) {
         $room['created_at'] = gradtrack_chat_datetime_iso($room['created_at'] ?? null);
         $room['updated_at'] = gradtrack_chat_datetime_iso($room['updated_at'] ?? null);
         $room['last_message_at'] = gradtrack_chat_datetime_iso($room['last_message_at'] ?? null);
+        $room['group_image_updated_at'] = gradtrack_chat_datetime_iso($room['group_image_updated_at'] ?? null);
+        $room['group_image_url'] = $room['is_group'] && !empty($room['group_image_path'])
+            ? 'api/forum/conversation-info.php?room_id=' . $room['id'] . '&avatar=1&v=' . rawurlencode((string) ($room['group_image_updated_at'] ?? ''))
+            : null;
 
         return $room;
+    }
+}
+
+if (!function_exists('gradtrack_chat_direct_peer_id')) {
+    function gradtrack_chat_direct_peer_id(PDO $db, int $roomId, int $graduateId): int
+    {
+        $room = gradtrack_chat_require_room_member($db, $roomId, $graduateId);
+        if (!empty($room['is_group'])) {
+            throw new RuntimeException('This action is only available for direct conversations');
+        }
+
+        $stmt = $db->prepare("SELECT graduate_id
+                              FROM forum_chat_members
+                              WHERE room_id = :room_id
+                                AND graduate_id <> :graduate_id
+                              ORDER BY id ASC");
+        $stmt->execute([':room_id' => $roomId, ':graduate_id' => $graduateId]);
+        $peerIds = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+        if (count($peerIds) !== 1) {
+            throw new RuntimeException('Direct conversation participants are invalid');
+        }
+
+        return $peerIds[0];
+    }
+}
+
+if (!function_exists('gradtrack_chat_direct_block_state')) {
+    function gradtrack_chat_direct_block_state(PDO $db, int $roomId, int $graduateId): array
+    {
+        $peerId = gradtrack_chat_direct_peer_id($db, $roomId, $graduateId);
+        $stmt = $db->prepare("SELECT blocker_id, blocked_id
+                              FROM forum_chat_blocks
+                              WHERE (blocker_id = :graduate_id AND blocked_id = :peer_id)
+                                 OR (blocker_id = :peer_id_reverse AND blocked_id = :graduate_id_reverse)");
+        $stmt->execute([
+            ':graduate_id' => $graduateId,
+            ':peer_id' => $peerId,
+            ':peer_id_reverse' => $peerId,
+            ':graduate_id_reverse' => $graduateId,
+        ]);
+
+        $blockedByMe = false;
+        $blockedByOther = false;
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $blockedByMe = $blockedByMe || (int) $row['blocker_id'] === $graduateId;
+            $blockedByOther = $blockedByOther || (int) $row['blocker_id'] === $peerId;
+        }
+
+        return [
+            'peer_id' => $peerId,
+            'blocked' => $blockedByMe || $blockedByOther,
+            'blocked_by_me' => $blockedByMe,
+            'blocked_by_other' => $blockedByOther,
+        ];
+    }
+}
+
+if (!function_exists('gradtrack_chat_assert_message_allowed')) {
+    function gradtrack_chat_assert_message_allowed(PDO $db, int $roomId, int $graduateId): void
+    {
+        $room = gradtrack_chat_require_room_member($db, $roomId, $graduateId);
+        if (!empty($room['is_group'])) {
+            return;
+        }
+
+        $state = gradtrack_chat_direct_block_state($db, $roomId, $graduateId);
+        if (!empty($state['blocked'])) {
+            throw new DomainException('Messages are unavailable while this conversation is blocked');
+        }
     }
 }
 
@@ -510,8 +602,11 @@ if (!function_exists('gradtrack_chat_attachment_config')) {
             'image/png' => ['attachment_type' => 'image', 'extension' => 'png', 'max_size' => $imageMax, 'extensions' => ['png']],
             'image/webp' => ['attachment_type' => 'image', 'extension' => 'webp', 'max_size' => $imageMax, 'extensions' => ['webp']],
             'application/pdf' => ['attachment_type' => 'file', 'extension' => 'pdf', 'max_size' => $documentMax, 'extensions' => ['pdf']],
+            'application/msword' => ['attachment_type' => 'file', 'extension' => 'doc', 'max_size' => $documentMax, 'extensions' => ['doc']],
             'application/vnd.openxmlformats-officedocument.wordprocessingml.document' => ['attachment_type' => 'file', 'extension' => 'docx', 'max_size' => $documentMax, 'extensions' => ['docx']],
+            'application/vnd.ms-excel' => ['attachment_type' => 'file', 'extension' => 'xls', 'max_size' => $documentMax, 'extensions' => ['xls']],
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' => ['attachment_type' => 'file', 'extension' => 'xlsx', 'max_size' => $documentMax, 'extensions' => ['xlsx']],
+            'application/vnd.ms-powerpoint' => ['attachment_type' => 'file', 'extension' => 'ppt', 'max_size' => $documentMax, 'extensions' => ['ppt']],
             'application/vnd.openxmlformats-officedocument.presentationml.presentation' => ['attachment_type' => 'file', 'extension' => 'pptx', 'max_size' => $documentMax, 'extensions' => ['pptx']],
             'text/plain' => ['attachment_type' => 'file', 'extension' => 'txt', 'max_size' => $documentMax, 'extensions' => ['txt']],
             'text/csv' => ['attachment_type' => 'file', 'extension' => 'csv', 'max_size' => $documentMax, 'extensions' => ['csv']],

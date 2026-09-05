@@ -74,6 +74,11 @@ function initials(name?: string | null) {
   return `${parts[0][0]}${parts[parts.length - 1][0]}`.toUpperCase();
 }
 
+function showAnnouncementAuthor(announcement: Announcement) {
+  return announcement.author_type !== 'admin'
+    && (announcement.author_name || '').trim().toLowerCase() !== 'alumni admin';
+}
+
 function AnnouncementImage({ announcement, compact = false }: { announcement: Announcement; compact?: boolean }) {
   const [failed, setFailed] = useState(false);
   const source = resolveAssetUrl(announcement.cover_image_path);
@@ -172,7 +177,10 @@ export function AnnouncementCard({ announcement, to, compact = false }: { announ
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[11px] font-semibold text-slate-500"><span className="inline-flex items-center gap-1.5"><CalendarDays className="h-3.5 w-3.5 text-blue-600" />{formatShortDate(announcement.published_at || announcement.created_at)}</span><span className="inline-flex min-w-0 items-center gap-1.5"><Tag className="h-3.5 w-3.5 text-amber-600" /><span className="truncate">{categoryLabel(announcement.category)}</span></span></div>
           <h2 className="mt-4 line-clamp-2 min-h-[3.5rem] text-lg font-bold leading-7 text-slate-900 transition group-hover:text-blue-700">{announcement.title}</h2>
           <p className="mt-2 line-clamp-3 min-h-[4.5rem] text-sm leading-6 text-slate-500">{announcement.summary}</p>
-          <div className="mt-5 flex items-center gap-3 border-t border-slate-100 pt-4"><AuthorAvatar announcement={announcement} size="sm" /><div className="min-w-0 flex-1"><p className="truncate text-xs font-bold text-slate-800">{announcement.author_name}</p><p className="truncate text-[11px] text-slate-400">Alumni Administration</p></div><span className="shrink-0 text-xs font-extrabold uppercase tracking-wide text-blue-700">Read More</span></div>
+          <div className={`mt-5 flex items-center border-t border-slate-100 pt-4 ${showAnnouncementAuthor(announcement) ? 'gap-3' : 'justify-end'}`}>
+            {showAnnouncementAuthor(announcement) && <><AuthorAvatar announcement={announcement} size="sm" /><div className="min-w-0 flex-1"><p className="truncate text-xs font-bold text-slate-800">{announcement.author_name}</p></div></>}
+            <span className="shrink-0 text-xs font-extrabold uppercase tracking-wide text-blue-700">Read More</span>
+          </div>
         </div>
       </Link>
     </article>
@@ -277,7 +285,7 @@ export default function GraduateAnnouncements({ announcementId, publicMode = fal
       ) : error ? (
         <div className="rounded-[28px] border border-red-200 bg-white px-6 py-14 text-center shadow-sm"><AlertCircle className="mx-auto h-11 w-11 text-red-500" /><h2 className="mt-4 text-lg font-bold text-slate-900">Announcements could not be loaded</h2><p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">{error}</p><button type="button" onClick={retry} className="mt-5 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-bold text-white transition hover:bg-blue-800"><RotateCcw className="h-4 w-4" /> Try Again</button></div>
       ) : announcements.length === 0 ? (
-        <div className="rounded-[28px] border border-slate-200 bg-white px-6 py-16 text-center shadow-sm"><span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50 text-blue-700"><Megaphone className="h-8 w-8" /></span><h2 className="mt-5 text-xl font-bold text-slate-900">No announcements yet.</h2><p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">{committedSearch || category !== 'all' ? 'No announcements match your current search or category.' : 'Announcements posted by the Alumni Admin will appear here.'}</p></div>
+        <div className="rounded-[28px] border border-slate-200 bg-white px-6 py-16 text-center shadow-sm"><span className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-blue-50 text-blue-700"><Megaphone className="h-8 w-8" /></span><h2 className="mt-5 text-xl font-bold text-slate-900">No announcements yet.</h2><p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-slate-500">{committedSearch || category !== 'all' ? 'No announcements match your current search or category.' : 'New announcements will appear here.'}</p></div>
       ) : (
         <>
           <div className={`grid gap-5 md:grid-cols-2 ${publicMode ? 'lg:grid-cols-3' : 'xl:grid-cols-3'}`}>
@@ -332,8 +340,7 @@ function AnnouncementDetail({ announcement, categoryCounts, recent, loading, err
           <header className="mt-5 max-w-3xl">
             <h2 className="break-words text-2xl font-extrabold leading-tight text-slate-950 sm:text-[1.65rem] sm:leading-[1.25]">{announcement.title}</h2>
             <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-slate-200 pb-4 text-xs font-medium text-slate-500">
-              <span className="inline-flex min-w-0 items-center gap-2"><AuthorAvatar announcement={announcement} size="sm" /><span className="max-w-48 truncate font-bold text-slate-800">{announcement.author_name}</span></span>
-              <span aria-hidden="true" className="hidden h-4 w-px bg-slate-300 sm:block" />
+              {showAnnouncementAuthor(announcement) && <><span className="inline-flex min-w-0 items-center gap-2"><AuthorAvatar announcement={announcement} size="sm" /><span className="max-w-48 truncate font-bold text-slate-800">{announcement.author_name}</span></span><span aria-hidden="true" className="hidden h-4 w-px bg-slate-300 sm:block" /></>}
               <span className="inline-flex items-center gap-1.5"><Clock3 className="h-3.5 w-3.5 text-blue-600" />{formatDate(announcement.published_at || announcement.created_at)}</span>
               <span aria-hidden="true" className="hidden h-4 w-px bg-slate-300 sm:block" />
               <span className="inline-flex items-center gap-1.5"><Tag className="h-3.5 w-3.5 text-blue-600" />{categoryLabel(announcement.category)}</span>

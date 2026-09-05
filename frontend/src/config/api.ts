@@ -59,6 +59,7 @@ export const API_ENDPOINTS = {
     CHATS: `${API_ROOT}/forum/chats.php`,
     CHAT_MESSAGES: `${API_ROOT}/forum/chat-messages.php`,
     CHAT_ATTACHMENTS: `${API_ROOT}/forum/chat-attachments.php`,
+    CONVERSATION_INFO: `${API_ROOT}/forum/conversation-info.php`,
     MODERATION: `${API_ROOT}/forum/moderation.php`,
   },
   JOBS: {

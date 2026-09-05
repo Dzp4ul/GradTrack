@@ -375,7 +375,29 @@ async function main() {
         message_id: Number(fixture.message_id),
       });
       assert(outsiderPublish.success === false, 'an authenticated non-participant cannot publish another conversation message');
+      const outsiderRefresh = await emitWithAck(outsider, 'conversation:refresh', { room_id: Number(fixture.room_id) });
+      assert(outsiderRefresh.success === false, 'an authenticated non-participant cannot broadcast conversation changes');
+      const outsiderPolicy = await emitWithAck(outsider, 'conversation:policy-changed', { room_id: Number(fixture.room_id) });
+      assert(outsiderPolicy.success === false, 'an authenticated non-participant cannot broadcast conversation policy changes');
     }
+
+    const refreshedConversation = waitForEvent(
+      recipient,
+      'conversation:updated',
+      (payload) => Number(payload?.conversation?.id) === Number(fixture.room_id),
+    );
+    const refreshAck = await emitWithAck(sender, 'conversation:refresh', { room_id: Number(fixture.room_id) });
+    await refreshedConversation;
+    assert(refreshAck.success === true, 'authorized conversation changes synchronize through the existing realtime channel');
+
+    const policyUpdated = waitForEvent(
+      recipient,
+      'conversation:policy-updated',
+      (payload) => Number(payload?.room_id) === Number(fixture.room_id),
+    );
+    const policyAck = await emitWithAck(sender, 'conversation:policy-changed', { room_id: Number(fixture.room_id) });
+    await policyUpdated;
+    assert(policyAck.success === true, 'direct-message block policy changes synchronize to the other participant');
 
     const typingStarted = waitForEvent(
       recipient,
