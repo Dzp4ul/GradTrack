@@ -44,9 +44,14 @@ done
 [[ -r "$DB_SSL_CA" ]] || fail "DB_SSL_CA is not readable"
 pass "production environment policy"
 
-for command_name in php node aws nginx systemctl; do require_command "$command_name"; done
+for command_name in php node aws nginx systemctl curl; do require_command "$command_name"; done
 [[ "$(systemctl show -p User --value gradtrack-realtime.service)" == "gradtrack" ]] || fail "realtime service must run as the dedicated gradtrack user"
 pass "restricted realtime service account"
+realtime_auth_payload="$(curl -sS --max-time 5 -H 'Accept: application/json' "$REALTIME_AUTH_CHECK_URL")" \
+    || fail "private realtime authentication endpoint is unavailable"
+php -r '$payload = json_decode($argv[1], true); exit(is_array($payload) && array_key_exists("authenticated", $payload) ? 0 : 1);' "$realtime_auth_payload" \
+    || fail "private realtime authentication endpoint did not return the expected JSON response"
+pass "private realtime authentication endpoint"
 php "$APP_ROOT/backend/scripts/verify_schema.php" >/dev/null 2>&1 || fail "database schema verification failed"
 php "$APP_ROOT/backend/scripts/hash_legacy_admin_passwords.php" --verify >/dev/null 2>&1 || fail "administrator password hash verification failed"
 pass "database schema and password hashes"

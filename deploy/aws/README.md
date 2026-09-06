@@ -61,6 +61,8 @@ sudo nginx -t && sudo systemctl reload nginx
 sudo /var/www/gradtrack/deploy/aws/scripts/verify-production.sh
 ```
 
+Realtime session checks use the loopback-only Nginx listener on `127.0.0.1:8080`; keep `GRADTRACK_API_BASE_URL` and `REALTIME_AUTH_CHECK_URL` aligned with the production environment example.
+
 The setup script installs PHP 8.3 and Node.js 22 (Vite 8 requires Node 20.19+ or 22.12+), installs locked dependencies, builds `frontend/dist`, applies the ledger-backed database migration with the restricted migration user, hashes legacy administrator passwords, installs services, and runs read-only verification before reporting success.
 
 Before enabling real scheduled mail, run the existing reminder path in dry-run mode:

@@ -33,6 +33,8 @@ set +a
 npm --prefix "$APP_ROOT/frontend" run typecheck
 npm --prefix "$APP_ROOT/frontend" run build
 
+install -m 0644 "$APP_ROOT/deploy/aws/nginx/gradtrack-internal.conf" /etc/nginx/conf.d/gradtrack-internal.conf
+
 if [[ -r "$MIGRATION_ENV" ]]; then
     GRADTRACK_MIGRATION_ENV="$MIGRATION_ENV" \
         php "$APP_ROOT/backend/scripts/migrate_database.php" --apply --production-approved
@@ -49,6 +51,7 @@ find "$APP_ROOT" -type f -exec chmod 0640 {} +
 chmod 0750 "$APP_ROOT/deploy/aws/scripts/verify-production.sh" "$APP_ROOT/deploy/aws/scripts/deploy-update.sh"
 
 systemctl restart php8.3-fpm gradtrack-realtime.service
+nginx -t
 systemctl reload nginx
 GRADTRACK_APP_ROOT="$APP_ROOT" GRADTRACK_BACKEND_ENV="$BACKEND_ENV" "$APP_ROOT/deploy/aws/scripts/verify-production.sh"
 deployment_succeeded=true

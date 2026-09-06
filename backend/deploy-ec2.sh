@@ -50,6 +50,7 @@ install -d -o www-data -g www-data -m 0750 /var/lib/gradtrack /var/lib/gradtrack
 install -m 0644 deploy/aws/php/99-gradtrack.ini /etc/php/8.3/fpm/conf.d/99-gradtrack.ini
 install -m 0644 deploy/aws/php/99-gradtrack.ini /etc/php/8.3/cli/conf.d/99-gradtrack.ini
 sed "s/__SERVER_NAME__/$DOMAIN/g" deploy/aws/nginx/gradtrack.conf > /etc/nginx/sites-available/gradtrack
+install -m 0644 deploy/aws/nginx/gradtrack-internal.conf /etc/nginx/conf.d/gradtrack-internal.conf
 ln -sfn /etc/nginx/sites-available/gradtrack /etc/nginx/sites-enabled/gradtrack
 rm -f /etc/nginx/sites-enabled/default
 install -m 0644 deploy/aws/systemd/gradtrack-realtime.service /etc/systemd/system/gradtrack-realtime.service
