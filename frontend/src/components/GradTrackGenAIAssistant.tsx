@@ -4,7 +4,9 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import {
   AlertCircle,
+  ArrowLeft,
   Bot,
+  Clock3,
   Copy,
   Download,
   FileSpreadsheet,
@@ -13,6 +15,7 @@ import {
   Loader2,
   MessageSquarePlus,
   Minus,
+  Plus,
   RefreshCcw,
   Send,
   Sparkles,
@@ -80,6 +83,11 @@ interface GenAIResponseData {
   dataset?: Record<string, unknown> | null;
   context?: Record<string, unknown>;
   aiError?: string | null;
+  conversation?: AIConversation;
+  persistedMessages?: {
+    user?: StoredAIMessage;
+    assistant?: StoredAIMessage;
+  };
 }
 
 interface AssistantConfig {
@@ -87,6 +95,29 @@ interface AssistantConfig {
   welcome: string;
   suggestions: string[];
   supportsReportContext: boolean;
+  supportsHistory?: boolean;
+}
+
+interface AIConversation {
+  id: number;
+  title: string;
+  created_at: string;
+  updated_at: string;
+  last_message_preview?: string;
+  last_message_sender?: 'user' | 'assistant' | null;
+  last_message_at?: string | null;
+  message_count?: number;
+}
+
+interface StoredAIMessage {
+  id: number;
+  sender: 'user' | 'assistant';
+  message: string;
+  metadata?: {
+    response?: GenAIResponseData;
+    request_failed?: boolean;
+  } | null;
+  created_at: string;
 }
 
 interface ChatMessage {
@@ -100,6 +131,35 @@ interface ChatMessage {
 
 const REPORT_CONTEXT_STORAGE_KEY_PREFIX = 'gradtrack_genai_report_context';
 const makeMessageId = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+const parseServerDate = (value: string) => new Date(value.includes('T') ? value : value.replace(' ', 'T'));
+
+const formatConversationDate = (value: string) => parseServerDate(value).toLocaleString([], {
+  month: 'short',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+});
+
+const currentModuleForRoute = (route: string) => {
+  const modules: Array<[string, string]> = [
+    ['/admin/alumni-registered-list', 'Alumni Verification'],
+    ['/admin/announcements', 'Announcements'],
+    ['/admin/forum-moderation', 'Forum Moderation'],
+    ['/admin/job-approvals', 'Job Approval'],
+    ['/admin/user-management', 'User Management'],
+    ['/admin/auto-reminders', 'Auto Email Reminders'],
+    ['/admin/audit-trail', 'Audit Trail'],
+    ['/admin/backup-database', 'Backup Database'],
+    ['/admin/system-settings', 'System Settings'],
+    ['/admin/survey-status', 'Survey Participation'],
+    ['/admin/graduates', 'Graduate Participation'],
+    ['/admin/surveys', 'Survey Management'],
+    ['/admin/reports', 'Reports & Analytics'],
+    ['/admin', 'Dashboard'],
+  ];
+  return modules.find(([path]) => route === path || route.startsWith(`${path}/`))?.[1] || 'GradTrack';
+};
 
 const toTitle = (value: unknown) => String(value ?? '')
   .replace(/_/g, ' ')
@@ -209,6 +269,12 @@ export default function GradTrackGenAIAssistant() {
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [hasNewResult, setHasNewResult] = useState(false);
+  const [view, setView] = useState<'history' | 'conversation'>('history');
+  const [conversations, setConversations] = useState<AIConversation[]>([]);
+  const [activeConversation, setActiveConversation] = useState<AIConversation | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [conversationLoading, setConversationLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -219,6 +285,7 @@ export default function GradTrackGenAIAssistant() {
   const loadingTimersRef = useRef<number[]>([]);
 
   const isAdminPath = location.pathname.startsWith('/admin');
+  const currentModule = useMemo(() => currentModuleForRoute(location.pathname), [location.pathname]);
   const shouldShow = Boolean(assistantConfig) && isAdminPath;
   const reportContextStorageKey = useMemo(
     () => `${REPORT_CONTEXT_STORAGE_KEY_PREFIX}_${user?.id ?? 'anonymous'}`,
@@ -244,7 +311,7 @@ export default function GradTrackGenAIAssistant() {
     clearLoadingTimers();
     const stages = isReportRequest
       ? ['Preparing report data...', 'Generating AI summary...', 'Creating report preview...']
-      : ['Retrieving GradTrack data...', 'Analyzing tracer-study results...', 'Generating insights...'];
+      : ['Analyzing your request...', 'Retrieving GradTrack data...', 'Generating response...'];
     setLoadingStage(stages[0]);
     stages.slice(1).forEach((stage, index) => {
       loadingTimersRef.current.push(window.setTimeout(() => setLoadingStage(stage), (index + 1) * 900));
@@ -263,11 +330,74 @@ export default function GradTrackGenAIAssistant() {
     setIsMinimized(false);
   };
 
-  const resetConversation = () => {
+  const loadConversations = useCallback(async (showLoading = true) => {
+    if (showLoading) setHistoryLoading(true);
+    setHistoryError('');
+    try {
+      const response = await fetch(`${API_ENDPOINTS.GENAI_ASSISTANT}?resource=conversations`, {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.error || 'Unable to load AI conversation history.');
+      }
+      setConversations(Array.isArray(result.data?.conversations) ? result.data.conversations : []);
+    } catch (error) {
+      setHistoryError(error instanceof Error ? error.message : 'Unable to load AI conversation history.');
+    } finally {
+      if (showLoading) setHistoryLoading(false);
+    }
+  }, []);
+
+  const createConversation = useCallback(() => {
+    if (loading) return;
+    setHistoryError('');
+    setActiveConversation(null);
     setMessages([]);
     setInput('');
     setHasNewResult(false);
-  };
+    setView('conversation');
+    window.setTimeout(() => inputRef.current?.focus(), 80);
+  }, [loading]);
+
+  const openConversation = useCallback(async (conversation: AIConversation) => {
+    if (loading || conversationLoading) return;
+    setConversationLoading(true);
+    setHistoryError('');
+    try {
+      const response = await fetch(`${API_ENDPOINTS.GENAI_ASSISTANT}?resource=messages&conversation_id=${conversation.id}`, {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const result = await response.json().catch(() => null);
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.error || 'Unable to open this AI conversation.');
+      }
+      const stored = (Array.isArray(result.data?.messages) ? result.data.messages : []) as StoredAIMessage[];
+      setMessages(stored.map((message) => ({
+        id: String(message.id),
+        role: message.sender === 'user' ? 'admin' : 'assistant',
+        content: message.message,
+        createdAt: message.created_at,
+        response: message.sender === 'assistant' ? message.metadata?.response : undefined,
+        error: message.metadata?.request_failed ? 'The request could not be completed.' : undefined,
+      })));
+      setActiveConversation((result.data?.conversation || conversation) as AIConversation);
+      setView('conversation');
+      window.setTimeout(() => inputRef.current?.focus(), 80);
+    } catch (error) {
+      setHistoryError(error instanceof Error ? error.message : 'Unable to open this AI conversation.');
+    } finally {
+      setConversationLoading(false);
+    }
+  }, [conversationLoading, loading]);
+
+  const showHistory = useCallback(() => {
+    setView('history');
+    setHistoryError('');
+    void loadConversations();
+  }, [loadConversations]);
 
   const clearContext = () => {
     setReportContext(null);
@@ -287,6 +417,9 @@ export default function GradTrackGenAIAssistant() {
   useEffect(() => {
     setAssistantConfig(null);
     setMessages([]);
+    setConversations([]);
+    setActiveConversation(null);
+    setView('history');
     setReportContext(null);
 
     if (!user?.id || !isAdminPath) {
@@ -309,6 +442,9 @@ export default function GradTrackGenAIAssistant() {
       .then((config) => {
         if (!controller.signal.aborted) {
           setAssistantConfig(config);
+          if (config) {
+            void loadConversations();
+          }
         }
       })
       .catch(() => {
@@ -318,7 +454,7 @@ export default function GradTrackGenAIAssistant() {
       });
 
     return () => controller.abort();
-  }, [isAdminPath, user?.id, user?.role]);
+  }, [isAdminPath, loadConversations, user?.id, user?.role]);
 
   const sendMessage = useCallback(async (prompt?: string, action: GenAIAction = 'chat', explicitContext?: ReportContext) => {
     const messageText = (prompt ?? input).trim();
@@ -334,19 +470,30 @@ export default function GradTrackGenAIAssistant() {
       createdAt: new Date().toISOString(),
     };
 
-    const conversation = [...messages, userMessage]
-      .slice(-8)
-      .map((message) => ({
-        role: message.role === 'admin' ? 'user' : 'assistant',
-        content: message.content,
-      }));
-
     setMessages((current) => [...current, userMessage]);
+    setView('conversation');
     setInput('');
     setLoading(true);
     startLoadingStages(action === 'generate_report' || /\b(report|pdf|excel|xlsx|csv|download|export)\b/i.test(messageText));
 
     try {
+      let conversationId = activeConversation?.id || 0;
+      if (conversationId === 0) {
+        const createResponse = await fetch(API_ENDPOINTS.GENAI_ASSISTANT, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'create_conversation' }),
+        });
+        const createResult = await createResponse.json().catch(() => null);
+        if (!createResponse.ok || !createResult?.success || !createResult.data?.conversation) {
+          throw new Error(createResult?.error || 'Unable to create the AI conversation.');
+        }
+        const createdConversation = createResult.data.conversation as AIConversation;
+        conversationId = createdConversation.id;
+        setActiveConversation(createdConversation);
+      }
+
       const response = await fetch(API_ENDPOINTS.GENAI_ASSISTANT, {
         method: 'POST',
         credentials: 'include',
@@ -354,8 +501,12 @@ export default function GradTrackGenAIAssistant() {
         body: JSON.stringify({
           action,
           message: messageText,
+          conversation_id: conversationId,
+          page_context: {
+            route: location.pathname,
+            current_module: currentModule,
+          },
           report_context: activeContext,
-          conversation,
         }),
       });
       const result = await response.json();
@@ -366,14 +517,18 @@ export default function GradTrackGenAIAssistant() {
 
       const data = result.data as GenAIResponseData;
       const assistantMessage: ChatMessage = {
-        id: makeMessageId(),
+        id: String(data.persistedMessages?.assistant?.id || makeMessageId()),
         role: 'assistant',
         content: data.assistant.answer,
-        createdAt: new Date().toISOString(),
+        createdAt: data.persistedMessages?.assistant?.created_at || new Date().toISOString(),
         response: data,
       };
 
       setMessages((current) => [...current, assistantMessage]);
+      if (data.conversation) {
+        setActiveConversation(data.conversation);
+      }
+      void loadConversations(false);
       if (data.context) {
         updateStoredContext({
           ...(activeContext || {}),
@@ -391,13 +546,13 @@ export default function GradTrackGenAIAssistant() {
         setHasNewResult(true);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'GradTrack GenAI is temporarily unavailable.';
+      const message = error instanceof Error ? error.message : "I couldn't generate a response right now. Please try again.";
       setMessages((current) => [
         ...current,
         {
           id: makeMessageId(),
           role: 'assistant',
-          content: 'GradTrack GenAI is temporarily unavailable. Your report data has not been affected. Please try again.',
+          content: message || "I couldn't generate a response right now. Please try again.",
           createdAt: new Date().toISOString(),
           error: message,
         },
@@ -407,7 +562,7 @@ export default function GradTrackGenAIAssistant() {
       setLoading(false);
       setLoadingStage('Retrieving GradTrack data...');
     }
-  }, [clearLoadingTimers, contextLabel, input, isMinimized, isOpen, loading, messages, reportContext, startLoadingStages, updateStoredContext]);
+  }, [activeConversation?.id, clearLoadingTimers, contextLabel, currentModule, input, isMinimized, isOpen, loadConversations, loading, location.pathname, reportContext, startLoadingStages, updateStoredContext]);
 
   const copyMessage = async (message: ChatMessage) => {
     const details = message.response
@@ -805,7 +960,7 @@ export default function GradTrackGenAIAssistant() {
 
         {response.aiError && (
           <div className="gt-ai-warning rounded-lg border px-3 py-2 text-xs">
-            Local deterministic analysis was used because Groq was unavailable: {response.aiError}
+            I couldn't generate the AI wording right now, so GradTrack returned a verified answer from the authorized server data. Please try again if you want a regenerated response.
           </div>
         )}
       </div>
@@ -821,22 +976,35 @@ export default function GradTrackGenAIAssistant() {
             aria-label="GradTrack GenAI Assistant chat panel"
           >
             <header className="flex items-center gap-3 border-b bg-[#1b2a4a] px-4 py-3 text-white">
+              {view === 'conversation' && (
+                <button
+                  type="button"
+                  onClick={showHistory}
+                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-blue-100 hover:bg-white/10"
+                  aria-label="Back to conversation history"
+                  title="Conversation history"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </button>
+              )}
               <div className="relative shrink-0">
                 <GradTrackAIMascot compact thinking={loading} />
               </div>
               <div className="min-w-0 flex-1">
-                <h2 className="truncate text-sm font-bold">GradTrack GenAI Assistant</h2>
+                <h2 className="truncate text-sm font-bold">
+                  {view === 'conversation' && activeConversation ? activeConversation.title : 'GradTrack GenAI Assistant'}
+                </h2>
                 <p className="truncate text-xs text-blue-100">{assistantConfig?.roleLabel} Assistant</p>
               </div>
               <div className="flex items-center gap-1">
                 <button
                   type="button"
-                  onClick={resetConversation}
+                  onClick={() => void createConversation()}
                   className="inline-flex h-8 w-8 items-center justify-center rounded-full text-blue-100 hover:bg-white/10"
                   aria-label="New conversation"
                   title="New conversation"
                 >
-                  <RefreshCcw className="h-4 w-4" />
+                  <Plus className="h-4 w-4" />
                 </button>
                 <button
                   type="button"
@@ -866,9 +1034,9 @@ export default function GradTrackGenAIAssistant() {
                   {loading ? 'Analyzing' : 'Ready'}
                 </span>
                 <span className="gt-ai-context-badge min-w-0 flex-1 truncate rounded-full border px-2.5 py-1 font-medium">
-                  Analyzing: {contextLabel}
+                  {view === 'history' ? 'Conversation history' : `Context: ${currentModule} · ${contextLabel}`}
                 </span>
-                {contextIsAvailable && (
+                {view === 'conversation' && contextIsAvailable && (
                   <button type="button" onClick={clearContext} className="gt-ai-muted-button font-semibold">
                     Clear context
                   </button>
@@ -877,79 +1045,167 @@ export default function GradTrackGenAIAssistant() {
             </div>
 
             <div className="gt-ai-messages min-h-[240px] flex-1 overflow-y-auto px-4 py-4 sm:min-h-[360px]">
-              {messages.length === 0 && (
+              {view === 'history' ? (
                 <div className="space-y-4">
-                  <div className="gt-ai-card rounded-2xl border p-4 shadow-sm">
-                    <div className="mb-3 flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => void createConversation()}
+                    disabled={conversationLoading}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#1d4ed8] px-4 py-3 text-sm font-bold text-white shadow-sm hover:bg-[#1e40af] disabled:cursor-wait disabled:opacity-70"
+                  >
+                    {conversationLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                    New conversation
+                  </button>
+
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h3 className="gt-ai-primary-text text-sm font-bold">Previous conversations</h3>
+                      <p className="gt-ai-muted-text text-xs">Private to this {assistantConfig?.roleLabel} account and role.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void loadConversations()}
+                      disabled={historyLoading}
+                      className="gt-ai-muted-button inline-flex h-8 w-8 items-center justify-center rounded-full"
+                      aria-label="Refresh conversation history"
+                    >
+                      <RefreshCcw className={`h-4 w-4 ${historyLoading ? 'animate-spin' : ''}`} />
+                    </button>
+                  </div>
+
+                  {historyError && (
+                    <div className="gt-ai-error flex items-start gap-2 rounded-lg border px-3 py-2 text-xs font-medium">
+                      <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      <span>{historyError}</span>
+                    </div>
+                  )}
+
+                  {historyLoading ? (
+                    <div className="gt-ai-muted-text flex items-center justify-center gap-2 py-10 text-sm">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading conversations...
+                    </div>
+                  ) : conversations.length === 0 ? (
+                    <div className="gt-ai-card rounded-2xl border p-5 text-center shadow-sm">
                       <GradTrackAIMascot compact />
-                      <div>
-                        <p className="gt-ai-primary-text font-bold">Hello! I'm the GradTrack GenAI Assistant.</p>
-                        <p className="gt-ai-muted-text text-xs font-medium">Assistance scoped to your authenticated {assistantConfig?.roleLabel} account.</p>
-                      </div>
+                      <p className="gt-ai-primary-text mt-3 font-bold">No conversations yet</p>
+                      <p className="gt-ai-muted-text mt-1 text-xs">Start a conversation to ask about authorized GradTrack data.</p>
                     </div>
-                    <p className="gt-ai-secondary-text text-sm leading-relaxed">
-                      {assistantConfig?.welcome}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {(assistantConfig?.suggestions || []).map((prompt) => (
-                      <button
-                        key={prompt}
-                        type="button"
-                        onClick={() => void sendMessage(prompt, prompt.toLowerCase().includes('report') || prompt.toLowerCase().includes('pdf') ? 'generate_report' : 'chat')}
-                        className="gt-ai-suggestion rounded-full border px-3 py-1.5 text-xs font-semibold shadow-sm"
-                      >
-                        {prompt}
-                      </button>
-                    ))}
-                  </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {conversations.map((conversation) => (
+                        <button
+                          key={conversation.id}
+                          type="button"
+                          onClick={() => void openConversation(conversation)}
+                          disabled={conversationLoading}
+                          className="gt-ai-history-item w-full rounded-xl border p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md disabled:cursor-wait"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <p className="gt-ai-primary-text line-clamp-1 text-sm font-bold">{conversation.title}</p>
+                            <span className="gt-ai-history-count shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold">
+                              {conversation.message_count || 0}
+                            </span>
+                          </div>
+                          <div className="gt-ai-muted-text mt-1 flex items-center gap-1 text-[11px]">
+                            <Clock3 className="h-3 w-3" />
+                            Started {formatConversationDate(conversation.created_at)}
+                          </div>
+                          <p className="gt-ai-secondary-text mt-2 line-clamp-2 text-xs leading-relaxed">
+                            {conversation.last_message_preview || 'No messages yet.'}
+                          </p>
+                          <p className="gt-ai-muted-text mt-2 text-[10px]">
+                            Latest activity {formatConversationDate(conversation.updated_at)}
+                          </p>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              )}
-
-              <div className="space-y-4">
-                {messages.map((message) => (
-                  <article key={message.id} className={`flex ${message.role === 'admin' ? 'justify-end' : 'justify-start'}`}>
-                    <div className={`max-w-[92%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
-                      message.role === 'admin'
-                        ? 'bg-[#1d4ed8] text-white'
-                        : 'gt-ai-assistant-message border'
-                    }`}>
-                      {message.role === 'assistant' ? renderAssistantSections(message) : <p className="whitespace-pre-wrap">{message.content}</p>}
-                      {message.role === 'assistant' && (
-                        <div className="gt-ai-message-meta mt-3 flex items-center justify-between gap-2 border-t pt-2 text-[11px]">
-                          <span>{new Date(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                          <button
-                            type="button"
-                            onClick={() => void copyMessage(message)}
-                            className="gt-ai-copy-button inline-flex items-center gap-1 rounded-md px-2 py-1 font-semibold"
-                          >
-                            <Copy className="h-3 w-3" />
-                            Copy
-                          </button>
-                        </div>
-                      )}
+              ) : (
+                <>
+                  {conversationLoading && messages.length === 0 && (
+                    <div className="gt-ai-muted-text flex items-center justify-center gap-2 py-10 text-sm">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading conversation...
                     </div>
-                  </article>
-                ))}
+                  )}
 
-                {loading && (
-                  <div className="flex justify-start">
-                    <div className="gt-ai-assistant-message max-w-[88%] rounded-2xl border px-4 py-3 text-sm shadow-sm">
-                      <div className="flex items-center gap-3">
-                        <GradTrackAIMascot compact thinking />
-                        <div>
-                          <p className="gt-ai-primary-text font-semibold">{loadingStage}</p>
-                          <p className="gt-ai-muted-text text-xs">GradTrack AI is typing...</p>
+                  {!conversationLoading && messages.length === 0 && (
+                    <div className="space-y-4">
+                      <div className="gt-ai-card rounded-2xl border p-4 shadow-sm">
+                        <div className="mb-3 flex items-center gap-3">
+                          <GradTrackAIMascot compact />
+                          <div>
+                            <p className="gt-ai-primary-text font-bold">Hello! I'm the GradTrack GenAI Assistant.</p>
+                            <p className="gt-ai-muted-text text-xs font-medium">Assistance scoped to your authenticated {assistantConfig?.roleLabel} account.</p>
+                          </div>
                         </div>
-                        <Loader2 className="ml-auto h-4 w-4 animate-spin text-blue-600" />
+                        <p className="gt-ai-secondary-text text-sm leading-relaxed">
+                          {assistantConfig?.welcome}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {(assistantConfig?.suggestions || []).map((prompt) => (
+                          <button
+                            key={prompt}
+                            type="button"
+                            onClick={() => void sendMessage(prompt, prompt.toLowerCase().includes('report') || prompt.toLowerCase().includes('pdf') ? 'generate_report' : 'chat')}
+                            className="gt-ai-suggestion rounded-full border px-3 py-1.5 text-xs font-semibold shadow-sm"
+                          >
+                            {prompt}
+                          </button>
+                        ))}
                       </div>
                     </div>
+                  )}
+
+                  <div className="space-y-4">
+                    {messages.map((message) => (
+                      <article key={message.id} className={`flex ${message.role === 'admin' ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`max-w-[92%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
+                          message.role === 'admin'
+                            ? 'bg-[#1d4ed8] text-white'
+                            : 'gt-ai-assistant-message border'
+                        }`}>
+                          {message.role === 'assistant' ? renderAssistantSections(message) : <p className="whitespace-pre-wrap">{message.content}</p>}
+                          {message.role === 'assistant' && (
+                            <div className="gt-ai-message-meta mt-3 flex items-center justify-between gap-2 border-t pt-2 text-[11px]">
+                              <span>{parseServerDate(message.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                              <button
+                                type="button"
+                                onClick={() => void copyMessage(message)}
+                                className="gt-ai-copy-button inline-flex items-center gap-1 rounded-md px-2 py-1 font-semibold"
+                              >
+                                <Copy className="h-3 w-3" />
+                                Copy
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </article>
+                    ))}
+
+                    {loading && (
+                      <div className="flex justify-start">
+                        <div className="gt-ai-assistant-message max-w-[88%] rounded-2xl border px-4 py-3 text-sm shadow-sm">
+                          <div className="flex items-center gap-3">
+                            <GradTrackAIMascot compact thinking />
+                            <div>
+                              <p className="gt-ai-primary-text font-semibold">{loadingStage}</p>
+                              <p className="gt-ai-muted-text text-xs">GradTrack AI is typing...</p>
+                            </div>
+                            <Loader2 className="ml-auto h-4 w-4 animate-spin text-blue-600" />
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                </>
+              )}
             </div>
 
-            {lastMessage?.response?.assistant.suggestedQuestions?.length ? (
+            {view === 'conversation' && lastMessage?.response?.assistant.suggestedQuestions?.length ? (
               <div className="gt-ai-followups border-t px-4 py-2">
                 <div className="flex gap-2 overflow-x-auto pb-1">
                   {lastMessage.response.assistant.suggestedQuestions?.map((question: string) => (
@@ -966,6 +1222,7 @@ export default function GradTrackGenAIAssistant() {
               </div>
             ) : null}
 
+            {view === 'conversation' && (
             <footer className="gt-ai-footer border-t p-3">
               <div className="gt-ai-input-wrap flex items-end gap-2 rounded-xl border p-2">
                 {assistantConfig?.supportsReportContext && (
@@ -1005,6 +1262,7 @@ export default function GradTrackGenAIAssistant() {
                 </button>
               </div>
             </footer>
+            )}
           </section>
         </div>
       )}

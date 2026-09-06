@@ -3,6 +3,8 @@ define('GRADTRACK_REPORTS_INDEX_NO_RUN', true);
 require_once __DIR__ . '/../reports/index.php';
 require_once __DIR__ . '/../config/admin_roles.php';
 require_once __DIR__ . '/../config/archive.php';
+require_once __DIR__ . '/../config/genai_conversations.php';
+require_once __DIR__ . '/../config/genai_data_tools.php';
 
 gradtrack_ensure_archive_schema($db, 'graduates');
 gradtrack_ensure_archive_schema($db, 'surveys', true);
@@ -32,6 +34,7 @@ function gradtrack_genai_role_policies(): array
                     'route' => '/admin',
                     'description' => 'View employability by program, employment trends, job alignment, and the selected survey snapshot.',
                     'keywords' => ['dashboard', 'survey snapshot', 'employability index'],
+                    'data_scope' => 'report_analytics',
                 ],
                 'graduate_participation' => [
                     'label' => 'Graduate survey participation',
@@ -72,6 +75,7 @@ function gradtrack_genai_role_policies(): array
                     'route' => '/admin/user-management',
                     'description' => 'Search administrator accounts, create or edit an account, assign an available role, and activate or deactivate accounts.',
                     'keywords' => ['user management', 'administrator account', 'admin account', 'manage account', 'role management', 'assign role', 'activate user', 'deactivate user'],
+                    'data_scope' => 'system_user_summary',
                 ],
                 'auto_reminders' => [
                     'label' => 'Auto Email Reminders',
@@ -115,24 +119,28 @@ function gradtrack_genai_role_policies(): array
                     'route' => '/admin/alumni-registered-list',
                     'description' => 'Review alumni accounts, approve or reject verification, import or export the alumni registry, edit registry records, and link eligible alumni accounts.',
                     'keywords' => ['alumni verification', 'verify an alumni', 'verify alumni', 'alumni registry', 'registered alumni', 'import alumni'],
+                    'data_scope' => 'alumni_verification_summary',
                 ],
                 'announcements' => [
                     'label' => 'Announcements',
                     'route' => '/admin/announcements',
                     'description' => 'Create, edit, publish, filter, and delete alumni announcements, including optional cover and gallery images.',
                     'keywords' => ['announcement', 'publish announcement', 'announcement manager'],
+                    'data_scope' => 'announcement_summary',
                 ],
                 'forum_moderation' => [
                     'label' => 'Forum Moderation',
                     'route' => '/admin/forum-moderation',
                     'description' => 'Review community posts and reports, search discussions, and use the available moderation actions for posts and comments.',
                     'keywords' => ['forum moderation', 'moderate a forum', 'moderate forum', 'community post', 'reported post', 'reported comment'],
+                    'data_scope' => 'forum_moderation_summary',
                 ],
                 'job_approvals' => [
                     'label' => 'Job Approval',
                     'route' => '/admin/job-approvals',
                     'description' => 'Review alumni job posts, inspect posting details, search by status, and approve or decline submissions with optional review notes.',
                     'keywords' => ['job approval', 'job post', 'job posting', 'approve job', 'decline job', 'alumni job support'],
+                    'data_scope' => 'job_approval_summary',
                 ],
             ],
             'suggestions' => [
@@ -251,6 +259,7 @@ function gradtrack_genai_public_role_config(array $policy): array
         'roleLabel' => $policy['label'],
         'welcome' => $policy['welcome'],
         'suggestions' => $policy['suggestions'],
+        'supportsHistory' => true,
     ];
 }
 
@@ -370,10 +379,16 @@ function gradtrack_genai_classify_request(string $message, string $role, array $
         return ['type' => 'restricted'];
     }
 
+    if ($role !== 'super_admin'
+        && preg_match('/\b(system\s+users?|admin(?:istrator)?\s+accounts?|user\s+accounts?|users?\s+by\s+role|overall\s+system\s+statistics)\b/i', $message) === 1) {
+        return ['type' => 'restricted'];
+    }
+
     $allowedMatch = gradtrack_genai_match_feature($message, $policy['features']);
     if ($allowedMatch !== null) {
         $dataScope = $allowedMatch['feature']['data_scope'] ?? null;
-        $asksForData = preg_match('/\b(how many|count|rate|percentage|statistic|trend|finding|compare|comparison|analy[sz]e|explain|summary|summarize|result|participation|response status|responded|not responded|answered|not answered|employed|unemployed|salary|alignment|generate|create|export|download|pdf|excel|xlsx|csv)\b/i', $message) === 1;
+        $asksForData = gradtrack_genai_question_requests_data($message)
+            || preg_match('/\b(trend|finding|analy[sz]e|explain|summarize|result|participation|employed|unemployed|salary|alignment|generate|create|export|download|pdf|excel|xlsx|csv)\b/i', $message) === 1;
         return [
             'type' => $dataScope !== null && $asksForData ? 'data' : 'feature_help',
             'match' => $allowedMatch,
@@ -1807,21 +1822,178 @@ function gradtrack_genai_normalize_ai_response(?array $ai, string $message, arra
     ];
 }
 
+function gradtrack_genai_tool_user_prompt(
+    string $message,
+    array $resolution,
+    array $data,
+    array $pageContext,
+    array $conversation,
+    array $admin,
+    array $policy
+): string {
+    return json_encode([
+        'authenticated_role' => ['value' => $admin['role'], 'label' => $policy['label']],
+        'current_page_hint_untrusted' => $pageContext,
+        'selected_server_tool' => $resolution,
+        'authorized_live_gradtrack_data' => $data,
+        'recent_server_owned_conversation' => array_slice($conversation, -6),
+        'user_question_untrusted' => $message,
+        'instructions' => [
+            'Answer the user question directly in one or two short sentences.',
+            'Use digits for every count and preserve every relevant supplied count exactly.',
+            'When the user asks for counts, do not describe the feature or provide navigation steps.',
+            'Simple Filipino or Taglish wording may be answered naturally.',
+            'Do not add facts that are absent from authorized_live_gradtrack_data.',
+        ],
+        'required_response_schema' => [
+            'answer' => 'string',
+        ],
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+}
+
+function gradtrack_genai_tool_expected_values(array $resolution, array $data): array
+{
+    $tool = (string) ($resolution['tool'] ?? '');
+    $metric = (string) ($resolution['metric'] ?? 'summary');
+    if ($tool === 'alumni_verification_summary') {
+        if (in_array($metric, ['approved', 'pending', 'rejected'], true)) return [(int) $data[$metric]];
+        return [(int) $data['approved'], (int) $data['pending'], (int) $data['rejected']];
+    }
+    if ($tool === 'alumni_registry_summary') {
+        if ($metric === 'total') return [(int) $data['all_alumni']];
+        if ($metric === 'by_program') return array_map('intval', array_values($data['course_totals']));
+        if ($metric === 'answered') return [(int) $data['done_answering']];
+        if ($metric === 'not_answered') return [(int) $data['not_answered']];
+        if ($metric === 'program' && !empty($resolution['program_code'])) {
+            return [(int) ($data['course_totals'][(string) $resolution['program_code']] ?? 0)];
+        }
+        return [(int) $data['done_answering'], (int) $data['not_answered'], (int) $data['all_alumni']];
+    }
+    if ($tool === 'graduate_program_counts' && !empty($resolution['program_code'])) {
+        foreach ($data['programs'] as $row) {
+            if (($row['code'] ?? null) === $resolution['program_code']) return [(int) $row['count']];
+        }
+        return [];
+    }
+    if ($tool === 'graduate_program_counts' && $metric === 'by_program') {
+        return array_map(static fn (array $row): int => (int) $row['count'], $data['programs']);
+    }
+    if (isset($data['statuses']) && is_array($data['statuses'])) {
+        if (isset($data['statuses'][$metric])) return [(int) $data['statuses'][$metric]];
+        return array_map('intval', array_values($data['statuses']));
+    }
+    if ($tool === 'system_user_summary') {
+        if (in_array($metric, ['active', 'inactive'], true)) return [(int) $data[$metric]];
+        return [(int) $data['total'], (int) $data['active'], (int) $data['inactive']];
+    }
+    if ($tool === 'system_dashboard_statistics' && isset($data[$metric]) && is_int($data[$metric])) {
+        return [(int) $data[$metric]];
+    }
+    if ($tool === 'system_dashboard_statistics') {
+        return [(int) $data['admin_users'], (int) $data['graduates'], (int) $data['alumni_accounts'], (int) $data['surveys'], (int) $data['submitted_survey_responses']];
+    }
+    return [];
+}
+
+function gradtrack_genai_tool_allowed_numbers(array $data): array
+{
+    $numbers = [];
+    $walk = static function ($value) use (&$numbers, &$walk): void {
+        if (is_int($value)) {
+            $numbers[] = $value;
+            return;
+        }
+        if (is_array($value)) {
+            foreach ($value as $nested) $walk($nested);
+        }
+    };
+    $walk($data);
+    return array_values(array_unique($numbers));
+}
+
+function gradtrack_genai_tool_response(
+    ?array $ai,
+    array $resolution,
+    array $data,
+    array $suggestions
+): array {
+    $fallback = gradtrack_genai_tool_fallback_answer($resolution, $data);
+    $answer = $ai !== null ? gradtrack_genai_clean_text($ai['answer'] ?? '', 1800) : '';
+    if ($answer === '') {
+        $answer = $fallback;
+    }
+
+    foreach (array_unique(gradtrack_genai_tool_expected_values($resolution, $data)) as $value) {
+        if (preg_match('/(?<!\d)' . preg_quote((string) $value, '/') . '(?!\d)/', $answer) !== 1) {
+            $answer = $fallback;
+            break;
+        }
+    }
+    if ($answer !== $fallback && preg_match_all('/(?<![A-Za-z0-9])\d+(?![A-Za-z0-9])/', $answer, $matches) > 0) {
+        $allowedNumbers = gradtrack_genai_tool_allowed_numbers($data);
+        foreach ($matches[0] as $number) {
+            if (!in_array((int) $number, $allowedNumbers, true)) {
+                $answer = $fallback;
+                break;
+            }
+        }
+    }
+
+    $response = gradtrack_genai_simple_assistant($answer, $suggestions);
+    $response['responseMode'] = 'direct';
+    return $response;
+}
+
 if (!defined('GRADTRACK_GENAI_ASSISTANT_NO_RUN')) {
+$activeConversationId = 0;
+$activeAdmin = null;
 try {
     $requestMethod = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? 'GET'));
-    if (!in_array($requestMethod, ['GET', 'POST'], true)) {
+    if (!in_array($requestMethod, ['GET', 'POST', 'DELETE'], true)) {
         gradtrack_genai_json_error(405, 'Method not allowed.');
     }
 
     $admin = gradtrack_genai_current_admin($db);
+    $activeAdmin = $admin;
     $policy = gradtrack_genai_role_policies()[$admin['role']];
     $allowedProgramCodes = gradtrack_genai_allowed_program_codes($admin['role']);
+    gradtrack_genai_ensure_conversation_schema($db);
 
     if ($requestMethod === 'GET') {
+        $resource = strtolower(gradtrack_genai_clean_text($_GET['resource'] ?? 'config', 40));
+        if ($resource === 'conversations') {
+            gradtrack_genai_json_response([
+                'conversations' => gradtrack_genai_list_conversations($db, $admin['id'], $admin['role']),
+            ]);
+        }
+        if ($resource === 'messages') {
+            $conversationId = isset($_GET['conversation_id']) ? (int) $_GET['conversation_id'] : 0;
+            if ($conversationId <= 0) {
+                gradtrack_genai_json_error(400, 'A valid conversation_id is required.');
+            }
+            $conversation = gradtrack_genai_find_conversation($db, $conversationId, $admin['id'], $admin['role']);
+            if ($conversation === null) {
+                gradtrack_genai_json_error(404, 'AI conversation not found.');
+            }
+            gradtrack_genai_json_response([
+                'conversation' => $conversation,
+                'messages' => gradtrack_genai_load_messages($db, $conversationId, $admin['id'], $admin['role']),
+            ]);
+        }
         $config = gradtrack_genai_public_role_config($policy);
         $config['supportsReportContext'] = isset($policy['features']['reports_analytics']);
         gradtrack_genai_json_response(['assistantConfig' => $config]);
+    }
+
+    if ($requestMethod === 'DELETE') {
+        $conversationId = isset($_GET['conversation_id']) ? (int) $_GET['conversation_id'] : 0;
+        if ($conversationId <= 0) {
+            gradtrack_genai_json_error(400, 'A valid conversation_id is required.');
+        }
+        if (!gradtrack_genai_delete_conversation($db, $conversationId, $admin['id'], $admin['role'])) {
+            gradtrack_genai_json_error(404, 'AI conversation not found.');
+        }
+        gradtrack_genai_json_response(['deleted' => true]);
     }
 
     $payload = json_decode((string)file_get_contents('php://input'), true);
@@ -1830,6 +2002,10 @@ try {
     }
 
     $action = strtolower(gradtrack_genai_clean_text($payload['action'] ?? 'chat', 40));
+    if ($action === 'create_conversation') {
+        $conversation = gradtrack_genai_create_conversation($db, $admin['id'], $admin['role']);
+        gradtrack_genai_json_response(['conversation' => $conversation, 'messages' => []]);
+    }
     $allowedActions = ['chat', 'insights', 'explain_chart', 'generate_report'];
     if (!in_array($action, $allowedActions, true)) {
         $action = 'chat';
@@ -1842,16 +2018,101 @@ try {
             : 'Generate comprehensive GenAI insights for the current GradTrack report.';
     }
 
+    $conversationId = isset($payload['conversation_id']) ? (int) $payload['conversation_id'] : 0;
+    if ($conversationId > 0) {
+        $ownedConversation = gradtrack_genai_find_conversation($db, $conversationId, $admin['id'], $admin['role']);
+        if ($ownedConversation === null) {
+            gradtrack_genai_json_error(404, 'AI conversation not found.');
+        }
+    } else {
+        $ownedConversation = gradtrack_genai_create_conversation($db, $admin['id'], $admin['role']);
+        $conversationId = (int) $ownedConversation['id'];
+    }
+    $activeConversationId = $conversationId;
+    $storedMessages = gradtrack_genai_load_messages($db, $conversationId, $admin['id'], $admin['role'], 40);
+    $recentContext = gradtrack_genai_recent_context($storedMessages, 8);
+
+    $pageContextInput = isset($payload['page_context']) && is_array($payload['page_context'])
+        ? $payload['page_context']
+        : [];
+    $pageContext = [
+        'route' => gradtrack_genai_clean_text($pageContextInput['route'] ?? '', 240),
+        'current_module' => gradtrack_genai_clean_text($pageContextInput['current_module'] ?? '', 120),
+    ];
+
+    $userStoredMessage = gradtrack_genai_append_message(
+        $db,
+        $conversationId,
+        $admin['id'],
+        $admin['role'],
+        'user',
+        $message,
+        ['action' => $action, 'page_context' => $pageContext]
+    );
+
     $context = isset($payload['report_context']) && is_array($payload['report_context'])
         ? $payload['report_context']
         : [];
-    $conversation = isset($payload['conversation']) && is_array($payload['conversation'])
-        ? $payload['conversation']
-        : [];
+    // Conversation context is loaded from role- and owner-scoped server records.
+    $conversation = $recentContext['conversation'];
+
+    $dataResolution = gradtrack_genai_resolve_data_tool(
+        $message,
+        $admin['role'],
+        $recentContext['last_data_tool'],
+        $pageContext
+    );
 
     $classification = gradtrack_genai_classify_request($message, $admin['role'], $policy);
+    $requestedProgramCode = gradtrack_genai_requested_program_code($message);
+    if (is_array($allowedProgramCodes) && $requestedProgramCode !== null
+        && !in_array($requestedProgramCode, $allowedProgramCodes, true)) {
+        $classification = ['type' => 'restricted'];
+        $dataResolution = null;
+    }
+    if ($dataResolution === null && $classification['type'] === 'data') {
+        $classifiedTool = (string) ($classification['data_scope'] ?? '');
+        if (gradtrack_genai_data_tool_is_allowed($classifiedTool, $admin['role'])) {
+            $dataResolution = [
+                'tool' => $classifiedTool,
+                'metric' => gradtrack_genai_requested_metric($message),
+                'program_code' => gradtrack_genai_requested_program_code($message),
+                'feature' => gradtrack_genai_data_tool_catalog()[$classifiedTool]['feature'],
+            ];
+        }
+    }
+    if ($dataResolution !== null && !in_array($classification['type'], ['security', 'restricted'], true)) {
+        $classification = [
+            'type' => 'data',
+            'data_scope' => $dataResolution['tool'],
+            'match' => ['key' => $dataResolution['feature']],
+        ];
+    }
     if ($classification['type'] !== 'data') {
         $assistantResponse = gradtrack_genai_role_help_response($classification, $policy);
+        $responseData = [
+            'assistant' => $assistantResponse,
+            'sourceMetrics' => [],
+            'dataUsed' => [
+                'filters' => [],
+                'generatedAt' => date('c'),
+                'datasetHash' => null,
+                'model' => null,
+                'privacy' => 'No GradTrack data was retrieved for this response.',
+            ],
+            'dataset' => null,
+            'context' => ['dataTool' => null, 'pageContext' => $pageContext],
+            'aiError' => null,
+        ];
+        $assistantStoredMessage = gradtrack_genai_append_message(
+            $db,
+            $conversationId,
+            $admin['id'],
+            $admin['role'],
+            'assistant',
+            $assistantResponse['answer'],
+            ['response' => $responseData, 'data_tool' => null]
+        );
         logAuditTrail(
             $admin['id'],
             $admin['name'],
@@ -1865,26 +2126,87 @@ try {
             null,
             ['action' => $action, 'request_classification' => $classification['type'], 'data_retrieved' => false]
         );
-        gradtrack_genai_json_response([
+        $responseData['conversation'] = gradtrack_genai_find_conversation($db, $conversationId, $admin['id'], $admin['role']);
+        $responseData['persistedMessages'] = ['user' => $userStoredMessage, 'assistant' => $assistantStoredMessage];
+        gradtrack_genai_json_response($responseData);
+    }
+
+    if ($dataResolution !== null && $dataResolution['tool'] !== 'survey_participation') {
+        $toolData = gradtrack_genai_collect_aggregate_tool_data($db, $dataResolution, $admin['role'], $allowedProgramCodes);
+        $generatedAt = date('c');
+        $datasetHash = hash('sha256', json_encode($toolData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+        $aiCall = gradtrack_genai_call_groq(
+            gradtrack_genai_system_prompt($admin, $policy),
+            gradtrack_genai_tool_user_prompt($message, $dataResolution, $toolData, $pageContext, $conversation, $admin, $policy)
+        );
+        if ($aiCall['error'] !== null) {
+            error_log('GradTrack GenAI Groq tool response failed: ' . $aiCall['error']);
+        }
+        $assistantResponse = gradtrack_genai_tool_response(
+            gradtrack_genai_decode_ai_json($aiCall['content']),
+            $dataResolution,
+            $toolData,
+            $policy['suggestions']
+        );
+        $sourceMetrics = gradtrack_genai_tool_source_metrics($dataResolution, $toolData);
+        $responseData = [
             'assistant' => $assistantResponse,
-            'sourceMetrics' => [],
+            'sourceMetrics' => $sourceMetrics,
             'dataUsed' => [
                 'filters' => [],
-                'generatedAt' => date('c'),
-                'datasetHash' => null,
-                'model' => null,
-                'privacy' => 'No report data was retrieved for this response.',
+                'generatedAt' => $generatedAt,
+                'datasetHash' => $datasetHash,
+                'model' => $aiCall['model'],
+                'privacy' => 'Only the selected authorized aggregate was sent to Groq; no raw records or credentials were included.',
             ],
             'dataset' => null,
-            'context' => null,
-            'aiError' => null,
-        ]);
+            'context' => [
+                'dataTool' => $dataResolution['tool'],
+                'metric' => $dataResolution['metric'],
+                'pageContext' => $pageContext,
+            ],
+            'aiError' => $aiCall['error'] !== null ? 'Verified server data was used because the AI service was unavailable.' : null,
+        ];
+        $assistantStoredMessage = gradtrack_genai_append_message(
+            $db,
+            $conversationId,
+            $admin['id'],
+            $admin['role'],
+            'assistant',
+            $assistantResponse['answer'],
+            ['response' => $responseData, 'data_tool' => $dataResolution['tool']]
+        );
+
+        logAuditTrail(
+            $admin['id'],
+            $admin['name'],
+            $admin['role'],
+            $admin['department'],
+            'Analyze',
+            'GradTrack GenAI',
+            'Retrieved an authorized GradTrack aggregate for the AI assistant.',
+            null,
+            null,
+            null,
+            [
+                'action' => $action,
+                'data_tool' => $dataResolution['tool'],
+                'metric' => $dataResolution['metric'],
+                'dataset_hash' => $datasetHash,
+                'model' => $aiCall['model'],
+                'groq_available' => $aiCall['model'] !== null,
+            ]
+        );
+
+        $responseData['conversation'] = gradtrack_genai_find_conversation($db, $conversationId, $admin['id'], $admin['role']);
+        $responseData['persistedMessages'] = ['user' => $userStoredMessage, 'assistant' => $assistantStoredMessage];
+        gradtrack_genai_json_response($responseData);
     }
 
     $effectiveContext = gradtrack_genai_effective_context($db, $payload, $context, $message, $action, $allowedProgramCodes);
     $filterLabels = gradtrack_genai_filter_labels($db, $effectiveContext);
     $directIntent = gradtrack_genai_detect_direct_intent($message, $action);
-    $dataScope = $classification['data_scope'] ?? null;
+    $dataScope = $dataResolution['tool'] ?? ($classification['data_scope'] ?? null);
 
     if ($dataScope === 'survey_participation') {
         $dataset = gradtrack_genai_dataset_with_stamp([
@@ -1953,7 +2275,7 @@ try {
         ]
     );
 
-    gradtrack_genai_json_response([
+    $responseData = [
         'assistant' => $assistantResponse,
         'sourceMetrics' => $sourceMetrics,
         'dataUsed' => [
@@ -1973,12 +2295,48 @@ try {
             'year' => $effectiveContext['year'],
             'overviewFilters' => $effectiveContext['overview_filters'],
             'messageContext' => $effectiveContext['message_context'],
+            'dataTool' => $dataScope,
+            'pageContext' => $pageContext,
         ],
-        'aiError' => $aiCall['error'],
-    ]);
+        'aiError' => $aiCall['error'] !== null ? 'Verified server data was used because the AI service was unavailable.' : null,
+    ];
+    if ($aiCall['error'] !== null) {
+        error_log('GradTrack GenAI Groq analytics response failed: ' . $aiCall['error']);
+    }
+    $storedResponse = $responseData;
+    $storedResponse['dataset'] = null;
+    $assistantStoredMessage = gradtrack_genai_append_message(
+        $db,
+        $conversationId,
+        $admin['id'],
+        $admin['role'],
+        'assistant',
+        $assistantResponse['answer'],
+        ['response' => $storedResponse, 'data_tool' => $dataScope]
+    );
+    $responseData['conversation'] = gradtrack_genai_find_conversation($db, $conversationId, $admin['id'], $admin['role']);
+    $responseData['persistedMessages'] = ['user' => $userStoredMessage, 'assistant' => $assistantStoredMessage];
+    gradtrack_genai_json_response($responseData);
 } catch (ReportValidationException $e) {
+    error_log('GradTrack GenAI validation error: ' . $e->getMessage());
     gradtrack_genai_json_error($e->getStatusCode(), $e->getMessage());
 } catch (Throwable $e) {
-    gradtrack_genai_json_error(500, 'GradTrack GenAI is temporarily unavailable. Your report data has not been affected. Please try again.');
+    error_log('GradTrack GenAI request failed: ' . $e->getMessage());
+    if ($activeConversationId > 0 && is_array($activeAdmin)) {
+        try {
+            gradtrack_genai_append_message(
+                $db,
+                $activeConversationId,
+                (int) $activeAdmin['id'],
+                (string) $activeAdmin['role'],
+                'assistant',
+                "I couldn't retrieve the requested GradTrack data. Please try again.",
+                ['request_failed' => true]
+            );
+        } catch (Throwable $historyError) {
+            error_log('GradTrack GenAI could not persist its error response: ' . $historyError->getMessage());
+        }
+    }
+    gradtrack_genai_json_error(500, "I couldn't retrieve the requested GradTrack data. Please try again.");
 }
 }

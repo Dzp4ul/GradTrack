@@ -264,40 +264,7 @@ function alumni_registry_handle_list(PDO $db): void
 
 function alumni_registry_handle_summary(PDO $db): void
 {
-    $summaryStmt = $db->query("SELECT
-            COUNT(*) AS total_official,
-            SUM(CASE WHEN linked_user_id IS NOT NULL OR registration_status IN ('Registered', 'Verified') THEN 1 ELSE 0 END) AS registered_accounts,
-            SUM(CASE WHEN registration_status = 'Unclaimed' THEN 1 ELSE 0 END) AS unclaimed_alumni,
-            SUM(CASE WHEN registration_status = 'Verified' THEN 1 ELSE 0 END) AS verified_alumni,
-            SUM(CASE WHEN registration_status IN ('Registered', 'Verified') THEN 1 ELSE 0 END) AS answered_alumni,
-            SUM(CASE WHEN registration_status = 'Unclaimed' THEN 1 ELSE 0 END) AS not_answered_alumni
-        FROM registered_alumni
-        WHERE archived_at IS NULL");
-    $summary = $summaryStmt->fetch(PDO::FETCH_ASSOC) ?: [];
-
-    $archivedSummaryStmt = $db->query("SELECT COUNT(*) AS archived_total
-                                       FROM registered_alumni
-                                       WHERE archived_at IS NOT NULL");
-    $archivedSummary = $archivedSummaryStmt->fetch(PDO::FETCH_ASSOC) ?: [];
-
-    $accountSummaryStmt = $db->query("SELECT
-            COUNT(ga.id) AS total_graduate_accounts,
-            SUM(CASE WHEN ga.status = 'pending_verification' OR ga.alumni_verification_status = 'pending' THEN 1 ELSE 0 END) AS pending_verification_accounts,
-            SUM(CASE WHEN ga.status = 'active' AND ga.alumni_verification_status = 'approved' THEN 1 ELSE 0 END) AS approved_verification_accounts,
-            SUM(CASE WHEN ga.status = 'rejected' OR ga.alumni_verification_status = 'rejected' THEN 1 ELSE 0 END) AS rejected_verification_accounts
-        FROM graduate_accounts ga
-        JOIN graduates g ON g.id = ga.graduate_id AND g.archived_at IS NULL");
-    $accountSummary = $accountSummaryStmt->fetch(PDO::FETCH_ASSOC) ?: [];
-
-    $courseTotals = array_fill_keys(array_keys(gradtrack_alumni_registry_canonical_courses()), 0);
-    $courseStmt = $db->query("SELECT course_code, COUNT(*) AS total
-                              FROM registered_alumni
-                              WHERE archived_at IS NULL
-                              GROUP BY course_code");
-    foreach ($courseStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $code = strtoupper((string) ($row['course_code'] ?? ''));
-        $courseTotals[$code] = (int) ($row['total'] ?? 0);
-    }
+    $summary = gradtrack_alumni_registry_summary_data($db);
 
     $programStmt = $db->query('SELECT id, code, name FROM programs ORDER BY code ASC');
     $programs = [];
@@ -316,20 +283,7 @@ function alumni_registry_handle_summary(PDO $db): void
 
     echo json_encode([
         'success' => true,
-        'summary' => [
-            'total_official_alumni' => (int) ($summary['total_official'] ?? 0),
-            'registered_accounts' => (int) ($summary['registered_accounts'] ?? 0),
-            'unclaimed_alumni' => (int) ($summary['unclaimed_alumni'] ?? 0),
-            'verified_alumni' => (int) ($summary['verified_alumni'] ?? 0),
-            'answered_alumni' => (int) ($summary['answered_alumni'] ?? 0),
-            'not_answered_alumni' => (int) ($summary['not_answered_alumni'] ?? 0),
-            'total_graduate_accounts' => (int) ($accountSummary['total_graduate_accounts'] ?? 0),
-            'pending_verification_accounts' => (int) ($accountSummary['pending_verification_accounts'] ?? 0),
-            'approved_verification_accounts' => (int) ($accountSummary['approved_verification_accounts'] ?? 0),
-            'rejected_verification_accounts' => (int) ($accountSummary['rejected_verification_accounts'] ?? 0),
-            'archived_alumni' => (int) ($archivedSummary['archived_total'] ?? 0),
-            'course_totals' => $courseTotals,
-        ],
+        'summary' => $summary,
         'filters' => [
             'programs' => $programs,
             'course_codes' => array_keys(gradtrack_alumni_registry_canonical_courses()),

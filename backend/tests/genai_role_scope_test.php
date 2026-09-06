@@ -41,6 +41,7 @@ $classificationCases = [
     ['admin', 'How do I manage administrator accounts?', 'restricted', 'Admin cannot request Super Admin account management'],
     ['super_admin', 'How do I add a graduate record?', 'restricted', 'Super Admin cannot request Registrar graduate management'],
     ['alumni_admin', 'Summarize employment statistics', 'restricted', 'Alumni Admin cannot request Admin analytics'],
+    ['alumni_admin', 'How many system user accounts are active?', 'restricted', 'Alumni Admin cannot request Super Admin system user statistics'],
     ['registrar', 'How do I review a job post?', 'restricted', 'Registrar cannot request Alumni Admin job approval'],
     ['dean_cs', 'How do I manage administrator accounts?', 'restricted', 'Dean cannot request Super Admin account management'],
     ['dean_cs', 'Show survey participation for my programs', 'data', 'Dean participation request uses an authorized data scope'],

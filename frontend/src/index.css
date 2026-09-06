@@ -822,6 +822,7 @@ html.dark .recharts-pie-label-text {
 
 .gt-ai-context-badge,
 .gt-ai-card,
+.gt-ai-history-item,
 .gt-ai-assistant-message,
 .gt-ai-section,
 .gt-ai-followups,
@@ -865,6 +866,21 @@ html.dark .recharts-pie-label-text {
   background: var(--surface-hover);
   border-color: var(--focus-ring);
   color: var(--text-primary);
+}
+
+.gt-ai-history-item {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+.gt-ai-history-item:hover {
+  background: var(--surface-hover);
+  border-color: rgb(37 99 235 / 0.32);
+}
+
+.gt-ai-history-count {
+  background: rgb(37 99 235 / 0.12);
+  color: var(--gradtrack-primary);
 }
 
 .gt-ai-input-wrap:focus-within {
