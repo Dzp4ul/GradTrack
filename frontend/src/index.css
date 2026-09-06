@@ -883,6 +883,43 @@ html.dark .recharts-pie-label-text {
   color: var(--gradtrack-primary);
 }
 
+.gt-ai-delete-button {
+  color: var(--text-muted);
+}
+
+.gt-ai-delete-button:hover,
+.gt-ai-delete-button:focus-visible {
+  background: #fff1f2;
+  color: #e11d48;
+}
+
+.gt-ai-delete-confirm {
+  background: #fff7f7;
+  border-color: #fecdd3;
+  color: #9f1239;
+}
+
+.gt-ai-delete-confirm-button {
+  background: #e11d48;
+  color: #fff;
+}
+
+.gt-ai-delete-confirm-button:hover {
+  background: #be123c;
+}
+
+html.dark .gt-ai-delete-button:hover,
+html.dark .gt-ai-delete-button:focus-visible {
+  background: rgb(159 18 57 / 0.22);
+  color: #fda4af;
+}
+
+html.dark .gt-ai-delete-confirm {
+  background: rgb(76 5 25 / 0.38);
+  border-color: rgb(244 63 94 / 0.38);
+  color: #fecdd3;
+}
+
 .gt-ai-input-wrap:focus-within {
   background: var(--input);
   border-color: var(--focus-ring);

@@ -49,9 +49,18 @@ try {
 
     genai_history_test_assert(gradtrack_genai_find_conversation($db, $conversationA['id'], $accountB['id'], $accountB['role']) === null, 'a second account cannot access the first account conversation');
     genai_history_test_assert(gradtrack_genai_find_conversation($db, $conversationA['id'], $accountA['id'], $accountA['role'] . '_other') === null, 'conversation ownership also requires the same authenticated role');
+    genai_history_test_assert(!gradtrack_genai_delete_conversation($db, $conversationA['id'], $accountB['id'], $accountB['role']), 'a second account cannot delete the first account conversation');
 
     $refreshed = gradtrack_genai_find_conversation($db, $conversationA['id'], $accountA['id'], $accountA['role']);
     genai_history_test_assert(($refreshed['title'] ?? '') === 'Alumni verification status', 'first user message automatically becomes the conversation title');
+
+    $deletable = gradtrack_genai_create_conversation($db, $accountA['id'], $accountA['role']);
+    gradtrack_genai_append_message($db, $deletable['id'], $accountA['id'], $accountA['role'], 'user', 'Delete this test conversation');
+    genai_history_test_assert(gradtrack_genai_delete_conversation($db, $deletable['id'], $accountA['id'], $accountA['role']), 'an account can delete its own conversation');
+    genai_history_test_assert(gradtrack_genai_find_conversation($db, $deletable['id'], $accountA['id'], $accountA['role']) === null, 'deleted conversation is removed from history');
+    $messageCount = $db->prepare('SELECT COUNT(*) FROM ai_messages WHERE conversation_id = :conversation_id');
+    $messageCount->execute([':conversation_id' => $deletable['id']]);
+    genai_history_test_assert((int) $messageCount->fetchColumn() === 0, 'deleting a conversation also deletes its messages');
 } finally {
     foreach ($createdIds as $id) {
         $db->prepare('DELETE FROM ai_conversations WHERE id = :id')->execute([':id' => $id]);

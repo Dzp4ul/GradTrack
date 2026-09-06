@@ -19,6 +19,7 @@ import {
   RefreshCcw,
   Send,
   Sparkles,
+  Trash2,
   X,
 } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
@@ -274,6 +275,8 @@ export default function GradTrackGenAIAssistant() {
   const [activeConversation, setActiveConversation] = useState<AIConversation | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [conversationLoading, setConversationLoading] = useState(false);
+  const [conversationPendingDelete, setConversationPendingDelete] = useState<AIConversation | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const [historyError, setHistoryError] = useState('');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
@@ -396,8 +399,40 @@ export default function GradTrackGenAIAssistant() {
   const showHistory = useCallback(() => {
     setView('history');
     setHistoryError('');
+    setConversationPendingDelete(null);
     void loadConversations();
   }, [loadConversations]);
+
+  const deleteConversation = useCallback(async () => {
+    if (!conversationPendingDelete || deleteLoading || loading) return;
+    setDeleteLoading(true);
+    setHistoryError('');
+    try {
+      const response = await fetch(
+        `${API_ENDPOINTS.GENAI_ASSISTANT}?conversation_id=${conversationPendingDelete.id}`,
+        {
+          method: 'DELETE',
+          credentials: 'include',
+          headers: { Accept: 'application/json' },
+        },
+      );
+      const result = await response.json().catch(() => null);
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.error || 'Unable to delete this AI conversation.');
+      }
+
+      setConversations((current) => current.filter((item) => item.id !== conversationPendingDelete.id));
+      if (activeConversation?.id === conversationPendingDelete.id) {
+        setActiveConversation(null);
+        setMessages([]);
+      }
+      setConversationPendingDelete(null);
+    } catch (error) {
+      setHistoryError(error instanceof Error ? error.message : 'Unable to delete this AI conversation.');
+    } finally {
+      setDeleteLoading(false);
+    }
+  }, [activeConversation?.id, conversationPendingDelete, deleteLoading, loading]);
 
   const clearContext = () => {
     setReportContext(null);
@@ -419,6 +454,7 @@ export default function GradTrackGenAIAssistant() {
     setMessages([]);
     setConversations([]);
     setActiveConversation(null);
+    setConversationPendingDelete(null);
     setView('history');
     setReportContext(null);
 
@@ -1080,6 +1116,44 @@ export default function GradTrackGenAIAssistant() {
                     </div>
                   )}
 
+                  {conversationPendingDelete && (
+                    <div
+                      className="gt-ai-delete-confirm rounded-xl border p-3 shadow-sm"
+                      role="alertdialog"
+                      aria-labelledby="gt-ai-delete-title"
+                      aria-describedby="gt-ai-delete-description"
+                    >
+                      <div className="flex items-start gap-2.5">
+                        <Trash2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                        <div className="min-w-0 flex-1">
+                          <p id="gt-ai-delete-title" className="text-sm font-bold">Delete conversation?</p>
+                          <p id="gt-ai-delete-description" className="mt-1 text-xs leading-relaxed">
+                            “{conversationPendingDelete.title}” and all its messages will be permanently deleted.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="mt-3 flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setConversationPendingDelete(null)}
+                          disabled={deleteLoading}
+                          className="gt-ai-muted-button rounded-lg px-3 py-1.5 text-xs font-semibold disabled:cursor-wait disabled:opacity-60"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void deleteConversation()}
+                          disabled={deleteLoading || loading}
+                          className="gt-ai-delete-confirm-button inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold disabled:cursor-wait disabled:opacity-60"
+                        >
+                          {deleteLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                          {deleteLoading ? 'Deleting...' : 'Delete'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {historyLoading ? (
                     <div className="gt-ai-muted-text flex items-center justify-center gap-2 py-10 text-sm">
                       <Loader2 className="h-4 w-4 animate-spin" />
@@ -1094,30 +1168,47 @@ export default function GradTrackGenAIAssistant() {
                   ) : (
                     <div className="space-y-2">
                       {conversations.map((conversation) => (
-                        <button
+                        <div
                           key={conversation.id}
-                          type="button"
-                          onClick={() => void openConversation(conversation)}
-                          disabled={conversationLoading}
-                          className="gt-ai-history-item w-full rounded-xl border p-3 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md disabled:cursor-wait"
+                          className="gt-ai-history-item group relative rounded-xl border shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
                         >
-                          <div className="flex items-start justify-between gap-3">
-                            <p className="gt-ai-primary-text line-clamp-1 text-sm font-bold">{conversation.title}</p>
-                            <span className="gt-ai-history-count shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold">
-                              {conversation.message_count || 0}
-                            </span>
-                          </div>
-                          <div className="gt-ai-muted-text mt-1 flex items-center gap-1 text-[11px]">
-                            <Clock3 className="h-3 w-3" />
-                            Started {formatConversationDate(conversation.created_at)}
-                          </div>
-                          <p className="gt-ai-secondary-text mt-2 line-clamp-2 text-xs leading-relaxed">
-                            {conversation.last_message_preview || 'No messages yet.'}
-                          </p>
-                          <p className="gt-ai-muted-text mt-2 text-[10px]">
-                            Latest activity {formatConversationDate(conversation.updated_at)}
-                          </p>
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => void openConversation(conversation)}
+                            disabled={conversationLoading || deleteLoading}
+                            className="w-full rounded-xl p-3 pr-12 text-left disabled:cursor-wait"
+                          >
+                            <div className="flex items-start gap-3">
+                              <p className="gt-ai-primary-text min-w-0 flex-1 line-clamp-1 text-sm font-bold">{conversation.title}</p>
+                              <span className="gt-ai-history-count shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold">
+                                {conversation.message_count || 0}
+                              </span>
+                            </div>
+                            <div className="gt-ai-muted-text mt-1 flex items-center gap-1 text-[11px]">
+                              <Clock3 className="h-3 w-3" />
+                              Started {formatConversationDate(conversation.created_at)}
+                            </div>
+                            <p className="gt-ai-secondary-text mt-2 line-clamp-2 text-xs leading-relaxed">
+                              {conversation.last_message_preview || 'No messages yet.'}
+                            </p>
+                            <p className="gt-ai-muted-text mt-2 text-[10px]">
+                              Latest activity {formatConversationDate(conversation.updated_at)}
+                            </p>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setHistoryError('');
+                              setConversationPendingDelete(conversation);
+                            }}
+                            disabled={deleteLoading || conversationLoading}
+                            className="gt-ai-delete-button absolute right-2 top-2 inline-flex h-8 w-8 items-center justify-center rounded-full transition disabled:cursor-wait disabled:opacity-50"
+                            aria-label={`Delete conversation: ${conversation.title}`}
+                            title="Delete conversation"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
                       ))}
                     </div>
                   )}
