@@ -474,5 +474,11 @@ try {
 
     gradtrack_forum_posts_json_error(405, 'Method not allowed');
 } catch (Throwable $e) {
-    gradtrack_forum_posts_json_error($e instanceof InvalidArgumentException ? 400 : 500, $e->getMessage());
+    $isValidationError = $e instanceof InvalidArgumentException;
+    gradtrack_forum_posts_json_error(
+        $isValidationError ? 400 : 500,
+        $isValidationError
+            ? $e->getMessage()
+            : gradtrack_public_exception_message($e, 'Unable to process forum posts right now.', 'Forum posts API')
+    );
 }

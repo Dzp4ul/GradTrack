@@ -18,7 +18,11 @@ export default tseslint.config(
       'react-refresh': reactRefresh,
     },
     rules: {
-      ...reactHooks.configs.recommended.rules,
+      // Keep the project's established Hooks correctness checks. Newer versions of
+      // eslint-plugin-react-hooks also ship opt-in React Compiler rules, which are
+      // not applicable while this React 18 application is not compiler-enabled.
+      'react-hooks/rules-of-hooks': 'error',
+      'react-hooks/exhaustive-deps': 'warn',
       '@typescript-eslint/no-explicit-any': 'warn',
       'react-refresh/only-export-components': [
         'warn',

@@ -166,5 +166,5 @@ try {
     }
 
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => 'Failed to create account: ' . $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => gradtrack_public_exception_message($e, 'Failed to create the account. Please try again later.', 'Graduate registration API')]);
 }

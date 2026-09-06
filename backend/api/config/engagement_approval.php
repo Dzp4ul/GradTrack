@@ -62,6 +62,7 @@ if (!function_exists('gradtrack_engagement_add_column_if_missing')) {
 if (!function_exists('gradtrack_ensure_engagement_approval_schema')) {
     function gradtrack_ensure_engagement_approval_schema(PDO $db): void
     {
+        if (!gradtrack_runtime_schema_changes_allowed()) return;
         $tables = ['mentors', 'job_posts'];
 
         foreach ($tables as $table) {

@@ -156,6 +156,16 @@ export default function AdminForgotPassword() {
       return;
     }
 
+    if (!/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}$/.test(form.newPassword)) {
+      setMsgBox({
+        isOpen: true,
+        type: 'warning',
+        title: 'Weak Password',
+        message: 'Password must be at least 12 characters and include uppercase, lowercase, number, and symbol.',
+      });
+      return;
+    }
+
     if (form.newPassword !== form.confirmPassword) {
       setMsgBox({
         isOpen: true,
@@ -301,6 +311,7 @@ export default function AdminForgotPassword() {
                     className="w-full px-4 py-2.5 pr-11 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="Enter a strong password"
                     autoComplete="new-password"
+                    minLength={12}
                     required
                   />
                   <button

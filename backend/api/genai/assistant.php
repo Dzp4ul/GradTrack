@@ -1,13 +1,17 @@
 <?php
-define('GRADTRACK_REPORTS_INDEX_NO_RUN', true);
-require_once __DIR__ . '/../reports/index.php';
+if (!defined('GRADTRACK_GENAI_ASSISTANT_NO_RUN')) {
+    define('GRADTRACK_REPORTS_INDEX_NO_RUN', true);
+    require_once __DIR__ . '/../reports/index.php';
+}
 require_once __DIR__ . '/../config/admin_roles.php';
 require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/genai_conversations.php';
 require_once __DIR__ . '/../config/genai_data_tools.php';
 
-gradtrack_ensure_archive_schema($db, 'graduates');
-gradtrack_ensure_archive_schema($db, 'surveys', true);
+if (!defined('GRADTRACK_GENAI_ASSISTANT_NO_RUN')) {
+    gradtrack_ensure_archive_schema($db, 'graduates');
+    gradtrack_ensure_archive_schema($db, 'surveys', true);
+}
 
 function gradtrack_genai_json_error(int $statusCode, string $message): void
 {

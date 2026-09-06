@@ -33,8 +33,8 @@ const roleLabels: Record<string, string> = {
 };
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const passwordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
-const passwordRequirementMessage = 'Password must be at least 8 characters and include uppercase, lowercase, number, and symbol.';
+const passwordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}$/;
+const passwordRequirementMessage = 'Password must be at least 12 characters and include uppercase, lowercase, number, and symbol.';
 
 function getInitials(name?: string, fallback?: string) {
   const source = (name || fallback || 'User').trim();

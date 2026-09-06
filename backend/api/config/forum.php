@@ -201,9 +201,13 @@ if (!function_exists('gradtrack_forum_uploaded_media_files')) {
             }
         }
 
-        return array_values(array_filter($files, function (array $file): bool {
+        $files = array_values(array_filter($files, function (array $file): bool {
             return (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE;
         }));
+        if (count($files) > 10) {
+            throw new InvalidArgumentException('You can attach up to 10 photos or videos.');
+        }
+        return $files;
     }
 }
 
@@ -547,6 +551,7 @@ if (!function_exists('gradtrack_forum_log_activity')) {
 if (!function_exists('gradtrack_forum_ensure_schema')) {
     function gradtrack_forum_ensure_schema(PDO $db): void
     {
+        if (!gradtrack_runtime_schema_changes_allowed()) return;
         if (function_exists('gradtrack_ensure_graduate_profile_image_table')) {
             gradtrack_ensure_graduate_profile_image_table($db);
         }

@@ -21,13 +21,7 @@ function gradtrack_mail_escape($value): string
 
 function gradtrack_mail_frontend_url(): string
 {
-        $configuredUrl = getenv('FRONTEND_URL') ?: getenv('APP_URL') ?: '';
-        if (trim($configuredUrl) !== '') {
-                return rtrim(trim($configuredUrl), '/');
-        }
-
-        $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-        return $origin !== '' ? rtrim($origin, '/') : 'http://localhost:5173';
+        return gradtrack_frontend_url();
 }
 
 function gradtrack_create_mailer(): PHPMailer
@@ -416,6 +410,7 @@ function gradtrack_ensure_mentor_column(PDO $db, string $column, string $definit
 
 function gradtrack_ensure_mentorship_request_schema(PDO $db): void
 {
+    if (!gradtrack_runtime_schema_changes_allowed()) return;
     $statusInfo = gradtrack_request_column_info($db, 'mentorship_requests', 'status');
     if ($statusInfo && strpos((string) ($statusInfo['COLUMN_TYPE'] ?? ''), 'cancelled') === false) {
         $db->exec("ALTER TABLE mentorship_requests
@@ -664,17 +659,17 @@ try {
         try {
             $emailNotification = gradtrack_send_mentorship_request_email($db, $requestId, $user, $mentorId);
         } catch (MailException $mailException) {
-            $emailNotification = ['sent' => false, 'reason' => $mailException->getMessage()];
+            $emailNotification = ['sent' => false, 'reason' => gradtrack_public_exception_message($mailException, 'Notification email could not be sent.', 'Mentorship notification email')];
         } catch (Exception $mailException) {
-            $emailNotification = ['sent' => false, 'reason' => $mailException->getMessage()];
+            $emailNotification = ['sent' => false, 'reason' => gradtrack_public_exception_message($mailException, 'Notification email could not be sent.', 'Mentorship notification email')];
         }
 
         try {
             $mentorEmailNotification = gradtrack_send_mentor_incoming_request_email($db, $requestId, $user, $mentorId, $requestMessage);
         } catch (MailException $mailException) {
-            $mentorEmailNotification = ['sent' => false, 'reason' => $mailException->getMessage()];
+            $mentorEmailNotification = ['sent' => false, 'reason' => gradtrack_public_exception_message($mailException, 'Notification email could not be sent.', 'Mentorship notification email')];
         } catch (Exception $mailException) {
-            $mentorEmailNotification = ['sent' => false, 'reason' => $mailException->getMessage()];
+            $mentorEmailNotification = ['sent' => false, 'reason' => gradtrack_public_exception_message($mailException, 'Notification email could not be sent.', 'Mentorship notification email')];
         }
 
         echo json_encode([
@@ -792,12 +787,12 @@ try {
                     } catch (MailException $mailException) {
                         $emailFailures[] = [
                             'request_id' => (int) $targetId,
-                            'reason' => $mailException->getMessage()
+                            'reason' => gradtrack_public_exception_message($mailException, 'Notification email could not be sent.', 'Mentorship notification email')
                         ];
                     } catch (Exception $mailException) {
                         $emailFailures[] = [
                             'request_id' => (int) $targetId,
-                            'reason' => $mailException->getMessage()
+                            'reason' => gradtrack_public_exception_message($mailException, 'Notification email could not be sent.', 'Mentorship notification email')
                         ];
                     }
                 }
@@ -873,5 +868,5 @@ try {
     echo json_encode(['success' => false, 'error' => 'Method not allowed']);
 } catch (Exception $e) {
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => gradtrack_public_exception_message($e, 'Unable to process the mentorship request right now.', 'Mentorship requests API')]);
 }

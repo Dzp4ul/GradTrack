@@ -3,6 +3,7 @@
 if (!function_exists('gradtrack_genai_ensure_conversation_schema')) {
     function gradtrack_genai_ensure_conversation_schema(PDO $db): void
     {
+        if (!gradtrack_runtime_schema_changes_allowed()) return;
         $db->exec("CREATE TABLE IF NOT EXISTS ai_conversations (
             id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
             admin_user_id INT NOT NULL,

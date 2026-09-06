@@ -1,4 +1,7 @@
 <?php
+require_once __DIR__ . '/../config/env.php';
+gradtrack_require_development_endpoint();
+
 header('Content-Type: application/json');
 
 require_once __DIR__ . '/../config/database.php';

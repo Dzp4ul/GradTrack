@@ -44,6 +44,7 @@ if (!function_exists('gradtrack_announcements_foreign_key_exists')) {
 if (!function_exists('gradtrack_announcements_ensure_schema')) {
     function gradtrack_announcements_ensure_schema(PDO $db): void
     {
+        if (!gradtrack_runtime_schema_changes_allowed()) return;
         $db->exec("CREATE TABLE IF NOT EXISTS announcements (
             id INT AUTO_INCREMENT PRIMARY KEY,
             graduate_id INT NULL,

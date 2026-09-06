@@ -179,6 +179,7 @@ function gradtrack_mentor_store_prepared_proof_file(int $accountId, array $prepa
 
 function gradtrack_ensure_mentor_schema(PDO $db): void
 {
+    if (!gradtrack_runtime_schema_changes_allowed()) return;
     gradtrack_ensure_graduate_profile_image_table($db);
 
     $availabilityInfo = gradtrack_column_info($db, 'mentors', 'availability_status');
@@ -635,5 +636,5 @@ try {
     echo json_encode(['success' => false, 'error' => 'Method not allowed']);
 } catch (Exception $e) {
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => gradtrack_public_exception_message($e, 'Unable to process mentor records right now.', 'Mentorship mentors API')]);
 }

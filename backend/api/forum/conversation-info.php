@@ -5,6 +5,8 @@ require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/chat.php';
 require_once __DIR__ . '/../config/storage.php';
 
+class GradTrackConversationRequestException extends RuntimeException {}
+
 function gradtrack_conversation_info_error(int $statusCode, string $message): never
 {
     http_response_code($statusCode);
@@ -66,7 +68,7 @@ function gradtrack_conversation_info_attachments(PDO $db, int $roomId): array
 function gradtrack_conversation_info_assert_group_creator(array $room, int $graduateId): void
 {
     if (empty($room['is_group'])) {
-        throw new RuntimeException('This action is only available for group conversations');
+        throw new GradTrackConversationRequestException('This action is only available for group conversations');
     }
     if ((int) $room['created_by'] !== $graduateId) {
         throw new DomainException('Only the group administrator can add members');
@@ -184,7 +186,7 @@ function gradtrack_conversation_info_add_members(PDO $db, int $roomId, int $grad
     }
     $requestedIds = array_values($requestedIds);
     if (count($requestedIds) === 0 || count($requestedIds) > 50) {
-        throw new RuntimeException('Select between 1 and 50 eligible graduates');
+        throw new GradTrackConversationRequestException('Select between 1 and 50 eligible graduates');
     }
 
     $db->beginTransaction();
@@ -193,7 +195,7 @@ function gradtrack_conversation_info_add_members(PDO $db, int $roomId, int $grad
         $roomStmt->execute([':room_id' => $roomId]);
         $room = $roomStmt->fetch(PDO::FETCH_ASSOC);
         if (!$room) {
-            throw new RuntimeException('Group conversation not found');
+            throw new GradTrackConversationRequestException('Group conversation not found');
         }
         $room['is_group'] = (int) $room['is_group'] === 1;
         gradtrack_conversation_info_assert_group_creator($room, $graduateId);
@@ -205,7 +207,7 @@ function gradtrack_conversation_info_add_members(PDO $db, int $roomId, int $grad
             throw new DomainException('You are no longer a member of this group');
         }
         if (array_intersect($requestedIds, $existingIds)) {
-            throw new RuntimeException('One or more selected graduates are already members');
+            throw new GradTrackConversationRequestException('One or more selected graduates are already members');
         }
 
         $params = [];
@@ -223,7 +225,7 @@ function gradtrack_conversation_info_add_members(PDO $db, int $roomId, int $grad
         $graduateStmt->execute($params);
         $eligible = $graduateStmt->fetchAll(PDO::FETCH_ASSOC);
         if (count($eligible) !== count($requestedIds)) {
-            throw new RuntimeException('One or more selected graduates are unavailable');
+            throw new GradTrackConversationRequestException('One or more selected graduates are unavailable');
         }
 
         $insertStmt = $db->prepare('INSERT INTO forum_chat_members (room_id, graduate_id) VALUES (:room_id, :graduate_id)');
@@ -344,7 +346,7 @@ function gradtrack_conversation_info_change_photo(PDO $db, int $roomId, int $gra
             ':graduate_id' => $graduateId,
         ]);
         if ($stmt->rowCount() !== 1) {
-            throw new RuntimeException('Group photo permission changed before the upload completed');
+            throw new GradTrackConversationRequestException('Group photo permission changed before the upload completed');
         }
     } catch (Throwable $error) {
         gradtrack_storage_delete_quietly($newReference);
@@ -477,13 +479,13 @@ try {
                 $roomLockStmt->execute([':room_id' => $roomId]);
                 $lockedRoom = $roomLockStmt->fetch(PDO::FETCH_ASSOC);
                 if (!$lockedRoom || empty($lockedRoom['is_group'])) {
-                    throw new RuntimeException('Group conversation not found');
+                    throw new GradTrackConversationRequestException('Group conversation not found');
                 }
 
                 $memberStmt->execute([':room_id' => $roomId]);
                 $memberIds = array_map('intval', $memberStmt->fetchAll(PDO::FETCH_COLUMN));
                 if (!in_array($currentGraduateId, $memberIds, true)) {
-                    throw new RuntimeException('Group membership changed before the request completed');
+                    throw new GradTrackConversationRequestException('Group membership changed before the request completed');
                 }
                 if (count($memberIds) <= 1) {
                     $db->rollBack();
@@ -510,7 +512,7 @@ try {
                 $leaveStmt = $db->prepare("DELETE FROM forum_chat_members WHERE room_id = :room_id AND graduate_id = :graduate_id");
                 $leaveStmt->execute([':room_id' => $roomId, ':graduate_id' => $currentGraduateId]);
                 if ($leaveStmt->rowCount() !== 1) {
-                    throw new RuntimeException('Group membership changed before the request completed');
+                    throw new GradTrackConversationRequestException('Group membership changed before the request completed');
                 }
                 $db->commit();
             } catch (Throwable $error) {
@@ -534,7 +536,7 @@ try {
     gradtrack_conversation_info_error(405, 'Method not allowed');
 } catch (DomainException $error) {
     gradtrack_conversation_info_error(403, $error->getMessage());
-} catch (RuntimeException $error) {
+} catch (GradTrackConversationRequestException $error) {
     $message = $error->getMessage();
     $status = str_contains($message, 'not found') ? 404 : 400;
     gradtrack_conversation_info_error($status, $message);

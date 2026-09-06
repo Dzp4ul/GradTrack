@@ -4,7 +4,10 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App.tsx';
 import { ThemeProvider } from './contexts/ThemeContext.tsx';
 import { SystemSettingsProvider } from './contexts/SystemSettingsContext.tsx';
+import { installApiSecurity } from './lib/installApiSecurity.ts';
 import './index.css';
+
+installApiSecurity();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

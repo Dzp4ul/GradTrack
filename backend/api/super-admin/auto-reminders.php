@@ -33,12 +33,7 @@ function super_reminder_escape($value): string
 
 function super_reminder_frontend_url(): string
 {
-    $configuredUrl = getenv('FRONTEND_URL') ?: getenv('APP_URL') ?: '';
-    if (trim($configuredUrl) !== '') {
-        return rtrim(trim($configuredUrl), '/');
-    }
-    $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-    return $origin !== '' ? rtrim($origin, '/') : 'http://localhost:5173';
+    return gradtrack_frontend_url();
 }
 
 function super_reminder_create_mailer(): PHPMailer
@@ -423,10 +418,10 @@ try {
                     $sent[] = ["id" => (int) $recipient['id'], "email" => $email];
                     gradtrack_survey_reminder_log($db, $surveyId, (int) $recipient['id'], $email, $subject, $reminderType, 'sent', null, date('Y-m-d H:i:s'));
                 } catch (MailException $mailException) {
-                    $failed[] = ["id" => (int) $recipient['id'], "email" => $email, "error" => $mailException->getMessage()];
+                    $failed[] = ["id" => (int) $recipient['id'], "email" => $email, "error" => gradtrack_public_exception_message($mailException, 'Email could not be sent.', 'Survey reminder email')];
                     gradtrack_survey_reminder_log($db, $surveyId, (int) $recipient['id'], $email, $subject, $reminderType, 'failed', $mailException->getMessage());
                 } catch (Exception $exception) {
-                    $failed[] = ["id" => (int) $recipient['id'], "email" => $email, "error" => $exception->getMessage()];
+                    $failed[] = ["id" => (int) $recipient['id'], "email" => $email, "error" => gradtrack_public_exception_message($exception, 'Email could not be sent.', 'Survey reminder email')];
                     gradtrack_survey_reminder_log($db, $surveyId, (int) $recipient['id'], $email, $subject, $reminderType, 'failed', $exception->getMessage());
                 }
             }
@@ -475,5 +470,5 @@ try {
 
     super_reminder_json_response(405, ['success' => false, 'error' => 'Method not allowed']);
 } catch (Exception $e) {
-    super_reminder_json_response(500, ['success' => false, 'error' => $e->getMessage()]);
+    super_reminder_json_response(500, ['success' => false, 'error' => gradtrack_public_exception_message($e, 'Unable to process reminders right now.', 'Super-admin reminders API')]);
 }

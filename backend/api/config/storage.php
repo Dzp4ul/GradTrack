@@ -147,11 +147,17 @@ if (!function_exists('gradtrack_storage_config')) {
                 throw new RuntimeException('AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be configured together.');
             }
             $isProduction = in_array($config['environment'], ['prod', 'production'], true);
-            if ($isProduction && $config['bucket'] !== 'nc-gradtrack-prod') {
-                throw new RuntimeException('Production must use the nc-gradtrack-prod S3 bucket.');
+            if (preg_match('/^(?!\d+\.\d+\.\d+\.\d+$)[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/', $config['bucket']) !== 1) {
+                throw new RuntimeException('S3_BUCKET is not a valid S3 bucket name.');
             }
-            if (!$isProduction && $config['bucket'] !== 'nc-gradtrack-dev-113420226807-ap-southeast-1-an') {
-                throw new RuntimeException('Non-production must use the approved GradTrack development S3 bucket.');
+            if ($isProduction && ($hasAccessKey || $config['profile'] !== '')) {
+                throw new RuntimeException('Production S3 access must use the EC2 IAM role/default credential chain, not static keys or AWS_PROFILE.');
+            }
+            if ($isProduction && gradtrack_env_bool('AWS_EC2_METADATA_DISABLED', false)) {
+                throw new RuntimeException('AWS_EC2_METADATA_DISABLED must not be enabled when production uses an EC2 IAM role.');
+            }
+            if ($isProduction && $config['endpoint'] !== '') {
+                throw new RuntimeException('S3_ENDPOINT is only supported outside production.');
             }
 
             gradtrack_storage_log('INFO', 'Configuration loaded', [

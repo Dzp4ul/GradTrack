@@ -28,13 +28,7 @@ function gradtrack_moderation_escape($value): string
 
 function gradtrack_moderation_frontend_url(): string
 {
-        $configuredUrl = getenv('FRONTEND_URL') ?: getenv('APP_URL') ?: '';
-        if (trim($configuredUrl) !== '') {
-                return rtrim(trim($configuredUrl), '/');
-        }
-
-        $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-        return $origin !== '' ? rtrim($origin, '/') : 'http://localhost:5173';
+        return gradtrack_frontend_url();
 }
 
 function gradtrack_moderation_create_mailer(): PHPMailer
@@ -386,9 +380,9 @@ try {
             try {
                 $emailNotification = gradtrack_moderation_send_approval_email($db, $itemId);
             } catch (MailException $mailException) {
-                $emailNotification = ['sent' => false, 'reason' => $mailException->getMessage()];
+                $emailNotification = ['sent' => false, 'reason' => gradtrack_public_exception_message($mailException, 'Approval email could not be sent.', 'Moderation approval email')];
             } catch (Exception $mailException) {
-                $emailNotification = ['sent' => false, 'reason' => $mailException->getMessage()];
+                $emailNotification = ['sent' => false, 'reason' => gradtrack_public_exception_message($mailException, 'Approval email could not be sent.', 'Moderation approval email')];
             }
         }
 
@@ -419,5 +413,5 @@ try {
 
     gradtrack_moderation_json_error(405, 'Method not allowed');
 } catch (Exception $e) {
-    gradtrack_moderation_json_error(500, $e->getMessage());
+    gradtrack_moderation_json_error(500, gradtrack_public_exception_message($e, 'Unable to process the moderation request right now.', 'Moderation approvals API'));
 }

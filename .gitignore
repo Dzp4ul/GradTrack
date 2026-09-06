@@ -31,6 +31,16 @@ Thumbs.db
 # Runtime PSGC last-known-good cache
 backend/api/address/data/*.json
 
+# Runtime uploads and migration manifests (existing tracked legacy files remain preserved)
+backend/uploads/**
+!backend/uploads/.gitkeep
+backend/tmp/*.json
+
+# Build and deployment artifacts
+dist/
+frontend/dist/
+deploy/aws/*.rendered
+
 # Elastic Beanstalk
 .elasticbeanstalk/
 

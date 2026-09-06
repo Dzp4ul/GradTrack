@@ -31,14 +31,18 @@ if (!function_exists('gradtrack_session_cookie_options')) {
     function gradtrack_session_cookie_options(): array
     {
         $secureSetting = gradtrack_env('SESSION_COOKIE_SECURE');
-        $secure = $secureSetting !== null
-            ? filter_var($secureSetting, FILTER_VALIDATE_BOOLEAN)
-            : gradtrack_request_is_https();
+        $secure = gradtrack_is_production()
+            ? true
+            : ($secureSetting !== null
+                ? filter_var($secureSetting, FILTER_VALIDATE_BOOLEAN)
+                : gradtrack_request_is_https());
 
-        $sameSiteSetting = trim((string) gradtrack_env('SESSION_COOKIE_SAMESITE', $secure ? 'None' : 'Lax'));
+        $sameSiteSetting = gradtrack_is_production()
+            ? 'Lax'
+            : trim((string) gradtrack_env('SESSION_COOKIE_SAMESITE', 'Lax'));
         $sameSite = ucfirst(strtolower($sameSiteSetting));
         if (!in_array($sameSite, ['Lax', 'Strict', 'None'], true)) {
-            $sameSite = $secure ? 'None' : 'Lax';
+            $sameSite = 'Lax';
         }
         if ($sameSite === 'None' && !$secure) {
             $sameSite = 'Lax';
@@ -47,7 +51,7 @@ if (!function_exists('gradtrack_session_cookie_options')) {
         return [
             'lifetime' => 0,
             'path' => (string) gradtrack_env('SESSION_COOKIE_PATH', '/'),
-            'domain' => (string) gradtrack_env('SESSION_COOKIE_DOMAIN', ''),
+            'domain' => gradtrack_is_production() ? '' : (string) gradtrack_env('SESSION_COOKIE_DOMAIN', ''),
             'secure' => $secure,
             'httponly' => true,
             'samesite' => $sameSite,

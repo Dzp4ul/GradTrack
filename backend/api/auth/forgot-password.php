@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../config/cors.php';
+require_once __DIR__ . '/../config/password_policy.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../../vendor/autoload.php';
 
@@ -19,13 +20,7 @@ function admin_reset_clean_text($value): string
 
 function admin_reset_frontend_url(): string
 {
-    $configuredUrl = getenv('FRONTEND_URL') ?: getenv('APP_URL') ?: '';
-    if (trim($configuredUrl) !== '') {
-        return rtrim(trim($configuredUrl), '/');
-    }
-
-    $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-    return $origin !== '' ? rtrim($origin, '/') : 'http://localhost:5173';
+    return gradtrack_frontend_url();
 }
 
 function admin_reset_create_mailer(): PHPMailer
@@ -64,6 +59,7 @@ function admin_reset_create_mailer(): PHPMailer
 
 function admin_reset_ensure_table(PDO $db): void
 {
+    if (!gradtrack_runtime_schema_changes_allowed()) return;
     $db->exec("CREATE TABLE IF NOT EXISTS admin_password_resets (
         id INT AUTO_INCREMENT PRIMARY KEY,
         admin_user_id INT NOT NULL,
@@ -272,11 +268,12 @@ function admin_reset_password(PDO $db, string $email, string $resetToken, string
         exit;
     }
 
-    if (!preg_match('/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/', $newPassword)) {
+    $passwordError = gradtrack_admin_password_error($newPassword);
+    if ($passwordError !== null) {
         http_response_code(400);
         echo json_encode([
             'success' => false,
-            'error' => 'Password must be at least 8 characters and include uppercase, lowercase, number, and symbol'
+            'error' => $passwordError
         ]);
         exit;
     }
@@ -377,5 +374,5 @@ try {
     echo json_encode(['success' => false, 'error' => 'Unable to send OTP email right now. Please try again later.']);
 } catch (Exception $e) {
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => 'Password reset request failed: ' . $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => gradtrack_public_exception_message($e, 'Password reset request failed. Please try again later.', 'Admin password reset API')]);
 }

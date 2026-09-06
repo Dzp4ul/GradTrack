@@ -189,5 +189,5 @@ try {
     ]);
 } catch (Throwable $e) {
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => 'Unable to load audit trail: ' . $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => gradtrack_public_exception_message($e, 'Unable to load the audit trail right now.', 'Audit trail API')]);
 }

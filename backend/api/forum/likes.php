@@ -92,5 +92,5 @@ try {
         'like_count' => $likeCount,
     ]);
 } catch (Throwable $e) {
-    gradtrack_forum_likes_json_error(500, $e->getMessage());
+    gradtrack_forum_likes_json_error(500, gradtrack_public_exception_message($e, 'Unable to process this reaction right now.', 'Forum likes API'));
 }

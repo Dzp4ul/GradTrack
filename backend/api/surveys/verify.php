@@ -1,12 +1,8 @@
 <?php
-header("Content-Type: application/json");
-header("Access-Control-Allow-Origin: *");
-header("Access-Control-Allow-Methods: POST, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type");
-
-require_once '../config/database.php';
-require_once '../config/system_settings.php';
-require_once '../config/archive.php';
+require_once __DIR__ . '/../config/cors.php';
+require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/system_settings.php';
+require_once __DIR__ . '/../config/archive.php';
 
 function survey_verification_graduate_name(array $graduate): string
 {
@@ -63,11 +59,6 @@ function survey_verification_send_already_answered(
             "profile" => $graduateProfile
         ]
     ]);
-    exit();
-}
-
-if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    http_response_code(200);
     exit();
 }
 
@@ -291,7 +282,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         http_response_code(500);
         echo json_encode([
             "success" => false,
-            "error" => "Database error: " . $e->getMessage()
+            "error" => gradtrack_public_exception_message($e, 'Unable to verify the survey invitation right now.', 'Survey verification API')
         ]);
     }
 }

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/env.php';
+require_once __DIR__ . '/database.php';
 
 if (!function_exists('gradtrack_audit_load_env_file')) {
     function gradtrack_audit_load_env_file(): void
@@ -34,11 +35,7 @@ if (!function_exists('gradtrack_audit_get_connection')) {
                 "mysql:host={$host};port={$port};dbname={$database};charset=utf8mb4",
                 $username,
                 $password,
-                [
-                    PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                    PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                    PDO::ATTR_EMULATE_PREPARES => false,
-                ]
+                gradtrack_database_pdo_options()
             );
             $pdo->exec('SET NAMES utf8mb4');
             return $pdo;
@@ -215,6 +212,7 @@ if (!function_exists('gradtrack_audit_existing_columns')) {
 if (!function_exists('gradtrack_ensure_audit_trail_table')) {
     function gradtrack_ensure_audit_trail_table(PDO $pdo): void
     {
+        if (!gradtrack_runtime_schema_changes_allowed()) return;
         $driver = 'mysql';
         try {
             $driver = (string) $pdo->getAttribute(PDO::ATTR_DRIVER_NAME);

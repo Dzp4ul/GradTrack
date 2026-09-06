@@ -1,0 +1,11 @@
+[Unit]
+Description=Run GradTrack automatic survey reminders daily
+
+[Timer]
+OnCalendar=*-*-* 08:00:00 Asia/Manila
+Persistent=true
+RandomizedDelaySec=10m
+Unit=gradtrack-reminders.service
+
+[Install]
+WantedBy=timers.target

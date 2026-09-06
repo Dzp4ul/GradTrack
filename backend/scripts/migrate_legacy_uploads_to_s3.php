@@ -135,13 +135,13 @@ if (($apply || $rollbackPath !== null || $verifyPath !== null) && !gradtrack_sto
     fwrite(STDERR, "Apply, verify, and rollback require STORAGE_DRIVER=s3.\n");
     exit(1);
 }
-if ($apply && $config['environment'] === 'production' && !gradtrack_migration_has_flag('production-approved')) {
+if ($apply && gradtrack_is_production() && !gradtrack_migration_has_flag('production-approved')) {
     fwrite(STDERR, "Production apply is blocked. Re-run only after approval with --production-approved.\n");
     exit(1);
 }
 if (
     $apply
-    && $config['environment'] !== 'production'
+    && !gradtrack_is_production()
     && !gradtrack_migration_has_flag('confirmed-synthetic-data-only')
     && !gradtrack_migration_has_flag('confirmed-development-data')
 ) {

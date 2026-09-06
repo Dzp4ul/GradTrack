@@ -23,6 +23,7 @@ if (!function_exists('gradtrack_graduate_account_column')) {
 if (!function_exists('gradtrack_ensure_graduate_account_verification_schema')) {
     function gradtrack_ensure_graduate_account_verification_schema(PDO $db): void
     {
+        if (!gradtrack_runtime_schema_changes_allowed()) return;
         $statusColumn = gradtrack_graduate_account_column($db, 'status');
         $statusType = strtolower((string) ($statusColumn['Type'] ?? ''));
 
@@ -174,6 +175,7 @@ if (!function_exists('gradtrack_update_graduate_account_verification')) {
 if (!function_exists('gradtrack_ensure_graduate_profile_image_table')) {
     function gradtrack_ensure_graduate_profile_image_table(PDO $db): void
     {
+        if (!gradtrack_runtime_schema_changes_allowed()) return;
         $db->exec("CREATE TABLE IF NOT EXISTS graduate_profile_images (
             id INT AUTO_INCREMENT PRIMARY KEY,
             graduate_account_id INT NOT NULL UNIQUE,
@@ -190,6 +192,7 @@ if (!function_exists('gradtrack_ensure_graduate_profile_image_table')) {
 if (!function_exists('gradtrack_ensure_graduate_cover_image_table')) {
     function gradtrack_ensure_graduate_cover_image_table(PDO $db): void
     {
+        if (!gradtrack_runtime_schema_changes_allowed()) return;
         $db->exec("CREATE TABLE IF NOT EXISTS graduate_cover_images (
             id INT AUTO_INCREMENT PRIMARY KEY,
             graduate_account_id INT NOT NULL UNIQUE,

@@ -176,5 +176,5 @@ try {
 
     gradtrack_forum_comments_json_error(405, 'Method not allowed');
 } catch (Throwable $e) {
-    gradtrack_forum_comments_json_error(500, $e->getMessage());
+    gradtrack_forum_comments_json_error(500, gradtrack_public_exception_message($e, 'Unable to process comments right now.', 'Forum comments API'));
 }

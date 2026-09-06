@@ -16,6 +16,7 @@ function gradtrack_notifications_json_error(int $statusCode, string $message): v
 
 function gradtrack_notifications_ensure_schema(PDO $db): void
 {
+    if (!gradtrack_runtime_schema_changes_allowed()) return;
     $db->exec("CREATE TABLE IF NOT EXISTS notification_reads (
         id INT AUTO_INCREMENT PRIMARY KEY,
         target_type ENUM('admin','graduate') NOT NULL,
@@ -847,5 +848,5 @@ try {
 
     gradtrack_notifications_json_error(405, 'Method not allowed');
 } catch (Exception $e) {
-    gradtrack_notifications_json_error(500, $e->getMessage());
+    gradtrack_notifications_json_error(500, gradtrack_public_exception_message($e, 'Unable to process notifications right now.', 'Notifications API'));
 }

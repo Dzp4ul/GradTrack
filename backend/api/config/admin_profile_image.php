@@ -41,6 +41,7 @@ if (!function_exists('gradtrack_admin_profile_abs_path_from_rel')) {
 if (!function_exists('gradtrack_ensure_admin_profile_image_table')) {
     function gradtrack_ensure_admin_profile_image_table(PDO $db): void
     {
+        if (!gradtrack_runtime_schema_changes_allowed()) return;
         $db->exec("CREATE TABLE IF NOT EXISTS admin_profile_images (
             id INT AUTO_INCREMENT PRIMARY KEY,
             admin_user_id INT NOT NULL UNIQUE,

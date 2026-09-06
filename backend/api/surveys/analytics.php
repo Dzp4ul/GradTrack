@@ -149,7 +149,7 @@ try {
 
 } catch (Exception $e) {
     http_response_code(500);
-    echo json_encode(["success" => false, "error" => $e->getMessage()]);
+    echo json_encode(["success" => false, "error" => gradtrack_public_exception_message($e, 'Unable to load survey analytics right now.', 'Survey analytics API')]);
 }
 
 function isDisplayOnlyQuestion($question) {

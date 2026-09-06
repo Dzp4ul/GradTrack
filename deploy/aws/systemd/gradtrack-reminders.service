@@ -1,0 +1,16 @@
+[Unit]
+Description=GradTrack automatic survey reminders
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/gradtrack
+EnvironmentFile=/etc/gradtrack/gradtrack.env
+ExecStart=/usr/bin/php /var/www/gradtrack/backend/api/surveys/auto-reminders.php
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full

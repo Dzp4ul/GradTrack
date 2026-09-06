@@ -23,6 +23,7 @@ function gradtrack_column_exists(PDO $db, string $table, string $column): bool
 
 function gradtrack_ensure_survey_audit_columns(PDO $db): bool
 {
+    if (!gradtrack_runtime_schema_changes_allowed()) return false;
     try {
         if (!gradtrack_column_exists($db, 'surveys', 'created_by')) {
             $db->exec("ALTER TABLE surveys ADD COLUMN created_by VARCHAR(255) NULL AFTER created_at");

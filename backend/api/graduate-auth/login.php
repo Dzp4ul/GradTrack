@@ -4,6 +4,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../config/system_settings.php';
+require_once __DIR__ . '/../config/login_throttle.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -20,6 +21,8 @@ if ($email === '' || $password === '') {
     echo json_encode(['success' => false, 'error' => 'Email and password are required']);
     exit;
 }
+
+gradtrack_login_throttle_reject_if_blocked($email);
 
 $database = new Database();
 $db = $database->getConnection();
@@ -40,7 +43,8 @@ try {
     $stmt->execute();
     $account = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    if (!$account || !password_verify($password, $account['password_hash'])) {
+    if (!$account || !password_verify($password, (string) $account['password_hash'])) {
+        gradtrack_login_throttle_record_failure($email);
         http_response_code(401);
         echo json_encode(['success' => false, 'error' => 'Invalid email or password']);
         exit;
@@ -52,6 +56,8 @@ try {
         echo json_encode(array_merge(['success' => false], $accessError));
         exit;
     }
+
+    gradtrack_login_throttle_clear_success($email);
 
     gradtrack_establish_session_identity('graduate_account_id', (int) $account['id']);
 
@@ -80,5 +86,5 @@ try {
     ]);
 } catch (Exception $e) {
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => 'Login failed: ' . $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => gradtrack_public_exception_message($e, 'Login failed. Please try again later.', 'Graduate login API')]);
 }

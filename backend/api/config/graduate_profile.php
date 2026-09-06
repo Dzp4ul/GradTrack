@@ -3,6 +3,7 @@
 if (!function_exists('gradtrack_ensure_graduate_profile_table')) {
     function gradtrack_ensure_graduate_profile_table(PDO $db): void
     {
+        if (!gradtrack_runtime_schema_changes_allowed()) return;
         $db->exec("CREATE TABLE IF NOT EXISTS graduate_profiles (
             id INT AUTO_INCREMENT PRIMARY KEY,
             graduate_account_id INT NOT NULL UNIQUE,

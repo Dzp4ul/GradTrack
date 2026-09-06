@@ -1,11 +1,15 @@
 const http = require('http');
 const path = require('path');
 const crypto = require('crypto');
+const fs = require('fs');
 const { Server } = require('socket.io');
 const mysql = require('mysql2/promise');
 const dotenv = require('dotenv');
 
 dotenv.config({ path: path.resolve(__dirname, '../.env'), quiet: true, override: false });
+
+const appEnvironment = String(process.env.APP_ENV || 'development').trim().toLowerCase();
+const isProduction = ['prod', 'production'].includes(appEnvironment);
 
 function requiredEnv(name) {
   const value = String(process.env[name] || '').trim();
@@ -56,13 +60,79 @@ function normalizedDbTimezone() {
 }
 
 const port = Number(process.env.REALTIME_PORT || 3001);
-const apiBaseUrl = (process.env.GRADTRACK_API_BASE_URL || 'http://localhost/GradTrack/backend').replace(/\/+$/, '');
+if (!Number.isInteger(port) || port < 1 || port > 65535) {
+  throw new Error('REALTIME_PORT must be a valid TCP port');
+}
+const realtimeHost = String(process.env.REALTIME_HOST || '127.0.0.1').trim();
+if (isProduction && !['127.0.0.1', '::1'].includes(realtimeHost)) {
+  throw new Error('REALTIME_HOST must remain loopback-only in production');
+}
+const configuredApiBaseUrl = String(process.env.GRADTRACK_API_BASE_URL || '').trim();
+if (isProduction && !configuredApiBaseUrl) {
+  throw new Error('GRADTRACK_API_BASE_URL is required in production');
+}
+const apiBaseUrl = (configuredApiBaseUrl || 'http://localhost/GradTrack/backend').replace(/\/+$/, '');
 const authCheckUrl = process.env.REALTIME_AUTH_CHECK_URL || `${apiBaseUrl}/api/graduate-auth/check.php`;
+function requireProductionLoopbackUrl(name, value) {
+  if (!isProduction) return;
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`${name} must be a valid absolute URL`);
+  }
+  if (parsed.protocol !== 'http:' || !['127.0.0.1', '[::1]'].includes(parsed.hostname) || parsed.username || parsed.password) {
+    throw new Error(`${name} must use the loopback HTTP service in production`);
+  }
+}
+requireProductionLoopbackUrl('GRADTRACK_API_BASE_URL', apiBaseUrl);
+requireProductionLoopbackUrl('REALTIME_AUTH_CHECK_URL', authCheckUrl);
 const dbTimezone = normalizedDbTimezone();
-const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || process.env.FRONTEND_URL || 'http://localhost:5173')
+const configuredOrigins = String(process.env.CORS_ALLOWED_ORIGINS || process.env.FRONTEND_URL || '').trim();
+if (isProduction && !configuredOrigins) {
+  throw new Error('CORS_ALLOWED_ORIGINS or FRONTEND_URL is required in production');
+}
+const allowedOrigins = (configuredOrigins || 'http://localhost:5173')
   .split(',')
-  .map((origin) => origin.trim())
+  .map((origin) => origin.trim().replace(/\/+$/, ''))
   .filter(Boolean);
+if (isProduction) {
+  if (allowedOrigins.length === 0) {
+    throw new Error('At least one production realtime origin is required');
+  }
+  for (const origin of allowedOrigins) {
+    let parsed;
+    try {
+      parsed = new URL(origin);
+    } catch {
+      throw new Error('Production realtime origins must be valid absolute URLs');
+    }
+    if (
+      parsed.protocol !== 'https:'
+      || parsed.origin !== origin
+      || parsed.username
+      || parsed.password
+      || /(?:localhost|127\.0\.0\.1|example|change-me|your-)/i.test(origin)
+    ) {
+      throw new Error('Production realtime origins must be explicit real HTTPS origins');
+    }
+  }
+}
+
+function databaseTlsOptions() {
+  const configuredCa = String(process.env.DB_SSL_CA || '').trim();
+  if (!configuredCa) {
+    if (isProduction) throw new Error('DB_SSL_CA is required in production');
+    return undefined;
+  }
+  const caPath = path.isAbsolute(configuredCa)
+    ? configuredCa
+    : path.resolve(__dirname, '..', configuredCa);
+  if (!fs.statSync(caPath, { throwIfNoEntry: false })?.isFile()) {
+    throw new Error('DB_SSL_CA must point to a readable CA bundle');
+  }
+  return { ca: fs.readFileSync(caPath, 'utf8'), rejectUnauthorized: true };
+}
 
 const pool = mysql.createPool({
   host: normalizedDbHost(),
@@ -74,6 +144,7 @@ const pool = mysql.createPool({
   connectionLimit: Number(process.env.REALTIME_DB_CONNECTION_LIMIT || 10),
   charset: 'utf8mb4',
   timezone: dbTimezone,
+  ssl: databaseTlsOptions(),
 });
 
 // mysql2's `timezone` option controls JavaScript date conversion, but it does
@@ -92,7 +163,8 @@ const onlineSocketsByGraduate = new Map();
 const pendingOfflineTimersByGraduate = new Map();
 const presenceVersionByGraduate = new Map();
 const pendingMembershipChanges = new Map();
-const autoMigrate = String(process.env.REALTIME_AUTO_MIGRATE || '').toLowerCase() === 'true';
+const autoMigrate = !isProduction
+  && String(process.env.REALTIME_AUTO_MIGRATE || '').toLowerCase() === 'true';
 const presenceOfflineGraceMs = Math.max(0, Number(process.env.REALTIME_PRESENCE_OFFLINE_GRACE_MS || 1500));
 const presenceRecoveryGraceMs = Math.max(presenceOfflineGraceMs, Number(process.env.REALTIME_PRESENCE_RECOVERY_GRACE_MS || 5000));
 const pingInterval = Math.max(5000, Number(process.env.REALTIME_PING_INTERVAL_MS || 25000));
@@ -1363,8 +1435,8 @@ process.once('SIGTERM', () => { void shutdown('SIGTERM'); });
 (autoMigrate ? ensureSchema() : verifySchema())
   .then(() => verifyDatabaseTimezone())
   .then(() => {
-    server.listen(port, () => {
-      console.log(`[Realtime] Listening on http://localhost:${port}`);
+    server.listen(port, realtimeHost, () => {
+      console.log(`[Realtime] Listening on ${realtimeHost}:${port}`);
       console.log(`[Realtime] Authentication endpoint: ${authCheckUrl}`);
       console.log(`[Realtime] Allowed origins: ${allowedOrigins.join(', ')}`);
     });

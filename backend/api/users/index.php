@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../config/cors.php';
+require_once __DIR__ . '/../config/password_policy.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../config/admin_roles.php';
@@ -73,6 +74,13 @@ try {
             if (!in_array($role, $allowedRoles, true)) {
                 http_response_code(400);
                 echo json_encode(["success" => false, "error" => "Invalid role"]);
+                break;
+            }
+
+            $passwordError = gradtrack_admin_password_error($password);
+            if ($passwordError !== null) {
+                http_response_code(400);
+                echo json_encode(["success" => false, "error" => $passwordError]);
                 break;
             }
 
@@ -166,6 +174,13 @@ try {
             }
 
             if ($newPassword !== '') {
+                $passwordError = gradtrack_admin_password_error($newPassword);
+                if ($passwordError !== null) {
+                    http_response_code(400);
+                    echo json_encode(["success" => false, "error" => $passwordError]);
+                    break;
+                }
+
                 $updateStmt = $db->prepare("
                     UPDATE admin_users
                     SET username = :username, email = :email, full_name = :full_name, role = :role, is_active = :is_active, password = :password
@@ -292,7 +307,7 @@ try {
 } catch (PDOException $e) {
     $message = strpos($e->getMessage(), 'Duplicate entry') !== false
         ? 'Email or username already exists'
-        : $e->getMessage();
+        : gradtrack_public_exception_message($e, 'Unable to process the user account right now.', 'Users API database error');
 
     http_response_code(500);
     echo json_encode(["success" => false, "error" => $message]);

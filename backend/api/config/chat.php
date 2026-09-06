@@ -138,6 +138,7 @@ if (!function_exists('gradtrack_chat_enum_has_value')) {
 if (!function_exists('gradtrack_chat_ensure_schema')) {
     function gradtrack_chat_ensure_schema(PDO $db): void
     {
+        if (!gradtrack_runtime_schema_changes_allowed()) return;
         gradtrack_forum_ensure_schema($db);
 
         $roomColumns = [

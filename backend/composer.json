@@ -1,7 +1,13 @@
 {
+    "name": "gradtrack/backend",
+    "description": "GradTrack PHP API and AWS storage integration",
+    "license": "proprietary",
     "require": {
         "php": "^8.1",
-        "ext-mysqli": "*",
+        "ext-fileinfo": "*",
+        "ext-pdo": "*",
+        "ext-pdo_mysql": "*",
+        "ext-zip": "*",
         "phpmailer/phpmailer": "^6.9",
         "aws/aws-sdk-php": "^3.371.4"
     },

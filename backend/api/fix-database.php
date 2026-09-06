@@ -1,4 +1,7 @@
 <?php
+require_once __DIR__ . '/config/env.php';
+gradtrack_require_development_endpoint();
+
 /**
  * Database Fix Script
  * Run this file once to fix the survey_responses table

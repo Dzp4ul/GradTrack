@@ -41,6 +41,7 @@ if (!function_exists('gradtrack_archive_index_exists')) {
 if (!function_exists('gradtrack_ensure_archive_schema')) {
     function gradtrack_ensure_archive_schema(PDO $db, string $table, bool $rememberStatus = false): void
     {
+        if (!gradtrack_runtime_schema_changes_allowed()) return;
         if (!in_array($table, gradtrack_archive_allowed_tables(), true)) {
             throw new InvalidArgumentException('Archive table is not allowed');
         }
@@ -68,4 +69,3 @@ if (!function_exists('gradtrack_ensure_archive_schema')) {
         }
     }
 }
-

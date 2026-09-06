@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/env.php';
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 use PHPMailer\PHPMailer\PHPMailer;
@@ -31,13 +32,7 @@ if (!function_exists('gradtrack_survey_reminder_bool')) {
 if (!function_exists('gradtrack_survey_reminder_frontend_url')) {
     function gradtrack_survey_reminder_frontend_url(): string
     {
-        $configuredUrl = getenv('FRONTEND_URL') ?: getenv('APP_URL') ?: '';
-        if (trim($configuredUrl) !== '') {
-            return rtrim(trim($configuredUrl), '/');
-        }
-
-        $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-        return $origin !== '' ? rtrim($origin, '/') : 'http://localhost:5173';
+        return gradtrack_frontend_url();
     }
 }
 
@@ -98,6 +93,7 @@ if (!function_exists('gradtrack_survey_reminder_create_mailer')) {
 if (!function_exists('gradtrack_survey_reminder_ensure_log_table')) {
     function gradtrack_survey_reminder_ensure_log_table(PDO $db): void
     {
+        if (!gradtrack_runtime_schema_changes_allowed()) return;
         $db->exec("
             CREATE TABLE IF NOT EXISTS survey_reminder_logs (
                 id INT AUTO_INCREMENT PRIMARY KEY,

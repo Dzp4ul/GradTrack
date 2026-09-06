@@ -1094,5 +1094,5 @@ try {
         }
     }
     http_response_code($e instanceof InvalidArgumentException ? 400 : 500);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => gradtrack_public_exception_message($e, 'Unable to process the graduate profile right now.', 'Graduate profile API')]);
 }

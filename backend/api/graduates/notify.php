@@ -49,13 +49,7 @@ function notify_escape($value): string
 
 function notify_frontend_url(): string
 {
-    $configuredUrl = getenv('FRONTEND_URL') ?: getenv('APP_URL') ?: '';
-    if (trim($configuredUrl) !== '') {
-        return rtrim(trim($configuredUrl), '/');
-    }
-
-    $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-    return $origin !== '' ? rtrim($origin, '/') : 'http://localhost:5173';
+    return gradtrack_frontend_url();
 }
 
 function notify_create_mailer(): PHPMailer
@@ -363,14 +357,14 @@ try {
             $failed[] = [
                 "id" => (int) $recipient['id'],
                 "email" => $email,
-                "error" => $mailException->getMessage()
+                "error" => gradtrack_public_exception_message($mailException, 'Email could not be sent.', 'Graduate notification email')
             ];
             gradtrack_survey_reminder_log($db, $surveyId, (int) $recipient['id'], $email, $subject, 'manual', 'failed', $mailException->getMessage());
         } catch (Exception $exception) {
             $failed[] = [
                 "id" => (int) $recipient['id'],
                 "email" => $email,
-                "error" => $exception->getMessage()
+                "error" => gradtrack_public_exception_message($exception, 'Email could not be sent.', 'Graduate notification error')
             ];
             gradtrack_survey_reminder_log($db, $surveyId, (int) $recipient['id'], $email, $subject, 'manual', 'failed', $exception->getMessage());
         }
@@ -393,5 +387,5 @@ try {
     ]);
 } catch (Exception $e) {
     http_response_code(500);
-    echo json_encode(["success" => false, "error" => $e->getMessage()]);
+    echo json_encode(["success" => false, "error" => gradtrack_public_exception_message($e, 'Unable to send graduate notifications right now.', 'Graduate notifications API')]);
 }

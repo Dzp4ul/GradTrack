@@ -23,6 +23,7 @@ function gradtrack_feedback_column_exists(PDO $db, string $table, string $column
 
 function gradtrack_ensure_feedback_schema(PDO $db): void
 {
+    if (!gradtrack_runtime_schema_changes_allowed()) return;
     if (!gradtrack_feedback_column_exists($db, 'mentorship_feedback', 'mentor_helpful')) {
         $db->exec('ALTER TABLE mentorship_feedback ADD COLUMN mentor_helpful TINYINT(1) NULL AFTER rating');
     }
@@ -206,5 +207,5 @@ try {
     echo json_encode(['success' => false, 'error' => 'Method not allowed']);
 } catch (Exception $e) {
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => gradtrack_public_exception_message($e, 'Unable to process mentorship feedback right now.', 'Mentorship feedback API')]);
 }

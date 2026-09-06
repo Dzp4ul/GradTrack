@@ -31,6 +31,7 @@ if (!function_exists('gradtrack_admin_role_enum_definition')) {
 if (!function_exists('gradtrack_ensure_admin_role_column')) {
     function gradtrack_ensure_admin_role_column(PDO $db): void
     {
+        if (!gradtrack_runtime_schema_changes_allowed()) return;
         $db->exec('ALTER TABLE admin_users MODIFY role ' . gradtrack_admin_role_enum_definition());
     }
 }
@@ -38,6 +39,7 @@ if (!function_exists('gradtrack_ensure_admin_role_column')) {
 if (!function_exists('gradtrack_ensure_admin_is_active_column')) {
     function gradtrack_ensure_admin_is_active_column(PDO $db): void
     {
+        if (!gradtrack_runtime_schema_changes_allowed()) return;
         $columnStmt = $db->query("SHOW COLUMNS FROM admin_users LIKE 'is_active'");
         if ($columnStmt === false || $columnStmt->rowCount() === 0) {
             $db->exec('ALTER TABLE admin_users ADD COLUMN is_active TINYINT(1) NOT NULL DEFAULT 1');

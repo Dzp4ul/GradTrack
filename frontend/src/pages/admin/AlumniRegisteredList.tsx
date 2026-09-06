@@ -20,9 +20,9 @@ import {
   ShieldCheck,
   X,
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
 import MessageBox from '../../components/MessageBox';
 import { API_ENDPOINTS } from '../../config/api';
+import { createXlsxBlob, readSpreadsheet, type SpreadsheetWorkbook } from '../../lib/spreadsheets';
 
 type RegistryStatus = 'Unclaimed' | 'Registered' | 'Verified' | 'Inactive';
 type VerificationStatus = 'pending' | 'approved' | 'rejected';
@@ -150,7 +150,7 @@ interface ImportResult {
 interface ImportState {
   open: boolean;
   file_name: string;
-  workbook: XLSX.WorkBook | null;
+  workbook: SpreadsheetWorkbook | null;
   sheets: string[];
   selected_sheet: string;
   detected_rows: ImportRow[];
@@ -303,11 +303,11 @@ function findHeaderMap(rows: unknown[][]): { rowIndex: number; nameIndex: number
   return null;
 }
 
-function extractRowsFromSheet(workbook: XLSX.WorkBook, sheetName: string): { rows: ImportRow[]; error: string } {
-  const sheet = workbook.Sheets[sheetName];
+function extractRowsFromSheet(workbook: SpreadsheetWorkbook, sheetName: string): { rows: ImportRow[]; error: string } {
+  const sheet = workbook.sheets[sheetName];
   if (!sheet) return { rows: [], error: 'Worksheet not found' };
 
-  const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '', raw: true });
+  const rows = sheet;
   const headerMap = findHeaderMap(rows);
   if (!headerMap) {
     return { rows: [], error: 'Required columns were not found: Name, Course, and Batch' };
@@ -804,7 +804,7 @@ export default function AlumniRegisteredList() {
     void reviewAccountAction(rejectAccount, 'reject', rejectReason);
   };
 
-  const previewImport = async (workbook: XLSX.WorkBook, sheetName: string, fileName: string) => {
+  const previewImport = async (workbook: SpreadsheetWorkbook, sheetName: string, fileName: string) => {
     const extracted = extractRowsFromSheet(workbook, sheetName);
     if (extracted.error) {
       setImportState((prev) => ({
@@ -885,11 +885,9 @@ export default function AlumniRegisteredList() {
         loading: true,
       });
 
-      const workbook = extension === 'csv'
-        ? XLSX.read(await file.text(), { type: 'string', raw: true })
-        : XLSX.read(await file.arrayBuffer(), { type: 'array', raw: true });
+      const workbook = await readSpreadsheet(file);
 
-      const sheets = workbook.SheetNames || [];
+      const sheets = workbook.sheetNames;
       if (sheets.length === 0) {
         throw new Error('No worksheet was found in this file');
       }
@@ -1037,10 +1035,8 @@ export default function AlumniRegisteredList() {
           throw new Error(data.error || 'Unable to export XLSX');
         }
         const rows = Array.isArray(data.data) ? data.data : [];
-        const worksheet = XLSX.utils.json_to_sheet(rows);
-        const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, 'Registered Alumni');
-        XLSX.writeFile(workbook, data.filename || `gradtrack_registered_alumni_${new Date().toISOString().slice(0, 10)}.xlsx`);
+        const blob = await createXlsxBlob(rows, 'Registered Alumni');
+        downloadBlob(blob, data.filename || `gradtrack_registered_alumni_${new Date().toISOString().slice(0, 10)}.xlsx`);
       }
 
       setExportOpen(false);

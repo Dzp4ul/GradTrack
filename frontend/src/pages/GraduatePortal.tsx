@@ -43,6 +43,7 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import type { Socket } from 'socket.io-client';
 import { API_BASE_URL, API_ENDPOINTS } from '../config/api';
+import { obtainApiCsrfToken } from '../lib/installApiSecurity';
 import RealtimeMessagingWorkspace from '../components/messaging/RealtimeMessagingWorkspace';
 import FloatingChatWindow from '../components/messaging/FloatingChatWindow';
 import AddGroupMembersModal from '../components/messaging/AddGroupMembersModal';
@@ -566,6 +567,7 @@ function getPortalNavLabelWidth(label: string) {
 
 const forumMediaAccept = 'image/png,image/jpeg,image/webp,image/gif,video/mp4,video/webm,video/ogg,video/quicktime';
 const maxForumMediaFiles = 10;
+const maxForumRequestBytes = 256 * 1024 * 1024;
 const maxForumImageBytes = 5 * 1024 * 1024;
 const maxForumVideoBytes = 50 * 1024 * 1024;
 const supportedForumImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
@@ -2601,6 +2603,12 @@ export default function GraduatePortal() {
       return;
     }
 
+    if (selectedFiles.reduce((total, file) => total + file.size, 0) > maxForumRequestBytes) {
+      notify('warning', 'The selected media exceed the 256 MB total upload limit.', 'Community Forum');
+      if (forumMediaInputRef.current) forumMediaInputRef.current.value = '';
+      return;
+    }
+
     for (const file of selectedFiles) {
       const extension = file.name.split('.').pop()?.toLowerCase() || '';
       const isImage = supportedForumImageTypes.has(file.type);
@@ -3180,56 +3188,75 @@ export default function GraduatePortal() {
       error: undefined,
     };
 
-    return new Promise((resolve, reject) => {
-      const formData = new FormData();
-      formData.append('room_id', String(roomId));
-      formData.append('attachment', attachment.file);
+    const executeUpload = async (forceCsrfRefresh = false): Promise<MessageAttachment> => {
+      const csrfToken = await obtainApiCsrfToken(forceCsrfRefresh);
 
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', API_ENDPOINTS.FORUM.CHAT_ATTACHMENTS);
-      xhr.withCredentials = true;
+      return new Promise((resolve, reject) => {
+        const formData = new FormData();
+        formData.append('room_id', String(roomId));
+        formData.append('attachment', attachment.file);
 
-      xhr.upload.onprogress = (event) => {
-        if (!event.lengthComputable) return;
-        const progress = Math.round((event.loaded / event.total) * 100);
-        const retryAttachment = retryAttachmentsRef.current[clientMessageId];
-        if (retryAttachment) {
-          retryAttachmentsRef.current[clientMessageId] = { ...retryAttachment, progress };
-        }
-      };
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', API_ENDPOINTS.FORUM.CHAT_ATTACHMENTS);
+        xhr.withCredentials = true;
+        xhr.setRequestHeader('X-CSRF-Token', csrfToken);
 
-      xhr.onload = () => {
-        let data: { success?: boolean; error?: string; data?: { attachment?: MessageAttachment } } = {};
-        try {
-          data = xhr.responseText ? JSON.parse(xhr.responseText) : {};
-        } catch {
-          data = {};
-        }
+        xhr.upload.onprogress = (event) => {
+          if (!event.lengthComputable) return;
+          const progress = Math.round((event.loaded / event.total) * 100);
+          const retryAttachment = retryAttachmentsRef.current[clientMessageId];
+          if (retryAttachment) {
+            retryAttachmentsRef.current[clientMessageId] = { ...retryAttachment, progress };
+          }
+        };
 
-        if (xhr.status >= 200 && xhr.status < 300 && data.success && data.data?.attachment) {
-          retryAttachmentsRef.current[clientMessageId] = {
-            ...attachment,
-            uploaded: data.data.attachment,
-            status: 'uploaded',
-            progress: 100,
-          };
-          resolve(data.data.attachment);
-          return;
-        }
+        xhr.onload = () => {
+          let data: { success?: boolean; error?: string; data?: { attachment?: MessageAttachment } } = {};
+          try {
+            data = xhr.responseText ? JSON.parse(xhr.responseText) : {};
+          } catch {
+            // Keep the initialized empty payload so the request follows the normal failure path.
+          }
 
-        const errorMessage = data.error || 'Attachment upload failed';
-        retryAttachmentsRef.current[clientMessageId] = { ...attachment, status: 'failed', error: errorMessage };
-        reject(new Error(errorMessage));
-      };
+          if (xhr.status >= 200 && xhr.status < 300 && data.success && data.data?.attachment) {
+            retryAttachmentsRef.current[clientMessageId] = {
+              ...attachment,
+              uploaded: data.data.attachment,
+              status: 'uploaded',
+              progress: 100,
+            };
+            resolve(data.data.attachment);
+            return;
+          }
 
-      xhr.onerror = () => {
-        const errorMessage = 'Attachment upload failed';
-        retryAttachmentsRef.current[clientMessageId] = { ...attachment, status: 'failed', error: errorMessage };
-        reject(new Error(errorMessage));
-      };
+          if (xhr.status === 419) {
+            const csrfError = new Error('Secure session token expired') as Error & { status: number };
+            csrfError.status = 419;
+            reject(csrfError);
+            return;
+          }
 
-      xhr.send(formData);
-    });
+          const errorMessage = data.error || 'Attachment upload failed';
+          retryAttachmentsRef.current[clientMessageId] = { ...attachment, status: 'failed', error: errorMessage };
+          reject(new Error(errorMessage));
+        };
+
+        xhr.onerror = () => {
+          const errorMessage = 'Attachment upload failed';
+          retryAttachmentsRef.current[clientMessageId] = { ...attachment, status: 'failed', error: errorMessage };
+          reject(new Error(errorMessage));
+        };
+
+        xhr.send(formData);
+      });
+    };
+
+    try {
+      return await executeUpload();
+    } catch (error) {
+      if ((error as { status?: number })?.status === 419) return executeUpload(true);
+      throw error;
+    }
   };
 
   const sendMessageToServer = async (payload: {
@@ -3435,6 +3462,7 @@ export default function GraduatePortal() {
       setConversationInfoOpen(false);
       return;
     }
+
     setConversationInfoOpen(true);
     void loadConversationInfo(selectedRoomId);
   };

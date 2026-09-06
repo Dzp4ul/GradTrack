@@ -1,4 +1,7 @@
 <?php
+require_once __DIR__ . '/config/env.php';
+gradtrack_require_development_endpoint();
+
 // Test script to verify alignment calculation from survey responses
 require_once __DIR__ . '/config/database.php';
 

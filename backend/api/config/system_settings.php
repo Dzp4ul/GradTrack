@@ -93,6 +93,7 @@ if (!function_exists('gradtrack_system_settings_default_rows')) {
 if (!function_exists('gradtrack_ensure_system_settings_table')) {
     function gradtrack_ensure_system_settings_table(PDO $db): void
     {
+        if (!gradtrack_runtime_schema_changes_allowed()) return;
         $db->exec("
             CREATE TABLE IF NOT EXISTS system_settings (
                 id INT AUTO_INCREMENT PRIMARY KEY,

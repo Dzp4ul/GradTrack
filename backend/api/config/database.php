@@ -1,6 +1,49 @@
 <?php
 require_once __DIR__ . '/env.php';
 
+if (!function_exists('gradtrack_database_pdo_options')) {
+    function gradtrack_database_pdo_options(): array
+    {
+        $options = [
+            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+            PDO::ATTR_EMULATE_PREPARES => false,
+        ];
+        $configuredCa = trim((string) gradtrack_env('DB_SSL_CA', ''));
+        if ($configuredCa === '') {
+            if (gradtrack_is_production()) {
+                throw new RuntimeException('DB_SSL_CA is required in production.');
+            }
+            return $options;
+        }
+
+        $candidates = [$configuredCa];
+        if (!preg_match('/^(?:[A-Za-z]:[\\\\\/]|\/)/', $configuredCa)) {
+            $candidates[] = __DIR__ . '/../../' . $configuredCa;
+        }
+        $caPath = false;
+        foreach ($candidates as $candidate) {
+            $resolved = realpath($candidate);
+            if ($resolved !== false && is_file($resolved) && is_readable($resolved)) {
+                $caPath = $resolved;
+                break;
+            }
+        }
+        if ($caPath === false) {
+            throw new RuntimeException('DB_SSL_CA must point to a readable CA bundle.');
+        }
+        if (!defined('PDO::MYSQL_ATTR_SSL_CA')) {
+            throw new RuntimeException('The PDO MySQL extension with TLS support is required.');
+        }
+
+        $options[PDO::MYSQL_ATTR_SSL_CA] = $caPath;
+        if (defined('PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT')) {
+            $options[PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT] = true;
+        }
+        return $options;
+    }
+}
+
 class Database {
     private $host;
     private $db_name;
@@ -36,15 +79,22 @@ class Database {
             $port = $this->normalizePort($this->port);
             $dbName = $this->requiredConfig($this->db_name, 'DB_NAME/DB_DATABASE');
             $username = $this->requiredConfig($this->username, 'DB_USER/DB_USERNAME');
-            $password = $this->requiredConfig($this->password, 'DB_PASSWORD');
+            $this->password = $this->requiredConfig($this->password, 'DB_PASSWORD');
 
             $dsn = "mysql:host={$host};port={$port};dbname={$dbName};charset=utf8mb4";
 
-            $this->conn = $this->connectWithRetry($dsn, $username, $password);
+            $this->conn = $this->connectWithRetry($dsn, $username);
             $this->conn->exec("SET NAMES utf8mb4");
             $this->setConnectionTimezone();
         } catch(Throwable $exception) {
             error_log('GradTrack database connection failed: ' . $exception->getMessage());
+            if (PHP_SAPI === 'cli') {
+                throw new RuntimeException(
+                    'Unable to connect to the database. Check the protected runtime configuration and network access.',
+                    0,
+                    $exception
+                );
+            }
             if (!headers_sent()) {
                 http_response_code(500);
                 header('Content-Type: application/json; charset=UTF-8');
@@ -55,17 +105,16 @@ class Database {
         return $this->conn;
     }
 
-    private function connectWithRetry(string $dsn, string $username, string $password): PDO {
-        $options = array(
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES => false,
-        );
+    private function connectWithRetry(string $dsn, string $username): PDO {
+        $options = gradtrack_database_pdo_options();
         $maxAttempts = 4;
 
         for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
             try {
-                return new PDO($dsn, $username, $password, $options);
+                // Read the password from the private property here so it never appears as
+                // a helper argument in development-mode stack traces. PDO marks its own
+                // password parameter as sensitive on supported PHP versions.
+                return new PDO($dsn, $username, $this->password, $options);
             } catch (PDOException $exception) {
                 if ($attempt >= $maxAttempts || !$this->isTransientConnectionError($exception)) {
                     throw $exception;

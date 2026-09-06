@@ -53,5 +53,5 @@ try {
         'data' => $rows,
     ]);
 } catch (Throwable $e) {
-    gradtrack_forum_activity_json_error(500, $e->getMessage());
+    gradtrack_forum_activity_json_error(500, gradtrack_public_exception_message($e, 'Unable to load forum activity right now.', 'Forum activity API'));
 }

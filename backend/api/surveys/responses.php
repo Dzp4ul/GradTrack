@@ -58,13 +58,7 @@ function survey_response_mailer(): PHPMailer
 
 function survey_response_frontend_url(): string
 {
-        $configuredUrl = getenv('FRONTEND_URL') ?: getenv('APP_URL') ?: '';
-        if (trim($configuredUrl) !== '') {
-                return rtrim(trim($configuredUrl), '/');
-        }
-
-        $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-        return $origin !== '' ? rtrim($origin, '/') : 'http://localhost:5173';
+        return gradtrack_frontend_url();
 }
 
     function survey_response_collect_question_keys(array $decodedResponses): array
@@ -599,9 +593,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             try {
                 $emailNotification = survey_response_send_confirmation_email($conn, (int) $graduateId, (int) $surveyId);
             } catch (MailException $mailException) {
-                $emailNotification = ["sent" => false, "reason" => $mailException->getMessage()];
+                $emailNotification = ["sent" => false, "reason" => gradtrack_public_exception_message($mailException, 'Confirmation email could not be sent.', 'Survey confirmation email')];
             } catch (Exception $mailException) {
-                $emailNotification = ["sent" => false, "reason" => $mailException->getMessage()];
+                $emailNotification = ["sent" => false, "reason" => gradtrack_public_exception_message($mailException, 'Confirmation email could not be sent.', 'Survey confirmation email')];
             }
         }
 
@@ -859,7 +853,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         ]);
     } catch(PDOException $e) {
         http_response_code(500);
-        echo json_encode(["error" => "Database error: " . $e->getMessage()]);
+        echo json_encode(["error" => gradtrack_public_exception_message($e, 'Unable to load survey responses right now.', 'Survey responses API')]);
     }
 }
 ?>

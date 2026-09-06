@@ -142,6 +142,17 @@ export default function UserManagement() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if ((!isEditing || formData.password.trim() !== '')
+      && !/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}$/.test(formData.password)) {
+      setMsgBox({
+        isOpen: true,
+        type: 'error',
+        message: 'Password must be at least 12 characters and include uppercase, lowercase, number, and symbol.',
+      });
+      return;
+    }
+
     setSaving(true);
 
     try {

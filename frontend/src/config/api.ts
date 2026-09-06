@@ -1,10 +1,29 @@
-const DEFAULT_API_BASE_URL = 'http://localhost/GradTrack/backend';
 const DEFAULT_PSGC_API_BASE_URL = 'https://psgc.cloud/api/v2';
-const DEFAULT_REALTIME_URL = 'http://localhost:3001';
 
-const rawApiBaseUrl = import.meta.env.VITE_API_BASE_URL || DEFAULT_API_BASE_URL;
+const productionUrl = (name: string, value: string | undefined, allowedProtocols: string[]): string => {
+  const configured = String(value || '').trim();
+  if (!configured) throw new Error(`${name} is required for a production build.`);
+
+  let parsed: URL;
+  try {
+    parsed = new URL(configured);
+  } catch {
+    throw new Error(`${name} must be a valid absolute URL.`);
+  }
+
+  if (!allowedProtocols.includes(parsed.protocol)) {
+    throw new Error(`${name} must use ${allowedProtocols.join(' or ')} in production.`);
+  }
+  return configured;
+};
+
+const rawApiBaseUrl = import.meta.env.PROD
+  ? productionUrl('VITE_API_BASE_URL', import.meta.env.VITE_API_BASE_URL, ['https:'])
+  : productionUrl('VITE_API_BASE_URL', import.meta.env.VITE_API_BASE_URL, ['http:', 'https:']);
 const rawPsgcApiBaseUrl = import.meta.env.VITE_PSGC_API_BASE_URL || DEFAULT_PSGC_API_BASE_URL;
-const rawRealtimeUrl = import.meta.env.VITE_REALTIME_URL || DEFAULT_REALTIME_URL;
+const rawRealtimeUrl = import.meta.env.PROD
+  ? productionUrl('VITE_REALTIME_URL', import.meta.env.VITE_REALTIME_URL, ['https:', 'wss:'])
+  : productionUrl('VITE_REALTIME_URL', import.meta.env.VITE_REALTIME_URL, ['http:', 'https:', 'ws:', 'wss:']);
 
 export const API_BASE_URL = rawApiBaseUrl.replace(/\/+$/, '');
 export const API_ROOT = `${API_BASE_URL}/api`;

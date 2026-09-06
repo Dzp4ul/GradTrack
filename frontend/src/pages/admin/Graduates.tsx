@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Search, Plus, Edit2, Archive, RotateCcw, X, ChevronLeft, ChevronRight, Download,
 } from 'lucide-react';
-import * as XLSX from 'xlsx';
 import MessageBox from '../../components/MessageBox';
 import { API_ROOT } from '../../config/api';
+import { readSpreadsheet } from '../../lib/spreadsheets';
 
 const API_BASE = API_ROOT;
 
@@ -743,19 +743,13 @@ export default function Graduates() {
     setIsImporting(true);
 
     try {
-      const fileBuffer = await file.arrayBuffer();
-      const workbook = XLSX.read(fileBuffer, { type: 'array' });
-      const firstSheetName = workbook.SheetNames[0];
+      const workbook = await readSpreadsheet(file);
+      const firstSheetName = workbook.sheetNames[0];
       if (!firstSheetName) {
         throw new Error('Excel file has no worksheet.');
       }
 
-      const worksheet = workbook.Sheets[firstSheetName];
-      const matrixRows = XLSX.utils.sheet_to_json<unknown[]>(worksheet, {
-        header: 1,
-        defval: '',
-        blankrows: false,
-      }) as unknown[][];
+      const matrixRows = workbook.sheets[firstSheetName] || [];
 
       const inferredYear = extractGraduationYearFromRows(matrixRows);
       const fallbackYear = filterYear || inferredYear;
@@ -779,7 +773,14 @@ export default function Graduates() {
           })
           .filter((row) => Object.values(row).some((value) => normalizeText(value) !== ''));
       } else {
-        rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: '' });
+        const headers = (matrixRows[0] || []).map((cell) => normalizeText(cell));
+        rows = matrixRows.slice(1).map((row) => {
+          const record: Record<string, unknown> = {};
+          headers.forEach((header, index) => {
+            if (header !== '') record[header] = row[index] ?? '';
+          });
+          return record;
+        }).filter((row) => Object.values(row).some((value) => normalizeText(value) !== ''));
       }
 
       if (rows.length === 0) {
@@ -904,7 +905,7 @@ export default function Graduates() {
           <input
             ref={fileInputRef}
             type="file"
-            accept=".xlsx,.xls"
+            accept=".xlsx,.csv"
             className="hidden"
             onChange={handleImportExcel}
           />

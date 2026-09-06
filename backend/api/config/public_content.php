@@ -5,6 +5,7 @@ require_once __DIR__ . '/storage.php';
 if (!function_exists('gradtrack_public_content_ensure_schema')) {
     function gradtrack_public_content_ensure_schema(PDO $db): void
     {
+        if (!gradtrack_runtime_schema_changes_allowed()) return;
         $db->exec("CREATE TABLE IF NOT EXISTS website_content (
             id INT AUTO_INCREMENT PRIMARY KEY,
             page VARCHAR(40) NOT NULL,

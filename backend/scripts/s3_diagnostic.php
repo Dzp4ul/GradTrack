@@ -34,7 +34,7 @@ if (!gradtrack_storage_uses_s3()) {
     exit(1);
 }
 
-if ($config['environment'] === 'production' || $config['bucket'] === 'nc-gradtrack-prod') {
+if (gradtrack_is_production()) {
     fwrite(STDERR, "FAIL: This diagnostic is intentionally blocked for the production bucket.\n");
     exit(1);
 }

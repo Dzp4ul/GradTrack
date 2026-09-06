@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../config/cors.php';
+require_once __DIR__ . '/../config/password_policy.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/admin_profile_image.php';
 require_once __DIR__ . '/../config/storage.php';
@@ -87,8 +88,7 @@ try {
         }
 
         $storedPassword = (string) ($currentUser['password'] ?? '');
-        $passwordMatches = password_verify($currentPassword, $storedPassword)
-            || hash_equals($storedPassword, $currentPassword);
+        $passwordMatches = gradtrack_verify_admin_password($currentPassword, $storedPassword);
 
         if (!$passwordMatches) {
             http_response_code(400);
@@ -96,9 +96,10 @@ try {
             exit;
         }
 
-        if (!preg_match('/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/', $newPassword)) {
+        $passwordError = gradtrack_admin_password_error($newPassword);
+        if ($passwordError !== null) {
             http_response_code(400);
-            echo json_encode(["success" => false, "error" => "New password must be at least 8 characters and include uppercase, lowercase, number, and symbol"]);
+            echo json_encode(["success" => false, "error" => $passwordError]);
             exit;
         }
 
@@ -230,7 +231,7 @@ try {
     }
     $message = strpos($e->getMessage(), 'Duplicate entry') !== false
         ? 'Email or username already exists'
-        : $e->getMessage();
+        : gradtrack_public_exception_message($e, 'Unable to update the profile right now.', 'Admin profile database error');
 
     http_response_code(500);
     echo json_encode(["success" => false, "error" => $message]);
@@ -242,6 +243,6 @@ try {
         gradtrack_storage_delete_quietly($newStorageReference);
     }
     http_response_code(500);
-    echo json_encode(["success" => false, "error" => $e->getMessage()]);
+    echo json_encode(["success" => false, "error" => gradtrack_public_exception_message($e, 'Unable to update the profile right now.', 'Admin profile API')]);
 }
 ?>

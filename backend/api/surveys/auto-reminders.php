@@ -3,6 +3,8 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/survey_reminders.php';
 
+gradtrack_require_cli();
+
 if (PHP_SAPI !== 'cli') {
     header('Content-Type: application/json; charset=UTF-8');
 }
@@ -299,7 +301,7 @@ try {
                 'survey_id' => (int) $recipient['survey_id'],
                 'graduate_id' => (int) $recipient['graduate_id'],
                 'email' => $email,
-                'error' => $exception->getMessage(),
+                'error' => gradtrack_public_exception_message($exception, 'Email could not be sent.', 'Automatic survey reminder email'),
             ];
             gradtrack_survey_reminder_log($db, (int) $recipient['survey_id'], (int) $recipient['graduate_id'], $email, $subject, 'auto', 'failed', $exception->getMessage());
         }
@@ -327,6 +329,6 @@ try {
 } catch (Throwable $exception) {
     auto_reminder_response(500, [
         'success' => false,
-        'error' => $exception->getMessage(),
+        'error' => gradtrack_public_exception_message($exception, 'Unable to process automatic reminders right now.', 'Automatic survey reminders API'),
     ]);
 }

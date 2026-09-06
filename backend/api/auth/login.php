@@ -5,6 +5,8 @@ require_once __DIR__ . '/../config/admin_profile_image.php';
 require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../config/system_settings.php';
 require_once __DIR__ . '/../config/admin_auth.php';
+require_once __DIR__ . '/../config/login_throttle.php';
+require_once __DIR__ . '/../config/password_policy.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -20,8 +22,10 @@ if (!isset($data['email']) || !isset($data['password'])) {
     exit;
 }
 
-$email = trim($data['email']);
+$email = strtolower(trim((string) $data['email']));
 $password = $data['password'];
+
+gradtrack_login_throttle_reject_if_blocked($email);
 
 $database = new Database();
 $conn = $database->getConnection();
@@ -44,6 +48,7 @@ try {
     $stmt->execute();
 
     if ($stmt->rowCount() === 0) {
+        gradtrack_login_throttle_record_failure($email);
         http_response_code(401);
         echo json_encode(["error" => "Invalid email or password"]);
         exit;
@@ -51,22 +56,20 @@ try {
 
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    if (isset($user['is_active']) && (int) $user['is_active'] === 0) {
-        http_response_code(403);
-        echo json_encode(["error" => "Account is deactivated. Please contact super admin."]);
+    $storedPassword = (string) $user['password'];
+    $isLegacyPlaintext = !gradtrack_admin_password_is_hash($storedPassword);
+    $passwordValid = gradtrack_verify_admin_password((string) $password, $storedPassword);
+
+    if (!$passwordValid) {
+        gradtrack_login_throttle_record_failure($email);
+        http_response_code(401);
+        echo json_encode(["error" => "Invalid email or password"]);
         exit;
     }
 
-    $storedPassword = (string) $user['password'];
-    $passwordInfo = password_get_info($storedPassword);
-    $isLegacyPlaintext = empty($passwordInfo['algo']);
-    $passwordValid = $isLegacyPlaintext
-        ? hash_equals($storedPassword, (string) $password)
-        : password_verify($password, $storedPassword);
-
-    if (!$passwordValid) {
-        http_response_code(401);
-        echo json_encode(["error" => "Invalid email or password"]);
+    if (isset($user['is_active']) && (int) $user['is_active'] === 0) {
+        http_response_code(403);
+        echo json_encode(["error" => "Account is deactivated. Please contact super admin."]);
         exit;
     }
 
@@ -77,6 +80,8 @@ try {
             ':id' => (int) $user['id'],
         ]);
     }
+
+    gradtrack_login_throttle_clear_success($email);
 
     gradtrack_system_block_if_maintenance($conn, (string) $user['role']);
 

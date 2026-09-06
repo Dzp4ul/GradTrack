@@ -357,6 +357,7 @@ if (!function_exists('gradtrack_alumni_registry_table_exists')) {
 if (!function_exists('gradtrack_alumni_registry_ensure_schema')) {
     function gradtrack_alumni_registry_ensure_schema(PDO $db): void
     {
+        if (!gradtrack_runtime_schema_changes_allowed()) return;
         gradtrack_alumni_registry_ensure_programs($db);
 
         $db->exec("CREATE TABLE IF NOT EXISTS alumni_import_history (

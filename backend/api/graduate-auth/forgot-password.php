@@ -20,13 +20,7 @@ function gradtrack_reset_clean_text($value): string
 
 function gradtrack_reset_frontend_url(): string
 {
-    $configuredUrl = getenv('FRONTEND_URL') ?: getenv('APP_URL') ?: '';
-    if (trim($configuredUrl) !== '') {
-        return rtrim(trim($configuredUrl), '/');
-    }
-
-    $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-    return $origin !== '' ? rtrim($origin, '/') : 'http://localhost:5173';
+    return gradtrack_frontend_url();
 }
 
 function gradtrack_reset_create_mailer(): PHPMailer
@@ -65,6 +59,7 @@ function gradtrack_reset_create_mailer(): PHPMailer
 
 function gradtrack_reset_ensure_table(PDO $db): void
 {
+    if (!gradtrack_runtime_schema_changes_allowed()) return;
     $db->exec("CREATE TABLE IF NOT EXISTS graduate_password_resets (
         id INT AUTO_INCREMENT PRIMARY KEY,
         graduate_account_id INT NOT NULL,
@@ -380,5 +375,5 @@ try {
     echo json_encode(['success' => false, 'error' => 'Unable to send OTP email right now. Please try again later.']);
 } catch (Exception $e) {
     http_response_code(500);
-    echo json_encode(['success' => false, 'error' => 'Password reset request failed: ' . $e->getMessage()]);
+    echo json_encode(['success' => false, 'error' => gradtrack_public_exception_message($e, 'Password reset request failed. Please try again later.', 'Graduate password reset API')]);
 }
