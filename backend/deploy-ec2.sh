@@ -80,6 +80,8 @@ systemctl daemon-reload
 systemctl enable --now php8.3-fpm nginx gradtrack-realtime.service
 systemctl enable gradtrack-reminders.timer
 nginx -t
+systemctl restart php8.3-fpm gradtrack-realtime.service
+systemctl reload nginx
 deploy/aws/scripts/verify-production.sh
 
 echo "Software setup, migrations, and verification complete. Obtain TLS, run a reminder dry run, then start gradtrack-reminders.timer."
