@@ -17,7 +17,15 @@ if [[ -e backend/.env && ! -L backend/.env ]]; then
 fi
 
 apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl gnupg nginx php8.3-fpm php8.3-cli php8.3-mysql php8.3-curl php8.3-mbstring php8.3-xml php8.3-zip composer awscli certbot python3-certbot-nginx
+DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl gnupg unzip nginx php8.3-fpm php8.3-cli php8.3-mysql php8.3-curl php8.3-mbstring php8.3-xml php8.3-zip composer certbot python3-certbot-nginx
+
+# Ubuntu 24.04 does not ship the legacy awscli Debian package. Install the
+# supported AWS CLI v2 bundle so IAM-role and S3 verification work reliably.
+AWSCLI_INSTALL_DIR="$(mktemp -d)"
+curl -fsSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o "$AWSCLI_INSTALL_DIR/awscliv2.zip"
+unzip -q "$AWSCLI_INSTALL_DIR/awscliv2.zip" -d "$AWSCLI_INSTALL_DIR"
+"$AWSCLI_INSTALL_DIR/aws/install" --update
+rm -rf -- "$AWSCLI_INSTALL_DIR"
 
 if ! id -u gradtrack >/dev/null 2>&1; then
     useradd --system --gid www-data --home-dir /nonexistent --no-create-home --shell /usr/sbin/nologin gradtrack
