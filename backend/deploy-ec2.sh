@@ -66,16 +66,10 @@ set +a
 npm --prefix frontend run typecheck
 npm --prefix frontend run build
 
-(
-    set -a
-    # shellcheck disable=SC1091
-    source /etc/gradtrack/gradtrack.env
-    # shellcheck disable=SC1091
-    source /etc/gradtrack/migration.env
-    set +a
+GRADTRACK_MIGRATION_ENV=/etc/gradtrack/migration.env \
     php backend/scripts/migrate_database.php --apply --production-approved
+GRADTRACK_MIGRATION_ENV=/etc/gradtrack/migration.env \
     php backend/scripts/hash_legacy_admin_passwords.php --apply
-)
 
 chown -R root:www-data "$APP_ROOT"
 find "$APP_ROOT" -type d -exec chmod 0750 {} +

@@ -27,11 +27,9 @@ if (!function_exists('gradtrack_parse_env_value')) {
     }
 }
 
-if (!function_exists('gradtrack_load_env_file')) {
-    function gradtrack_load_env_file(bool $overrideExisting = false): void
+if (!function_exists('gradtrack_load_env_path')) {
+    function gradtrack_load_env_path(string $envFile, bool $overrideExisting = false): void
     {
-        $envFile = gradtrack_env_file_path();
-
         if (!file_exists($envFile)) {
             return;
         }
@@ -68,6 +66,13 @@ if (!function_exists('gradtrack_load_env_file')) {
             $_ENV[$key] = $value;
             $_SERVER[$key] = $value;
         }
+    }
+}
+
+if (!function_exists('gradtrack_load_env_file')) {
+    function gradtrack_load_env_file(bool $overrideExisting = false): void
+    {
+        gradtrack_load_env_path(gradtrack_env_file_path(), $overrideExisting);
     }
 }
 

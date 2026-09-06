@@ -5,6 +5,12 @@ if (PHP_SAPI !== 'cli') {
     exit('This migration can only run from the command line.');
 }
 
+require_once __DIR__ . '/../api/config/env.php';
+gradtrack_load_env_file();
+$migrationEnv = trim((string) getenv('GRADTRACK_MIGRATION_ENV'));
+if ($migrationEnv !== '') {
+    gradtrack_load_env_path($migrationEnv, true);
+}
 require_once __DIR__ . '/../api/config/database.php';
 
 $arguments = array_slice($argv ?? [], 1);

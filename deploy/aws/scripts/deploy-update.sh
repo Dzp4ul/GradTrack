@@ -34,16 +34,10 @@ npm --prefix "$APP_ROOT/frontend" run typecheck
 npm --prefix "$APP_ROOT/frontend" run build
 
 if [[ -r "$MIGRATION_ENV" ]]; then
-    (
-        set -a
-        # shellcheck disable=SC1090
-        source "$BACKEND_ENV"
-        # shellcheck disable=SC1090
-        source "$MIGRATION_ENV"
-        set +a
+    GRADTRACK_MIGRATION_ENV="$MIGRATION_ENV" \
         php "$APP_ROOT/backend/scripts/migrate_database.php" --apply --production-approved
+    GRADTRACK_MIGRATION_ENV="$MIGRATION_ENV" \
         php "$APP_ROOT/backend/scripts/hash_legacy_admin_passwords.php" --apply
-    )
 else
     echo "Missing $MIGRATION_ENV (restricted migration DB credentials)." >&2
     exit 1

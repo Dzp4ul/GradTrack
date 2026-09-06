@@ -7,6 +7,12 @@ if (PHP_SAPI !== 'cli') {
 }
 
 define('GRADTRACK_SCHEMA_MIGRATION', true);
+require_once __DIR__ . '/../api/config/env.php';
+gradtrack_load_env_file();
+$migrationEnv = trim((string) getenv('GRADTRACK_MIGRATION_ENV'));
+if ($migrationEnv !== '') {
+    gradtrack_load_env_path($migrationEnv, true);
+}
 require_once __DIR__ . '/../api/config/database.php';
 require_once __DIR__ . '/../api/config/admin_roles.php';
 require_once __DIR__ . '/../api/config/archive.php';
