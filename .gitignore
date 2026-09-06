@@ -40,6 +40,7 @@ backend/tmp/*.json
 dist/
 frontend/dist/
 deploy/aws/*.rendered
+deploy/aws/env/*.env
 
 # Elastic Beanstalk
 .elasticbeanstalk/
