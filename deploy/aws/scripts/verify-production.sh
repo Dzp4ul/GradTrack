@@ -10,10 +10,21 @@ require_command() { command -v "$1" >/dev/null 2>&1 || fail "required command no
 
 [[ -d "$APP_ROOT" ]] || fail "application root does not exist: $APP_ROOT"
 [[ -r "$BACKEND_ENV" ]] || fail "backend environment file is not readable: $BACKEND_ENV"
-set -a
-# shellcheck disable=SC1090
-source "$BACKEND_ENV"
-set +a
+require_command php
+while IFS= read -r -d '' assignment; do
+    export "$assignment"
+done < <(
+    php -r '
+        require $argv[1] . "/backend/api/config/env.php";
+        gradtrack_load_env_path($argv[2], true);
+        foreach (file($argv[2], FILE_IGNORE_NEW_LINES) ?: [] as $line) {
+            if (preg_match("/^\\s*([A-Za-z_][A-Za-z0-9_]*)=/", $line, $matches) !== 1) continue;
+            $key = $matches[1];
+            $value = getenv($key);
+            echo $key . "=" . ($value === false ? "" : $value) . "\0";
+        }
+    ' "$APP_ROOT" "$BACKEND_ENV"
+)
 
 [[ "${APP_ENV:-}" == "production" || "${APP_ENV:-}" == "prod" ]] || fail "APP_ENV must be production"
 for variable in DB_HOST DB_NAME DB_USER DB_PASSWORD DB_SSL_CA STORAGE_DRIVER AWS_REGION S3_BUCKET FRONTEND_URL CORS_ALLOWED_ORIGINS GRADTRACK_API_BASE_URL REALTIME_HOST MAIL_HOST MAIL_PORT MAIL_USERNAME MAIL_PASSWORD MAIL_FROM_ADDRESS GROQ_API_KEY; do
