@@ -75,6 +75,7 @@ export interface MessagingMessage {
   sender_program_code?: string | null;
   sender_profile_image_path?: string | null;
   is_mine: boolean;
+  is_deleted?: boolean;
   attachments?: MessageAttachment[];
   status?: MessageStatus;
   error?: string;

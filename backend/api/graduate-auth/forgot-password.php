@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/archive.php';
+require_once __DIR__ . '/../config/login_throttle.php';
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 use PHPMailer\PHPMailer\Exception as MailException;
@@ -93,6 +94,71 @@ function gradtrack_reset_account_by_email(PDO $db, string $email): ?array
     return $result ?: null;
 }
 
+function gradtrack_reset_retry_response(int $retryAfter): never
+{
+    $retryAfter = max(1, $retryAfter);
+    $serverTime = time();
+    http_response_code(429);
+    header('Retry-After: ' . $retryAfter);
+    header('Cache-Control: no-store');
+    echo json_encode([
+        'success' => false,
+        'error' => 'Please wait before requesting another OTP.',
+        'data' => [
+            'retry_after_seconds' => $retryAfter,
+            'server_time' => $serverTime,
+            'resend_available_at' => $serverTime + $retryAfter,
+        ],
+    ]);
+    exit;
+}
+
+function gradtrack_reset_reserve_otp_request(string $email): int
+{
+    $emailRetry = gradtrack_login_throttle_mutate(
+        'graduate-reset-otp-email',
+        $email,
+        static function (array &$state): int {
+            $now = time();
+            $nextAllowedAt = (int) ($state['next_allowed_at'] ?? 0);
+            if ($nextAllowedAt > $now) {
+                return $nextAllowedAt - $now;
+            }
+
+            $state = ['next_allowed_at' => $now + 60];
+            return 0;
+        }
+    );
+    if ($emailRetry > 0) {
+        return $emailRetry;
+    }
+
+    return gradtrack_login_throttle_mutate(
+        'graduate-reset-otp-ip',
+        gradtrack_login_client_ip(),
+        static function (array &$state): int {
+            $now = time();
+            $attempts = array_values(array_filter(
+                is_array($state['attempts'] ?? null) ? $state['attempts'] : [],
+                static fn ($attempt): bool => is_int($attempt) && $attempt > $now - 60
+            ));
+            $blockedUntil = (int) ($state['blocked_until'] ?? 0);
+            if ($blockedUntil > $now) {
+                $state = ['attempts' => $attempts, 'blocked_until' => $blockedUntil];
+                return $blockedUntil - $now;
+            }
+            if (count($attempts) >= 10) {
+                $state = ['attempts' => $attempts, 'blocked_until' => $now + 60];
+                return 60;
+            }
+
+            $attempts[] = $now;
+            $state = ['attempts' => $attempts, 'blocked_until' => 0];
+            return 0;
+        }
+    );
+}
+
 function gradtrack_reset_send_otp_email(string $email, string $fullName, string $otpCode): void
 {
     $safeName = htmlspecialchars($fullName, ENT_QUOTES, 'UTF-8');
@@ -127,7 +193,7 @@ function gradtrack_reset_send_otp_email(string $email, string $fullName, string 
             <tr>
               <td style="padding:24px 28px 30px;">
                 <div style="border-top:1px solid #e4eaf3;padding-top:18px;font-size:13px;line-height:1.7;color:#6b778d;">
-                  Sign in: <a href="{$safeSigninUrl}" style="color:#173b80;">{$safeSigninUrl}</a><br>
+                  Log in: <a href="{$safeSigninUrl}" style="color:#173b80;">{$safeSigninUrl}</a><br>
                   <strong style="color:#10213f;">GRADTRACK</strong>
                 </div>
               </td>
@@ -157,43 +223,67 @@ function gradtrack_reset_send_otp(PDO $db, string $email): void
         exit;
     }
 
+    $throttleRetry = gradtrack_reset_reserve_otp_request($email);
+    if ($throttleRetry > 0) {
+        gradtrack_reset_retry_response($throttleRetry);
+    }
+
     $account = gradtrack_reset_account_by_email($db, $email);
 
     if ($account) {
-        $cooldownStmt = $db->prepare('SELECT created_at FROM graduate_password_resets WHERE email = :email ORDER BY id DESC LIMIT 1');
+        $cooldownStmt = $db->prepare('SELECT GREATEST(0, 60 - TIMESTAMPDIFF(SECOND, created_at, NOW())) AS retry_after_seconds
+            FROM graduate_password_resets WHERE email = :email ORDER BY id DESC LIMIT 1');
         $cooldownStmt->bindParam(':email', $email);
         $cooldownStmt->execute();
         $latest = $cooldownStmt->fetch(PDO::FETCH_ASSOC);
 
-        if ($latest && isset($latest['created_at']) && strtotime((string) $latest['created_at']) > (time() - 60)) {
-            http_response_code(429);
-            echo json_encode([
-                'success' => false,
-                'error' => 'Please wait at least 1 minute before requesting another OTP.'
-            ]);
-            exit;
+        $databaseRetry = (int) ($latest['retry_after_seconds'] ?? 0);
+        if ($databaseRetry > 0) {
+            gradtrack_reset_retry_response($databaseRetry);
         }
 
         $otpCode = (string) random_int(100000, 999999);
         $otpHash = password_hash($otpCode, PASSWORD_BCRYPT);
         $expiresAt = date('Y-m-d H:i:s', strtotime('+10 minutes'));
 
-        $insertStmt = $db->prepare('INSERT INTO graduate_password_resets
-            (graduate_account_id, email, otp_hash, expires_at)
-            VALUES (:account_id, :email, :otp_hash, :expires_at)');
-        $insertStmt->bindParam(':account_id', $account['account_id']);
-        $insertStmt->bindParam(':email', $email);
-        $insertStmt->bindParam(':otp_hash', $otpHash);
-        $insertStmt->bindParam(':expires_at', $expiresAt);
-        $insertStmt->execute();
+        $db->beginTransaction();
+        try {
+            $invalidateStmt = $db->prepare('UPDATE graduate_password_resets
+                SET used_at = COALESCE(used_at, NOW())
+                WHERE graduate_account_id = :account_id AND used_at IS NULL');
+            $invalidateStmt->execute([':account_id' => $account['account_id']]);
+
+            $insertStmt = $db->prepare('INSERT INTO graduate_password_resets
+                (graduate_account_id, email, otp_hash, expires_at)
+                VALUES (:account_id, :email, :otp_hash, :expires_at)');
+            $insertStmt->execute([
+                ':account_id' => $account['account_id'],
+                ':email' => $email,
+                ':otp_hash' => $otpHash,
+                ':expires_at' => $expiresAt,
+            ]);
+            $db->commit();
+        } catch (Throwable $e) {
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            throw $e;
+        }
 
         $fullName = trim((string) ($account['first_name'] ?? '') . ' ' . (string) ($account['last_name'] ?? ''));
         gradtrack_reset_send_otp_email($email, $fullName, $otpCode);
     }
 
+    $serverTime = time();
+    header('Cache-Control: no-store');
     echo json_encode([
         'success' => true,
-        'message' => 'If this email is registered, an OTP has been sent.'
+        'message' => 'If this email is registered, an OTP has been sent.',
+        'data' => [
+            'retry_after_seconds' => 60,
+            'server_time' => $serverTime,
+            'resend_available_at' => $serverTime + 60,
+        ],
     ]);
 }
 
@@ -333,7 +423,7 @@ function gradtrack_reset_password(PDO $db, string $email, string $resetToken, st
 
     echo json_encode([
         'success' => true,
-        'message' => 'Password reset successful. You can now sign in with your new password.'
+        'message' => 'Password reset successful. You can now log in with your new password.'
     ]);
 }
 

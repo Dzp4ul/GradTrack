@@ -666,6 +666,8 @@ function Survey() {
   const [showAccountPassword, setShowAccountPassword] = useState(false);
   const [showAccountConfirmPassword, setShowAccountConfirmPassword] = useState(false);
   const [accountSubmitting, setAccountSubmitting] = useState(false);
+  const [surveySubmitting, setSurveySubmitting] = useState(false);
+  const surveySubmissionInFlightRef = useRef(false);
 
   useEffect(() => {
     if (isMaintenanceMode || !surveyAvailable) {
@@ -692,9 +694,6 @@ function Survey() {
         sessionStorage.removeItem('graduate_profile');
       }
     }
-
-    console.log('Checking token:', storedToken);
-    console.log('Survey ID from URL:', surveyIdFromUrl);
 
     if (!storedToken) {
       // No token, redirect to verification with survey_id
@@ -1224,6 +1223,7 @@ function Survey() {
         body: JSON.stringify({
           survey_response_id: submittedResponseId,
           graduate_id: graduateId,
+          survey_token: token,
           email: prefillData.email,
           phone: prefillData.phone,
           year_graduated: prefillData.year_graduated ? Number(prefillData.year_graduated) : null,
@@ -1366,7 +1366,7 @@ function Survey() {
   };
 
   const handleSubmit = async () => {
-    if (!activeSurvey || !token || !graduateId) return;
+    if (!activeSurvey || !token || !graduateId || surveySubmissionInFlightRef.current || submittedResponseId) return;
 
     const addressQuestions = getPsgcAddressQuestions(activeSurvey.questions);
     const shouldSubmitPsgcAddress = hasPsgcAddressQuestions(addressQuestions);
@@ -1433,6 +1433,8 @@ function Survey() {
       activeSurvey.questions,
     );
 
+    surveySubmissionInFlightRef.current = true;
+    setSurveySubmitting(true);
     try {
       const response = await fetch(`${API_ROOT}/surveys/responses.php`, {
         method: 'POST',
@@ -1448,7 +1450,7 @@ function Survey() {
 
       const result = await response.json();
 
-      if (result.success) {
+      if (response.ok && result.success) {
         const extractedProfile = extractSurveyProfileData();
 
         localStorage.removeItem(getSurveyDraftKey(activeSurvey.id, graduateId));
@@ -1485,6 +1487,9 @@ function Survey() {
     } catch (error) {
       console.error('Error submitting survey:', error);
       setMsgBox({ isOpen: true, type: 'error', message: 'Error submitting survey. Please check your internet connection and try again.', title: 'Network Error' });
+    } finally {
+      surveySubmissionInFlightRef.current = false;
+      setSurveySubmitting(false);
     }
   };
 
@@ -2527,10 +2532,10 @@ function Survey() {
                     handleSubmit();
                   }
                 }}
-                disabled={isSurveyAddressLoading}
+                disabled={isSurveyAddressLoading || surveySubmitting}
                 className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-8 py-3 rounded-lg font-semibold transition shadow-md hover:shadow-lg sm:w-auto"
               >
-                Submit Survey
+                {surveySubmitting ? 'Submitting...' : 'Submit Survey'}
               </button>
             )}
           </div>

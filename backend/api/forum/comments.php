@@ -42,6 +42,41 @@ function gradtrack_forum_comments_post_access(PDO $db, int $postId, ?array $grad
     return $post;
 }
 
+function gradtrack_forum_comment_by_id(PDO $db, int $commentId): ?array
+{
+    $stmt = $db->prepare("SELECT fc.id, fc.post_id, fc.graduate_id, fc.comment, fc.status, fc.created_at,
+                                 g.first_name, g.middle_name, g.last_name,
+                                 gpi.file_path AS commenter_profile_image_path,
+                                 p.name AS commenter_program_name, p.code AS commenter_program_code
+                          FROM forum_comments fc
+                          JOIN graduates g ON g.id = fc.graduate_id
+                          LEFT JOIN graduate_accounts ga ON ga.graduate_id = g.id
+                          LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
+                          LEFT JOIN programs p ON p.id = g.program_id
+                          WHERE fc.id = :id
+                          LIMIT 1");
+    $stmt->execute([':id' => $commentId]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) {
+        return null;
+    }
+
+    $row['id'] = (int) $row['id'];
+    $row['post_id'] = (int) $row['post_id'];
+    $row['graduate_id'] = (int) $row['graduate_id'];
+    $row['commenter_name'] = trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? ''));
+    $row['commenter_profile_image_path'] = gradtrack_storage_media_access_reference($row['commenter_profile_image_path'] ?? null);
+    unset($row['first_name'], $row['middle_name'], $row['last_name']);
+    return $row;
+}
+
+function gradtrack_forum_comment_count(PDO $db, int $postId): int
+{
+    $stmt = $db->prepare("SELECT COUNT(*) FROM forum_comments WHERE post_id = :post_id AND status = 'approved'");
+    $stmt->execute([':post_id' => $postId]);
+    return (int) $stmt->fetchColumn();
+}
+
 $database = new Database();
 $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
@@ -81,6 +116,7 @@ try {
             $row['graduate_id'] = (int) $row['graduate_id'];
             $row['commenter_name'] = trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? ''));
             $row['commenter_profile_image_path'] = gradtrack_storage_media_access_reference($row['commenter_profile_image_path'] ?? null);
+            unset($row['first_name'], $row['middle_name'], $row['last_name']);
         }
         unset($row);
 
@@ -117,11 +153,17 @@ try {
 
         $commentId = (int) $db->lastInsertId();
         gradtrack_forum_log_activity($db, (int) $user['graduate_id'], 'comment_created', $postId, $commentId);
+        $createdComment = gradtrack_forum_comment_by_id($db, $commentId);
+        if (!$createdComment) {
+            throw new RuntimeException('Created comment could not be loaded');
+        }
 
         echo json_encode([
             'success' => true,
             'message' => 'Comment added successfully',
             'id' => $commentId,
+            'data' => $createdComment,
+            'comment_count' => gradtrack_forum_comment_count($db, $postId),
         ]);
         exit;
     }
@@ -170,6 +212,11 @@ try {
         echo json_encode([
             'success' => true,
             'message' => 'Comment deleted successfully',
+            'data' => [
+                'id' => $commentId,
+                'post_id' => (int) $comment['post_id'],
+                'comment_count' => gradtrack_forum_comment_count($db, (int) $comment['post_id']),
+            ],
         ]);
         exit;
     }

@@ -61,6 +61,24 @@ messaging_test_assert($message['is_mine'] === true, 'formatted messages mark cur
 messaging_test_assert($message['status'] === 'delivered', 'formatted messages expose delivered status for sent messages');
 messaging_test_assert($message['sender_name'] === 'Ada Lovelace', 'formatted messages include sender display name');
 
+$deletedMessage = gradtrack_chat_format_message([
+    'id' => 13,
+    'room_id' => 3,
+    'graduate_id' => 9,
+    'message' => 'Sensitive original text',
+    'message_type' => 'image',
+    'deleted_at' => '2026-08-01 10:01:00',
+    'created_at' => '2026-08-01 10:00:00',
+    'first_name' => 'Ada',
+    'last_name' => 'Lovelace',
+], 9, [[
+    'id' => 44,
+    'original_name' => 'private.png',
+]]);
+messaging_test_assert($deletedMessage['is_deleted'] === true, 'soft-deleted messages are explicitly identified for tombstone rendering');
+messaging_test_assert($deletedMessage['message'] === 'This message was deleted', 'soft-deleted message text is not exposed through the API');
+messaging_test_assert($deletedMessage['attachments'] === [], 'soft-deleted message attachments are not exposed through the API');
+
 if ($failures > 0) {
     echo PHP_EOL . "{$failures} messaging rule test(s) failed." . PHP_EOL;
     exit(1);

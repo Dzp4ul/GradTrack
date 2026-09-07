@@ -55,11 +55,11 @@ export default function GraduateSignIn() {
         isOpen: true,
         type: 'success',
         title: 'Welcome Back',
-        message: 'You are now signed in to the Graduate Portal.',
+        message: 'You are now logged in to the Graduate Portal.',
       });
       setTimeout(() => navigate('/graduate/announcements'), 900);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to sign in right now.';
+      const message = error instanceof Error ? error.message : 'Unable to log in right now.';
       const isPending = message.toLowerCase().includes('pending alumni verification');
       const isRejected = message.toLowerCase().includes('rejected');
       setShowPassword(false);
@@ -72,7 +72,7 @@ export default function GraduateSignIn() {
       setMsgBox({
         isOpen: true,
         type: isPending ? 'info' : 'error',
-        title: isPending ? 'Pending Alumni Verification' : isRejected ? 'Account Rejected' : 'Sign In Failed',
+        title: isPending ? 'Pending Alumni Verification' : isRejected ? 'Account Rejected' : 'Log In Failed',
         message,
       });
     } finally {
@@ -99,21 +99,23 @@ export default function GraduateSignIn() {
   const loginBackground = resolveAssetUrl(getSetting('login_background_image_path'), '/520382375_1065446909052636_3412465913398569974_n.jpg');
   const loginLogo = resolveAssetUrl(getSetting('login_logo_path'), '/GRADTRACK_LOGO1.png');
   const surveyAvailable = isEnabled('survey_available', true);
+  const loginWelcomeMessage = getSetting('login_welcome_message', 'Log in to access the Community Forum and job opportunities.')
+    .replace(/\bsign in\b/gi, 'log in');
 
   return (
     <div
-      className="min-h-screen bg-cover bg-center bg-fixed relative flex items-center justify-center p-4 sm:p-6"
+      className="relative flex min-h-screen items-center justify-center overflow-x-hidden bg-cover bg-center bg-fixed p-4 sm:p-6"
       style={{ backgroundImage: `url(${loginBackground})` }}
     >
       <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80"></div>
 
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-5 border border-blue-100 relative z-10 sm:p-8">
+      <div className="relative z-10 w-full min-w-0 max-w-md rounded-2xl border border-blue-100 bg-white p-5 shadow-xl sm:p-8">
         <div className="flex justify-center mb-5">
-          <img src={loginLogo} alt={`${getSetting('system_short_name', 'GradTrack')} Logo`} className="h-20 object-contain" />
+          <img src={loginLogo} alt={`${getSetting('system_short_name', 'GradTrack')} Logo`} className="h-auto max-h-20 w-full max-w-[360px] object-contain" />
         </div>
 
         <h1 className="text-2xl font-bold text-blue-900 text-center">Graduate Portal</h1>
-        <p className="text-gray-600 text-center mt-1 mb-6">{getSetting('login_welcome_message', 'Sign in to access the Community Forum and job opportunities.')}</p>
+        <p className="text-gray-600 text-center mt-1 mb-6">{loginWelcomeMessage}</p>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -163,7 +165,7 @@ export default function GraduateSignIn() {
             style={loading ? undefined : { backgroundColor: primaryColor }}
           >
             <LogIn className="w-4 h-4" />
-            {loading ? 'Signing in...' : 'Sign In'}
+            {loading ? 'Logging in...' : 'Log In'}
           </button>
         </form>
 

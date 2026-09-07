@@ -52,8 +52,9 @@ function gradtrack_forum_chat_messages_participants(PDO $db, int $roomId): array
 function gradtrack_forum_chat_messages_fetch(PDO $db, int $roomId, int $currentGraduateId, ?int $beforeId = null, ?int $afterId = null, int $limit = 30): array
 {
     $limit = max(1, min($limit, 60));
-    $params = [':room_id' => $roomId];
-    $where = 'fcm.room_id = :room_id AND fcm.deleted_at IS NULL';
+    $params = [':room_id' => $roomId, ':viewer_graduate_id' => $currentGraduateId];
+    $where = 'fcm.room_id = :room_id
+        AND fcm.id > COALESCE(visibility.hidden_before_message_id, 0)';
     $order = 'fcm.created_at DESC, fcm.id DESC';
 
     if ($afterId !== null && $afterId > 0) {
@@ -67,10 +68,14 @@ function gradtrack_forum_chat_messages_fetch(PDO $db, int $roomId, int $currentG
 
     $stmt = $db->prepare("SELECT fcm.id, fcm.room_id, fcm.graduate_id, fcm.message, fcm.message_type,
                                  fcm.client_message_id, fcm.delivered_at, fcm.read_at, fcm.created_at, fcm.updated_at,
+                                 fcm.deleted_at,
                                  g.first_name, g.last_name,
                                  p.code AS sender_program_code,
                                  gpi.file_path AS sender_profile_image_path
-                          FROM forum_chat_messages fcm
+                           FROM forum_chat_messages fcm
+                           JOIN forum_chat_members visibility
+                             ON visibility.room_id = fcm.room_id
+                            AND visibility.graduate_id = :viewer_graduate_id
                           JOIN graduates g ON g.id = fcm.graduate_id
                           LEFT JOIN graduate_accounts ga ON ga.graduate_id = g.id
                           LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
@@ -88,9 +93,10 @@ function gradtrack_forum_chat_messages_fetch(PDO $db, int $roomId, int $currentG
         $rows = array_reverse($rows);
     }
 
-    $messageIds = array_map(function ($row) {
-        return (int) $row['id'];
-    }, $rows);
+    $messageIds = array_map(
+        static fn (array $row): int => (int) $row['id'],
+        array_filter($rows, static fn (array $row): bool => empty($row['deleted_at']))
+    );
     $attachmentsByMessage = gradtrack_chat_attachments_by_message_ids($db, $messageIds);
 
     $messages = array_map(function ($row) use ($currentGraduateId, $attachmentsByMessage) {
@@ -118,14 +124,18 @@ function gradtrack_forum_chat_messages_fetch_one(PDO $db, int $messageId, int $c
                                  p.code AS sender_program_code,
                                  gpi.file_path AS sender_profile_image_path
                           FROM forum_chat_messages fcm
+                          JOIN forum_chat_members visibility
+                            ON visibility.room_id = fcm.room_id
+                           AND visibility.graduate_id = :viewer_graduate_id
                           JOIN graduates g ON g.id = fcm.graduate_id
                           LEFT JOIN graduate_accounts ga ON ga.graduate_id = g.id
                           LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
                           LEFT JOIN programs p ON p.id = g.program_id
-                          WHERE fcm.id = :id
-                            AND fcm.deleted_at IS NULL
-                          LIMIT 1");
-    $stmt->execute([':id' => $messageId]);
+                           WHERE fcm.id = :id
+                             AND fcm.deleted_at IS NULL
+                             AND fcm.id > COALESCE(visibility.hidden_before_message_id, 0)
+                           LIMIT 1");
+    $stmt->execute([':id' => $messageId, ':viewer_graduate_id' => $currentGraduateId]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$row) {
         return null;
@@ -150,16 +160,25 @@ function gradtrack_forum_chat_messages_fetch_client_batch(PDO $db, int $roomId, 
     $attachmentClientMessageId = gradtrack_forum_chat_messages_attachment_client_id($clientMessageId);
     $stmt = $db->prepare("SELECT id
                           FROM forum_chat_messages
-                          WHERE room_id = :room_id
-                            AND graduate_id = :graduate_id
+                           WHERE room_id = :room_id
+                             AND graduate_id = :graduate_id
                             AND client_message_id IN (:client_message_id, :attachment_client_message_id)
-                            AND deleted_at IS NULL
-                          ORDER BY id ASC");
+                             AND deleted_at IS NULL
+                             AND id > COALESCE((
+                                 SELECT visibility.hidden_before_message_id
+                                 FROM forum_chat_members visibility
+                                 WHERE visibility.room_id = :visibility_room_id
+                                   AND visibility.graduate_id = :visibility_graduate_id
+                                 LIMIT 1
+                             ), 0)
+                           ORDER BY id ASC");
     $stmt->execute([
         ':room_id' => $roomId,
         ':graduate_id' => $currentGraduateId,
         ':client_message_id' => $clientMessageId,
         ':attachment_client_message_id' => $attachmentClientMessageId,
+        ':visibility_room_id' => $roomId,
+        ':visibility_graduate_id' => $currentGraduateId,
     ]);
 
     $messages = [];
@@ -392,15 +411,19 @@ function gradtrack_forum_chat_messages_mark_read(PDO $db, int $roomId, int $curr
         gradtrack_forum_chat_messages_json_error(400, 'up_to_message_id is required');
     }
 
-    $boundaryStmt = $db->prepare("SELECT created_at
-                                  FROM forum_chat_messages
-                                  WHERE id = :message_id
-                                    AND room_id = :room_id
-                                    AND deleted_at IS NULL
+    $boundaryStmt = $db->prepare("SELECT message.created_at
+                                  FROM forum_chat_messages message
+                                  JOIN forum_chat_members visibility
+                                    ON visibility.room_id = message.room_id
+                                   AND visibility.graduate_id = :graduate_id
+                                  WHERE message.id = :message_id
+                                    AND message.room_id = :room_id
+                                    AND message.id > COALESCE(visibility.hidden_before_message_id, 0)
                                   LIMIT 1");
     $boundaryStmt->execute([
         ':message_id' => $upToMessageId,
         ':room_id' => $roomId,
+        ':graduate_id' => $currentGraduateId,
     ]);
     $boundary = $boundaryStmt->fetch(PDO::FETCH_ASSOC);
     if (!$boundary) {
@@ -455,6 +478,83 @@ function gradtrack_forum_chat_messages_mark_read(PDO $db, int $roomId, int $curr
             'read_at' => gradtrack_chat_datetime_iso($row['read_at'] ?? null),
         ];
     }, $stmt->fetchAll(PDO::FETCH_ASSOC));
+}
+
+function gradtrack_forum_chat_messages_delete(PDO $db, int $messageId, int $currentGraduateId): array
+{
+    if ($messageId <= 0) {
+        gradtrack_forum_chat_messages_json_error(400, 'message_id is required');
+    }
+
+    $db->beginTransaction();
+    try {
+        $stmt = $db->prepare('SELECT id, room_id, graduate_id, message_type, deleted_at
+                              FROM forum_chat_messages
+                              WHERE id = :id
+                              LIMIT 1
+                              FOR UPDATE');
+        $stmt->execute([':id' => $messageId]);
+        $message = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$message) {
+            $db->rollBack();
+            gradtrack_forum_chat_messages_json_error(404, 'Message not found');
+        }
+
+        $roomId = (int) $message['room_id'];
+        try {
+            gradtrack_chat_require_room_member($db, $roomId, $currentGraduateId);
+        } catch (RuntimeException $error) {
+            $db->rollBack();
+            gradtrack_forum_chat_messages_json_error(404, 'Message not found');
+        }
+
+        if ((int) $message['graduate_id'] !== $currentGraduateId) {
+            $db->rollBack();
+            gradtrack_forum_chat_messages_json_error(403, 'You can only delete messages that you sent');
+        }
+        if ((string) $message['message_type'] === 'system') {
+            $db->rollBack();
+            gradtrack_forum_chat_messages_json_error(403, 'System messages cannot be deleted');
+        }
+
+        $idempotent = !empty($message['deleted_at']);
+        if (!$idempotent) {
+            $deleteStmt = $db->prepare('UPDATE forum_chat_messages
+                                        SET deleted_at = NOW(), updated_at = NOW()
+                                        WHERE id = :id AND graduate_id = :graduate_id AND deleted_at IS NULL');
+            $deleteStmt->execute([
+                ':id' => $messageId,
+                ':graduate_id' => $currentGraduateId,
+            ]);
+            if ($deleteStmt->rowCount() !== 1) {
+                throw new RuntimeException('Message deletion state changed unexpectedly');
+            }
+
+            $roomStmt = $db->prepare('UPDATE forum_chat_rooms
+                                      SET last_message_at = (
+                                          SELECT MAX(created_at)
+                                          FROM forum_chat_messages
+                                          WHERE room_id = :message_room_id AND deleted_at IS NULL
+                                      )
+                                      WHERE id = :room_id');
+            $roomStmt->execute([
+                ':message_room_id' => $roomId,
+                ':room_id' => $roomId,
+            ]);
+        }
+        $db->commit();
+
+        return [
+            'message_id' => $messageId,
+            'room_id' => $roomId,
+            'idempotent' => $idempotent,
+        ];
+    } catch (Throwable $error) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+        throw $error;
+    }
 }
 
 if (defined('GRADTRACK_CHAT_MESSAGES_LIBRARY_ONLY') && GRADTRACK_CHAT_MESSAGES_LIBRARY_ONLY) {
@@ -534,6 +634,18 @@ try {
                 'message' => $savedMessage,
                 'messages' => $savedMessages,
             ],
+        ]);
+        exit;
+    }
+
+    if ($method === 'DELETE') {
+        $data = gradtrack_forum_chat_messages_request_data();
+        $messageId = isset($_GET['id']) ? (int) $_GET['id'] : (int) ($data['message_id'] ?? $data['id'] ?? 0);
+        $result = gradtrack_forum_chat_messages_delete($db, $messageId, $currentGraduateId);
+        echo json_encode([
+            'success' => true,
+            'message' => 'Message deleted successfully',
+            'data' => $result,
         ]);
         exit;
     }

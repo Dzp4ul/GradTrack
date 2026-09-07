@@ -411,7 +411,7 @@ function SurveyVerification() {
           type: isAlreadyAnswered ? 'info' : 'error',
           message: isAlreadyAnswered
             ? result.data?.account_exists
-              ? 'You already answered this survey and your Graduate Portal account already exists. Please sign in instead.'
+              ? 'You already answered this survey and your Graduate Portal account already exists. Please log in instead.'
               : 'You already answered this survey. Thank you for your response.'
             : failureMessage,
           title: isAlreadyAnswered
@@ -465,16 +465,16 @@ function SurveyVerification() {
 
     return (
       <div
-        className="min-h-screen bg-cover bg-center bg-fixed relative flex flex-col items-center justify-center p-4 sm:p-6"
+        className="relative flex min-h-screen flex-col items-center justify-center overflow-x-hidden bg-cover bg-center bg-fixed p-4 sm:p-6"
         style={{ backgroundImage: `url(${pageBackground})` }}
       >
         <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80 pointer-events-none"></div>
 
-        <div className="flex justify-center mb-6 relative z-10">
-          <img src={brandLogo} alt="GradTrack Logo" className="h-20 object-contain" />
+        <div className="relative z-10 mb-6 flex w-full justify-center">
+          <img src={brandLogo} alt="GradTrack Logo" className="h-auto max-h-20 w-full max-w-[360px] object-contain" />
         </div>
 
-        <div className="w-full max-w-lg bg-white rounded-2xl shadow-xl p-5 border border-blue-100 relative z-10 sm:p-8">
+        <div className="relative z-10 w-full min-w-0 max-w-lg rounded-2xl border border-blue-100 bg-white p-5 shadow-xl sm:p-8">
           <div className="flex justify-center mb-6">
             <div className="bg-blue-600 p-4 rounded-full">
               <UserPlus className="w-10 h-10 text-white" />
@@ -634,16 +634,16 @@ function SurveyVerification() {
 
   return (
     <div
-      className="min-h-screen bg-cover bg-center bg-fixed relative flex flex-col items-center justify-center p-4 sm:p-6"
+      className="relative flex min-h-screen flex-col items-center justify-center overflow-x-hidden bg-cover bg-center bg-fixed p-4 sm:p-6"
       style={{ backgroundImage: `url(${pageBackground})` }}
     >
       <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80 pointer-events-none"></div>
 
-      <div className="flex justify-center mb-6 relative z-10">
-        <img src={brandLogo} alt="GradTrack Logo" className="h-20 object-contain" />
+      <div className="relative z-10 mb-6 flex w-full justify-center">
+        <img src={brandLogo} alt="GradTrack Logo" className="h-auto max-h-20 w-full max-w-[360px] object-contain" />
       </div>
 
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-5 border border-blue-100 relative z-10 sm:p-8">
+      <div className="relative z-10 w-full min-w-0 max-w-md rounded-2xl border border-blue-100 bg-white p-5 shadow-xl sm:p-8">
         <div className="flex justify-center mb-6">
           <div className="bg-blue-600 p-4 rounded-full">
             <ShieldCheck className="w-10 h-10 text-white" />

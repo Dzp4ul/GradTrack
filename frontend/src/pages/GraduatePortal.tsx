@@ -28,6 +28,7 @@ import {
   Menu,
   MessageCircle,
   MessageSquare,
+  MoreHorizontal,
   Pencil,
   Phone,
   Plus,
@@ -933,10 +934,12 @@ export default function GraduatePortal() {
   const [mediaViewerCommentsLoading, setMediaViewerCommentsLoading] = useState(false);
   const [mediaViewerCommentDraft, setMediaViewerCommentDraft] = useState('');
   const [mediaViewerCommentSubmitting, setMediaViewerCommentSubmitting] = useState(false);
+  const [newMediaViewerCommentId, setNewMediaViewerCommentId] = useState<number | null>(null);
   const [profileImageViewer, setProfileImageViewer] = useState<{ src: string; alt: string } | null>(null);
   const [postComments, setPostComments] = useState<ForumComment[]>([]);
   const [commentDraft, setCommentDraft] = useState('');
   const [commentSubmitting, setCommentSubmitting] = useState(false);
+  const [newPostCommentId, setNewPostCommentId] = useState<number | null>(null);
   const [reportTarget, setReportTarget] = useState<ReportTarget | null>(null);
   const [reportReason, setReportReason] = useState('Inappropriate content');
   const [reportDescription, setReportDescription] = useState('');
@@ -1031,6 +1034,7 @@ export default function GraduatePortal() {
   const viewedProfileRequestRef = useRef(0);
   const viewedProfilePostsRequestRef = useRef(0);
   const commentRefs = useRef<Record<number, HTMLElement | null>>({});
+  const selectedPostCommentsContainerRef = useRef<HTMLDivElement | null>(null);
   const jobCardRefs = useRef<Record<number, HTMLElement | null>>({});
 
   const currentGraduateId = user?.graduate_id ?? 0;
@@ -1936,6 +1940,22 @@ export default function GraduatePortal() {
   }, [highlightedCommentId, postComments, selectedPostOpen]);
 
   useEffect(() => {
+    if (!selectedPostOpen || !newPostCommentId || !postComments.some((comment) => comment.id === newPostCommentId)) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      const container = selectedPostCommentsContainerRef.current;
+      if (container) {
+        container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+      }
+      setNewPostCommentId(null);
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [newPostCommentId, postComments, selectedPostOpen]);
+
+  useEffect(() => {
     if (activeTab !== 'messages') return;
 
     if (rooms.length === 0) {
@@ -2268,6 +2288,26 @@ export default function GraduatePortal() {
       setRoomMessages(nextMessages);
     };
 
+    const handleMessageDeleted = (payload: { room_id?: number; message_id?: number }) => {
+      const roomId = Number(payload.room_id || 0);
+      const messageId = Number(payload.message_id || 0);
+      if (!roomId || !messageId) return;
+
+      if (selectedRoomIdRef.current === roomId) {
+        const nextMessages = roomMessagesRef.current.map((message) => (
+          message.id === messageId
+            ? { ...message, message: 'This message was deleted', is_deleted: true, attachments: [] }
+            : message
+        ));
+        roomMessagesRef.current = nextMessages;
+        setRoomMessages(nextMessages);
+        if (conversationInfoOpenRef.current) {
+          void loadConversationInfo(roomId, true);
+        }
+      }
+      void loadChats();
+    };
+
     const handleTypingUpdate = (payload: { room_id?: number; graduate_id?: number; name?: string; is_typing?: boolean }) => {
       const roomId = Number(payload.room_id || 0);
       const graduateId = Number(payload.graduate_id || 0);
@@ -2364,6 +2404,7 @@ export default function GraduatePortal() {
     socket.on('message:new', handleMessageNew);
     socket.on('message:confirmed', handleMessageConfirmed);
     socket.on('message:failed', handleMessageFailed);
+    socket.on('message:deleted', handleMessageDeleted);
     socket.on('message:delivered', applyMessageDelivery);
     socket.on('message:read', applyMessageRead);
     socket.on('typing:update', handleTypingUpdate);
@@ -2398,6 +2439,7 @@ export default function GraduatePortal() {
       socket.off('message:new', handleMessageNew);
       socket.off('message:confirmed', handleMessageConfirmed);
       socket.off('message:failed', handleMessageFailed);
+      socket.off('message:deleted', handleMessageDeleted);
       socket.off('message:delivered', applyMessageDelivery);
       socket.off('message:read', applyMessageRead);
       socket.off('typing:update', handleTypingUpdate);
@@ -2649,6 +2691,7 @@ export default function GraduatePortal() {
     setMediaViewerZoom(1);
     setMediaViewerComments(selectedPost?.id === post.id ? postComments : []);
     setMediaViewerCommentDraft('');
+    setNewMediaViewerCommentId(null);
     void loadMediaViewerComments(post.id);
   };
 
@@ -2657,6 +2700,7 @@ export default function GraduatePortal() {
     setMediaViewerZoom(1);
     setMediaViewerComments([]);
     setMediaViewerCommentDraft('');
+    setNewMediaViewerCommentId(null);
   };
 
   const moveMediaViewer = (direction: 1 | -1) => {
@@ -2826,6 +2870,17 @@ export default function GraduatePortal() {
     }
   };
 
+  const applyForumCommentCount = (postId: number, commentCount: number) => {
+    const updatePost = (post: ForumPost) => (post.id === postId ? { ...post, comment_count: commentCount } : post);
+    setForumPosts((current) => current.map(updatePost));
+    setMyForumPosts((current) => current.map(updatePost));
+    setProfileForumPosts((current) => current.map(updatePost));
+    setSelectedPost((current) => (current?.id === postId ? updatePost(current) : current));
+    setMediaViewer((current) => (
+      current?.post.id === postId ? { ...current, post: updatePost(current.post) } : current
+    ));
+  };
+
   const handleCommentSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
@@ -2845,7 +2900,7 @@ export default function GraduatePortal() {
     setCommentSubmitting(true);
 
     try {
-      await authenticatedFetch(API_ENDPOINTS.FORUM.COMMENTS, {
+      const response = await authenticatedFetch(API_ENDPOINTS.FORUM.COMMENTS, {
         method: 'POST',
         body: JSON.stringify({
           post_id: selectedPost.id,
@@ -2853,9 +2908,22 @@ export default function GraduatePortal() {
         }),
       });
 
+      const createdComment = response.data as ForumComment | undefined;
+      if (!createdComment?.id) {
+        throw new Error('The comment was saved but could not be displayed. Please reopen the post.');
+      }
+      const addCreatedComment = (current: ForumComment[]) => (
+        current.some((item) => item.id === createdComment.id) ? current : [...current, createdComment]
+      );
+      const commentCount = Number(response.comment_count || postComments.length + 1);
       setCommentDraft('');
-      await loadPostDetail(selectedPost.id);
-      await Promise.all([loadForumFeed(), loadMyForumPosts(), loadProfileForumPosts()]);
+      setPostComments(addCreatedComment);
+      if (mediaViewer?.post.id === selectedPost.id) {
+        setMediaViewerComments(addCreatedComment);
+      }
+      applyForumCommentCount(selectedPost.id, commentCount);
+      setNewPostCommentId(createdComment.id);
+      void Promise.all([loadForumFeed(), loadMyForumPosts(), loadProfileForumPosts()]).catch(() => undefined);
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to post comment', 'Community Forum');
     } finally {
@@ -2877,7 +2945,7 @@ export default function GraduatePortal() {
     setMediaViewerCommentSubmitting(true);
 
     try {
-      await authenticatedFetch(API_ENDPOINTS.FORUM.COMMENTS, {
+      const response = await authenticatedFetch(API_ENDPOINTS.FORUM.COMMENTS, {
         method: 'POST',
         body: JSON.stringify({
           post_id: mediaViewer.post.id,
@@ -2885,21 +2953,22 @@ export default function GraduatePortal() {
         }),
       });
 
-      setMediaViewerCommentDraft('');
-      const comments = await loadForumComments(mediaViewer.post.id);
-      setMediaViewerComments(comments);
-      setMediaViewer((current) =>
-        current && current.post.id === mediaViewer.post.id
-          ? { ...current, post: { ...current.post, comment_count: comments.length } }
-          : current,
-      );
-
-      if (selectedPost?.id === mediaViewer.post.id) {
-        setPostComments(comments);
-        setSelectedPost((current) => (current ? { ...current, comment_count: comments.length } : current));
+      const createdComment = response.data as ForumComment | undefined;
+      if (!createdComment?.id) {
+        throw new Error('The comment was saved but could not be displayed. Please reopen the post.');
       }
-
-      await Promise.all([loadForumFeed(), loadMyForumPosts(), loadProfileForumPosts()]);
+      const addCreatedComment = (current: ForumComment[]) => (
+        current.some((item) => item.id === createdComment.id) ? current : [...current, createdComment]
+      );
+      const commentCount = Number(response.comment_count || mediaViewerComments.length + 1);
+      setMediaViewerCommentDraft('');
+      setMediaViewerComments(addCreatedComment);
+      if (selectedPost?.id === mediaViewer.post.id) {
+        setPostComments(addCreatedComment);
+      }
+      applyForumCommentCount(mediaViewer.post.id, commentCount);
+      setNewMediaViewerCommentId(createdComment.id);
+      void Promise.all([loadForumFeed(), loadMyForumPosts(), loadProfileForumPosts()]).catch(() => undefined);
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to post comment', 'Community Forum');
     } finally {
@@ -2908,8 +2977,6 @@ export default function GraduatePortal() {
   };
 
   const handleDeleteComment = (comment: ForumComment) => {
-    if (!selectedPost) return;
-
     setMsgBox({
       isOpen: true,
       type: 'confirm',
@@ -2919,13 +2986,20 @@ export default function GraduatePortal() {
       cancelText: 'Cancel',
       onConfirm: async () => {
         try {
-          await authenticatedFetch(API_ENDPOINTS.FORUM.COMMENTS, {
+          const response = await authenticatedFetch(API_ENDPOINTS.FORUM.COMMENTS, {
             method: 'DELETE',
             body: JSON.stringify({ id: comment.id }),
           });
 
-          await loadPostDetail(selectedPost.id);
-          await Promise.all([loadForumFeed(), loadMyForumPosts(), loadProfileForumPosts()]);
+          const postId = Number(response.data?.post_id || comment.post_id);
+          const removeComment = (current: ForumComment[]) => current.filter((item) => item.id !== comment.id);
+          setPostComments(removeComment);
+          setMediaViewerComments(removeComment);
+          setNewPostCommentId((current) => (current === comment.id ? null : current));
+          setNewMediaViewerCommentId((current) => (current === comment.id ? null : current));
+          const fallbackCount = Math.max(0, Number(selectedPost?.comment_count || mediaViewer?.post.comment_count || 1) - 1);
+          applyForumCommentCount(postId, Number(response.data?.comment_count ?? fallbackCount));
+          void Promise.all([loadForumFeed(), loadMyForumPosts(), loadProfileForumPosts()]).catch(() => undefined);
           notify('success', 'Comment deleted successfully.', 'Community Forum');
         } catch (error) {
           notify('error', error instanceof Error ? error.message : 'Unable to delete comment', 'Community Forum');
@@ -3425,6 +3499,55 @@ export default function GraduatePortal() {
     void handleSendMessage(undefined, message);
   };
 
+  const confirmDeleteMessage = (message: ChatMessage) => {
+    if (!message.is_mine || message.id <= 0 || message.message_type === 'system') return;
+
+    setMsgBox({
+      isOpen: true,
+      type: 'confirm',
+      title: 'Delete Message',
+      message: 'Delete this message for everyone in the conversation? This cannot be undone.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      onConfirm: async () => {
+        try {
+          const response = await authenticatedFetch(API_ENDPOINTS.FORUM.CHAT_MESSAGES, {
+            method: 'DELETE',
+            body: JSON.stringify({ message_id: message.id }),
+          });
+          const roomId = Number(response.data?.room_id || message.room_id);
+          const deletedMessageId = Number(response.data?.message_id || message.id);
+
+          if (selectedRoomIdRef.current === roomId) {
+            const nextMessages = roomMessagesRef.current.map((item) => (
+              item.id === deletedMessageId
+                ? { ...item, message: 'This message was deleted', is_deleted: true, attachments: [] }
+                : item
+            ));
+            roomMessagesRef.current = nextMessages;
+            setRoomMessages(nextMessages);
+          }
+
+          const socket = chatSocketRef.current;
+          if (socket?.connected) {
+            void emitWithAck(socket, 'message:delete-publish', {
+              room_id: roomId,
+              message_id: deletedMessageId,
+            }, 3000).catch(() => undefined);
+          }
+
+          await loadChats();
+          if (conversationInfoOpenRef.current && selectedRoomIdRef.current === roomId) {
+            await loadConversationInfo(roomId, true);
+          }
+          notify('success', 'Your message was deleted for everyone.', 'Message Deleted');
+        } catch (error) {
+          notify('error', error instanceof Error ? error.message : 'Unable to delete this message', 'Delete Message');
+        }
+      },
+    });
+  };
+
   const handleRetryAttachment = () => {
     const roomId = selectedRoomIdRef.current;
     if (!chatSelectedAttachment || !roomId) return;
@@ -3633,6 +3756,55 @@ export default function GraduatePortal() {
           notify('success', 'You left the group. The group and its messages remain available to the other members.', 'Group Left');
         } catch (error) {
           notify('error', error instanceof Error ? error.message : 'Unable to leave this group', 'Conversation Information');
+        } finally {
+          setConversationActionLoading(false);
+        }
+      },
+    });
+  };
+
+  const confirmDeleteConversation = () => {
+    const roomId = selectedRoomIdRef.current;
+    if (!roomId) return;
+
+    setMsgBox({
+      isOpen: true,
+      type: 'confirm',
+      title: 'Delete Conversation',
+      message: 'Remove this conversation from your message list? It is removed only for your account; other participants keep their messages. A future message will make the conversation appear again without restoring your hidden history.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      onConfirm: async () => {
+        setConversationActionLoading(true);
+        try {
+          await authenticatedFetch(API_ENDPOINTS.FORUM.CONVERSATION_INFO, {
+            method: 'POST',
+            body: JSON.stringify({ room_id: roomId, action: 'delete_conversation' }),
+          });
+
+          const socket = chatSocketRef.current;
+          if (socket?.connected) {
+            void emitWithAck(socket, 'conversation:hidden-publish', { room_id: roomId }, 3000).catch(() => undefined);
+            socket.emit('conversation:leave', { room_id: roomId });
+          }
+          stopChatTyping(roomId);
+          setRooms((current) => current.filter((room) => room.id !== roomId));
+          selectedRoomIdRef.current = null;
+          roomMessagesRef.current = [];
+          setSelectedRoomId(null);
+          setActiveRoom(null);
+          setRoomMessages([]);
+          setMessagePagination(null);
+          setChatNewMessageAvailable(false);
+          setChatMobileConversationOpen(false);
+          setConversationInfo(null);
+          setConversationInfoOpen(false);
+          setFloatingChatOpen(false);
+          setFloatingChatMinimized(false);
+          await loadChats();
+          notify('success', 'The conversation was removed from your account. Other participants were not affected.', 'Conversation Deleted');
+        } catch (error) {
+          notify('error', error instanceof Error ? error.message : 'Unable to delete this conversation', 'Delete Conversation');
         } finally {
           setConversationActionLoading(false);
         }
@@ -4174,6 +4346,7 @@ export default function GraduatePortal() {
           onTypingStop={() => stopChatTyping()}
           onSend={handleSendMessage}
           onRetryMessage={handleRetryMessage}
+          onDeleteMessage={confirmDeleteMessage}
           onLoadOlder={loadOlderRoomMessages}
           onNearBottomChange={handleChatNearBottomChange}
           onScrollToNewest={handleScrollToNewest}
@@ -4190,6 +4363,7 @@ export default function GraduatePortal() {
           onCloseConversationInfo={() => setConversationInfoOpen(false)}
           onBlockToggle={confirmBlockToggle}
           onLeaveGroup={confirmLeaveGroup}
+          onDeleteConversation={confirmDeleteConversation}
           onGroupPhotoSelected={handleGroupPhotoSelected}
           onOpenAddMembers={openAddMembers}
       />
@@ -5190,6 +5364,8 @@ export default function GraduatePortal() {
           commentsLoading={mediaViewerCommentsLoading}
           commentDraft={mediaViewerCommentDraft}
           commentSubmitting={mediaViewerCommentSubmitting}
+          currentGraduateId={currentGraduateId}
+          newCommentId={newMediaViewerCommentId}
           onClose={closeMediaViewer}
           onMove={moveMediaViewer}
           onZoomIn={() => setMediaViewerZoom((current) => Math.min(3, current + 0.25))}
@@ -5197,6 +5373,8 @@ export default function GraduatePortal() {
           onZoomReset={() => setMediaViewerZoom(1)}
           onCommentDraftChange={setMediaViewerCommentDraft}
           onCommentSubmit={handleMediaViewerCommentSubmit}
+          onDeleteComment={handleDeleteComment}
+          onNewCommentShown={() => setNewMediaViewerCommentId(null)}
           onOpenProfile={openMiniProfile}
         />
       )}
@@ -5322,59 +5500,24 @@ export default function GraduatePortal() {
                     <p className="text-sm text-slate-500">Join the discussion on this post.</p>
                   </div>
 
-                  <div className="max-h-[360px] space-y-4 overflow-y-auto px-5 py-5">
+                  <div ref={selectedPostCommentsContainerRef} className="max-h-[360px] space-y-4 overflow-y-auto px-5 py-5">
                     {postComments.length === 0 ? (
                       <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-4 py-6 text-center text-sm text-slate-500">
                         No comments yet. Be the first to reply.
                       </div>
                     ) : (
                       postComments.map((comment) => (
-                        <article
+                        <ForumCommentCard
                           key={comment.id}
-                          ref={(element) => { commentRefs.current[comment.id] = element; }}
-                          className={`rounded-[24px] border p-4 transition ${
-                            highlightedCommentId === comment.id
-                              ? 'border-blue-300 bg-blue-50 shadow-md'
-                              : 'border-slate-200 bg-white shadow-sm'
-                          }`}
-                        >
-                          <div className="flex items-start gap-3">
-                            <div className="min-w-0 flex-1">
-                              <button type="button" onClick={() => openMiniProfile(comment.graduate_id)} className="flex items-start gap-3 text-left">
-                                <Avatar src={resolveAssetUrl(comment.commenter_profile_image_path)} label={comment.commenter_name} size="sm" />
-                                <span className="min-w-0">
-                                  <span className="flex flex-wrap items-center gap-2">
-                                    <span className="font-semibold text-slate-900 transition hover:text-blue-700">{comment.commenter_name}</span>
-                                    <span className="text-xs text-slate-400">{formatRelativeTime(comment.created_at)}</span>
-                                  </span>
-                                  <span className="block text-xs text-slate-500">{comment.commenter_program_code || comment.commenter_program_name || 'Graduate'}</span>
-                                </span>
-                              </button>
-                              <p className="mt-2 whitespace-pre-line text-sm leading-7 text-slate-700">{comment.comment}</p>
-                              <div className="mt-3 flex flex-wrap gap-2">
-                                {comment.graduate_id !== currentGraduateId && (
-                                  <>
-                                    {messagingAvailable && (
-                                      <button type="button" onClick={() => void createDirectChat(comment.graduate_id)} className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                                        Message
-                                      </button>
-                                    )}
-                                    <button type="button" onClick={() => openReportModal({ target_type: 'comment', target_id: comment.id, label: 'this comment' })} className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100">
-                                      <Flag className="h-3.5 w-3.5" />
-                                      Report
-                                    </button>
-                                  </>
-                                )}
-                                {comment.graduate_id === currentGraduateId && (
-                                  <button type="button" onClick={() => handleDeleteComment(comment)} className="inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-100">
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                    Delete
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        </article>
+                          comment={comment}
+                          currentGraduateId={currentGraduateId}
+                          highlighted={highlightedCommentId === comment.id}
+                          elementRef={(element) => { commentRefs.current[comment.id] = element; }}
+                          onOpenProfile={openMiniProfile}
+                          onDelete={handleDeleteComment}
+                          onMessage={messagingAvailable ? (graduateId) => { void createDirectChat(graduateId); } : undefined}
+                          onReport={(targetComment) => openReportModal({ target_type: 'comment', target_id: targetComment.id, label: 'this comment' })}
+                        />
                       ))
                     )}
                   </div>
@@ -5594,6 +5737,7 @@ export default function GraduatePortal() {
           onTypingStop={() => stopChatTyping()}
           onSend={handleSendMessage}
           onRetryMessage={handleRetryMessage}
+          onDeleteMessage={confirmDeleteMessage}
           onLoadOlder={loadOlderRoomMessages}
           onNearBottomChange={handleChatNearBottomChange}
           onScrollToNewest={handleScrollToNewest}
@@ -7219,6 +7363,102 @@ function StaticMediaPreview({ media }: { media: ForumMedia[] }) {
   );
 }
 
+function ForumCommentCard({
+  comment,
+  currentGraduateId,
+  highlighted = false,
+  compact = false,
+  elementRef,
+  onOpenProfile,
+  onDelete,
+  onMessage,
+  onReport,
+}: {
+  comment: ForumComment;
+  currentGraduateId: number;
+  highlighted?: boolean;
+  compact?: boolean;
+  elementRef?: (element: HTMLElement | null) => void;
+  onOpenProfile: (graduateId: number) => void;
+  onDelete: (comment: ForumComment) => void;
+  onMessage?: (graduateId: number) => void;
+  onReport?: (comment: ForumComment) => void;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const isMine = comment.graduate_id === currentGraduateId;
+
+  return (
+    <article
+      ref={elementRef}
+      className={`relative border transition ${compact ? 'rounded-lg px-4 py-3' : 'rounded-[24px] p-4'} ${
+        highlighted ? 'border-blue-300 bg-blue-50 shadow-md' : 'border-slate-200 bg-white shadow-sm'
+      }`}
+    >
+      {isMine && (
+        <div className="absolute right-2 top-2 z-10">
+          <button
+            type="button"
+            onClick={() => setMenuOpen((current) => !current)}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-500 transition hover:bg-slate-100 hover:text-slate-800"
+            aria-label="Comment options"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+          >
+            <MoreHorizontal className="h-4 w-4" />
+          </button>
+          {menuOpen && (
+            <div role="menu" className="absolute right-0 top-9 w-40 overflow-hidden rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onDelete(comment);
+                }}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs font-semibold text-rose-700 hover:bg-rose-50"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete Comment
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className={`flex items-start gap-3 ${isMine ? 'pr-8' : ''}`}>
+        <button type="button" onClick={() => onOpenProfile(comment.graduate_id)} className="shrink-0" aria-label={`Open ${comment.commenter_name} profile`}>
+          <Avatar src={resolveAssetUrl(comment.commenter_profile_image_path)} label={comment.commenter_name} size="sm" />
+        </button>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => onOpenProfile(comment.graduate_id)} className="text-left text-sm font-semibold text-slate-900 transition hover:text-blue-700">
+              {comment.commenter_name}
+            </button>
+            <span className="text-xs text-slate-400">{formatRelativeTime(comment.created_at)}</span>
+          </div>
+          <p className="text-xs text-slate-500">{comment.commenter_program_code || comment.commenter_program_name || 'Graduate'}</p>
+          <p className={`mt-2 whitespace-pre-line text-sm text-slate-700 ${compact ? 'leading-6' : 'leading-7'}`}>{comment.comment}</p>
+          {!isMine && (onMessage || onReport) && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {onMessage && (
+                <button type="button" onClick={() => onMessage(comment.graduate_id)} className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                  Message
+                </button>
+              )}
+              {onReport && (
+                <button type="button" onClick={() => onReport(comment)} className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100">
+                  <Flag className="h-3.5 w-3.5" />
+                  Report
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </article>
+  );
+}
+
 function ForumMediaViewer({
   viewer,
   zoom,
@@ -7226,6 +7466,8 @@ function ForumMediaViewer({
   commentsLoading,
   commentDraft,
   commentSubmitting,
+  currentGraduateId,
+  newCommentId,
   onClose,
   onMove,
   onZoomIn,
@@ -7233,6 +7475,8 @@ function ForumMediaViewer({
   onZoomReset,
   onCommentDraftChange,
   onCommentSubmit,
+  onDeleteComment,
+  onNewCommentShown,
   onOpenProfile,
 }: {
   viewer: { post: ForumPost; mediaIndex: number };
@@ -7241,6 +7485,8 @@ function ForumMediaViewer({
   commentsLoading: boolean;
   commentDraft: string;
   commentSubmitting: boolean;
+  currentGraduateId: number;
+  newCommentId: number | null;
   onClose: () => void;
   onMove: (direction: 1 | -1) => void;
   onZoomIn: () => void;
@@ -7248,8 +7494,23 @@ function ForumMediaViewer({
   onZoomReset: () => void;
   onCommentDraftChange: (value: string) => void;
   onCommentSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  onDeleteComment: (comment: ForumComment) => void;
+  onNewCommentShown: () => void;
   onOpenProfile: (graduateId?: number | null) => void;
 }) {
+  const commentsContainerRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!newCommentId || !comments.some((comment) => comment.id === newCommentId)) return;
+    const frame = window.requestAnimationFrame(() => {
+      const container = commentsContainerRef.current;
+      if (container) {
+        container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+      }
+      onNewCommentShown();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [comments, newCommentId, onNewCommentShown]);
+
   const media = getPostMedia(viewer.post);
   const current = media[viewer.mediaIndex] || media[0];
   if (!current) return null;
@@ -7282,8 +7543,8 @@ function ForumMediaViewer({
         </div>
       )}
 
-      <div className="grid h-full lg:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="relative flex min-h-0 cursor-zoom-out items-center justify-center overflow-hidden px-4 py-20" onClick={onClose}>
+      <div className="grid h-full grid-rows-[minmax(220px,52vh)_minmax(0,1fr)] overflow-hidden lg:grid-cols-[minmax(0,1fr)_360px] lg:grid-rows-1">
+        <div className="relative flex min-h-0 cursor-zoom-out items-center justify-center overflow-hidden px-3 pb-3 pt-16 lg:px-4 lg:py-20" onClick={onClose}>
           {canMove && (
             <>
               <button type="button" onClick={(event) => { event.stopPropagation(); onMove(-1); }} className="absolute left-4 top-1/2 z-10 inline-flex h-12 w-12 -translate-y-1/2 items-center justify-center rounded-full bg-white/10 backdrop-blur transition hover:bg-white/20" aria-label="Previous media">
@@ -7314,7 +7575,7 @@ function ForumMediaViewer({
           )}
         </div>
 
-        <aside className="hidden min-h-0 border-l border-white/10 bg-white text-slate-900 lg:flex lg:flex-col">
+        <aside className="flex min-h-0 flex-col border-t border-white/10 bg-white text-slate-900 lg:border-l lg:border-t-0">
           <div className="border-b border-slate-200 px-5 py-5">
             <button type="button" onClick={() => onOpenProfile(viewer.post.graduate_id)} className="text-left text-sm font-semibold text-slate-900 transition hover:text-blue-700">
               {viewer.post.author_name}
@@ -7324,10 +7585,12 @@ function ForumMediaViewer({
           <div className="flex-1 overflow-y-auto px-5 py-5">
             <h2 className="text-lg font-bold text-slate-900">{viewer.post.title}</h2>
             <p className="mt-3 whitespace-pre-line text-sm leading-7 text-slate-700">{viewer.post.content}</p>
-            <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-              <p className="truncate text-sm font-semibold text-slate-800">{current.original_name || 'Forum attachment'}</p>
-              <p className="mt-1 text-xs text-slate-500">{isVideo ? 'Video' : 'Photo'} {formatBytes(current.file_size_bytes)}</p>
-            </div>
+            {isVideo && (
+              <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                <p className="truncate text-sm font-semibold text-slate-800">{current.original_name || 'Forum video'}</p>
+                <p className="mt-1 text-xs text-slate-500">Video {formatBytes(current.file_size_bytes)}</p>
+              </div>
+            )}
             {media.length > 1 && (
               <div className="mt-5 grid grid-cols-4 gap-2">
                 {media.map((item, index) => (
@@ -7361,7 +7624,7 @@ function ForumMediaViewer({
                 <span className="text-xs text-slate-500">{comments.length}</span>
               </div>
 
-              <div className="mt-4 space-y-3">
+              <div ref={commentsContainerRef} className="mt-4 max-h-72 space-y-3 overflow-y-auto pr-1">
                 {commentsLoading ? (
                   <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-500">
                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -7373,21 +7636,14 @@ function ForumMediaViewer({
                   </div>
                 ) : (
                   comments.map((comment) => (
-                    <article key={comment.id} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-                      <div className="flex items-start gap-3">
-                        <button type="button" onClick={() => onOpenProfile(comment.graduate_id)} className="shrink-0" aria-label={`Open ${comment.commenter_name} profile`}>
-                          <Avatar src={resolveAssetUrl(comment.commenter_profile_image_path)} label={comment.commenter_name} size="sm" />
-                        </button>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <button type="button" onClick={() => onOpenProfile(comment.graduate_id)} className="text-left text-sm font-semibold text-slate-900 transition hover:text-blue-700">{comment.commenter_name}</button>
-                            <span className="text-xs text-slate-400">{formatRelativeTime(comment.created_at)}</span>
-                          </div>
-                          <p className="text-xs text-slate-500">{comment.commenter_program_code || comment.commenter_program_name || 'Graduate'}</p>
-                          <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-700">{comment.comment}</p>
-                        </div>
-                      </div>
-                    </article>
+                    <ForumCommentCard
+                      key={comment.id}
+                      comment={comment}
+                      currentGraduateId={currentGraduateId}
+                      compact
+                      onOpenProfile={(graduateId) => onOpenProfile(graduateId)}
+                      onDelete={onDeleteComment}
+                    />
                   ))
                 )}
               </div>

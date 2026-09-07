@@ -158,7 +158,9 @@ if (!function_exists('gradtrack_chat_ensure_schema')) {
         $memberColumns = [
             'last_read_at' => "ALTER TABLE forum_chat_members ADD last_read_at DATETIME NULL AFTER joined_at",
             'last_read_message_id' => "ALTER TABLE forum_chat_members ADD last_read_message_id INT NULL AFTER last_read_at",
-            'created_at' => "ALTER TABLE forum_chat_members ADD created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER last_read_message_id",
+            'hidden_at' => "ALTER TABLE forum_chat_members ADD hidden_at DATETIME NULL AFTER last_read_message_id",
+            'hidden_before_message_id' => "ALTER TABLE forum_chat_members ADD hidden_before_message_id INT NULL AFTER hidden_at",
+            'created_at' => "ALTER TABLE forum_chat_members ADD created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER hidden_before_message_id",
             'updated_at' => "ALTER TABLE forum_chat_members ADD updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at",
         ];
 
@@ -201,6 +203,7 @@ if (!function_exists('gradtrack_chat_ensure_schema')) {
             'forum_chat_members' => [
                 'idx_forum_chat_members_read' => [['room_id', 'graduate_id', 'last_read_at'], false, "ALTER TABLE forum_chat_members ADD INDEX idx_forum_chat_members_read (room_id, graduate_id, last_read_at)"],
                 'idx_forum_chat_members_read_message' => [['room_id', 'graduate_id', 'last_read_message_id'], false, "ALTER TABLE forum_chat_members ADD INDEX idx_forum_chat_members_read_message (room_id, graduate_id, last_read_message_id)"],
+                'idx_forum_chat_members_visibility' => [['graduate_id', 'hidden_at', 'room_id'], false, "ALTER TABLE forum_chat_members ADD INDEX idx_forum_chat_members_visibility (graduate_id, hidden_at, room_id)"],
             ],
             'forum_chat_messages' => [
                 'idx_forum_chat_messages_room_id' => [['room_id', 'id'], false, "ALTER TABLE forum_chat_messages ADD INDEX idx_forum_chat_messages_room_id (room_id, id)"],
@@ -329,7 +332,8 @@ if (!function_exists('gradtrack_chat_require_room_member')) {
     {
         $stmt = $db->prepare("SELECT r.id, r.created_by, r.name, r.is_group, r.group_image_path,
                                      r.group_image_original_name, r.group_image_mime_type, r.group_image_updated_at,
-                                     r.created_at, r.updated_at, r.last_message_at
+                                     r.created_at, r.updated_at, r.last_message_at,
+                                     fcm.hidden_at, fcm.hidden_before_message_id
                               FROM forum_chat_rooms r
                               JOIN forum_chat_members fcm
                                 ON fcm.room_id = r.id
@@ -353,6 +357,8 @@ if (!function_exists('gradtrack_chat_require_room_member')) {
         $room['updated_at'] = gradtrack_chat_datetime_iso($room['updated_at'] ?? null);
         $room['last_message_at'] = gradtrack_chat_datetime_iso($room['last_message_at'] ?? null);
         $room['group_image_updated_at'] = gradtrack_chat_datetime_iso($room['group_image_updated_at'] ?? null);
+        $room['hidden_at'] = gradtrack_chat_datetime_iso($room['hidden_at'] ?? null);
+        $room['hidden_before_message_id'] = isset($room['hidden_before_message_id']) ? (int) $room['hidden_before_message_id'] : null;
         $room['group_image_url'] = $room['is_group'] && !empty($room['group_image_path'])
             ? 'api/forum/conversation-info.php?room_id=' . $room['id'] . '&avatar=1&v=' . rawurlencode((string) ($room['group_image_updated_at'] ?? ''))
             : null;
@@ -523,12 +529,13 @@ if (!function_exists('gradtrack_chat_format_message')) {
     function gradtrack_chat_format_message(array $row, int $currentGraduateId, array $attachments = []): array
     {
         $senderId = (int) $row['graduate_id'];
+        $isDeleted = !empty($row['deleted_at']);
 
         return [
             'id' => (int) $row['id'],
             'room_id' => (int) $row['room_id'],
             'graduate_id' => $senderId,
-            'message' => (string) ($row['message'] ?? ''),
+            'message' => $isDeleted ? 'This message was deleted' : (string) ($row['message'] ?? ''),
             'message_type' => (string) ($row['message_type'] ?? 'text'),
             'client_message_id' => $row['client_message_id'] ?? null,
             'created_at' => gradtrack_chat_datetime_iso($row['created_at'] ?? null),
@@ -539,7 +546,8 @@ if (!function_exists('gradtrack_chat_format_message')) {
             'sender_program_code' => $row['sender_program_code'] ?? null,
             'sender_profile_image_path' => gradtrack_storage_media_access_reference($row['sender_profile_image_path'] ?? null),
             'is_mine' => $senderId === $currentGraduateId,
-            'attachments' => $attachments,
+            'is_deleted' => $isDeleted,
+            'attachments' => $isDeleted ? [] : $attachments,
             'status' => $senderId === $currentGraduateId
                 ? (($row['read_at'] ?? null) ? 'read' : (($row['delivered_at'] ?? null) ? 'delivered' : 'sent'))
                 : 'received',

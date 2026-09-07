@@ -307,7 +307,9 @@ async function ensureSchema() {
   await addColumnIfMissing('forum_chat_rooms', 'group_image_updated_at', 'ALTER TABLE forum_chat_rooms ADD group_image_updated_at DATETIME NULL AFTER group_image_mime_type');
   await addColumnIfMissing('forum_chat_members', 'last_read_at', 'ALTER TABLE forum_chat_members ADD last_read_at DATETIME NULL AFTER joined_at');
   await addColumnIfMissing('forum_chat_members', 'last_read_message_id', 'ALTER TABLE forum_chat_members ADD last_read_message_id INT NULL AFTER last_read_at');
-  await addColumnIfMissing('forum_chat_members', 'created_at', 'ALTER TABLE forum_chat_members ADD created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER last_read_message_id');
+  await addColumnIfMissing('forum_chat_members', 'hidden_at', 'ALTER TABLE forum_chat_members ADD hidden_at DATETIME NULL AFTER last_read_message_id');
+  await addColumnIfMissing('forum_chat_members', 'hidden_before_message_id', 'ALTER TABLE forum_chat_members ADD hidden_before_message_id INT NULL AFTER hidden_at');
+  await addColumnIfMissing('forum_chat_members', 'created_at', 'ALTER TABLE forum_chat_members ADD created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER hidden_before_message_id');
   await addColumnIfMissing('forum_chat_members', 'updated_at', 'ALTER TABLE forum_chat_members ADD updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at');
   await pool.query('ALTER TABLE forum_chat_messages MODIFY message TEXT NULL');
   await addColumnIfMissing('forum_chat_messages', 'message_type', "ALTER TABLE forum_chat_messages ADD message_type ENUM('text', 'image', 'file', 'mixed', 'system') NOT NULL DEFAULT 'text' AFTER message");
@@ -323,6 +325,7 @@ async function ensureSchema() {
   await addIndexIfMissing('forum_chat_rooms', 'idx_forum_chat_rooms_last_message', ['last_message_at', 'updated_at', 'id'], false, 'ALTER TABLE forum_chat_rooms ADD INDEX idx_forum_chat_rooms_last_message (last_message_at, updated_at, id)');
   await addIndexIfMissing('forum_chat_members', 'idx_forum_chat_members_read', ['room_id', 'graduate_id', 'last_read_at'], false, 'ALTER TABLE forum_chat_members ADD INDEX idx_forum_chat_members_read (room_id, graduate_id, last_read_at)');
   await addIndexIfMissing('forum_chat_members', 'idx_forum_chat_members_read_message', ['room_id', 'graduate_id', 'last_read_message_id'], false, 'ALTER TABLE forum_chat_members ADD INDEX idx_forum_chat_members_read_message (room_id, graduate_id, last_read_message_id)');
+  await addIndexIfMissing('forum_chat_members', 'idx_forum_chat_members_visibility', ['graduate_id', 'hidden_at', 'room_id'], false, 'ALTER TABLE forum_chat_members ADD INDEX idx_forum_chat_members_visibility (graduate_id, hidden_at, room_id)');
   await addIndexIfMissing('forum_chat_messages', 'idx_forum_chat_messages_room_id', ['room_id', 'id'], false, 'ALTER TABLE forum_chat_messages ADD INDEX idx_forum_chat_messages_room_id (room_id, id)');
   await addIndexIfMissing('forum_chat_messages', 'idx_forum_chat_messages_sender_created', ['graduate_id', 'created_at'], false, 'ALTER TABLE forum_chat_messages ADD INDEX idx_forum_chat_messages_sender_created (graduate_id, created_at)');
   await addIndexIfMissing('forum_chat_messages', 'idx_forum_chat_messages_created', ['created_at', 'id'], false, 'ALTER TABLE forum_chat_messages ADD INDEX idx_forum_chat_messages_created (created_at, id)');
@@ -399,7 +402,7 @@ async function verifySchema() {
                       JOIN forum_chat_members members ON members.room_id = fcm.room_id
                      WHERE 1 = 0`);
   await pool.query('SELECT id, room_id, message_id, uploaded_by FROM forum_chat_message_attachments WHERE 1 = 0');
-  await pool.query('SELECT room_id, graduate_id, last_read_message_id FROM forum_chat_members WHERE 1 = 0');
+  await pool.query('SELECT room_id, graduate_id, last_read_message_id, hidden_at, hidden_before_message_id FROM forum_chat_members WHERE 1 = 0');
   await pool.query('SELECT graduate_id, last_active_at FROM graduate_presence WHERE 1 = 0');
   await pool.query('SELECT group_image_path, group_image_updated_at FROM forum_chat_rooms WHERE 1 = 0');
   await pool.query('SELECT blocker_id, blocked_id FROM forum_chat_blocks WHERE 1 = 0');
@@ -634,7 +637,10 @@ async function getConversationForViewer(roomId, viewerGraduateId) {
                WHERE unread.room_id = r.id
                  AND unread.graduate_id <> ?
                  AND unread.deleted_at IS NULL
-                 AND unread.id > COALESCE(mine.last_read_message_id, 0)
+                 AND unread.id > GREATEST(
+                   COALESCE(mine.last_read_message_id, 0),
+                   COALESCE(mine.hidden_before_message_id, 0)
+                 )
             ) AS unread_count
        FROM forum_chat_rooms r
        JOIN forum_chat_members mine
@@ -644,12 +650,14 @@ async function getConversationForViewer(roomId, viewerGraduateId) {
          ON lm.id = (
            SELECT msg.id
              FROM forum_chat_messages msg
-            WHERE msg.room_id = r.id
-              AND msg.deleted_at IS NULL
+             WHERE msg.room_id = r.id
+               AND msg.deleted_at IS NULL
+               AND msg.id > COALESCE(mine.hidden_before_message_id, 0)
             ORDER BY msg.created_at DESC, msg.id DESC
             LIMIT 1
          )
       WHERE r.id = ?
+        AND (mine.hidden_at IS NULL OR lm.id IS NOT NULL)
       LIMIT 1`,
     [viewerGraduateId, viewerGraduateId, roomId],
   );
@@ -711,8 +719,11 @@ async function getUnreadSummary(graduateId) {
        LEFT JOIN forum_chat_messages msg
          ON msg.room_id = fcm.room_id
         AND msg.graduate_id <> fcm.graduate_id
-        AND msg.deleted_at IS NULL
-        AND msg.id > COALESCE(fcm.last_read_message_id, 0)
+         AND msg.deleted_at IS NULL
+         AND msg.id > GREATEST(
+           COALESCE(fcm.last_read_message_id, 0),
+           COALESCE(fcm.hidden_before_message_id, 0)
+         )
       WHERE fcm.graduate_id = ?
       GROUP BY fcm.room_id`,
     [graduateId],
@@ -1358,6 +1369,67 @@ io.on('connection', (socket) => {
       ack?.({ success: true });
     } catch (error) {
       ack?.({ success: false, error: error.message || 'Unable to synchronize group departure' });
+    }
+  });
+
+  socket.on('conversation:hidden-publish', async (payload, ack) => {
+    try {
+      const roomId = Number(payload?.room_id || payload?.conversation_id || 0);
+      if (!roomId) throw new Error('room_id is required');
+      await requireRoomMember(roomId, graduateId);
+      const [memberships] = await pool.query(
+        `SELECT hidden_at
+           FROM forum_chat_members
+          WHERE room_id = ? AND graduate_id = ?
+          LIMIT 1`,
+        [roomId, graduateId],
+      );
+      if (!memberships[0]?.hidden_at) throw new Error('Conversation has not been hidden');
+
+      if (Number(socket.data.activeConversationId || 0) === roomId) {
+        emitTypingStopped(socket, roomId, graduateId);
+        await socket.leave(socketRoom(roomId));
+        socket.data.activeConversationId = null;
+      }
+      io.to(userRoom(graduateId)).emit('conversation:removed', { room_id: roomId });
+      io.to(userRoom(graduateId)).emit('unread-count:updated', await getUnreadSummary(graduateId));
+      ack?.({ success: true });
+    } catch (error) {
+      ack?.({ success: false, error: error.message || 'Unable to synchronize hidden conversation' });
+    }
+  });
+
+  socket.on('message:delete-publish', async (payload, ack) => {
+    try {
+      const roomId = Number(payload?.room_id || payload?.conversation_id || 0);
+      const messageId = Number(payload?.message_id || payload?.id || 0);
+      if (!roomId || !messageId) throw new Error('room_id and message_id are required');
+      await requireRoomMember(roomId, graduateId);
+      const [messages] = await pool.query(
+        `SELECT room_id, graduate_id, message_type, deleted_at
+           FROM forum_chat_messages
+          WHERE id = ?
+          LIMIT 1`,
+        [messageId],
+      );
+      const message = messages[0];
+      if (!message
+        || Number(message.room_id) !== roomId
+        || Number(message.graduate_id) !== graduateId
+        || message.message_type === 'system'
+        || !message.deleted_at) {
+        throw new Error('Deleted message could not be verified');
+      }
+
+      const participantIds = await getRoomParticipants(roomId);
+      io.to([socketRoom(roomId), ...participantIds.map((participantId) => userRoom(participantId))]).emit('message:deleted', {
+        room_id: roomId,
+        message_id: messageId,
+      });
+      await emitConversationUpdated(roomId);
+      ack?.({ success: true });
+    } catch (error) {
+      ack?.({ success: false, error: error.message || 'Unable to synchronize deleted message' });
     }
   });
 

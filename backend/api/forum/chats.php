@@ -184,7 +184,10 @@ function gradtrack_forum_chats_rooms(PDO $db, int $currentGraduateId): array
                                      WHERE unread.room_id = r.id
                                        AND unread.graduate_id <> :unread_graduate_id
                                        AND unread.deleted_at IS NULL
-                                       AND unread.id > COALESCE(mine.last_read_message_id, 0)
+                                       AND unread.id > GREATEST(
+                                           COALESCE(mine.last_read_message_id, 0),
+                                           COALESCE(mine.hidden_before_message_id, 0)
+                                       )
                                  ) AS unread_count
                           FROM forum_chat_rooms r
                           JOIN forum_chat_members mine
@@ -194,11 +197,13 @@ function gradtrack_forum_chats_rooms(PDO $db, int $currentGraduateId): array
                             ON lm.id = (
                                 SELECT msg.id
                                 FROM forum_chat_messages msg
-                                WHERE msg.room_id = r.id
-                                  AND msg.deleted_at IS NULL
-                                ORDER BY msg.created_at DESC, msg.id DESC
+                                 WHERE msg.room_id = r.id
+                                   AND msg.deleted_at IS NULL
+                                   AND msg.id > COALESCE(mine.hidden_before_message_id, 0)
+                                 ORDER BY msg.created_at DESC, msg.id DESC
                                 LIMIT 1
                             )
+                          WHERE mine.hidden_at IS NULL OR lm.id IS NOT NULL
                           ORDER BY COALESCE(lm.created_at, r.last_message_at, r.updated_at, r.created_at) DESC, r.id DESC");
     $stmt->execute([
         ':graduate_id' => $currentGraduateId,
@@ -307,6 +312,13 @@ try {
             $existingRoomId = gradtrack_forum_chats_existing_direct_room($db, $currentGraduateId, $targetGraduateId);
 
             if ($existingRoomId !== null) {
+                $reopenStmt = $db->prepare('UPDATE forum_chat_members
+                                            SET hidden_at = NULL
+                                            WHERE room_id = :room_id AND graduate_id = :graduate_id');
+                $reopenStmt->execute([
+                    ':room_id' => $existingRoomId,
+                    ':graduate_id' => $currentGraduateId,
+                ]);
                 echo json_encode([
                     'success' => true,
                     'message' => 'Direct chat opened',

@@ -26,7 +26,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
     try {
         // Validate token
-        $query = "SELECT st.*, g.first_name, g.middle_name, g.last_name, g.student_id,
+        $query = "SELECT st.*, (st.expires_at < NOW()) AS is_expired,
+              g.first_name, g.middle_name, g.last_name, g.student_id,
               g.email, g.phone, g.year_graduated, g.address, g.program_id,
               p.name AS program_name, p.code AS program_code,
               s.title as survey_title, s.status as survey_status
@@ -50,6 +51,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 "success" => false,
                 "error" => "Invalid token",
                 "message" => "This survey link is invalid"
+            ]);
+            exit();
+        }
+
+        if ((int) ($tokenData['is_expired'] ?? 0) === 1) {
+            http_response_code(410);
+            echo json_encode([
+                'success' => false,
+                'error' => 'Survey token expired',
+                'message' => 'This survey link has expired. Please verify your graduate record again.',
             ]);
             exit();
         }

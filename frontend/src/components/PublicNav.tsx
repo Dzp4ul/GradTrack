@@ -110,7 +110,7 @@ export default function PublicNav({ active }: PublicNavProps) {
                         <LogIn className="h-4 w-4" />
                       </span>
                       <span className="min-w-0">
-                        <span className="block font-semibold text-gray-900">Sign In</span>
+                        <span className="block font-semibold text-gray-900">Log In</span>
                         <span className="block truncate text-xs text-gray-500">Access your alumni account</span>
                       </span>
                     </Link>

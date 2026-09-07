@@ -1,4 +1,4 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { Eye, EyeOff, KeyRound } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import MessageBox from '../components/MessageBox';
@@ -20,6 +20,22 @@ const defaultForm: ForgotPasswordForm = {
   confirmPassword: '',
 };
 
+const OTP_RESEND_STORAGE_KEY = 'gradtrack_graduate_otp_resend_at';
+
+function storedResendDeadline(): number {
+  try {
+    const value = Number(window.sessionStorage.getItem(OTP_RESEND_STORAGE_KEY) || 0);
+    return Number.isFinite(value) && value > Date.now() ? value : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function formatCountdown(seconds: number): string {
+  const safeSeconds = Math.max(0, seconds);
+  return `${String(Math.floor(safeSeconds / 60)).padStart(2, '0')}:${String(safeSeconds % 60).padStart(2, '0')}`;
+}
+
 export default function GraduateForgotPassword() {
   const navigate = useNavigate();
   const [step, setStep] = useState<ForgotPasswordStep>('request_otp');
@@ -28,6 +44,8 @@ export default function GraduateForgotPassword() {
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [resendDeadline, setResendDeadline] = useState(storedResendDeadline);
+  const [clock, setClock] = useState(Date.now);
   const [msgBox, setMsgBox] = useState<{
     isOpen: boolean;
     type: 'success' | 'error' | 'warning' | 'info';
@@ -43,6 +61,44 @@ export default function GraduateForgotPassword() {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
+  const resendSeconds = Math.max(0, Math.ceil((resendDeadline - clock) / 1000));
+
+  useEffect(() => {
+    if (step !== 'verify_otp' || resendDeadline <= Date.now()) {
+      return;
+    }
+
+    setClock(Date.now());
+    const intervalId = window.setInterval(() => {
+      const currentTime = Date.now();
+      setClock(currentTime);
+      if (currentTime >= resendDeadline) {
+        window.clearInterval(intervalId);
+      }
+    }, 250);
+
+    return () => window.clearInterval(intervalId);
+  }, [resendDeadline, step]);
+
+  const startResendCountdown = (data?: Record<string, unknown>) => {
+    const serverTime = Number(data?.server_time || 0);
+    const availableAt = Number(data?.resend_available_at || 0);
+    const reportedRetry = Number(data?.retry_after_seconds || 0);
+    const retrySeconds = reportedRetry > 0
+      ? Math.ceil(reportedRetry)
+      : serverTime > 0 && availableAt > serverTime
+        ? Math.ceil(availableAt - serverTime)
+        : 60;
+    const deadline = Date.now() + Math.max(1, retrySeconds) * 1000;
+    setResendDeadline(deadline);
+    setClock(Date.now());
+    try {
+      window.sessionStorage.setItem(OTP_RESEND_STORAGE_KEY, String(deadline));
+    } catch {
+      // The countdown still works when browser storage is unavailable.
+    }
+  };
+
   const sendOtp = async () => {
     if (!form.email.trim()) {
       setMsgBox({
@@ -51,6 +107,11 @@ export default function GraduateForgotPassword() {
         title: 'Email Required',
         message: 'Please enter your email address first.',
       });
+      return;
+    }
+
+    const isResend = step === 'verify_otp';
+    if (isResend && resendSeconds > 0) {
       return;
     }
 
@@ -69,14 +130,22 @@ export default function GraduateForgotPassword() {
 
       const result = await response.json();
       if (!response.ok || !result.success) {
+        if (response.status === 429) {
+          startResendCountdown(result.data);
+        }
         throw new Error(result.error || 'Unable to send OTP right now.');
       }
+
+      startResendCountdown(result.data);
+      setForm((current) => ({ ...current, otp: '' }));
 
       setMsgBox({
         isOpen: true,
         type: 'success',
-        title: 'OTP Sent',
-        message: 'If your email is registered, we sent a 6-digit OTP code.',
+        title: isResend ? 'OTP Resent' : 'OTP Sent',
+        message: isResend
+          ? 'A new OTP was requested. Use the newest code sent to your email.'
+          : 'If your email is registered, we sent a 6-digit OTP code.',
       });
 
       setStep('verify_otp');
@@ -188,10 +257,15 @@ export default function GraduateForgotPassword() {
         isOpen: true,
         type: 'success',
         title: 'Password Reset Successful',
-        message: 'Your password has been changed. Redirecting to Graduate Sign In...',
+        message: 'Your password has been changed. Redirecting to Graduate Log In...',
       });
 
       setTimeout(() => {
+        try {
+          window.sessionStorage.removeItem(OTP_RESEND_STORAGE_KEY);
+        } catch {
+          // Browser storage cleanup is best effort.
+        }
         navigate('/graduate/signin');
       }, 1200);
     } catch (error) {
@@ -224,14 +298,14 @@ export default function GraduateForgotPassword() {
 
   return (
     <div
-      className="min-h-screen bg-cover bg-center bg-fixed relative flex items-center justify-center p-4 sm:p-6"
+      className="relative flex min-h-screen items-center justify-center overflow-x-hidden bg-cover bg-center bg-fixed p-4 sm:p-6"
       style={{ backgroundImage: 'url(/520382375_1065446909052636_3412465913398569974_n.jpg)' }}
     >
       <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80"></div>
 
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-5 border border-blue-100 relative z-10 sm:p-8">
+      <div className="relative z-10 w-full min-w-0 max-w-md rounded-2xl border border-blue-100 bg-white p-5 shadow-xl sm:p-8">
         <div className="flex justify-center mb-5">
-          <img src="/GRADTRACK_LOGO1.png" alt="GradTrack Logo" className="h-20 object-contain" />
+          <img src="/GRADTRACK_LOGO1.png" alt="GradTrack Logo" className="h-auto max-h-20 w-full max-w-[360px] object-contain" />
         </div>
 
         <h1 className="text-2xl font-bold text-blue-900 text-center">Forgot Password</h1>
@@ -241,7 +315,7 @@ export default function GraduateForgotPassword() {
           {step === 'reset_password' && 'OTP verified. Set your new password below.'}
         </p>
 
-        <div className="mb-5 flex items-center justify-between text-xs text-gray-500">
+        <div className="mb-5 grid grid-cols-3 gap-1 text-center text-[10px] text-gray-500 sm:text-xs">
           <span className={step === 'request_otp' ? 'font-semibold text-blue-700' : ''}>1. Send OTP</span>
           <span className={step === 'verify_otp' ? 'font-semibold text-blue-700' : ''}>2. Verify OTP</span>
           <span className={step === 'reset_password' ? 'font-semibold text-blue-700' : ''}>3. Change Password</span>
@@ -278,10 +352,10 @@ export default function GraduateForgotPassword() {
               <button
                 type="button"
                 onClick={sendOtp}
-                disabled={loading}
+                disabled={loading || resendSeconds > 0}
                 className="mt-2 text-sm font-medium text-blue-600 hover:text-blue-700 disabled:text-gray-400"
               >
-                Resend OTP
+                {resendSeconds > 0 ? `Resend OTP in ${formatCountdown(resendSeconds)}` : 'Resend OTP'}
               </button>
             </div>
           )}
@@ -354,7 +428,7 @@ export default function GraduateForgotPassword() {
 
         <div className="mt-5 text-center">
           <Link to="/graduate/signin" className="text-sm text-gray-600 hover:text-blue-700">
-            ← Back to Graduate Sign In
+            ← Back to Graduate Log In
           </Link>
         </div>
       </div>

@@ -38,6 +38,7 @@ import { ProtectedRoute } from './lib/ProtectedRoute';
 import { GraduateAuthProvider, useGraduateAuth } from './contexts/GraduateAuthContext';
 import { GraduateProtectedRoute } from './lib/GraduateProtectedRoute';
 import { useSystemSettings } from './contexts/SystemSettingsContext';
+import ScrollToTop from './components/ScrollToTop';
 
 const SUPER_ADMIN_ROLES = ['super_admin'];
 const ADMIN_ROLES = ['admin'];
@@ -121,6 +122,7 @@ function App() {
   return (
     <AuthProvider>
       <GraduateAuthProvider>
+        <ScrollToTop />
         <Routes>
           <Route path="/" element={<HomeRoute />} />
           <Route path="/announcements" element={<PublicPage><PublicAnnouncementsPage /></PublicPage>} />

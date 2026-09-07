@@ -38,18 +38,22 @@ function gradtrack_conversation_info_room(PDO $db, int $roomId, int $graduateId)
     return $room;
 }
 
-function gradtrack_conversation_info_attachments(PDO $db, int $roomId): array
+function gradtrack_conversation_info_attachments(PDO $db, int $roomId, int $graduateId): array
 {
     $stmt = $db->prepare("SELECT a.id, a.room_id, a.message_id, a.original_name, a.stored_name,
                                  a.mime_type, a.file_size, a.attachment_type, a.created_at
                           FROM forum_chat_message_attachments a
-                          JOIN forum_chat_messages m
+                           JOIN forum_chat_messages m
                             ON m.id = a.message_id
                            AND m.room_id = a.room_id
-                           AND m.deleted_at IS NULL
+                            AND m.deleted_at IS NULL
+                          JOIN forum_chat_members viewer
+                            ON viewer.room_id = a.room_id
+                           AND viewer.graduate_id = :graduate_id
                           WHERE a.room_id = :room_id
+                            AND a.message_id > COALESCE(viewer.hidden_before_message_id, 0)
                           ORDER BY a.created_at DESC, a.id DESC");
-    $stmt->execute([':room_id' => $roomId]);
+    $stmt->execute([':room_id' => $roomId, ':graduate_id' => $graduateId]);
 
     $photos = [];
     $files = [];
@@ -63,6 +67,52 @@ function gradtrack_conversation_info_attachments(PDO $db, int $roomId): array
     }
 
     return ['photos' => $photos, 'files' => $files];
+}
+
+function gradtrack_conversation_info_hide(PDO $db, int $roomId, int $graduateId): array
+{
+    $db->beginTransaction();
+    try {
+        $memberStmt = $db->prepare('SELECT id
+                                    FROM forum_chat_members
+                                    WHERE room_id = :room_id AND graduate_id = :graduate_id
+                                    LIMIT 1
+                                    FOR UPDATE');
+        $memberStmt->execute([':room_id' => $roomId, ':graduate_id' => $graduateId]);
+        if (!$memberStmt->fetch(PDO::FETCH_ASSOC)) {
+            $db->rollBack();
+            gradtrack_conversation_info_error(404, 'Conversation not found');
+        }
+
+        $lastMessageStmt = $db->prepare('SELECT COALESCE(MAX(id), 0)
+                                         FROM forum_chat_messages
+                                         WHERE room_id = :room_id');
+        $lastMessageStmt->execute([':room_id' => $roomId]);
+        $hiddenBeforeMessageId = (int) $lastMessageStmt->fetchColumn();
+
+        $hideStmt = $db->prepare('UPDATE forum_chat_members
+                                  SET hidden_at = NOW(),
+                                      hidden_before_message_id = GREATEST(COALESCE(hidden_before_message_id, 0), :hidden_before_message_id),
+                                      last_read_message_id = GREATEST(COALESCE(last_read_message_id, 0), :last_read_message_id)
+                                  WHERE room_id = :room_id AND graduate_id = :graduate_id');
+        $hideStmt->execute([
+            ':hidden_before_message_id' => $hiddenBeforeMessageId,
+            ':last_read_message_id' => $hiddenBeforeMessageId,
+            ':room_id' => $roomId,
+            ':graduate_id' => $graduateId,
+        ]);
+        $db->commit();
+
+        return [
+            'room_id' => $roomId,
+            'hidden_before_message_id' => $hiddenBeforeMessageId,
+        ];
+    } catch (Throwable $error) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+        throw $error;
+    }
 }
 
 function gradtrack_conversation_info_assert_group_creator(array $room, int $graduateId): void
@@ -394,7 +444,7 @@ try {
         }
 
         $room = gradtrack_conversation_info_room($db, $roomId, $currentGraduateId);
-        $attachments = gradtrack_conversation_info_attachments($db, $roomId);
+        $attachments = gradtrack_conversation_info_attachments($db, $roomId, $currentGraduateId);
         $block = !empty($room['is_group']) ? null : gradtrack_chat_direct_block_state($db, $roomId, $currentGraduateId);
 
         echo json_encode([
@@ -425,6 +475,16 @@ try {
         if ($action === 'group_photo') {
             $room = gradtrack_conversation_info_change_photo($db, $roomId, $currentGraduateId);
             echo json_encode(['success' => true, 'message' => 'Group photo updated', 'data' => ['room' => $room]]);
+            exit;
+        }
+
+        if ($action === 'delete_conversation') {
+            $result = gradtrack_conversation_info_hide($db, $roomId, $currentGraduateId);
+            echo json_encode([
+                'success' => true,
+                'message' => 'Conversation removed from your message list',
+                'data' => $result,
+            ]);
             exit;
         }
 

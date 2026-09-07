@@ -13,11 +13,12 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $data = json_decode(file_get_contents('php://input'), true);
 $responseId = isset($data['survey_response_id']) ? (int) $data['survey_response_id'] : 0;
 $graduateId = isset($data['graduate_id']) ? (int) $data['graduate_id'] : 0;
+$surveyToken = isset($data['survey_token']) ? trim((string) $data['survey_token']) : '';
 $email = isset($data['email']) ? strtolower(trim($data['email'])) : '';
 $password = $data['password'] ?? '';
 $confirmPassword = $data['confirm_password'] ?? '';
 
-if ($responseId <= 0 || $graduateId <= 0 || $email === '' || $password === '' || $confirmPassword === '') {
+if ($responseId <= 0 || $graduateId <= 0 || $surveyToken === '' || $email === '' || $password === '' || $confirmPassword === '') {
     http_response_code(400);
     echo json_encode(['success' => false, 'error' => 'Required fields are missing']);
     exit;
@@ -49,23 +50,30 @@ try {
     gradtrack_alumni_registry_ensure_schema($db);
     $db->beginTransaction();
 
-    $responseQuery = "SELECT id, graduate_id FROM survey_responses WHERE id = :response_id";
+    $responseQuery = "SELECT sr.id, sr.survey_id, sr.graduate_id
+                      FROM survey_responses sr
+                      JOIN survey_tokens st
+                        ON st.survey_id = sr.survey_id
+                       AND st.graduate_id = sr.graduate_id
+                       AND st.token = :survey_token
+                       AND st.submitted_at IS NOT NULL
+                       AND st.expires_at >= NOW()
+                      WHERE sr.id = :response_id
+                        AND sr.graduate_id = :graduate_id
+                      LIMIT 1
+                      FOR UPDATE";
     $responseStmt = $db->prepare($responseQuery);
-    $responseStmt->bindParam(':response_id', $responseId);
-    $responseStmt->execute();
+    $responseStmt->execute([
+        ':response_id' => $responseId,
+        ':graduate_id' => $graduateId,
+        ':survey_token' => $surveyToken,
+    ]);
     $response = $responseStmt->fetch(PDO::FETCH_ASSOC);
 
     if (!$response) {
         $db->rollBack();
-        http_response_code(404);
-        echo json_encode(['success' => false, 'error' => 'Survey submission record not found']);
-        exit;
-    }
-
-    if ((int) $response['graduate_id'] !== $graduateId) {
-        $db->rollBack();
         http_response_code(403);
-        echo json_encode(['success' => false, 'error' => 'Survey submission does not match graduate profile']);
+        echo json_encode(['success' => false, 'error' => 'Survey completion authorization is invalid or expired']);
         exit;
     }
 
@@ -80,7 +88,7 @@ try {
         echo json_encode([
             'success' => false,
             'error' => 'An account with this email already exists',
-            'suggestion' => 'Please sign in instead of creating a new account'
+            'suggestion' => 'Please log in instead of creating a new account'
         ]);
         exit;
     }
@@ -96,7 +104,7 @@ try {
         echo json_encode([
             'success' => false,
             'error' => 'This graduate already has an account',
-            'suggestion' => 'Please sign in using your existing account'
+            'suggestion' => 'Please log in using your existing account'
         ]);
         exit;
     }

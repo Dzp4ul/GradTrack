@@ -22,6 +22,25 @@ function survey_response_escape($value): string
         return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 }
 
+function survey_response_send_saved(int $responseId, bool $idempotent, array $emailNotification = []): never
+{
+        http_response_code($idempotent ? 200 : 201);
+        echo json_encode([
+                'success' => true,
+                'message' => $idempotent
+                        ? 'Survey response was already saved successfully'
+                        : 'Survey response saved successfully',
+                'id' => $responseId,
+                'survey_response_id' => $responseId,
+                'data' => [
+                        'survey_response_id' => $responseId,
+                        'idempotent' => $idempotent,
+                ],
+                'email_notification' => $emailNotification,
+        ]);
+        exit;
+}
+
 function survey_response_mailer(): PHPMailer
 {
         $host = survey_response_clean_text(getenv('MAIL_HOST') ?: 'smtp.gmail.com');
@@ -402,6 +421,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $responses = is_array($responses) ? $responses : [];
     $submittedPsgcAddress = $data['psgc_address'] ?? ($responses['__psgc_address'] ?? null);
 
+    if (!is_string($token) || trim($token) === '') {
+        http_response_code(400);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Survey token is required',
+            'message' => 'Please verify your graduate record before submitting the survey.',
+        ]);
+        exit();
+    }
+    $token = trim($token);
+
     try {
         $activeSurveyStmt = $conn->prepare("SELECT id FROM surveys
                                             WHERE id = :survey_id
@@ -413,16 +443,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             http_response_code(403);
             echo json_encode(['success' => false, 'error' => 'This survey is not active']);
             exit();
-        }
-
-        if ($graduateId) {
-            $activeGraduateStmt = $conn->prepare('SELECT id FROM graduates WHERE id = :id AND archived_at IS NULL LIMIT 1');
-            $activeGraduateStmt->execute([':id' => (int)$graduateId]);
-            if (!$activeGraduateStmt->fetch(PDO::FETCH_ASSOC)) {
-                http_response_code(403);
-                echo json_encode(['success' => false, 'error' => 'Graduate record is not active']);
-                exit();
-            }
         }
 
         $validatedPsgcAddress = $surveyId
@@ -458,39 +478,57 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $conn->beginTransaction();
         
-        // If token provided, validate it
-        if ($token) {
-            $tokenQuery = "SELECT st.* FROM survey_tokens st
+        // Lock the token and graduate row so retries cannot create duplicate responses.
+        $tokenQuery = "SELECT st.*, (st.expires_at < NOW()) AS is_expired FROM survey_tokens st
                           JOIN surveys s ON s.id = st.survey_id
                           JOIN graduates g ON g.id = st.graduate_id
                           WHERE st.token = :token
                           AND st.survey_id = :survey_id
-                          AND st.submitted_at IS NULL
                           AND s.status = 'active'
                           AND s.archived_at IS NULL
-                          AND g.archived_at IS NULL";
-            $tokenStmt = $conn->prepare($tokenQuery);
-            $tokenStmt->bindParam(':token', $token);
-            $tokenStmt->bindParam(':survey_id', $surveyId);
-            $tokenStmt->execute();
-            $tokenData = $tokenStmt->fetch(PDO::FETCH_ASSOC);
-            
-            if (!$tokenData) {
-                $conn->rollBack();
-                http_response_code(403);
-                echo json_encode([
-                    "success" => false,
-                    "error" => "Invalid token"
-                ]);
-                exit();
-            }
-            
-            // Use graduate_id from token
-            $graduateId = $tokenData['graduate_id'];
-            
-            // Get client IP
-            $ipAddress = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? null;
+                          AND g.archived_at IS NULL
+                          FOR UPDATE";
+        $tokenStmt = $conn->prepare($tokenQuery);
+        $tokenStmt->execute([
+            ':token' => $token,
+            ':survey_id' => (int) $surveyId,
+        ]);
+        $tokenData = $tokenStmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$tokenData) {
+            $conn->rollBack();
+            http_response_code(403);
+            echo json_encode([
+                'success' => false,
+                'error' => 'Invalid survey token',
+                'message' => 'This survey link is invalid or is no longer available.',
+            ]);
+            exit();
         }
+
+        if ((int) ($tokenData['is_expired'] ?? 0) === 1) {
+            $conn->rollBack();
+            http_response_code(410);
+            echo json_encode([
+                'success' => false,
+                'error' => 'Survey token expired',
+                'message' => 'This survey link has expired. Please verify your graduate record again.',
+            ]);
+            exit();
+        }
+
+        // The authenticated graduate identity always comes from the server token.
+        $graduateId = (int) $tokenData['graduate_id'];
+        $graduateLockStmt = $conn->prepare('SELECT id FROM graduates WHERE id = :id AND archived_at IS NULL FOR UPDATE');
+        $graduateLockStmt->execute([':id' => $graduateId]);
+        if (!$graduateLockStmt->fetch(PDO::FETCH_ASSOC)) {
+            $conn->rollBack();
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'Graduate record is not active']);
+            exit();
+        }
+
+        $ipAddress = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? null;
         
         // Check for duplicate submission
         if ($graduateId && $surveyId) {
@@ -502,15 +540,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $dupStmt->bindParam(':graduate_id', $graduateId);
             $dupStmt->execute();
             
-            if ($dupStmt->fetch()) {
-                $conn->rollBack();
-                http_response_code(409);
-                echo json_encode([
-                    "success" => false,
-                    "error" => "Survey already submitted"
+            $existingResponseId = $dupStmt->fetchColumn();
+            if ($existingResponseId) {
+                if (empty($tokenData['submitted_at'])) {
+                    $markExistingTokenStmt = $conn->prepare('UPDATE survey_tokens
+                        SET submitted_at = COALESCE(submitted_at, NOW()),
+                            ip_address = COALESCE(ip_address, :ip_address),
+                            expires_at = GREATEST(expires_at, DATE_ADD(NOW(), INTERVAL 30 MINUTE))
+                        WHERE id = :token_id');
+                    $markExistingTokenStmt->execute([
+                        ':ip_address' => $ipAddress,
+                        ':token_id' => $tokenData['id'],
+                    ]);
+                }
+                $conn->commit();
+                survey_response_send_saved((int) $existingResponseId, true, [
+                    'sent' => false,
+                    'reason' => 'Already sent for the original submission',
                 ]);
-                exit();
             }
+        }
+
+        if (!empty($tokenData['submitted_at'])) {
+            $conn->rollBack();
+            http_response_code(409);
+            echo json_encode([
+                'success' => false,
+                'error' => 'Survey already submitted',
+                'message' => 'The original survey response could not be found. Please contact support.',
+            ]);
+            exit();
         }
         
         // Insert survey response
@@ -547,9 +606,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $responseId = $conn->lastInsertId();
         
         // Mark token as submitted if token was used
-        if ($token && isset($tokenData)) {
+        if (isset($tokenData)) {
             $updateTokenQuery = "UPDATE survey_tokens 
-                                SET submitted_at = NOW(), ip_address = :ip_address 
+                                SET submitted_at = NOW(),
+                                    ip_address = :ip_address,
+                                    expires_at = GREATEST(expires_at, DATE_ADD(NOW(), INTERVAL 30 MINUTE))
                                 WHERE token = :token";
             $updateTokenStmt = $conn->prepare($updateTokenQuery);
             $updateTokenStmt->bindParam(':ip_address', $ipAddress);
@@ -599,14 +660,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
-        http_response_code(201);
-        echo json_encode([
-            "success" => true,
-            "message" => "Survey response saved successfully",
-            "id" => $responseId,
-            "survey_response_id" => $responseId,
-            "email_notification" => $emailNotification
-        ]);
+        survey_response_send_saved((int) $responseId, false, $emailNotification);
     } catch(GradTrackPsgcValidationException $e) {
         if (isset($conn) && $conn->inTransaction()) {
             $conn->rollBack();

@@ -224,7 +224,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $tokenQuery = "SELECT token, expires_at FROM survey_tokens 
                           WHERE survey_id = :survey_id 
                           AND graduate_id = :graduate_id 
-                          AND submitted_at IS NULL";
+                          AND submitted_at IS NULL
+                          AND expires_at >= NOW()";
             $tokenStmt = $conn->prepare($tokenQuery);
             $tokenStmt->bindParam(':survey_id', $surveyId);
             $tokenStmt->bindParam(':graduate_id', $graduate['id']);

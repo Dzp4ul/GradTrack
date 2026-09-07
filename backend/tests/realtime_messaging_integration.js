@@ -47,12 +47,15 @@ const apiBaseUrl = (process.env.GRADTRACK_API_BASE_URL || 'http://localhost/Grad
 const chatMessagesUrl = `${apiBaseUrl}/api/forum/chat-messages.php`;
 const chatsUrl = `${apiBaseUrl}/api/forum/chats.php`;
 const conversationInfoUrl = `${apiBaseUrl}/api/forum/conversation-info.php`;
+const commentsUrl = `${apiBaseUrl}/api/forum/comments.php`;
+const csrfUrl = `${apiBaseUrl}/api/csrf.php`;
 const allowedOrigin = (process.env.CORS_ALLOWED_ORIGINS || process.env.FRONTEND_URL || 'http://localhost:5173')
   .split(',')
   .map((value) => value.trim())
   .find((value) => value && value !== '*') || 'http://localhost:5173';
 const storageDriver = String(process.env.STORAGE_DRIVER || process.env.APP_STORAGE_DRIVER || 'local').trim().toLowerCase();
 const sessionCookieName = String(process.env.SESSION_COOKIE_NAME || process.env.PHP_SESSION_COOKIE_NAME || 'GRADTRACKSESSID').trim() || 'GRADTRACKSESSID';
+const csrfTokensBySession = new Map();
 
 function expectedMediaReference(reference) {
   const value = String(reference || '').trim();
@@ -163,12 +166,14 @@ function emitWithAck(socket, eventName, payload, timeoutMs = 5000) {
 }
 
 async function saveMessageViaRest(sessionId, payload) {
+  const csrfToken = await csrfTokenForSession(sessionId);
   const response = await fetch(chatMessagesUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Cookie: `${sessionCookieName}=${sessionId}`,
       Origin: allowedOrigin,
+      'X-CSRF-Token': csrfToken,
     },
     body: JSON.stringify(payload),
   });
@@ -179,16 +184,38 @@ async function saveMessageViaRest(sessionId, payload) {
   return result.data.message;
 }
 
-async function requestJsonViaRest(url, sessionId, payload) {
-  const response = await fetch(url, {
-    method: 'POST',
+async function csrfTokenForSession(sessionId) {
+  if (csrfTokensBySession.has(sessionId)) return csrfTokensBySession.get(sessionId);
+  const response = await fetch(csrfUrl, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      Cookie: `${sessionCookieName}=${sessionId}`,
+      Origin: allowedOrigin,
+    },
+  });
+  const result = await response.json();
+  const token = String(result?.csrf_token || '');
+  if (!response.ok || !token) throw new Error(result?.error || 'Unable to establish a CSRF token for the test session');
+  csrfTokensBySession.set(sessionId, token);
+  return token;
+}
+
+async function requestJsonViaRest(url, sessionId, payload = {}, method = 'POST') {
+  const csrfToken = method === 'GET' || method === 'HEAD' ? '' : await csrfTokenForSession(sessionId);
+  const requestOptions = {
+    method,
     headers: {
       'Content-Type': 'application/json',
       Cookie: `${sessionCookieName}=${sessionId}`,
       Origin: allowedOrigin,
+      ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
     },
-    body: JSON.stringify(payload),
-  });
+  };
+  if (method !== 'GET' && method !== 'HEAD') {
+    requestOptions.body = JSON.stringify(payload);
+  }
+  const response = await fetch(url, requestOptions);
   let result = {};
   try {
     result = await response.json();
@@ -287,9 +314,6 @@ async function loadFixture() {
       LIMIT 1`,
     [fixture.room_id, fixture.recipient_id],
   );
-  if (!reverseRows.length) {
-    throw new Error('No reverse-direction text message is available for the bidirectional replay test');
-  }
   const [outsiderRows] = await pool.query(
     `SELECT ga.id AS account_id, ga.graduate_id
        FROM graduate_accounts ga
@@ -305,7 +329,7 @@ async function loadFixture() {
     [fixture.room_id],
   );
 
-  return { ...fixture, reverse: reverseRows[0], outsider: outsiderRows[0] || null };
+  return { ...fixture, reverse: reverseRows[0] || null, outsider: outsiderRows[0] || null };
 }
 
 async function main() {
@@ -315,6 +339,7 @@ async function main() {
   let server;
   let serverOutput = '';
   let temporaryGroupRoomId = 0;
+  let temporaryForumPostId = 0;
 
   try {
     const senderSession = createGraduateSession(fixture.sender_account_id);
@@ -410,6 +435,51 @@ async function main() {
       const outsiderPolicy = await emitWithAck(outsider, 'conversation:policy-changed', { room_id: Number(fixture.room_id) });
       assert(outsiderPolicy.success === false, 'an authenticated non-participant cannot broadcast conversation policy changes');
     }
+
+    const [temporaryPostInsert] = await pool.query(
+      `INSERT INTO forum_posts (graduate_id, title, content, category, status)
+       VALUES (?, ?, 'Automated comment authorization fixture', 'Graduate Concerns', 'approved')`,
+      [fixture.sender_id, `Comment Test ${crypto.randomBytes(5).toString('hex')}`],
+    );
+    temporaryForumPostId = Number(temporaryPostInsert.insertId || 0);
+    const createdComment = await requestJsonViaRest(commentsUrl, senderSession, {
+      post_id: temporaryForumPostId,
+      comment: 'This comment should be returned immediately.',
+    });
+    const temporaryCommentId = Number(createdComment.result?.data?.id || 0);
+    assert(
+      createdComment.ok
+        && temporaryCommentId > 0
+        && Number(createdComment.result?.data?.post_id) === temporaryForumPostId
+        && createdComment.result?.data?.commenter_name,
+      'comment creation returns the complete canonical comment for immediate rendering',
+    );
+
+    const unauthorizedCommentDelete = await requestJsonViaRest(
+      commentsUrl,
+      recipientSession,
+      { id: temporaryCommentId },
+      'DELETE',
+    );
+    assert(
+      !unauthorizedCommentDelete.ok && unauthorizedCommentDelete.status === 403,
+      'a graduate cannot delete another graduate\'s forum comment through a manipulated request',
+    );
+    const [[commentStillExists]] = await pool.query('SELECT COUNT(*) AS total FROM forum_comments WHERE id = ?', [temporaryCommentId]);
+    assert(Number(commentStillExists.total) === 1, 'an unauthorized forum-comment delete leaves the record unchanged');
+
+    const authorizedCommentDelete = await requestJsonViaRest(
+      commentsUrl,
+      senderSession,
+      { id: temporaryCommentId },
+      'DELETE',
+    );
+    assert(
+      authorizedCommentDelete.ok
+        && Number(authorizedCommentDelete.result?.data?.id) === temporaryCommentId
+        && Number(authorizedCommentDelete.result?.data?.comment_count) === 0,
+      'a graduate can delete their own forum comment and receives the updated count',
+    );
 
     const refreshedConversation = waitForEvent(
       recipient,
@@ -516,34 +586,38 @@ async function main() {
     );
     assert(Number(afterCount.total) === Number(beforeCount.total), 'replaying clientMessageId is idempotent and does not insert a duplicate row');
 
-    const senderReceivedReply = waitForEvent(
-      sender,
-      'message:new',
-      (payload) => Number(payload?.message?.id) === Number(fixture.reverse.message_id),
-    );
-    const savedReply = await saveMessageViaRest(recipientSession, {
-      room_id: Number(fixture.room_id),
-      message: fixture.reverse.message,
-      client_message_id: fixture.reverse.client_message_id,
-      attachment_ids: [],
-    });
-    const replyAck = await emitWithAck(recipient, 'message:publish', {
-      room_id: Number(fixture.room_id),
-      message_id: Number(savedReply.id),
-    });
-    const receivedReply = await senderReceivedReply;
-    assert(
-      replyAck.success === true
-        && Number(replyAck.message?.id) === Number(fixture.reverse.message_id)
-        && Number(receivedReply.message?.id) === Number(fixture.reverse.message_id),
-      'the second graduate reply reaches the first graduate immediately with the persisted message ID',
-    );
+    if (fixture.reverse) {
+      const senderReceivedReply = waitForEvent(
+        sender,
+        'message:new',
+        (payload) => Number(payload?.message?.id) === Number(fixture.reverse.message_id),
+      );
+      const savedReply = await saveMessageViaRest(recipientSession, {
+        room_id: Number(fixture.room_id),
+        message: fixture.reverse.message,
+        client_message_id: fixture.reverse.client_message_id,
+        attachment_ids: [],
+      });
+      const replyAck = await emitWithAck(recipient, 'message:publish', {
+        room_id: Number(fixture.room_id),
+        message_id: Number(savedReply.id),
+      });
+      const receivedReply = await senderReceivedReply;
+      assert(
+        replyAck.success === true
+          && Number(replyAck.message?.id) === Number(fixture.reverse.message_id)
+          && Number(receivedReply.message?.id) === Number(fixture.reverse.message_id),
+        'the second graduate reply reaches the first graduate immediately with the persisted message ID',
+      );
 
-    const [[afterReplyCount]] = await pool.query(
-      'SELECT COUNT(*) AS total FROM forum_chat_messages WHERE room_id = ?',
-      [fixture.room_id],
-    );
-    assert(Number(afterReplyCount.total) === Number(beforeCount.total), 'bidirectional replay remains idempotent and does not insert test data');
+      const [[afterReplyCount]] = await pool.query(
+        'SELECT COUNT(*) AS total FROM forum_chat_messages WHERE room_id = ?',
+        [fixture.room_id],
+      );
+      assert(Number(afterReplyCount.total) === Number(beforeCount.total), 'bidirectional replay remains idempotent and does not insert test data');
+    } else {
+      console.log('SKIP: no reverse-direction persisted message is available for the non-mutating bidirectional replay check');
+    }
 
     const [groupCandidateRows] = await pool.query(
       `SELECT account.id AS account_id, account.graduate_id
@@ -627,6 +701,166 @@ async function main() {
       [temporaryGroupRoomId, addedCandidate.graduate_id],
     );
     assert(!duplicateMember.ok && Number(membershipCount.total) === 1, 'duplicate realtime-era member submissions remain idempotent at the database boundary');
+
+    const temporaryMessage = await saveMessageViaRest(senderSession, {
+      room_id: temporaryGroupRoomId,
+      message: `Deletion test ${crypto.randomBytes(5).toString('hex')}`,
+      client_message_id: `delete-test-${crypto.randomUUID()}`,
+      attachment_ids: [],
+    });
+    const temporaryMessageReceived = waitForEvent(
+      groupSockets[0],
+      'message:new',
+      (payload) => Number(payload?.message?.id) === Number(temporaryMessage.id),
+    );
+    const temporaryMessagePublish = await emitWithAck(sender, 'message:publish', {
+      room_id: temporaryGroupRoomId,
+      message_id: Number(temporaryMessage.id),
+    });
+    await temporaryMessageReceived;
+    assert(temporaryMessagePublish.success === true, 'a temporary owned message is published before deletion validation');
+
+    const participantDelete = await requestJsonViaRest(
+      chatMessagesUrl,
+      groupSessions[0],
+      { message_id: Number(temporaryMessage.id) },
+      'DELETE',
+    );
+    assert(!participantDelete.ok && participantDelete.status === 403, 'a participant cannot delete another graduate\'s message through a manipulated request');
+
+    const [temporaryOutsiderRows] = await pool.query(
+      `SELECT account.id AS account_id
+         FROM graduate_accounts account
+        WHERE account.status = 'active'
+          AND NOT EXISTS (
+            SELECT 1
+              FROM forum_chat_members member
+             WHERE member.room_id = ?
+               AND member.graduate_id = account.graduate_id
+          )
+        ORDER BY account.id ASC
+        LIMIT 1`,
+      [temporaryGroupRoomId],
+    );
+    if (temporaryOutsiderRows.length > 0) {
+      const temporaryOutsiderSession = createGraduateSession(temporaryOutsiderRows[0].account_id);
+      sessions.push(temporaryOutsiderSession);
+      const outsiderDelete = await requestJsonViaRest(
+        chatMessagesUrl,
+        temporaryOutsiderSession,
+        { message_id: Number(temporaryMessage.id) },
+        'DELETE',
+      );
+      assert(!outsiderDelete.ok && outsiderDelete.status === 404, 'an outsider cannot use message deletion to discover or modify a private conversation');
+    } else {
+      console.log('SKIP: no active non-member account is available for temporary-group deletion isolation');
+    }
+
+    const messageDeletedForParticipant = waitForEvent(
+      groupSockets[0],
+      'message:deleted',
+      (payload) => Number(payload?.message_id) === Number(temporaryMessage.id),
+    );
+    const ownerDelete = await requestJsonViaRest(
+      chatMessagesUrl,
+      senderSession,
+      { message_id: Number(temporaryMessage.id) },
+      'DELETE',
+    );
+    assert(ownerDelete.ok, 'a graduate can delete their own persisted message');
+    const deletePublish = await emitWithAck(sender, 'message:delete-publish', {
+      room_id: temporaryGroupRoomId,
+      message_id: Number(temporaryMessage.id),
+    });
+    await messageDeletedForParticipant;
+    const [[deletedMessageRow]] = await pool.query(
+      'SELECT deleted_at FROM forum_chat_messages WHERE id = ?',
+      [temporaryMessage.id],
+    );
+    assert(deletePublish.success === true && Boolean(deletedMessageRow.deleted_at), 'message deletion is soft-deleted and synchronized to other participants');
+    const participantHistoryAfterDelete = await requestJsonViaRest(
+      `${chatMessagesUrl}?room_id=${temporaryGroupRoomId}&limit=60`,
+      groupSessions[0],
+      {},
+      'GET',
+    );
+    const deletedTombstone = (participantHistoryAfterDelete.result?.data?.messages || []).find(
+      (message) => Number(message.id) === Number(temporaryMessage.id),
+    );
+    assert(
+      participantHistoryAfterDelete.ok
+        && deletedTombstone?.is_deleted === true
+        && deletedTombstone?.message === 'This message was deleted'
+        && Array.isArray(deletedTombstone?.attachments)
+        && deletedTombstone.attachments.length === 0,
+      'message history returns a sanitized tombstone without deleted text or attachments',
+    );
+
+    let removalEventsForOtherUser = 0;
+    const countOtherUserRemoval = (payload) => {
+      if (Number(payload?.room_id) === temporaryGroupRoomId) removalEventsForOtherUser += 1;
+    };
+    sender.on('conversation:removed', countOtherUserRemoval);
+    const hiddenMemberRemoval = waitForEvent(
+      groupSockets[0],
+      'conversation:removed',
+      (payload) => Number(payload?.room_id) === temporaryGroupRoomId,
+    );
+    const hideConversation = await requestJsonViaRest(conversationInfoUrl, groupSessions[0], {
+      room_id: temporaryGroupRoomId,
+      action: 'delete_conversation',
+    });
+    assert(hideConversation.ok, 'Delete Conversation persists a per-member visibility cutoff');
+    const hidePublish = await emitWithAck(groupSockets[0], 'conversation:hidden-publish', {
+      room_id: temporaryGroupRoomId,
+    });
+    await hiddenMemberRemoval;
+    await wait(200);
+    sender.off('conversation:removed', countOtherUserRemoval);
+    assert(hidePublish.success === true && removalEventsForOtherUser === 0, 'conversation removal is synchronized only to the requesting graduate\'s sessions');
+
+    const [visibilityRows] = await pool.query(
+      `SELECT graduate_id, hidden_at, hidden_before_message_id
+         FROM forum_chat_members
+        WHERE room_id = ? AND graduate_id IN (?, ?)`,
+      [temporaryGroupRoomId, groupCandidateRows[0].graduate_id, fixture.sender_id],
+    );
+    const hiddenMembership = visibilityRows.find((row) => Number(row.graduate_id) === Number(groupCandidateRows[0].graduate_id));
+    const unaffectedMembership = visibilityRows.find((row) => Number(row.graduate_id) === Number(fixture.sender_id));
+    assert(Boolean(hiddenMembership?.hidden_at) && !unaffectedMembership?.hidden_at, 'deleting a conversation changes only the current member row and preserves all other memberships');
+
+    const futureMessage = await saveMessageViaRest(senderSession, {
+      room_id: temporaryGroupRoomId,
+      message: `Future visibility ${crypto.randomBytes(5).toString('hex')}`,
+      client_message_id: `future-test-${crypto.randomUUID()}`,
+      attachment_ids: [],
+    });
+    const hiddenMemberConversationReturns = waitForEvent(
+      groupSockets[0],
+      'conversation:updated',
+      (payload) => Number(payload?.conversation?.id) === temporaryGroupRoomId
+        && payload?.conversation?.last_message === futureMessage.message,
+    );
+    const futurePublish = await emitWithAck(sender, 'message:publish', {
+      room_id: temporaryGroupRoomId,
+      message_id: Number(futureMessage.id),
+    });
+    await hiddenMemberConversationReturns;
+    assert(futurePublish.success === true, 'a future message makes the personally hidden conversation visible again');
+
+    const visibleHistory = await requestJsonViaRest(
+      `${chatMessagesUrl}?room_id=${temporaryGroupRoomId}&limit=60`,
+      groupSessions[0],
+      {},
+      'GET',
+    );
+    const visibleMessageIds = (visibleHistory.result?.data?.messages || []).map((message) => Number(message.id));
+    assert(
+      visibleHistory.ok
+        && visibleMessageIds.includes(Number(futureMessage.id))
+        && !visibleMessageIds.includes(Number(temporaryMessage.id)),
+      'restored conversations expose future messages without restoring hidden or deleted history',
+    );
 
     await pool.query('DELETE FROM forum_chat_rooms WHERE id = ?', [temporaryGroupRoomId]);
     temporaryGroupRoomId = 0;
@@ -743,6 +977,9 @@ async function main() {
     sessions.forEach(destroyGraduateSession);
     if (temporaryGroupRoomId > 0) {
       await pool.query('DELETE FROM forum_chat_rooms WHERE id = ?', [temporaryGroupRoomId]);
+    }
+    if (temporaryForumPostId > 0) {
+      await pool.query('DELETE FROM forum_posts WHERE id = ?', [temporaryForumPostId]);
     }
     await pool.end();
   }

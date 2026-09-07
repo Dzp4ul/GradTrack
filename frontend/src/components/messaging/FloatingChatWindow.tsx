@@ -37,6 +37,7 @@ interface FloatingChatWindowProps {
   onTypingStop: () => void;
   onSend: (event?: FormEvent<HTMLFormElement>) => void;
   onRetryMessage: (message: MessagingMessage) => void;
+  onDeleteMessage: (message: MessagingMessage) => void;
   onLoadOlder: () => Promise<void> | void;
   onNearBottomChange: (nearBottom: boolean) => void;
   onScrollToNewest: () => void;
@@ -68,6 +69,7 @@ export default function FloatingChatWindow({
   onTypingStop,
   onSend,
   onRetryMessage,
+  onDeleteMessage,
   onLoadOlder,
   onNearBottomChange,
   onScrollToNewest,
@@ -138,6 +140,7 @@ export default function FloatingChatWindow({
           newMessageAvailable={newMessageAvailable}
           resolveAssetUrl={resolveAssetUrl}
           onRetryMessage={onRetryMessage}
+          onDeleteMessage={onDeleteMessage}
           onLoadOlder={onLoadOlder}
           onNearBottomChange={onNearBottomChange}
           onScrollToNewest={onScrollToNewest}

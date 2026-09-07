@@ -14,12 +14,14 @@ import {
   Info,
   LogOut,
   Loader2,
+  MoreHorizontal,
   Paperclip,
   Plus,
   RefreshCw,
   Search,
   Send,
   Smile,
+  Trash2,
   Upload,
   UserPlus,
   Users,
@@ -70,6 +72,7 @@ interface RealtimeMessagingWorkspaceProps {
   onTypingStop: () => void;
   onSend: (event?: FormEvent<HTMLFormElement>) => void;
   onRetryMessage: (message: MessagingMessage) => void;
+  onDeleteMessage: (message: MessagingMessage) => void;
   onLoadOlder: () => Promise<void> | void;
   onNearBottomChange: (nearBottom: boolean) => void;
   onScrollToNewest: () => void;
@@ -86,6 +89,7 @@ interface RealtimeMessagingWorkspaceProps {
   onCloseConversationInfo: () => void;
   onBlockToggle: () => void;
   onLeaveGroup: () => void;
+  onDeleteConversation: () => void;
   onGroupPhotoSelected: (file: File) => void;
   onOpenAddMembers: () => void;
 }
@@ -525,6 +529,7 @@ function MessageBubble({
   showSenderIdentity,
   resolveAssetUrl,
   onRetry,
+  onDelete,
   onImageOpen,
   onOpenProfile,
 }: {
@@ -532,9 +537,20 @@ function MessageBubble({
   showSenderIdentity: boolean;
   resolveAssetUrl: (path?: string | null) => string;
   onRetry: (message: MessagingMessage) => void;
+  onDelete: (message: MessagingMessage) => void;
   onImageOpen: (attachment: MessageAttachment) => void;
   onOpenProfile?: (graduateId?: number | null) => void;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  if (message.is_deleted) {
+    return (
+      <div className={`flex px-4 py-1 ${message.is_mine ? 'justify-end' : 'justify-start'}`}>
+        <p className="rounded-full border border-slate-200 bg-slate-100 px-4 py-2 text-xs italic text-slate-500">
+          This message was deleted
+        </p>
+      </div>
+    );
+  }
   if (message.message_type === 'system') {
     return (
       <div className="flex justify-center px-4 py-2">
@@ -549,6 +565,7 @@ function MessageBubble({
   const attachments = message.attachments || [];
   const hasText = message.message.trim().length > 0;
   const metadataClass = isMine ? 'justify-end text-slate-500' : 'text-slate-400';
+  const canDelete = isMine && message.id > 0 && message.status !== 'sending' && message.status !== 'failed';
 
   const senderLink = !isMine && showSenderIdentity ? (
     <button type="button" onClick={() => onOpenProfile?.(message.graduate_id)} className="mb-1 block text-left text-xs font-bold text-slate-500 transition hover:text-blue-700 dark:text-slate-400 dark:hover:text-blue-300">
@@ -557,13 +574,43 @@ function MessageBubble({
   ) : null;
 
   return (
-    <div className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
+    <div className={`group flex items-center gap-1 ${isMine ? 'justify-end' : 'justify-start'}`}>
       {!isMine && (
         <div className="mr-2 w-10 shrink-0 self-start">
           {showSenderIdentity && (
             <button type="button" onClick={() => onOpenProfile?.(message.graduate_id)} aria-label={`Open ${message.sender_name} mini profile`}>
               <Avatar src={message.sender_profile_image_path} label={message.sender_name} size="sm" resolveAssetUrl={resolveAssetUrl} />
             </button>
+          )}
+        </div>
+      )}
+      {canDelete && (
+        <div className="relative self-center">
+          <button
+            type="button"
+            onClick={() => setMenuOpen((current) => !current)}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full text-slate-400 opacity-100 transition hover:bg-slate-200 hover:text-slate-700 sm:opacity-0 sm:group-hover:opacity-100 sm:focus:opacity-100"
+            aria-label="Message options"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+          >
+            <MoreHorizontal className="h-4 w-4" />
+          </button>
+          {menuOpen && (
+            <div role="menu" className="absolute bottom-9 right-0 z-20 w-40 overflow-hidden rounded-lg border border-slate-200 bg-white p-1 shadow-xl">
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onDelete(message);
+                }}
+                className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-xs font-bold text-rose-700 hover:bg-rose-50"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                Delete Message
+              </button>
+            </div>
           )}
         </div>
       )}
@@ -636,6 +683,7 @@ function MessageList({
   newMessageAvailable,
   resolveAssetUrl,
   onRetryMessage,
+  onDeleteMessage,
   onLoadOlder,
   onNearBottomChange,
   onScrollToNewest,
@@ -651,6 +699,7 @@ function MessageList({
   newMessageAvailable: boolean;
   resolveAssetUrl: (path?: string | null) => string;
   onRetryMessage: (message: MessagingMessage) => void;
+  onDeleteMessage: (message: MessagingMessage) => void;
   onLoadOlder: () => Promise<void> | void;
   onNearBottomChange: (nearBottom: boolean) => void;
   onScrollToNewest: () => void;
@@ -840,7 +889,7 @@ function MessageList({
                   <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-500 shadow-sm">{item.label}</span>
                 </div>
               ) : (
-                <MessageBubble key={item.id} message={item.message} showSenderIdentity={item.showSenderIdentity} resolveAssetUrl={resolveAssetUrl} onRetry={onRetryMessage} onImageOpen={onImageOpen} onOpenProfile={onOpenProfile} />
+                <MessageBubble key={item.id} message={item.message} showSenderIdentity={item.showSenderIdentity} resolveAssetUrl={resolveAssetUrl} onRetry={onRetryMessage} onDelete={onDeleteMessage} onImageOpen={onImageOpen} onOpenProfile={onOpenProfile} />
               ))}
               <TypingIndicator names={typingNames} />
             </div>
@@ -1168,6 +1217,7 @@ function ConversationInfoPanel({
   onOpenProfile,
   onBlockToggle,
   onLeaveGroup,
+  onDeleteConversation,
   onGroupPhotoSelected,
   onOpenAddMembers,
 }: {
@@ -1181,6 +1231,7 @@ function ConversationInfoPanel({
   onOpenProfile?: (graduateId?: number | null) => void;
   onBlockToggle: () => void;
   onLeaveGroup: () => void;
+  onDeleteConversation: () => void;
   onGroupPhotoSelected: (file: File) => void;
   onOpenAddMembers: () => void;
 }) {
@@ -1324,6 +1375,20 @@ function ConversationInfoPanel({
                 )}
               </section>
             )}
+
+            <section className="border-t border-slate-200 pt-4">
+              <button
+                type="button"
+                onClick={onDeleteConversation}
+                disabled={actionLoading}
+                className="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left font-bold text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Trash2 className="h-5 w-5" /> Delete Conversation
+              </button>
+              <p className="px-3 pt-1 text-xs leading-5 text-slate-500">
+                Removes this conversation from your account only. Other participants keep their copy.
+              </p>
+            </section>
           </div>
         )}
       </div>
@@ -1356,6 +1421,7 @@ export default function RealtimeMessagingWorkspace({
   onTypingStop,
   onSend,
   onRetryMessage,
+  onDeleteMessage,
   onLoadOlder,
   onNearBottomChange,
   onScrollToNewest,
@@ -1372,6 +1438,7 @@ export default function RealtimeMessagingWorkspace({
   onCloseConversationInfo,
   onBlockToggle,
   onLeaveGroup,
+  onDeleteConversation,
   onGroupPhotoSelected,
   onOpenAddMembers,
 }: RealtimeMessagingWorkspaceProps) {
@@ -1418,6 +1485,7 @@ export default function RealtimeMessagingWorkspace({
             newMessageAvailable={newMessageAvailable}
             resolveAssetUrl={resolveAssetUrl}
             onRetryMessage={onRetryMessage}
+            onDeleteMessage={onDeleteMessage}
             onLoadOlder={onLoadOlder}
             onNearBottomChange={onNearBottomChange}
             onScrollToNewest={onScrollToNewest}
@@ -1449,6 +1517,7 @@ export default function RealtimeMessagingWorkspace({
               onOpenProfile={onOpenProfile}
               onBlockToggle={onBlockToggle}
               onLeaveGroup={onLeaveGroup}
+              onDeleteConversation={onDeleteConversation}
               onGroupPhotoSelected={onGroupPhotoSelected}
               onOpenAddMembers={onOpenAddMembers}
             />

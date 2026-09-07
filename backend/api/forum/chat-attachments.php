@@ -50,7 +50,10 @@ function gradtrack_chat_attachments_load_authorized(PDO $db, int $attachmentId, 
                            AND m.room_id = a.room_id
                           WHERE a.id = :id
                             AND (
-                                (a.message_id IS NOT NULL AND m.id IS NOT NULL AND m.deleted_at IS NULL)
+                                (a.message_id IS NOT NULL
+                                 AND m.id IS NOT NULL
+                                 AND m.deleted_at IS NULL
+                                 AND m.id > COALESCE(fcm.hidden_before_message_id, 0))
                                 OR (a.message_id IS NULL AND a.uploaded_by = :uploaded_by)
                             )
                           LIMIT 1");

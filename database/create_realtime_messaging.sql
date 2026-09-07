@@ -93,8 +93,18 @@ CALL gradtrack_add_column_if_missing(
 );
 CALL gradtrack_add_column_if_missing(
   'forum_chat_members',
+  'hidden_at',
+  'ALTER TABLE forum_chat_members ADD COLUMN hidden_at DATETIME NULL AFTER last_read_message_id'
+);
+CALL gradtrack_add_column_if_missing(
+  'forum_chat_members',
+  'hidden_before_message_id',
+  'ALTER TABLE forum_chat_members ADD COLUMN hidden_before_message_id INT NULL AFTER hidden_at'
+);
+CALL gradtrack_add_column_if_missing(
+  'forum_chat_members',
   'created_at',
-  'ALTER TABLE forum_chat_members ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER last_read_message_id'
+  'ALTER TABLE forum_chat_members ADD COLUMN created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER hidden_before_message_id'
 );
 CALL gradtrack_add_column_if_missing(
   'forum_chat_members',
@@ -147,6 +157,12 @@ CALL gradtrack_add_index_if_missing(
   'room_id,graduate_id,last_read_message_id',
   0,
   'ALTER TABLE forum_chat_members ADD INDEX idx_forum_chat_members_read_message (room_id, graduate_id, last_read_message_id)'
+);
+CALL gradtrack_add_index_if_missing(
+  'forum_chat_members',
+  'graduate_id,hidden_at,room_id',
+  0,
+  'ALTER TABLE forum_chat_members ADD INDEX idx_forum_chat_members_visibility (graduate_id, hidden_at, room_id)'
 );
 CALL gradtrack_add_index_if_missing(
   'forum_chat_messages',

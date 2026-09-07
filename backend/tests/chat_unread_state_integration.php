@@ -23,7 +23,10 @@ function gradtrack_unread_test_count(PDO $db, int $graduateId, ?int $roomId = nu
                             ON message.room_id = member.room_id
                            AND message.graduate_id <> member.graduate_id
                            AND message.deleted_at IS NULL
-                           AND message.id > COALESCE(member.last_read_message_id, 0)
+                           AND message.id > GREATEST(
+                               COALESCE(member.last_read_message_id, 0),
+                               COALESCE(member.hidden_before_message_id, 0)
+                           )
                           WHERE member.graduate_id = :graduate_id{$roomSql}");
     $params = [':graduate_id' => $graduateId];
     if ($roomId) {
@@ -72,7 +75,10 @@ try {
     $roomIds = array_map(fn(array $room): int => (int) $room['room_id'], $rooms);
     $placeholders = implode(',', array_fill(0, count($roomIds), '?'));
     $resetStmt = $db->prepare("UPDATE forum_chat_members
-                               SET last_read_at = NULL, last_read_message_id = NULL
+                               SET last_read_at = NULL,
+                                   last_read_message_id = NULL,
+                                   hidden_at = NULL,
+                                   hidden_before_message_id = NULL
                                WHERE graduate_id = ? AND room_id IN ({$placeholders})");
     $resetStmt->execute(array_merge([$graduateId], $roomIds));
 
