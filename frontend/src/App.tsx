@@ -35,7 +35,7 @@ import AlumniRegisteredList from './pages/admin/AlumniRegisteredList';
 import AuditTrail from './pages/admin/AuditTrail.jsx';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ProtectedRoute } from './lib/ProtectedRoute';
-import { GraduateAuthProvider } from './contexts/GraduateAuthContext';
+import { GraduateAuthProvider, useGraduateAuth } from './contexts/GraduateAuthContext';
 import { GraduateProtectedRoute } from './lib/GraduateProtectedRoute';
 import { useSystemSettings } from './contexts/SystemSettingsContext';
 
@@ -60,6 +60,29 @@ function PublicPage({ children }: { children: ReactNode }) {
   }
 
   return <>{children}</>;
+}
+
+function HomeRoute() {
+  const { isAuthenticated: isAdminAuthenticated, isLoading: isAdminAuthLoading } = useAuth();
+  const { isAuthenticated: isGraduateAuthenticated, isLoading: isGraduateAuthLoading } = useGraduateAuth();
+
+  if (isAdminAuthLoading || isGraduateAuthLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+        <div className="h-10 w-10 animate-spin rounded-full border-b-2 border-blue-600" />
+      </div>
+    );
+  }
+
+  if (isGraduateAuthenticated) {
+    return <Navigate to="/graduate/portal" replace />;
+  }
+
+  if (isAdminAuthenticated) {
+    return <Navigate to="/admin" replace />;
+  }
+
+  return <PublicPage><HomePage /></PublicPage>;
 }
 
 function AdminHome() {
@@ -99,7 +122,7 @@ function App() {
     <AuthProvider>
       <GraduateAuthProvider>
         <Routes>
-          <Route path="/" element={<PublicPage><HomePage /></PublicPage>} />
+          <Route path="/" element={<HomeRoute />} />
           <Route path="/announcements" element={<PublicPage><PublicAnnouncementsPage /></PublicPage>} />
           <Route path="/announcements/:announcementId" element={<PublicPage><PublicAnnouncementsPage /></PublicPage>} />
           <Route path="/about" element={<PublicPage><AboutPage /></PublicPage>} />

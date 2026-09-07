@@ -1,5 +1,5 @@
 import { FormEvent, useRef, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, LogIn } from 'lucide-react';
 import { useGraduateAuth } from '../contexts/GraduateAuthContext';
 import MessageBox from '../components/MessageBox';
@@ -8,7 +8,7 @@ import MaintenancePage from './MaintenancePage';
 
 export default function GraduateSignIn() {
   const navigate = useNavigate();
-  const { login } = useGraduateAuth();
+  const { login, isAuthenticated, isLoading: authLoading } = useGraduateAuth();
   const { getSetting, isEnabled, isMaintenanceMode, resolveAssetUrl, primaryColor } = useSystemSettings();
 
   const emailInputRef = useRef<HTMLInputElement>(null);
@@ -82,6 +82,18 @@ export default function GraduateSignIn() {
 
   if (isMaintenanceMode) {
     return <MaintenancePage />;
+  }
+
+  if (authLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-50">
+        <div className="h-10 w-10 animate-spin rounded-full border-b-2 border-blue-600" />
+      </div>
+    );
+  }
+
+  if (isAuthenticated) {
+    return <Navigate to="/graduate/portal" replace />;
   }
 
   const loginBackground = resolveAssetUrl(getSetting('login_background_image_path'), '/520382375_1065446909052636_3412465913398569974_n.jpg');
