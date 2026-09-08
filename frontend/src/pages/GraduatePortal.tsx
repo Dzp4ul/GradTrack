@@ -1431,7 +1431,7 @@ export default function GraduatePortal() {
 
       try {
         const response = await authenticatedFetch(`${API_ENDPOINTS.FORUM.CHAT_MESSAGES}?room_id=${roomId}&limit=30`);
-        if (requestId !== roomLoadRequestRef.current) return;
+        if (requestId !== roomLoadRequestRef.current || selectedRoomIdRef.current !== roomId) return;
 
         const serverMessages = Array.isArray(response.data?.messages)
           ? (response.data.messages as ChatMessage[]).map((message) => normalizeChatMessage(message, currentGraduateId))
@@ -1972,6 +1972,10 @@ export default function GraduatePortal() {
   useEffect(() => {
     if (activeTab !== 'messages') return;
 
+    if (temporaryChatRecipientRef.current) {
+      return;
+    }
+
     if (rooms.length === 0) {
       setSelectedRoomId(null);
       setActiveRoom(null);
@@ -1988,7 +1992,7 @@ export default function GraduatePortal() {
 
       return rooms[0].id;
     });
-  }, [activeTab, rooms]);
+  }, [activeTab, rooms, temporaryChatRecipient]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(min-width: 1024px)');
@@ -3114,8 +3118,80 @@ export default function GraduatePortal() {
       return;
     }
 
+    const recipient = directory.find((participant) => participant.graduate_id === graduateId) || null;
+    if (!recipient) {
+      notify('error', 'The selected graduate is unavailable for chat', 'Chats');
+      return;
+    }
+
+    const synchronizedRecipient = mergeKnownPresenceIntoParticipant(recipient, chatPresenceByGraduateRef.current);
+    const knownRoom = rooms.find((room) => (
+      !room.is_group
+      && room.participants.some((participant) => participant.graduate_id === graduateId)
+    )) || null;
+
     directChatOpeningRef.current = true;
     setChatCreating(true);
+    setChatModalSelectedIds([graduateId]);
+    setSelectedPostOpen(false);
+    setChatModalOpen(false);
+    setChatMobileConversationOpen(true);
+    setConversationInfo(null);
+    setConversationInfoOpen(false);
+    selectTab('messages');
+
+    if (knownRoom) {
+      const wasSelectedRoom = selectedRoomIdRef.current === knownRoom.id;
+      temporaryChatRecipientRef.current = null;
+      setTemporaryChatRecipient(null);
+      selectedRoomIdRef.current = knownRoom.id;
+      setSelectedRoomId(knownRoom.id);
+      setActiveRoom(mergeKnownPresenceIntoRoom(knownRoom, chatPresenceByGraduateRef.current));
+      if (!wasSelectedRoom) {
+        roomMessagesRef.current = [];
+        setRoomMessages([]);
+      }
+      setChatProfileIntro(null);
+      setChatProfileIntroLoading(false);
+      chatProfileIntroRequestRef.current += 1;
+      directChatOpeningRef.current = false;
+      setChatCreating(false);
+      void loadRoomMessages(knownRoom.id);
+      return;
+    }
+
+    // Open the temporary composer immediately. The lookup below remains the
+    // authoritative check for a hidden/existing direct conversation.
+    roomLoadRequestRef.current += 1;
+    setRoomLoading(false);
+    temporaryChatRecipientRef.current = synchronizedRecipient;
+    setTemporaryChatRecipient(synchronizedRecipient);
+    selectedRoomIdRef.current = null;
+    setSelectedRoomId(null);
+    setActiveRoom(null);
+    setRoomMessages([]);
+    roomMessagesRef.current = [];
+    setMessagePagination(null);
+
+    const profileRequestId = ++chatProfileIntroRequestRef.current;
+    setChatProfileIntro(null);
+    setChatProfileIntroLoading(true);
+    void loadMiniProfile(graduateId)
+      .then((profile) => {
+        if (profileRequestId === chatProfileIntroRequestRef.current) {
+          setChatProfileIntro(profile);
+        }
+      })
+      .catch(() => {
+        if (profileRequestId === chatProfileIntroRequestRef.current) {
+          setChatProfileIntro(null);
+        }
+      })
+      .finally(() => {
+        if (profileRequestId === chatProfileIntroRequestRef.current) {
+          setChatProfileIntroLoading(false);
+        }
+      });
 
     try {
       const response = await authenticatedFetch(API_ENDPOINTS.FORUM.CHATS, {
@@ -3126,64 +3202,34 @@ export default function GraduatePortal() {
         }),
       });
 
+      if (temporaryChatRecipientRef.current?.graduate_id !== graduateId) {
+        return;
+      }
+
       const roomId = Number(response.room_id || 0);
-      setSelectedPostOpen(false);
-      setChatModalOpen(false);
-      setChatMobileConversationOpen(true);
-      selectTab('messages');
-
-      const profileRequestId = ++chatProfileIntroRequestRef.current;
-      setChatProfileIntro(null);
-      setChatProfileIntroLoading(true);
-      void loadMiniProfile(graduateId)
-        .then((profile) => {
-          if (profileRequestId === chatProfileIntroRequestRef.current) {
-            setChatProfileIntro(profile);
-          }
-        })
-        .catch(() => {
-          if (profileRequestId === chatProfileIntroRequestRef.current) {
-            setChatProfileIntro(null);
-          }
-        })
-        .finally(() => {
-          if (profileRequestId === chatProfileIntroRequestRef.current) {
-            setChatProfileIntroLoading(false);
-          }
-        });
-
       if (roomId > 0) {
         temporaryChatRecipientRef.current = null;
         setTemporaryChatRecipient(null);
         selectedRoomIdRef.current = roomId;
         setSelectedRoomId(roomId);
-        const knownRoom = rooms.find((room) => room.id === roomId) || null;
-        setActiveRoom(knownRoom ? mergeKnownPresenceIntoRoom(knownRoom, chatPresenceByGraduateRef.current) : null);
+        const resolvedRoom = rooms.find((room) => room.id === roomId) || null;
+        setActiveRoom(resolvedRoom ? mergeKnownPresenceIntoRoom(resolvedRoom, chatPresenceByGraduateRef.current) : null);
         setRoomMessages([]);
         roomMessagesRef.current = [];
+        setChatProfileIntro(null);
+        setChatProfileIntroLoading(false);
+        chatProfileIntroRequestRef.current += 1;
         await Promise.all([loadChats(), loadRoomMessages(roomId)]);
       } else {
-        const recipient = (response.recipient as ChatParticipant | undefined)
-          || directory.find((participant) => participant.graduate_id === graduateId)
-          || null;
-        if (!recipient) {
-          throw new Error('The selected graduate is unavailable for chat');
-        }
-
-        const synchronizedRecipient = mergeKnownPresenceIntoParticipant(recipient, chatPresenceByGraduateRef.current);
-        temporaryChatRecipientRef.current = synchronizedRecipient;
-        setTemporaryChatRecipient(synchronizedRecipient);
-        selectedRoomIdRef.current = null;
-        setSelectedRoomId(null);
-        setActiveRoom(null);
-        setRoomMessages([]);
-        roomMessagesRef.current = [];
-        setMessagePagination(null);
-        setConversationInfo(null);
-        setConversationInfoOpen(false);
+        const confirmedRecipient = (response.recipient as ChatParticipant | undefined) || synchronizedRecipient;
+        const synchronizedConfirmedRecipient = mergeKnownPresenceIntoParticipant(confirmedRecipient, chatPresenceByGraduateRef.current);
+        temporaryChatRecipientRef.current = synchronizedConfirmedRecipient;
+        setTemporaryChatRecipient(synchronizedConfirmedRecipient);
       }
     } catch (error) {
-      notify('error', error instanceof Error ? error.message : 'Unable to start direct chat', 'Chats');
+      if (temporaryChatRecipientRef.current?.graduate_id === graduateId) {
+        notify('error', error instanceof Error ? error.message : 'Unable to start direct chat', 'Chats');
+      }
     } finally {
       directChatOpeningRef.current = false;
       setChatCreating(false);
@@ -5759,23 +5805,44 @@ export default function GraduatePortal() {
                       }
                     };
 
+                    const participantSummary = (
+                      <>
+                        <Avatar src={resolveAssetUrl(participant.profile_image_path)} label={participant.full_name} size="sm" />
+                        <span className="min-w-0">
+                          <span className="block truncate font-semibold text-slate-900 transition group-hover:text-blue-700">{participant.full_name}</span>
+                          <span className="block text-xs text-slate-500">
+                            {participant.program_code || 'Graduate'}{participant.year_graduated ? ` - Batch ${participant.year_graduated}` : ''}
+                          </span>
+                        </span>
+                      </>
+                    );
+
+                    if (chatModalMode === 'direct') {
+                      return (
+                        <button
+                          key={participant.graduate_id}
+                          type="button"
+                          disabled={chatCreating}
+                          onClick={toggleParticipant}
+                          className="group flex w-full items-center gap-3 rounded-2xl border border-slate-200 px-4 py-3 text-left transition hover:border-blue-200 hover:bg-blue-50 focus-visible:border-blue-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 disabled:cursor-wait disabled:opacity-60"
+                          aria-label={`Open conversation with ${participant.full_name}`}
+                        >
+                          {participantSummary}
+                        </button>
+                      );
+                    }
+
                     return (
                       <div key={participant.graduate_id} className={`flex items-center gap-3 rounded-2xl border px-4 py-3 transition ${selected ? 'border-blue-200 bg-blue-50' : 'border-slate-200 hover:bg-slate-50'}`}>
                         <input
-                          type={chatModalMode === 'group' ? 'checkbox' : 'radio'}
+                          type="checkbox"
                           name="chat_participant"
                           checked={selected}
                           disabled={chatCreating}
                           onChange={toggleParticipant}
                         />
-                        <button type="button" disabled={chatCreating} onClick={toggleParticipant} className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:cursor-wait">
-                          <Avatar src={resolveAssetUrl(participant.profile_image_path)} label={participant.full_name} size="sm" />
-                          <span className="min-w-0">
-                            <span className="block truncate font-semibold text-slate-900 transition hover:text-blue-700">{participant.full_name}</span>
-                            <span className="block text-xs text-slate-500">
-                              {participant.program_code || 'Graduate'}{participant.year_graduated ? ` - Batch ${participant.year_graduated}` : ''}
-                            </span>
-                          </span>
+                        <button type="button" disabled={chatCreating} onClick={toggleParticipant} className="group flex min-w-0 flex-1 items-center gap-3 text-left disabled:cursor-wait">
+                          {participantSummary}
                         </button>
                       </div>
                     );
