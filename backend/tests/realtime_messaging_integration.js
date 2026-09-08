@@ -338,6 +338,7 @@ async function main() {
   const sockets = [];
   let server;
   let serverOutput = '';
+  let temporaryDirectRoomId = 0;
   let temporaryGroupRoomId = 0;
   let temporaryForumPostId = 0;
 
@@ -375,6 +376,153 @@ async function main() {
     sockets.push(sender, recipient);
     await recipientOnline;
     assert(true, 'a participant receives the other participant online transition immediately');
+
+    const [newPairRows] = await pool.query(
+      `SELECT first_account.id AS first_account_id,
+              first_account.graduate_id AS first_graduate_id,
+              second_account.id AS second_account_id,
+              second_account.graduate_id AS second_graduate_id
+         FROM graduate_accounts first_account
+         JOIN graduates first_graduate
+           ON first_graduate.id = first_account.graduate_id
+          AND first_graduate.status = 'active'
+         JOIN graduate_accounts second_account
+           ON second_account.id > first_account.id
+          AND second_account.status = 'active'
+          AND second_account.alumni_verification_status = 'approved'
+         JOIN graduates second_graduate
+           ON second_graduate.id = second_account.graduate_id
+          AND second_graduate.status = 'active'
+        WHERE first_account.status = 'active'
+          AND first_account.alumni_verification_status = 'approved'
+          AND NOT EXISTS (
+            SELECT 1
+              FROM forum_chat_rooms direct_room
+              JOIN forum_chat_members first_member
+                ON first_member.room_id = direct_room.id
+               AND first_member.graduate_id = first_account.graduate_id
+              JOIN forum_chat_members second_member
+                ON second_member.room_id = direct_room.id
+               AND second_member.graduate_id = second_account.graduate_id
+             WHERE direct_room.is_group = 0
+          )
+          AND NOT EXISTS (
+            SELECT 1
+              FROM forum_chat_blocks block_row
+             WHERE (block_row.blocker_id = first_account.graduate_id AND block_row.blocked_id = second_account.graduate_id)
+                OR (block_row.blocker_id = second_account.graduate_id AND block_row.blocked_id = first_account.graduate_id)
+          )
+        ORDER BY first_account.id, second_account.id
+        LIMIT 1`,
+    );
+
+    if (newPairRows.length > 0) {
+      const newPair = newPairRows[0];
+      const firstDirectSession = createGraduateSession(newPair.first_account_id);
+      const secondDirectSession = createGraduateSession(newPair.second_account_id);
+      sessions.push(firstDirectSession, secondDirectSession);
+      const firstDirectSocket = await connectSocket(firstDirectSession);
+      const secondDirectSocket = await connectSocket(secondDirectSession);
+      sockets.push(firstDirectSocket, secondDirectSocket);
+
+      const [[beforeSelectionCount]] = await pool.query(
+        `SELECT COUNT(*) AS total
+           FROM forum_chat_rooms room
+           JOIN forum_chat_members first_member
+             ON first_member.room_id = room.id
+            AND first_member.graduate_id = ?
+           JOIN forum_chat_members second_member
+             ON second_member.room_id = room.id
+            AND second_member.graduate_id = ?
+          WHERE room.is_group = 0`,
+        [newPair.first_graduate_id, newPair.second_graduate_id],
+      );
+      const directSelection = await requestJsonViaRest(chatsUrl, firstDirectSession, {
+        is_group: false,
+        participant_ids: [Number(newPair.second_graduate_id)],
+      });
+      const [[afterSelectionCount]] = await pool.query(
+        `SELECT COUNT(*) AS total
+           FROM forum_chat_rooms room
+           JOIN forum_chat_members first_member
+             ON first_member.room_id = room.id
+            AND first_member.graduate_id = ?
+           JOIN forum_chat_members second_member
+             ON second_member.room_id = room.id
+            AND second_member.graduate_id = ?
+          WHERE room.is_group = 0`,
+        [newPair.first_graduate_id, newPair.second_graduate_id],
+      );
+      assert(
+        directSelection.ok
+          && directSelection.result?.temporary === true
+          && !directSelection.result?.room_id
+          && Number(afterSelectionCount.total) === Number(beforeSelectionCount.total),
+        'selecting a new direct recipient opens a temporary composer without creating a room or participant rows',
+      );
+
+      const firstClientMessageId = `first-direct-${crypto.randomUUID()}`;
+      const secondClientMessageId = `second-direct-${crypto.randomUUID()}`;
+      const [firstSend, secondSend] = await Promise.all([
+        requestJsonViaRest(chatMessagesUrl, firstDirectSession, {
+          recipient_id: Number(newPair.second_graduate_id),
+          message: 'First simultaneous direct message',
+          client_message_id: firstClientMessageId,
+          attachment_ids: [],
+        }),
+        requestJsonViaRest(chatMessagesUrl, secondDirectSession, {
+          recipient_id: Number(newPair.first_graduate_id),
+          message: 'Second simultaneous direct message',
+          client_message_id: secondClientMessageId,
+          attachment_ids: [],
+        }),
+      ]);
+      const firstSavedMessage = firstSend.result?.data?.message;
+      const secondSavedMessage = secondSend.result?.data?.message;
+      temporaryDirectRoomId = Number(firstSavedMessage?.room_id || 0);
+      const [[pairCount]] = await pool.query(
+        'SELECT COUNT(*) AS total FROM forum_chat_rooms WHERE direct_pair_key = ?',
+        [`${Math.min(newPair.first_graduate_id, newPair.second_graduate_id)}:${Math.max(newPair.first_graduate_id, newPair.second_graduate_id)}`],
+      );
+      assert(
+        firstSend.ok
+          && secondSend.ok
+          && temporaryDirectRoomId > 0
+          && Number(secondSavedMessage?.room_id) === temporaryDirectRoomId
+          && Number(pairCount.total) === 1,
+        `simultaneous first-message requests resolve to one database-enforced direct conversation (${firstSend.status}/${secondSend.status}: ${firstSend.result?.error || 'ok'}; ${secondSend.result?.error || 'ok'})`,
+      );
+
+      const reopenExisting = await requestJsonViaRest(chatsUrl, firstDirectSession, {
+        is_group: false,
+        participant_ids: [Number(newPair.second_graduate_id)],
+      });
+      assert(
+        reopenExisting.ok
+          && reopenExisting.result?.temporary === false
+          && Number(reopenExisting.result?.room_id) === temporaryDirectRoomId,
+        'selecting the same recipient again reopens the existing direct conversation instead of creating a duplicate',
+      );
+
+      const firstConversationUpdate = waitForEvent(
+        firstDirectSocket,
+        'conversation:updated',
+        (payload) => Number(payload?.conversation?.id) === temporaryDirectRoomId,
+      );
+      const secondConversationUpdate = waitForEvent(
+        secondDirectSocket,
+        'conversation:updated',
+        (payload) => Number(payload?.conversation?.id) === temporaryDirectRoomId,
+      );
+      const firstPublish = await emitWithAck(firstDirectSocket, 'message:publish', {
+        room_id: temporaryDirectRoomId,
+        message_id: Number(firstSavedMessage.id),
+      });
+      await Promise.all([firstConversationUpdate, secondConversationUpdate]);
+      assert(firstPublish.success === true, 'the first persisted direct conversation reaches both users through the existing realtime update channel');
+    } else {
+      console.log('SKIP: every active approved graduate pair already has a direct conversation');
+    }
 
     const presenceSnapshot = await emitWithAck(sender, 'presence:sync', {});
     const recipientPresence = presenceSnapshot.users?.find(
@@ -975,6 +1123,9 @@ async function main() {
     sockets.forEach((socket) => socket.close());
     if (server && server.exitCode === null) server.kill();
     sessions.forEach(destroyGraduateSession);
+    if (temporaryDirectRoomId > 0) {
+      await pool.query('DELETE FROM forum_chat_rooms WHERE id = ?', [temporaryDirectRoomId]);
+    }
     if (temporaryGroupRoomId > 0) {
       await pool.query('DELETE FROM forum_chat_rooms WHERE id = ?', [temporaryGroupRoomId]);
     }

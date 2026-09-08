@@ -12,7 +12,7 @@ export interface MessagingParticipant {
 export interface MessageAttachment {
   id: number;
   message_id?: number | null;
-  room_id: number;
+  room_id: number | null;
   original_name: string;
   stored_name: string;
   mime_type: string;

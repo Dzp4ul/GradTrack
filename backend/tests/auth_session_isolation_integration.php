@@ -8,6 +8,7 @@ $failures = 0;
 $sessionIds = [];
 $baseUrl = rtrim((string) (getenv('GRADTRACK_AUTH_TEST_URL') ?: 'http://localhost/GradTrack/backend/api'), '/');
 $cookieName = gradtrack_session_cookie_name();
+$authIsolationCsrfTokens = [];
 
 function auth_isolation_assert(bool $condition, string $message): void
 {
@@ -45,13 +46,32 @@ function auth_isolation_request(
     ?array $jsonBody = null
 ): array
 {
-    global $cookieName;
+    global $baseUrl, $cookieName, $authIsolationCsrfTokens;
     $headers = ['Accept: application/json', 'Origin: http://localhost:5173'];
     if ($sessionId !== null) {
         $headers[] = 'Cookie: ' . $cookieName . '=' . rawurlencode($sessionId);
     }
     if ($jsonBody !== null) {
         $headers[] = 'Content-Type: application/json';
+    }
+    if (!in_array($method, ['GET', 'HEAD'], true) && $sessionId !== null) {
+        if (!isset($authIsolationCsrfTokens[$sessionId])) {
+            $csrfHeaders = [
+                'Accept: application/json',
+                'Origin: http://localhost:5173',
+                'Cookie: ' . $cookieName . '=' . rawurlencode($sessionId),
+            ];
+            $csrfContext = stream_context_create(['http' => [
+                'method' => 'GET',
+                'header' => implode("\r\n", $csrfHeaders),
+                'ignore_errors' => true,
+                'timeout' => 30,
+            ]]);
+            $csrfBody = @file_get_contents($baseUrl . '/csrf.php', false, $csrfContext);
+            $csrfJson = is_string($csrfBody) ? json_decode($csrfBody, true) : null;
+            $authIsolationCsrfTokens[$sessionId] = (string) ($csrfJson['csrf_token'] ?? '');
+        }
+        $headers[] = 'X-CSRF-Token: ' . $authIsolationCsrfTokens[$sessionId];
     }
 
     $context = stream_context_create([

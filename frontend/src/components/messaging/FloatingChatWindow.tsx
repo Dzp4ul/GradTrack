@@ -132,6 +132,7 @@ export default function FloatingChatWindow({
         </header>
         <MessageList
           room={room}
+          currentGraduateId={currentGraduateId}
           messages={messages}
           loading={loading}
           loadingOlder={loadingOlder}

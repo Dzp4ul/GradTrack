@@ -155,6 +155,72 @@ function gradtrack_forum_chat_messages_attachment_client_id(string $clientMessag
     return 'split:' . hash('sha256', $clientMessageId . $suffix);
 }
 
+final class GradtrackChatMessageRequestException extends RuntimeException
+{
+    public function __construct(private readonly int $statusCode, string $message)
+    {
+        parent::__construct($message);
+    }
+
+    public function getStatusCode(): int
+    {
+        return $this->statusCode;
+    }
+}
+
+function gradtrack_forum_chat_messages_request_error(int $statusCode, string $message): never
+{
+    throw new GradtrackChatMessageRequestException($statusCode, $message);
+}
+
+function gradtrack_forum_chat_messages_is_retryable_transaction_error(PDOException $error): bool
+{
+    $driverCode = isset($error->errorInfo[1]) ? (int) $error->errorInfo[1] : 0;
+    return in_array($error->getCode(), ['23000', '40001'], true)
+        || in_array($driverCode, [1062, 1205, 1213], true);
+}
+
+function gradtrack_forum_chat_messages_insert_with_retry(
+    PDO $db,
+    int $roomId,
+    int $currentGraduateId,
+    string $message,
+    string $clientMessageId,
+    array $attachmentIds,
+    ?int $recipientGraduateId = null,
+    int $maximumAttempts = 3
+): array {
+    $attempt = 0;
+    do {
+        $attempt++;
+        try {
+            return gradtrack_forum_chat_messages_insert(
+                $db,
+                $roomId,
+                $currentGraduateId,
+                $message,
+                $clientMessageId,
+                $attachmentIds,
+                $recipientGraduateId
+            );
+        } catch (PDOException $error) {
+            if (
+                $roomId > 0
+                || $attempt >= $maximumAttempts
+                || !gradtrack_forum_chat_messages_is_retryable_transaction_error($error)
+            ) {
+                throw $error;
+            }
+            if ($db->inTransaction()) {
+                $db->rollBack();
+            }
+            usleep(random_int(20000, 80000));
+        }
+    } while ($attempt < $maximumAttempts);
+
+    throw new RuntimeException('Unable to resolve the direct conversation');
+}
+
 function gradtrack_forum_chat_messages_fetch_client_batch(PDO $db, int $roomId, int $currentGraduateId, string $clientMessageId): array
 {
     $attachmentClientMessageId = gradtrack_forum_chat_messages_attachment_client_id($clientMessageId);
@@ -192,18 +258,20 @@ function gradtrack_forum_chat_messages_fetch_client_batch(PDO $db, int $roomId, 
     return $messages;
 }
 
-function gradtrack_forum_chat_messages_insert(PDO $db, int $roomId, int $currentGraduateId, string $message, string $clientMessageId, array $attachmentIds): array
+function gradtrack_forum_chat_messages_insert(
+    PDO $db,
+    int $roomId,
+    int $currentGraduateId,
+    string $message,
+    string $clientMessageId,
+    array $attachmentIds,
+    ?int $recipientGraduateId = null
+): array
 {
-    try {
-        gradtrack_chat_assert_message_allowed($db, $roomId, $currentGraduateId);
-    } catch (DomainException $e) {
-        gradtrack_forum_chat_messages_json_error(403, $e->getMessage());
-    }
-
     $message = gradtrack_chat_normalize_message($message);
     $messageLength = function_exists('mb_strlen') ? mb_strlen($message, 'UTF-8') : strlen($message);
     if ($messageLength > 5000) {
-        gradtrack_forum_chat_messages_json_error(400, 'Message is too long');
+        gradtrack_forum_chat_messages_request_error(400, 'Message is too long');
     }
 
     $attachmentIds = array_values(array_unique(array_filter(array_map('intval', $attachmentIds), function ($id) {
@@ -211,69 +279,11 @@ function gradtrack_forum_chat_messages_insert(PDO $db, int $roomId, int $current
     })));
 
     if ($message === '' && count($attachmentIds) === 0) {
-        gradtrack_forum_chat_messages_json_error(400, 'Message or attachment is required');
+        gradtrack_forum_chat_messages_request_error(400, 'Message or attachment is required');
     }
 
     if ($clientMessageId === '' || strlen($clientMessageId) > 80 || !preg_match('/^[a-zA-Z0-9._:-]+$/', $clientMessageId)) {
-        gradtrack_forum_chat_messages_json_error(400, 'Valid client_message_id is required');
-    }
-
-    $existingMessages = gradtrack_forum_chat_messages_fetch_client_batch($db, $roomId, $currentGraduateId, $clientMessageId);
-    if (count($existingMessages) > 0) {
-        return $existingMessages;
-    }
-
-    $attachmentType = null;
-    $attachmentRows = [];
-    if (count($attachmentIds) > 0) {
-        $params = [
-            ':room_id' => $roomId,
-            ':uploaded_by' => $currentGraduateId,
-        ];
-        $placeholders = gradtrack_chat_placeholders($attachmentIds, 'attachment_id', $params);
-        $attachmentStmt = $db->prepare("SELECT id, attachment_type, storage_path, stored_name
-                                        FROM forum_chat_message_attachments
-                                        WHERE id IN ($placeholders)
-                                          AND room_id = :room_id
-                                          AND uploaded_by = :uploaded_by
-                                          AND message_id IS NULL");
-        $attachmentStmt->execute($params);
-        $attachmentRows = $attachmentStmt->fetchAll(PDO::FETCH_ASSOC);
-
-        if (count($attachmentRows) !== count($attachmentIds)) {
-            gradtrack_forum_chat_messages_json_error(400, 'One or more attachments are unavailable');
-        }
-
-        $types = array_values(array_unique(array_map(function ($row) {
-            return (string) $row['attachment_type'];
-        }, $attachmentRows)));
-        $attachmentType = count($types) === 1 ? $types[0] : 'mixed';
-    }
-
-    $hasAttachments = count($attachmentIds) > 0;
-    $attachmentMessageType = $attachmentType === 'image' ? 'image' : 'file';
-    $messageSpecs = [];
-
-    if ($message !== '' && $hasAttachments) {
-        $messageSpecs[] = [
-            'message' => $message,
-            'message_type' => 'text',
-            'client_message_id' => $clientMessageId,
-            'attachment_ids' => [],
-        ];
-        $messageSpecs[] = [
-            'message' => null,
-            'message_type' => $attachmentMessageType,
-            'client_message_id' => gradtrack_forum_chat_messages_attachment_client_id($clientMessageId),
-            'attachment_ids' => $attachmentIds,
-        ];
-    } else {
-        $messageSpecs[] = [
-            'message' => $message !== '' ? $message : null,
-            'message_type' => $hasAttachments ? $attachmentMessageType : 'text',
-            'client_message_id' => $clientMessageId,
-            'attachment_ids' => $attachmentIds,
-        ];
+        gradtrack_forum_chat_messages_request_error(400, 'Valid client_message_id is required');
     }
 
     $ownsTransaction = !$db->inTransaction();
@@ -283,8 +293,104 @@ function gradtrack_forum_chat_messages_insert(PDO $db, int $roomId, int $current
     $messageIds = [];
     $storagePromotions = [];
 
-    if ($ownsTransaction && gradtrack_storage_uses_s3() && !empty($attachmentRows)) {
+    try {
+        if ($roomId <= 0) {
+            if (!$recipientGraduateId) {
+                gradtrack_forum_chat_messages_request_error(400, 'recipient_id is required for a new direct message');
+            }
+            try {
+                $resolution = gradtrack_chat_resolve_direct_room($db, $currentGraduateId, $recipientGraduateId);
+                $roomId = (int) $resolution['room_id'];
+            } catch (InvalidArgumentException $error) {
+                gradtrack_forum_chat_messages_request_error(400, $error->getMessage());
+            } catch (OutOfBoundsException $error) {
+                gradtrack_forum_chat_messages_request_error(404, $error->getMessage());
+            }
+        }
+
         try {
+            gradtrack_chat_assert_message_allowed($db, $roomId, $currentGraduateId);
+        } catch (DomainException $error) {
+            gradtrack_forum_chat_messages_request_error(403, $error->getMessage());
+        } catch (RuntimeException $error) {
+            gradtrack_forum_chat_messages_request_error(404, 'Chat room not found');
+        }
+
+        $existingMessages = gradtrack_forum_chat_messages_fetch_client_batch($db, $roomId, $currentGraduateId, $clientMessageId);
+        if (count($existingMessages) > 0) {
+            if ($ownsTransaction) {
+                $db->commit();
+            }
+            return $existingMessages;
+        }
+
+        $attachmentType = null;
+        $attachmentRows = [];
+        if (count($attachmentIds) > 0) {
+            $params = [
+                ':room_id' => $roomId,
+                ':uploaded_by' => $currentGraduateId,
+            ];
+            $placeholders = gradtrack_chat_placeholders($attachmentIds, 'attachment_id', $params);
+            $attachmentStmt = $db->prepare("SELECT id, attachment_type, storage_path, stored_name
+                                            FROM forum_chat_message_attachments
+                                            WHERE id IN ($placeholders)
+                                              AND (room_id = :room_id OR room_id IS NULL)
+                                              AND uploaded_by = :uploaded_by
+                                              AND message_id IS NULL
+                                            FOR UPDATE");
+            $attachmentStmt->execute($params);
+            $attachmentRows = $attachmentStmt->fetchAll(PDO::FETCH_ASSOC);
+
+            if (count($attachmentRows) !== count($attachmentIds)) {
+                gradtrack_forum_chat_messages_request_error(400, 'One or more attachments are unavailable');
+            }
+
+            $claimParams = [
+                ':room_id' => $roomId,
+                ':uploaded_by' => $currentGraduateId,
+            ];
+            $claimPlaceholders = gradtrack_chat_placeholders($attachmentIds, 'staged_attachment_id', $claimParams);
+            $claimStmt = $db->prepare("UPDATE forum_chat_message_attachments
+                                       SET room_id = :room_id
+                                       WHERE id IN ($claimPlaceholders)
+                                         AND uploaded_by = :uploaded_by
+                                         AND message_id IS NULL
+                                         AND room_id IS NULL");
+            $claimStmt->execute($claimParams);
+
+            $types = array_values(array_unique(array_map(static function ($row) {
+                return (string) $row['attachment_type'];
+            }, $attachmentRows)));
+            $attachmentType = count($types) === 1 ? $types[0] : 'mixed';
+        }
+
+        $hasAttachments = count($attachmentIds) > 0;
+        $attachmentMessageType = $attachmentType === 'image' ? 'image' : 'file';
+        $messageSpecs = [];
+        if ($message !== '' && $hasAttachments) {
+            $messageSpecs[] = [
+                'message' => $message,
+                'message_type' => 'text',
+                'client_message_id' => $clientMessageId,
+                'attachment_ids' => [],
+            ];
+            $messageSpecs[] = [
+                'message' => null,
+                'message_type' => $attachmentMessageType,
+                'client_message_id' => gradtrack_forum_chat_messages_attachment_client_id($clientMessageId),
+                'attachment_ids' => $attachmentIds,
+            ];
+        } else {
+            $messageSpecs[] = [
+                'message' => $message !== '' ? $message : null,
+                'message_type' => $hasAttachments ? $attachmentMessageType : 'text',
+                'client_message_id' => $clientMessageId,
+                'attachment_ids' => $attachmentIds,
+            ];
+        }
+
+        if ($ownsTransaction && gradtrack_storage_uses_s3() && !empty($attachmentRows)) {
             foreach ($attachmentRows as $attachmentRow) {
                 $sourceReference = (string) ($attachmentRow['storage_path'] ?? '');
                 if (strpos($sourceReference, 'staging/chat/') !== 0) {
@@ -299,18 +405,8 @@ function gradtrack_forum_chat_messages_insert(PDO $db, int $roomId, int $current
                     'destination' => $destinationReference,
                 ];
             }
-        } catch (Throwable $promotionError) {
-            foreach ($storagePromotions as $promotion) {
-                gradtrack_storage_delete_quietly($promotion['destination']);
-            }
-            if ($ownsTransaction && $db->inTransaction()) {
-                $db->rollBack();
-            }
-            throw $promotionError;
         }
-    }
 
-    try {
         if (!empty($storagePromotions)) {
             $updateStorageStmt = $db->prepare("UPDATE forum_chat_message_attachments
                                                SET storage_path = :storage_path
@@ -369,6 +465,8 @@ function gradtrack_forum_chat_messages_insert(PDO $db, int $roomId, int $current
 
         $updateRoomStmt = $db->prepare('UPDATE forum_chat_rooms SET last_message_at = NOW(), updated_at = NOW() WHERE id = :room_id');
         $updateRoomStmt->execute([':room_id' => $roomId]);
+        $db->prepare('UPDATE forum_chat_members SET hidden_at = NULL WHERE room_id = :room_id')
+            ->execute([':room_id' => $roomId]);
 
         if ($ownsTransaction) {
             $db->commit();
@@ -380,7 +478,7 @@ function gradtrack_forum_chat_messages_insert(PDO $db, int $roomId, int $current
         foreach ($storagePromotions as $promotion) {
             gradtrack_storage_delete_quietly($promotion['destination']);
         }
-        if ($e instanceof PDOException && $e->getCode() === '23000') {
+        if ($e instanceof PDOException && $e->getCode() === '23000' && $roomId > 0) {
             $duplicateMessages = gradtrack_forum_chat_messages_fetch_client_batch($db, $roomId, $currentGraduateId, $clientMessageId);
             if (count($duplicateMessages) > 0) {
                 return $duplicateMessages;
@@ -599,18 +697,17 @@ try {
     if ($method === 'POST') {
         $data = gradtrack_forum_chat_messages_request_data();
         $roomId = isset($data['room_id']) ? (int) $data['room_id'] : 0;
+        $recipientGraduateId = isset($data['recipient_id']) ? (int) $data['recipient_id'] : 0;
         $message = gradtrack_forum_clean_text($data['message'] ?? '');
         $clientMessageId = gradtrack_forum_clean_text($data['client_message_id'] ?? '');
         $attachmentIds = (array) ($data['attachment_ids'] ?? []);
         $action = gradtrack_forum_clean_text($data['action'] ?? 'send');
 
-        if ($roomId <= 0) {
-            gradtrack_forum_chat_messages_json_error(400, 'room_id is required');
-        }
-
-        gradtrack_forum_chat_messages_room_context($db, $roomId, $currentGraduateId);
-
         if ($action === 'read') {
+            if ($roomId <= 0) {
+                gradtrack_forum_chat_messages_json_error(400, 'room_id is required');
+            }
+            gradtrack_forum_chat_messages_room_context($db, $roomId, $currentGraduateId);
             $readRows = gradtrack_forum_chat_messages_mark_read($db, $roomId, $currentGraduateId, (int) ($data['up_to_message_id'] ?? 0));
 
             echo json_encode([
@@ -623,8 +720,25 @@ try {
             exit;
         }
 
-        $savedMessages = gradtrack_forum_chat_messages_insert($db, $roomId, $currentGraduateId, $message, $clientMessageId, $attachmentIds);
+        if ($roomId <= 0 && $recipientGraduateId <= 0) {
+            gradtrack_forum_chat_messages_json_error(400, 'room_id or recipient_id is required');
+        }
+        if ($roomId > 0) {
+            gradtrack_forum_chat_messages_room_context($db, $roomId, $currentGraduateId);
+        }
+
+        $savedMessages = gradtrack_forum_chat_messages_insert_with_retry(
+            $db,
+            $roomId,
+            $currentGraduateId,
+            $message,
+            $clientMessageId,
+            $attachmentIds,
+            $recipientGraduateId > 0 ? $recipientGraduateId : null
+        );
         $savedMessage = $savedMessages[count($savedMessages) - 1];
+        $resolvedRoomId = (int) $savedMessage['room_id'];
+        $conversation = gradtrack_chat_conversation_for_viewer($db, $resolvedRoomId, $currentGraduateId);
 
         echo json_encode([
             'success' => true,
@@ -633,6 +747,7 @@ try {
             'data' => [
                 'message' => $savedMessage,
                 'messages' => $savedMessages,
+                'conversation' => $conversation,
             ],
         ]);
         exit;
@@ -651,6 +766,8 @@ try {
     }
 
     gradtrack_forum_chat_messages_json_error(405, 'Method not allowed');
+} catch (GradtrackChatMessageRequestException $e) {
+    gradtrack_forum_chat_messages_json_error($e->getStatusCode(), $e->getMessage());
 } catch (Throwable $e) {
     error_log('GradTrack chat messages API error: ' . $e->getMessage());
     gradtrack_forum_chat_messages_json_error(500, 'Unable to process messages right now');

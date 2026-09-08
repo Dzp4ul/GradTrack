@@ -42,7 +42,7 @@ function gradtrack_chat_attachments_load_authorized(PDO $db, int $attachmentId, 
     $stmt = $db->prepare("SELECT a.id, a.room_id, a.message_id, a.uploaded_by, a.original_name, a.stored_name,
                                  a.storage_path, a.mime_type, a.file_size, a.attachment_type, a.created_at
                           FROM forum_chat_message_attachments a
-                          JOIN forum_chat_members fcm
+                          LEFT JOIN forum_chat_members fcm
                             ON fcm.room_id = a.room_id
                            AND fcm.graduate_id = :graduate_id
                           LEFT JOIN forum_chat_messages m
@@ -50,11 +50,13 @@ function gradtrack_chat_attachments_load_authorized(PDO $db, int $attachmentId, 
                            AND m.room_id = a.room_id
                           WHERE a.id = :id
                             AND (
-                                (a.message_id IS NOT NULL
+                                (a.room_id IS NULL AND a.message_id IS NULL AND a.uploaded_by = :uploaded_by)
+                                OR (fcm.room_id IS NOT NULL
+                                 AND a.message_id IS NOT NULL
                                  AND m.id IS NOT NULL
                                  AND m.deleted_at IS NULL
                                  AND m.id > COALESCE(fcm.hidden_before_message_id, 0))
-                                OR (a.message_id IS NULL AND a.uploaded_by = :uploaded_by)
+                                OR (fcm.room_id IS NOT NULL AND a.message_id IS NULL AND a.uploaded_by = :uploaded_by)
                             )
                           LIMIT 1");
     $stmt->execute([
@@ -82,17 +84,25 @@ try {
 
     if ($method === 'POST') {
         $roomId = isset($_POST['room_id']) ? (int) $_POST['room_id'] : 0;
-        if ($roomId <= 0) {
-            gradtrack_chat_attachments_json_error(400, 'room_id is required');
-        }
+        $recipientGraduateId = isset($_POST['recipient_id']) ? (int) $_POST['recipient_id'] : 0;
 
-        try {
-            gradtrack_chat_require_room_member($db, $roomId, $currentGraduateId);
-            gradtrack_chat_assert_message_allowed($db, $roomId, $currentGraduateId);
-        } catch (DomainException $e) {
-            gradtrack_chat_attachments_json_error(403, $e->getMessage());
-        } catch (RuntimeException $e) {
-            gradtrack_chat_attachments_json_error(404, 'Chat room not found');
+        if ($roomId > 0) {
+            try {
+                gradtrack_chat_require_room_member($db, $roomId, $currentGraduateId);
+                gradtrack_chat_assert_message_allowed($db, $roomId, $currentGraduateId);
+            } catch (DomainException $e) {
+                gradtrack_chat_attachments_json_error(403, $e->getMessage());
+            } catch (RuntimeException $e) {
+                gradtrack_chat_attachments_json_error(404, 'Chat room not found');
+            }
+        } else {
+            try {
+                gradtrack_chat_validate_direct_recipient($db, $recipientGraduateId, $currentGraduateId);
+            } catch (InvalidArgumentException $e) {
+                gradtrack_chat_attachments_json_error(400, $e->getMessage());
+            } catch (OutOfBoundsException $e) {
+                gradtrack_chat_attachments_json_error(404, $e->getMessage());
+            }
         }
 
         if (!isset($_FILES['attachment'])) {
@@ -105,10 +115,16 @@ try {
             gradtrack_chat_attachments_json_error(400, $e->getMessage());
         }
         $storedName = gradtrack_storage_uuid_filename($validated['extension']);
+        $storagePrefix = $roomId > 0
+            ? 'staging/chat/rooms/' . $roomId
+            : 'staging/chat/direct/' . $currentGraduateId;
+        $localPath = $roomId > 0
+            ? gradtrack_chat_relative_attachment_path($roomId, $storedName)
+            : 'uploads/chat-attachments/staging/' . $currentGraduateId . '/' . $storedName;
         $storageResult = gradtrack_storage_put_file(
             $validated['tmp_path'],
-            'staging/chat/rooms/' . $roomId . '/' . $storedName,
-            gradtrack_chat_relative_attachment_path($roomId, $storedName),
+            $storagePrefix . '/' . $storedName,
+            $localPath,
             $validated['mime_type'],
             ['category' => 'chat-' . $validated['attachment_type']]
         );
@@ -119,7 +135,7 @@ try {
                 (room_id, uploaded_by, original_name, stored_name, storage_path, mime_type, file_size, attachment_type)
                 VALUES (:room_id, :uploaded_by, :original_name, :stored_name, :storage_path, :mime_type, :file_size, :attachment_type)");
             $stmt->execute([
-                ':room_id' => $roomId,
+                ':room_id' => $roomId > 0 ? $roomId : null,
                 ':uploaded_by' => $currentGraduateId,
                 ':original_name' => $validated['original_name'],
                 ':stored_name' => $storedName,

@@ -12,6 +12,7 @@ $conversationId = 0;
 $otherAdminId = 0;
 $endpoint = getenv('GRADTRACK_GENAI_TEST_URL') ?: 'http://localhost/GradTrack/backend/api/genai/assistant.php';
 $db = (new Database())->getConnection();
+$genaiLiveCsrfTokens = [];
 
 function genai_live_assert(bool $condition, string $message): void
 {
@@ -26,9 +27,11 @@ function genai_live_assert(bool $condition, string $message): void
 
 function genai_live_request(string $endpoint, string $sessionId, string $method, array $payload = [], string $query = ''): array
 {
+    global $genaiLiveCsrfTokens;
     $headers = [
         'Accept: application/json',
         'Cookie: ' . gradtrack_session_cookie_name() . '=' . $sessionId,
+        'Origin: http://localhost:5173',
     ];
     $options = [
         'method' => $method,
@@ -37,7 +40,20 @@ function genai_live_request(string $endpoint, string $sessionId, string $method,
         'timeout' => 60,
     ];
     if ($method === 'POST') {
+        if (!isset($genaiLiveCsrfTokens[$sessionId])) {
+            $csrfEndpoint = preg_replace('~/api/genai/assistant\.php$~', '/api/csrf.php', $endpoint);
+            $csrfContext = stream_context_create(['http' => [
+                'method' => 'GET',
+                'header' => implode("\r\n", $headers),
+                'ignore_errors' => true,
+                'timeout' => 30,
+            ]]);
+            $csrfBody = @file_get_contents((string) $csrfEndpoint, false, $csrfContext);
+            $csrfJson = is_string($csrfBody) ? json_decode($csrfBody, true) : null;
+            $genaiLiveCsrfTokens[$sessionId] = (string) ($csrfJson['csrf_token'] ?? '');
+        }
         $options['header'] .= "\r\nContent-Type: application/json";
+        $options['header'] .= "\r\nX-CSRF-Token: " . $genaiLiveCsrfTokens[$sessionId];
         $options['content'] = json_encode($payload, JSON_UNESCAPED_UNICODE);
     }
     $context = stream_context_create(['http' => $options]);
@@ -129,8 +145,41 @@ try {
         'survey follow-up uses the persisted survey context and current Not Answered count'
     );
 
+    $semanticQuestion = genai_live_request($endpoint, $sessionId, 'POST', [
+        'action' => 'chat',
+        'message' => 'paano mag add ng alumni',
+        'conversation_id' => $conversationId,
+        'page_context' => ['route' => '/admin/alumni-registered-list', 'current_module' => 'Alumni Verification'],
+    ]);
+    $semanticAnswer = (string) ($semanticQuestion['json']['data']['assistant']['answer'] ?? '');
+    $semanticModel = (string) ($semanticQuestion['json']['data']['dataUsed']['model'] ?? '');
+    genai_live_assert(
+        $semanticQuestion['status'] === 200
+        && $semanticModel !== ''
+        && stripos($semanticAnswer, 'I can only help with GradTrack-related') === false,
+        'Groq semantically accepts the Filipino alumni-management question instead of pre-rejecting it'
+    );
+    genai_live_assert(
+        preg_match('/\b(import|verification|verify|pag-verify|beripik)/iu', $semanticAnswer) === 1,
+        'semantic answer uses the actual Alumni Verification or import workflow rather than inventing a manual Add Alumni action'
+    );
+
+    $offTopicQuestion = genai_live_request($endpoint, $sessionId, 'POST', [
+        'action' => 'chat',
+        'message' => 'what is the weather today?',
+        'conversation_id' => $conversationId,
+        'page_context' => ['route' => '/admin/alumni-registered-list', 'current_module' => 'Alumni Verification'],
+    ]);
+    $offTopicAnswer = (string) ($offTopicQuestion['json']['data']['assistant']['answer'] ?? '');
+    genai_live_assert(
+        $offTopicQuestion['status'] === 200
+        && stripos($offTopicAnswer, 'only help with GradTrack-related') !== false
+        && !empty($offTopicQuestion['json']['data']['dataUsed']['model']),
+        'a genuinely unrelated question is rejected only after Groq semantic scope analysis'
+    );
+
     $history = genai_live_request($endpoint, $sessionId, 'GET', [], '?resource=messages&conversation_id=' . $conversationId);
-    genai_live_assert($history['status'] === 200 && count($history['json']['data']['messages'] ?? []) === 8, 'history endpoint reloads every user and assistant message pair');
+    genai_live_assert($history['status'] === 200 && count($history['json']['data']['messages'] ?? []) === 12, 'history endpoint reloads every user and assistant message pair');
 
     $otherStmt = $db->prepare("SELECT id FROM admin_users
                                WHERE id <> :id AND is_active = 1

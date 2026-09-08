@@ -15,6 +15,7 @@
     "test:auth-isolation": "php backend/tests/auth_session_isolation_integration.php",
     "test:message-split": "php backend/tests/chat_message_split_integration.php",
     "test:message-unread": "php backend/tests/chat_unread_state_integration.php",
+    "test:direct-first-message": "php backend/tests/direct_message_first_send_integration.php",
     "test:conversation-info": "php backend/tests/conversation_information_integration.php",
     "test:conversation-info-http": "php backend/tests/conversation_information_http_integration.php",
     "test:job-notifications": "php backend/tests/job_notification_read_state_integration.php",

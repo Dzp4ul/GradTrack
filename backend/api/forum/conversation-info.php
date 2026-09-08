@@ -600,6 +600,8 @@ try {
     $message = $error->getMessage();
     $status = str_contains($message, 'not found') ? 404 : 400;
     gradtrack_conversation_info_error($status, $message);
+} catch (RuntimeException $error) {
+    gradtrack_conversation_info_error(404, 'Chat room not found');
 } catch (Throwable $error) {
     error_log('GradTrack conversation information API error: ' . $error->getMessage());
     gradtrack_conversation_info_error(500, 'Unable to update this conversation right now');

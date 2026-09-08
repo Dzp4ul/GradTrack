@@ -228,6 +228,27 @@ const fileSafeName = (value: string) => value
   .replace(/[^a-z0-9]+/g, '_')
   .replace(/^_+|_+$/g, '') || 'gradtrack_genai_report';
 
+const assistantRequestErrorMessage = (
+  response: Response,
+  result: { error?: string; error_code?: string } | null,
+) => {
+  if (response.status === 401) return 'Your GradTrack session has expired. Please sign in again.';
+  if (response.status === 403) return result?.error || 'This GradTrack feature is not available to your account.';
+  if (response.status === 429 || result?.error_code === 'rate_limit') {
+    return 'GradTrack Assistant is receiving too many requests. Please try again shortly.';
+  }
+  if (result?.error_code === 'empty_response') {
+    return 'GradTrack Assistant returned an empty response. Please try again.';
+  }
+  if (result?.error_code === 'ai_network_error') {
+    return 'GradTrack Assistant cannot reach the AI service right now. Please try again.';
+  }
+  if (response.status >= 500) {
+    return result?.error || 'GradTrack Assistant is temporarily unable to respond. Please try again.';
+  }
+  return result?.error || 'Unable to process your GradTrack Assistant request.';
+};
+
 const getFormatFromResponse = (response: GenAIResponseData): DownloadFormat => {
   const rawFormat = String(response.assistant.reportRequest?.format || '').toLowerCase();
   if (rawFormat.includes('excel') || rawFormat.includes('xlsx')) {
@@ -281,10 +302,12 @@ export default function GradTrackGenAIAssistant() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [loadingStage, setLoadingStage] = useState('Retrieving GradTrack data...');
+  const [loadingStage, setLoadingStage] = useState('Thinking...');
   const [reportContext, setReportContext] = useState<ReportContext | null>(null);
   const [assistantConfig, setAssistantConfig] = useState<AssistantConfig | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const messagesScrollRef = useRef<HTMLDivElement | null>(null);
+  const submittingRef = useRef(false);
   const loadingTimersRef = useRef<number[]>([]);
 
   const isAdminPath = location.pathname.startsWith('/admin');
@@ -313,8 +336,8 @@ export default function GradTrackGenAIAssistant() {
   const startLoadingStages = useCallback((isReportRequest: boolean) => {
     clearLoadingTimers();
     const stages = isReportRequest
-      ? ['Preparing report data...', 'Generating AI summary...', 'Creating report preview...']
-      : ['Analyzing your request...', 'Retrieving GradTrack data...', 'Generating response...'];
+      ? ['Thinking...', 'Preparing report data...', 'Generating AI summary...']
+      : ['Thinking...', 'Understanding your GradTrack question...', 'Generating response...'];
     setLoadingStage(stages[0]);
     stages.slice(1).forEach((stage, index) => {
       loadingTimersRef.current.push(window.setTimeout(() => setLoadingStage(stage), (index + 1) * 900));
@@ -494,9 +517,10 @@ export default function GradTrackGenAIAssistant() {
 
   const sendMessage = useCallback(async (prompt?: string, action: GenAIAction = 'chat', explicitContext?: ReportContext) => {
     const messageText = (prompt ?? input).trim();
-    if (!messageText || loading) {
+    if (!messageText || loading || submittingRef.current) {
       return;
     }
+    submittingRef.current = true;
 
     const activeContext = explicitContext ?? reportContext;
     const userMessage: ChatMessage = {
@@ -523,7 +547,7 @@ export default function GradTrackGenAIAssistant() {
         });
         const createResult = await createResponse.json().catch(() => null);
         if (!createResponse.ok || !createResult?.success || !createResult.data?.conversation) {
-          throw new Error(createResult?.error || 'Unable to create the AI conversation.');
+          throw new Error(assistantRequestErrorMessage(createResponse, createResult));
         }
         const createdConversation = createResult.data.conversation as AIConversation;
         conversationId = createdConversation.id;
@@ -545,13 +569,16 @@ export default function GradTrackGenAIAssistant() {
           report_context: activeContext,
         }),
       });
-      const result = await response.json();
+      const result = await response.json().catch(() => null);
 
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || 'GradTrack GenAI is temporarily unavailable.');
+      if (!response.ok || !result?.success) {
+        throw new Error(assistantRequestErrorMessage(response, result));
       }
 
       const data = result.data as GenAIResponseData;
+      if (!data?.assistant?.answer?.trim()) {
+        throw new Error('GradTrack Assistant returned an empty response. Please try again.');
+      }
       const assistantMessage: ChatMessage = {
         id: String(data.persistedMessages?.assistant?.id || makeMessageId()),
         role: 'assistant',
@@ -582,7 +609,11 @@ export default function GradTrackGenAIAssistant() {
         setHasNewResult(true);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "I couldn't generate a response right now. Please try again.";
+      const message = error instanceof TypeError
+        ? 'A network error prevented GradTrack Assistant from responding. Check your connection and try again.'
+        : error instanceof Error
+          ? error.message
+          : 'GradTrack Assistant is temporarily unable to respond. Please try again.';
       setMessages((current) => [
         ...current,
         {
@@ -595,8 +626,9 @@ export default function GradTrackGenAIAssistant() {
       ]);
     } finally {
       clearLoadingTimers();
+      submittingRef.current = false;
       setLoading(false);
-      setLoadingStage('Retrieving GradTrack data...');
+      setLoadingStage('Thinking...');
     }
   }, [activeConversation?.id, clearLoadingTimers, contextLabel, currentModule, input, isMinimized, isOpen, loadConversations, loading, location.pathname, reportContext, startLoadingStages, updateStoredContext]);
 
@@ -867,6 +899,15 @@ export default function GradTrackGenAIAssistant() {
 
   useEffect(() => () => clearLoadingTimers(), [clearLoadingTimers]);
 
+  useEffect(() => {
+    if (!isOpen || isMinimized || view !== 'conversation') return;
+    const frame = window.requestAnimationFrame(() => {
+      const container = messagesScrollRef.current;
+      if (container) container.scrollTop = container.scrollHeight;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [conversationLoading, isMinimized, isOpen, loading, messages.length, view]);
+
   if (!shouldShow) {
     return null;
   }
@@ -1080,7 +1121,7 @@ export default function GradTrackGenAIAssistant() {
               </div>
             </div>
 
-            <div className="gt-ai-messages min-h-[240px] flex-1 overflow-y-auto px-4 py-4 sm:min-h-[360px]">
+            <div ref={messagesScrollRef} className="gt-ai-messages min-h-[240px] flex-1 overflow-y-auto px-4 py-4 sm:min-h-[360px]">
               {view === 'history' ? (
                 <div className="space-y-4">
                   <button
@@ -1278,7 +1319,7 @@ export default function GradTrackGenAIAssistant() {
                     ))}
 
                     {loading && (
-                      <div className="flex justify-start">
+                      <div className="flex justify-start" role="status" aria-live="polite" aria-label="GradTrack Assistant is thinking">
                         <div className="gt-ai-assistant-message max-w-[88%] rounded-2xl border px-4 py-3 text-sm shadow-sm">
                           <div className="flex items-center gap-3">
                             <GradTrackAIMascot compact thinking />

@@ -17,6 +17,7 @@ $temporaryFiles = [];
 $db = (new Database())->getConnection();
 $baseUrl = rtrim((string) (getenv('GRADTRACK_CHAT_TEST_URL') ?: 'http://localhost/GradTrack/backend/api/forum'), '/');
 $cookieName = gradtrack_session_cookie_name();
+$conversationHttpCsrfTokens = [];
 
 function conversation_http_assert(bool $condition, string $message): void
 {
@@ -39,6 +40,29 @@ function conversation_http_session(int $accountId): string
     return $sessionId;
 }
 
+function conversation_http_csrf_token(string $sessionId): string
+{
+    global $baseUrl, $cookieName, $conversationHttpCsrfTokens;
+    if (isset($conversationHttpCsrfTokens[$sessionId])) {
+        return $conversationHttpCsrfTokens[$sessionId];
+    }
+    $headers = [
+        'Accept: application/json',
+        'Origin: http://localhost:5173',
+        'Cookie: ' . $cookieName . '=' . rawurlencode($sessionId),
+    ];
+    $csrfContext = stream_context_create(['http' => [
+        'method' => 'GET',
+        'header' => implode("\r\n", $headers),
+        'ignore_errors' => true,
+        'timeout' => 30,
+    ]]);
+    $csrfBody = @file_get_contents(dirname($baseUrl) . '/csrf.php', false, $csrfContext);
+    $csrfJson = is_string($csrfBody) ? json_decode($csrfBody, true) : null;
+    $conversationHttpCsrfTokens[$sessionId] = (string) ($csrfJson['csrf_token'] ?? '');
+    return $conversationHttpCsrfTokens[$sessionId];
+}
+
 function conversation_http_request(string $url, string $sessionId, string $method = 'GET', ?array $body = null): array
 {
     global $cookieName;
@@ -47,7 +71,10 @@ function conversation_http_request(string $url, string $sessionId, string $metho
         'Origin: http://localhost:5173',
         'Cookie: ' . $cookieName . '=' . rawurlencode($sessionId),
     ];
-    if ($body !== null) $headers[] = 'Content-Type: application/json';
+    if ($body !== null) {
+        $headers[] = 'Content-Type: application/json';
+        $headers[] = 'X-CSRF-Token: ' . conversation_http_csrf_token($sessionId);
+    }
     $context = stream_context_create(['http' => [
         'method' => $method,
         'header' => implode("\r\n", $headers),
@@ -78,6 +105,7 @@ function conversation_http_multipart(string $url, string $sessionId, array $fiel
             'Accept: application/json',
             'Origin: http://localhost:5173',
             'Cookie: ' . $cookieName . '=' . rawurlencode($sessionId),
+            'X-CSRF-Token: ' . conversation_http_csrf_token($sessionId),
         ],
         CURLOPT_POST => true,
         CURLOPT_POSTFIELDS => $fields,

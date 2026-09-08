@@ -964,6 +964,9 @@ export default function GraduatePortal() {
   const [chatSearch, setChatSearch] = useState('');
   const [selectedRoomId, setSelectedRoomId] = useState<number | null>(null);
   const [activeRoom, setActiveRoom] = useState<ChatRoom | null>(null);
+  const [temporaryChatRecipient, setTemporaryChatRecipient] = useState<ChatParticipant | null>(null);
+  const [chatProfileIntro, setChatProfileIntro] = useState<GraduateMiniProfileData | null>(null);
+  const [chatProfileIntroLoading, setChatProfileIntroLoading] = useState(false);
   const [roomMessages, setRoomMessages] = useState<ChatMessage[]>([]);
   const [messagePagination, setMessagePagination] = useState<MessagePagination | null>(null);
   const [roomLoading, setRoomLoading] = useState(false);
@@ -1016,6 +1019,7 @@ export default function GraduatePortal() {
   const conversationInfoOpenRef = useRef(false);
   const chatJoinedRoomIdRef = useRef<number | null>(null);
   const selectedRoomIdRef = useRef<number | null>(null);
+  const temporaryChatRecipientRef = useRef<ChatParticipant | null>(null);
   const previousSelectedRoomIdRef = useRef<number | null>(null);
   const roomMessagesRef = useRef<ChatMessage[]>([]);
   const chatPresenceByGraduateRef = useRef<Map<number, ChatPresenceStatus>>(new Map());
@@ -1024,6 +1028,7 @@ export default function GraduatePortal() {
   const chatTypingExpiryTimeoutsRef = useRef<Map<string, number>>(new Map());
   const roomLoadRequestRef = useRef(0);
   const conversationInfoRequestRef = useRef(0);
+  const chatProfileIntroRequestRef = useRef(0);
   const loadMissedRoomMessagesRef = useRef<(roomId: number) => Promise<void>>(async () => undefined);
   const markVisibleMessagesAsReadRef = useRef<(roomId?: number, messages?: ChatMessage[]) => Promise<void>>(async () => undefined);
   const lastMarkedReadIdByRoomRef = useRef<Map<number, number>>(new Map());
@@ -1321,7 +1326,7 @@ export default function GraduatePortal() {
     setRooms(roomList);
     setDirectory(directoryList);
 
-    if (roomList.length === 0) {
+    if (roomList.length === 0 && !temporaryChatRecipientRef.current) {
       setSelectedRoomId(null);
       setActiveRoom(null);
       setRoomMessages([]);
@@ -1332,6 +1337,9 @@ export default function GraduatePortal() {
     setSelectedRoomId((current) => {
       if (current && roomList.some((room) => room.id === current)) {
         return current;
+      }
+      if (temporaryChatRecipientRef.current) {
+        return null;
       }
       return roomList[0].id;
     });
@@ -1667,6 +1675,11 @@ export default function GraduatePortal() {
     setRooms((current) => current.map((room) => ({ ...room, participants: room.participants.map(updateParticipant) })));
     setDirectory((current) => current.map(updateParticipant));
     setActiveRoom((current) => current ? { ...current, participants: current.participants.map(updateParticipant) } : current);
+    setTemporaryChatRecipient((current) => {
+      const next = current ? updateParticipant(current) : current;
+      temporaryChatRecipientRef.current = next;
+      return next;
+    });
     setConversationInfo((current) => current ? { ...current, room: { ...current.room, participants: current.room.participants.map(updateParticipant) } } : current);
     setAddMemberCandidates((current) => current.map(updateParticipant));
   }, []);
@@ -2057,6 +2070,10 @@ export default function GraduatePortal() {
   useEffect(() => {
     selectedRoomIdRef.current = selectedRoomId;
   }, [selectedRoomId]);
+
+  useEffect(() => {
+    temporaryChatRecipientRef.current = temporaryChatRecipient;
+  }, [temporaryChatRecipient]);
 
   const chatRealtimeEnabled = messagingAvailable;
   const chatSurfaceOpen = messagingAvailable;
@@ -3104,11 +3121,54 @@ export default function GraduatePortal() {
       });
 
       const roomId = Number(response.room_id || 0);
-      await loadChats();
+      const profileRequestId = ++chatProfileIntroRequestRef.current;
+      setChatProfileIntro(null);
+      setChatProfileIntroLoading(true);
+      void loadMiniProfile(graduateId)
+        .then((profile) => {
+          if (profileRequestId === chatProfileIntroRequestRef.current) {
+            setChatProfileIntro(profile);
+          }
+        })
+        .catch(() => {
+          if (profileRequestId === chatProfileIntroRequestRef.current) {
+            setChatProfileIntro(null);
+          }
+        })
+        .finally(() => {
+          if (profileRequestId === chatProfileIntroRequestRef.current) {
+            setChatProfileIntroLoading(false);
+          }
+        });
+
       if (roomId > 0) {
+        temporaryChatRecipientRef.current = null;
+        setTemporaryChatRecipient(null);
+        await loadChats();
+        selectedRoomIdRef.current = roomId;
         setSelectedRoomId(roomId);
         setChatMobileConversationOpen(true);
         await loadRoomMessages(roomId);
+      } else {
+        const recipient = (response.recipient as ChatParticipant | undefined)
+          || directory.find((participant) => participant.graduate_id === graduateId)
+          || null;
+        if (!recipient) {
+          throw new Error('The selected graduate is unavailable for chat');
+        }
+
+        const synchronizedRecipient = mergeKnownPresenceIntoParticipant(recipient, chatPresenceByGraduateRef.current);
+        temporaryChatRecipientRef.current = synchronizedRecipient;
+        setTemporaryChatRecipient(synchronizedRecipient);
+        selectedRoomIdRef.current = null;
+        setSelectedRoomId(null);
+        setActiveRoom(null);
+        setRoomMessages([]);
+        roomMessagesRef.current = [];
+        setMessagePagination(null);
+        setConversationInfo(null);
+        setConversationInfoOpen(false);
+        setChatMobileConversationOpen(true);
       }
       setSelectedPostOpen(false);
       setChatModalOpen(false);
@@ -3138,14 +3198,19 @@ export default function GraduatePortal() {
       return;
     }
 
+    if (chatModalMode === 'direct') {
+      await createDirectChat(chatModalSelectedIds[0]);
+      return;
+    }
+
     setChatCreating(true);
 
     try {
       const response = await authenticatedFetch(API_ENDPOINTS.FORUM.CHATS, {
         method: 'POST',
         body: JSON.stringify({
-          is_group: chatModalMode === 'group',
-          name: chatModalMode === 'group' ? chatModalName.trim() : '',
+          is_group: true,
+          name: chatModalName.trim(),
           participant_ids: chatModalSelectedIds,
         }),
       });
@@ -3163,7 +3228,7 @@ export default function GraduatePortal() {
 
       notify(
         'success',
-        chatModalMode === 'group' ? 'Group chat created successfully.' : 'Direct chat opened successfully.',
+        'Group chat created successfully.',
         'Chats',
       );
     } catch (error) {
@@ -3253,6 +3318,7 @@ export default function GraduatePortal() {
     attachment: SelectedAttachment,
     roomId: number,
     clientMessageId: string,
+    recipientGraduateId?: number,
   ): Promise<MessageAttachment> => {
     if (attachment.uploaded) return attachment.uploaded;
     retryAttachmentsRef.current[clientMessageId] = {
@@ -3267,7 +3333,11 @@ export default function GraduatePortal() {
 
       return new Promise((resolve, reject) => {
         const formData = new FormData();
-        formData.append('room_id', String(roomId));
+        if (roomId > 0) {
+          formData.append('room_id', String(roomId));
+        } else if (recipientGraduateId) {
+          formData.append('recipient_id', String(recipientGraduateId));
+        }
         formData.append('attachment', attachment.file);
 
         const xhr = new XMLHttpRequest();
@@ -3334,7 +3404,8 @@ export default function GraduatePortal() {
   };
 
   const sendMessageToServer = async (payload: {
-    room_id: number;
+    room_id?: number;
+    recipient_id?: number;
     message: string;
     client_message_id: string;
     attachment_ids: number[];
@@ -3353,6 +3424,8 @@ export default function GraduatePortal() {
       throw new Error(response.error || 'Unable to send message');
     }
 
+    const conversation = response.data?.conversation as ChatRoom | undefined;
+
     const socket = chatSocketRef.current;
     const canonicalMessages: ChatMessage[] = [];
     if (socket?.connected) {
@@ -3368,18 +3441,27 @@ export default function GraduatePortal() {
         canonicalMessages.push(savedMessage);
         console.warn(`[Realtime] Saved message ${savedMessage.id} could not be published immediately: ${publishResponse.error || 'Unknown error'}`);
       }
-      return canonicalMessages;
+      return {
+        messages: canonicalMessages,
+        conversation,
+        roomId: Number(canonicalMessages[canonicalMessages.length - 1]?.room_id || conversation?.id || 0),
+      };
     }
 
-    return savedMessages;
+    return {
+      messages: savedMessages,
+      conversation,
+      roomId: Number(savedMessages[savedMessages.length - 1]?.room_id || conversation?.id || 0),
+    };
   };
 
   const handleSendMessage = async (event?: FormEvent<HTMLFormElement>, retryMessage?: ChatMessage) => {
     event?.preventDefault();
 
-    const roomId = retryMessage?.room_id || selectedRoomId;
-    if (!roomId) {
-      notify('warning', 'Select a chat room first.', 'Chats');
+    const roomId = retryMessage?.room_id || selectedRoomId || 0;
+    const temporaryRecipientId = roomId <= 0 ? Number(temporaryChatRecipientRef.current?.graduate_id || 0) : 0;
+    if (!roomId && !temporaryRecipientId) {
+      notify('warning', 'Select a graduate or chat room first.', 'Chats');
       return;
     }
 
@@ -3440,7 +3522,7 @@ export default function GraduatePortal() {
       stopChatTyping(roomId);
 
       const uploadedAttachment = selectedAttachment
-        ? await uploadChatAttachment(selectedAttachment, roomId, clientMessageId)
+        ? await uploadChatAttachment(selectedAttachment, roomId, clientMessageId, temporaryRecipientId || undefined)
         : null;
       const existingAttachmentIds = retryMessage?.attachments
         ?.filter((attachment) => attachment.id > 0)
@@ -3449,32 +3531,61 @@ export default function GraduatePortal() {
         ? existingAttachmentIds
         : (uploadedAttachment ? [uploadedAttachment.id] : []);
 
-      const savedMessages = await sendMessageToServer({
-        room_id: roomId,
+      const sendResult = await sendMessageToServer({
+        ...(roomId > 0 ? { room_id: roomId } : { recipient_id: temporaryRecipientId }),
         message,
         client_message_id: clientMessageId,
         attachment_ids: attachmentIds,
       });
 
-      const normalizedMessages = savedMessages.map((savedMessage) => normalizeChatMessage(savedMessage, currentGraduateId));
+      const resolvedRoomId = sendResult.roomId;
+      if (!resolvedRoomId) {
+        throw new Error('The saved conversation could not be resolved');
+      }
+      const normalizedMessages = sendResult.messages.map((savedMessage) => normalizeChatMessage(savedMessage, currentGraduateId));
       const newestMessage = normalizedMessages[normalizedMessages.length - 1];
-      if (selectedRoomIdRef.current === roomId) {
-        const nextMessages = mergeChatMessages(roomMessagesRef.current, normalizedMessages);
+      const wasTemporaryConversation = roomId <= 0;
+      if (wasTemporaryConversation || selectedRoomIdRef.current === roomId) {
+        const withoutOptimisticMessage = roomMessagesRef.current.filter((item) => (
+          item.client_message_id !== clientMessageId
+        ));
+        const nextMessages = mergeChatMessages(withoutOptimisticMessage, normalizedMessages);
         setRoomMessages(nextMessages);
         roomMessagesRef.current = nextMessages;
       }
-      setRooms((current) => sortChatRooms(current.map((room) => (
-        room.id === newestMessage.room_id
-          ? {
-              ...room,
-              last_message: getChatMessagePreview(newestMessage),
-              last_message_type: newestMessage.message_type || 'text',
-              last_message_at: newestMessage.created_at,
-              last_message_sender_id: newestMessage.graduate_id,
-              updated_at: newestMessage.created_at,
-            }
-          : room
-      ))));
+      if (sendResult.conversation) {
+        upsertConversation(sendResult.conversation);
+        setActiveRoom(mergeKnownPresenceIntoRoom(sendResult.conversation, chatPresenceByGraduateRef.current));
+      } else {
+        setRooms((current) => sortChatRooms(current.map((room) => (
+          room.id === newestMessage.room_id
+            ? {
+                ...room,
+                last_message: getChatMessagePreview(newestMessage),
+                last_message_type: newestMessage.message_type || 'text',
+                last_message_at: newestMessage.created_at,
+                last_message_sender_id: newestMessage.graduate_id,
+                updated_at: newestMessage.created_at,
+              }
+            : room
+        ))));
+      }
+      if (wasTemporaryConversation) {
+        temporaryChatRecipientRef.current = null;
+        setTemporaryChatRecipient(null);
+        setChatProfileIntro(null);
+        setChatProfileIntroLoading(false);
+        chatProfileIntroRequestRef.current += 1;
+        selectedRoomIdRef.current = resolvedRoomId;
+        setSelectedRoomId(resolvedRoomId);
+        setMessagePagination({
+          limit: 30,
+          has_more_older: false,
+          has_more_newer: false,
+          oldest_id: normalizedMessages[0]?.id || null,
+          newest_id: newestMessage.id,
+        });
+      }
       const completedAttachment = retryAttachmentsRef.current[clientMessageId];
       if (completedAttachment?.preview_url) {
         URL.revokeObjectURL(completedAttachment.preview_url);
@@ -3482,7 +3593,7 @@ export default function GraduatePortal() {
       delete retryAttachmentsRef.current[clientMessageId];
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unable to send message';
-      if (selectedRoomIdRef.current === roomId) {
+      if ((roomId > 0 && selectedRoomIdRef.current === roomId) || (roomId <= 0 && temporaryChatRecipientRef.current)) {
         const failedMessages = roomMessagesRef.current.map((item) => (
           item.client_message_id === clientMessageId
             ? { ...item, status: 'failed' as const, error: errorMessage }
@@ -3549,11 +3660,12 @@ export default function GraduatePortal() {
   };
 
   const handleRetryAttachment = () => {
-    const roomId = selectedRoomIdRef.current;
-    if (!chatSelectedAttachment || !roomId) return;
+    const roomId = selectedRoomIdRef.current || 0;
+    const recipientId = roomId <= 0 ? Number(temporaryChatRecipientRef.current?.graduate_id || 0) : 0;
+    if (!chatSelectedAttachment || (!roomId && !recipientId)) return;
     const attachment = chatSelectedAttachment;
     const retryId = createClientMessageId(currentGraduateId);
-    void uploadChatAttachment(attachment, roomId, retryId)
+    void uploadChatAttachment(attachment, roomId, retryId, recipientId || undefined)
       .then((uploaded) => {
         setChatSelectedAttachment((current) => (
           current?.file === attachment.file
@@ -4322,7 +4434,10 @@ export default function GraduatePortal() {
           rooms={rooms}
           selectedRoomId={selectedRoomId}
           activeRoom={activeRoom && activeRoom.id === selectedRoomId ? activeRoom : null}
-          messages={activeRoom && activeRoom.id === selectedRoomId ? roomMessages : []}
+          temporaryRecipient={temporaryChatRecipient}
+          profileIntro={chatProfileIntro}
+          profileIntroLoading={chatProfileIntroLoading}
+          messages={(activeRoom && activeRoom.id === selectedRoomId) || temporaryChatRecipient ? roomMessages : []}
           search={chatSearch}
           draft={chatMessageDraft}
           roomLoading={roomLoading}
@@ -4338,6 +4453,11 @@ export default function GraduatePortal() {
           onSearchChange={setChatSearch}
           onSelectRoom={(roomId) => {
             setAddMembersOpen(false);
+            temporaryChatRecipientRef.current = null;
+            setTemporaryChatRecipient(null);
+            setChatProfileIntro(null);
+            setChatProfileIntroLoading(false);
+            chatProfileIntroRequestRef.current += 1;
             setSelectedRoomId(roomId);
             setChatMobileConversationOpen(true);
           }}

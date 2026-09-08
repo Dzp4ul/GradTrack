@@ -143,6 +143,7 @@ if (!function_exists('gradtrack_chat_ensure_schema')) {
 
         $roomColumns = [
             'last_message_at' => "ALTER TABLE forum_chat_rooms ADD last_message_at DATETIME NULL AFTER updated_at",
+            'direct_pair_key' => "ALTER TABLE forum_chat_rooms ADD direct_pair_key VARCHAR(50) NULL AFTER is_group",
             'group_image_path' => "ALTER TABLE forum_chat_rooms ADD group_image_path VARCHAR(255) NULL AFTER is_group",
             'group_image_original_name' => "ALTER TABLE forum_chat_rooms ADD group_image_original_name VARCHAR(255) NULL AFTER group_image_path",
             'group_image_mime_type' => "ALTER TABLE forum_chat_rooms ADD group_image_mime_type VARCHAR(120) NULL AFTER group_image_original_name",
@@ -192,6 +193,13 @@ if (!function_exists('gradtrack_chat_ensure_schema')) {
             }
         }
 
+        if (
+            gradtrack_chat_column_exists($db, 'forum_chat_message_attachments', 'room_id')
+            && !gradtrack_chat_column_is_nullable($db, 'forum_chat_message_attachments', 'room_id')
+        ) {
+            $db->exec('ALTER TABLE forum_chat_message_attachments MODIFY room_id INT NULL');
+        }
+
         if (!gradtrack_chat_enum_has_value($db, 'forum_chat_messages', 'message_type', 'system')) {
             $db->exec("ALTER TABLE forum_chat_messages MODIFY message_type ENUM('text', 'image', 'file', 'mixed', 'system') NOT NULL DEFAULT 'text'");
         }
@@ -199,6 +207,7 @@ if (!function_exists('gradtrack_chat_ensure_schema')) {
         $indexes = [
             'forum_chat_rooms' => [
                 'idx_forum_chat_rooms_last_message' => [['last_message_at', 'updated_at', 'id'], false, "ALTER TABLE forum_chat_rooms ADD INDEX idx_forum_chat_rooms_last_message (last_message_at, updated_at, id)"],
+                'uniq_forum_chat_direct_pair' => [['direct_pair_key'], true, "ALTER TABLE forum_chat_rooms ADD UNIQUE KEY uniq_forum_chat_direct_pair (direct_pair_key)"],
             ],
             'forum_chat_members' => [
                 'idx_forum_chat_members_read' => [['room_id', 'graduate_id', 'last_read_at'], false, "ALTER TABLE forum_chat_members ADD INDEX idx_forum_chat_members_read (room_id, graduate_id, last_read_at)"],
@@ -224,7 +233,7 @@ if (!function_exists('gradtrack_chat_ensure_schema')) {
 
         $db->exec("CREATE TABLE IF NOT EXISTS forum_chat_message_attachments (
             id INT AUTO_INCREMENT PRIMARY KEY,
-            room_id INT NOT NULL,
+            room_id INT NULL,
             message_id INT NULL,
             uploaded_by INT NOT NULL,
             original_name VARCHAR(255) NOT NULL,
@@ -367,6 +376,162 @@ if (!function_exists('gradtrack_chat_require_room_member')) {
     }
 }
 
+if (!function_exists('gradtrack_chat_direct_pair_key')) {
+    function gradtrack_chat_direct_pair_key(int $firstGraduateId, int $secondGraduateId): string
+    {
+        if ($firstGraduateId <= 0 || $secondGraduateId <= 0 || $firstGraduateId === $secondGraduateId) {
+            throw new InvalidArgumentException('A direct conversation requires two different graduates');
+        }
+
+        return min($firstGraduateId, $secondGraduateId) . ':' . max($firstGraduateId, $secondGraduateId);
+    }
+}
+
+if (!function_exists('gradtrack_chat_find_direct_room')) {
+    function gradtrack_chat_find_direct_room(PDO $db, int $firstGraduateId, int $secondGraduateId): ?int
+    {
+        $pairKey = gradtrack_chat_direct_pair_key($firstGraduateId, $secondGraduateId);
+
+        if (gradtrack_chat_column_exists($db, 'forum_chat_rooms', 'direct_pair_key')) {
+            $pairStmt = $db->prepare('SELECT id
+                                      FROM forum_chat_rooms
+                                      WHERE is_group = 0 AND direct_pair_key = :direct_pair_key
+                                      LIMIT 1');
+            $pairStmt->execute([':direct_pair_key' => $pairKey]);
+            $roomId = $pairStmt->fetchColumn();
+            if ($roomId !== false) {
+                return (int) $roomId;
+            }
+        }
+
+        $legacyStmt = $db->prepare("SELECT r.id
+                                    FROM forum_chat_rooms r
+                                    JOIN forum_chat_members member ON member.room_id = r.id
+                                    WHERE r.is_group = 0
+                                    GROUP BY r.id
+                                    HAVING COUNT(*) = 2
+                                       AND SUM(CASE WHEN member.graduate_id = :first_graduate_id THEN 1 ELSE 0 END) = 1
+                                       AND SUM(CASE WHEN member.graduate_id = :second_graduate_id THEN 1 ELSE 0 END) = 1
+                                    ORDER BY EXISTS(
+                                        SELECT 1 FROM forum_chat_messages existing_message
+                                        WHERE existing_message.room_id = r.id AND existing_message.deleted_at IS NULL
+                                    ) DESC,
+                                    COALESCE(r.last_message_at, r.updated_at, r.created_at) DESC,
+                                    r.id ASC
+                                    LIMIT 1");
+        $legacyStmt->execute([
+            ':first_graduate_id' => $firstGraduateId,
+            ':second_graduate_id' => $secondGraduateId,
+        ]);
+        $roomId = $legacyStmt->fetchColumn();
+        if ($roomId === false) {
+            return null;
+        }
+
+        $roomId = (int) $roomId;
+        if (gradtrack_chat_column_exists($db, 'forum_chat_rooms', 'direct_pair_key')) {
+            try {
+                $keyStmt = $db->prepare('UPDATE forum_chat_rooms
+                                         SET direct_pair_key = :direct_pair_key
+                                         WHERE id = :room_id AND is_group = 0 AND direct_pair_key IS NULL');
+                $keyStmt->execute([':direct_pair_key' => $pairKey, ':room_id' => $roomId]);
+            } catch (PDOException $error) {
+                if ($error->getCode() !== '23000') {
+                    throw $error;
+                }
+                $pairStmt = $db->prepare('SELECT id FROM forum_chat_rooms WHERE direct_pair_key = :direct_pair_key LIMIT 1');
+                $pairStmt->execute([':direct_pair_key' => $pairKey]);
+                $canonicalId = $pairStmt->fetchColumn();
+                if ($canonicalId !== false) {
+                    return (int) $canonicalId;
+                }
+            }
+        }
+
+        return $roomId;
+    }
+}
+
+if (!function_exists('gradtrack_chat_validate_direct_recipient')) {
+    function gradtrack_chat_validate_direct_recipient(PDO $db, int $recipientGraduateId, int $currentGraduateId): array
+    {
+        if ($recipientGraduateId <= 0 || $recipientGraduateId === $currentGraduateId) {
+            throw new InvalidArgumentException('Select a valid graduate for this direct conversation');
+        }
+
+        $stmt = $db->prepare("SELECT g.id AS graduate_id,
+                                     TRIM(CONCAT(COALESCE(g.first_name, ''), ' ', COALESCE(g.last_name, ''))) AS full_name,
+                                     p.code AS program_code,
+                                     g.year_graduated,
+                                     gpi.file_path AS profile_image_path
+                              FROM graduate_accounts account
+                              JOIN graduates g ON g.id = account.graduate_id
+                              LEFT JOIN programs p ON p.id = g.program_id
+                              LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = account.id
+                              WHERE g.id = :graduate_id
+                                AND g.status = 'active'
+                                AND account.status = 'active'
+                                AND account.alumni_verification_status = 'approved'
+                              LIMIT 1");
+        $stmt->execute([':graduate_id' => $recipientGraduateId]);
+        $recipient = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$recipient) {
+            throw new OutOfBoundsException('The selected graduate is unavailable for chat');
+        }
+
+        return [
+            'graduate_id' => (int) $recipient['graduate_id'],
+            'full_name' => trim((string) ($recipient['full_name'] ?? '')) ?: 'Graduate',
+            'program_code' => $recipient['program_code'] ?? null,
+            'year_graduated' => $recipient['year_graduated'] !== null ? (int) $recipient['year_graduated'] : null,
+            'profile_image_path' => gradtrack_storage_media_access_reference($recipient['profile_image_path'] ?? null),
+        ];
+    }
+}
+
+if (!function_exists('gradtrack_chat_resolve_direct_room')) {
+    function gradtrack_chat_resolve_direct_room(PDO $db, int $currentGraduateId, int $recipientGraduateId): array
+    {
+        if (!$db->inTransaction()) {
+            throw new LogicException('Direct conversation resolution must run inside a transaction');
+        }
+
+        gradtrack_chat_validate_direct_recipient($db, $recipientGraduateId, $currentGraduateId);
+        $roomId = gradtrack_chat_find_direct_room($db, $currentGraduateId, $recipientGraduateId);
+        if ($roomId !== null) {
+            return ['room_id' => $roomId, 'created' => false];
+        }
+
+        $pairKey = gradtrack_chat_direct_pair_key($currentGraduateId, $recipientGraduateId);
+        try {
+            $roomStmt = $db->prepare('INSERT INTO forum_chat_rooms (created_by, name, is_group, direct_pair_key)
+                                      VALUES (:created_by, NULL, 0, :direct_pair_key)');
+            $roomStmt->execute([
+                ':created_by' => $currentGraduateId,
+                ':direct_pair_key' => $pairKey,
+            ]);
+            $roomId = (int) $db->lastInsertId();
+        } catch (PDOException $error) {
+            if ($error->getCode() !== '23000') {
+                throw $error;
+            }
+            $roomId = gradtrack_chat_find_direct_room($db, $currentGraduateId, $recipientGraduateId);
+            if ($roomId === null) {
+                throw $error;
+            }
+            return ['room_id' => $roomId, 'created' => false];
+        }
+
+        $memberStmt = $db->prepare('INSERT INTO forum_chat_members (room_id, graduate_id)
+                                    VALUES (:room_id, :graduate_id)');
+        foreach ([$currentGraduateId, $recipientGraduateId] as $graduateId) {
+            $memberStmt->execute([':room_id' => $roomId, ':graduate_id' => $graduateId]);
+        }
+
+        return ['room_id' => $roomId, 'created' => true];
+    }
+}
+
 if (!function_exists('gradtrack_chat_direct_peer_id')) {
     function gradtrack_chat_direct_peer_id(PDO $db, int $roomId, int $graduateId): int
     {
@@ -475,6 +640,67 @@ if (!function_exists('gradtrack_chat_participants')) {
     }
 }
 
+if (!function_exists('gradtrack_chat_conversation_for_viewer')) {
+    function gradtrack_chat_conversation_for_viewer(PDO $db, int $roomId, int $graduateId): array
+    {
+        $room = gradtrack_chat_require_room_member($db, $roomId, $graduateId);
+        $messageStmt = $db->prepare("SELECT message.message,
+                                            message.message_type,
+                                            message.created_at,
+                                            message.graduate_id
+                                     FROM forum_chat_messages message
+                                     JOIN forum_chat_members visibility
+                                       ON visibility.room_id = message.room_id
+                                      AND visibility.graduate_id = :graduate_id
+                                     WHERE message.room_id = :room_id
+                                       AND message.deleted_at IS NULL
+                                       AND message.id > COALESCE(visibility.hidden_before_message_id, 0)
+                                     ORDER BY message.created_at DESC, message.id DESC
+                                     LIMIT 1");
+        $messageStmt->execute([':graduate_id' => $graduateId, ':room_id' => $roomId]);
+        $lastMessage = $messageStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        $unreadStmt = $db->prepare("SELECT COUNT(*)
+                                    FROM forum_chat_messages message
+                                    JOIN forum_chat_members visibility
+                                      ON visibility.room_id = message.room_id
+                                     AND visibility.graduate_id = :graduate_id
+                                    WHERE message.room_id = :room_id
+                                      AND message.graduate_id <> :sender_graduate_id
+                                      AND message.deleted_at IS NULL
+                                      AND message.id > GREATEST(
+                                          COALESCE(visibility.last_read_message_id, 0),
+                                          COALESCE(visibility.hidden_before_message_id, 0)
+                                      )");
+        $unreadStmt->execute([
+            ':graduate_id' => $graduateId,
+            ':room_id' => $roomId,
+            ':sender_graduate_id' => $graduateId,
+        ]);
+
+        $participants = gradtrack_chat_participants($db, $roomId);
+        $room['last_message'] = gradtrack_chat_message_preview(
+            $lastMessage['message'] ?? null,
+            $lastMessage['message_type'] ?? null
+        );
+        $room['last_message_type'] = $lastMessage['message_type'] ?? null;
+        $room['last_message_at'] = gradtrack_chat_datetime_iso($lastMessage['created_at'] ?? $room['last_message_at'] ?? null);
+        $room['last_message_sender_id'] = isset($lastMessage['graduate_id']) ? (int) $lastMessage['graduate_id'] : null;
+        $room['unread_count'] = (int) $unreadStmt->fetchColumn();
+        $room['participants'] = $participants;
+        $room['participant_count'] = count($participants);
+        unset(
+            $room['group_image_path'],
+            $room['group_image_original_name'],
+            $room['group_image_mime_type'],
+            $room['hidden_at'],
+            $room['hidden_before_message_id']
+        );
+
+        return $room;
+    }
+}
+
 if (!function_exists('gradtrack_chat_format_attachment')) {
     function gradtrack_chat_format_attachment(array $row): array
     {
@@ -483,7 +709,7 @@ if (!function_exists('gradtrack_chat_format_attachment')) {
         return [
             'id' => $id,
             'message_id' => isset($row['message_id']) ? (int) $row['message_id'] : null,
-            'room_id' => (int) $row['room_id'],
+            'room_id' => isset($row['room_id']) ? (int) $row['room_id'] : null,
             'original_name' => (string) $row['original_name'],
             'stored_name' => (string) $row['stored_name'],
             'mime_type' => (string) $row['mime_type'],

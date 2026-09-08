@@ -38,6 +38,7 @@ try {
                                  gpi.file_path AS profile_image_path,
                                  COALESCE(NULLIF(profile.job_title, ''), latest_employment.job_title) AS job_title,
                                  COALESCE(NULLIF(profile.company_name, ''), latest_employment.company_name) AS company_name,
+                                 NULLIF(profile.current_location, '') AS current_location,
                                  presence.last_active_at
                           FROM graduates g
                           JOIN graduate_accounts account
@@ -79,6 +80,7 @@ try {
                 'profile_image_path' => gradtrack_storage_media_access_reference($profile['profile_image_path'] ?? null),
                 'job_title' => $profile['job_title'] ?? null,
                 'company_name' => $profile['company_name'] ?? null,
+                'current_location' => $profile['current_location'] ?? null,
                 'last_active_at' => gradtrack_chat_datetime_iso($profile['last_active_at'] ?? null),
             ],
         ],

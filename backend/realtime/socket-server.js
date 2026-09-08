@@ -251,6 +251,19 @@ async function addIndexIfMissing(table, indexName, columns, requireUnique, sql) 
   }
 }
 
+async function columnIsNullable(table, column) {
+  const [rows] = await pool.query(
+    `SELECT IS_NULLABLE
+       FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = ?
+        AND COLUMN_NAME = ?
+      LIMIT 1`,
+    [table, column],
+  );
+  return String(rows[0]?.IS_NULLABLE || 'NO').toUpperCase() === 'YES';
+}
+
 async function enumHasValue(table, column, value) {
   const [rows] = await pool.query(
     `SELECT COLUMN_TYPE
@@ -270,6 +283,7 @@ async function ensureSchema() {
     created_by INT NOT NULL,
     name VARCHAR(150) NULL,
     is_group TINYINT(1) NOT NULL DEFAULT 0,
+    direct_pair_key VARCHAR(50) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     INDEX idx_forum_chat_rooms_created_by (created_by),
@@ -301,6 +315,7 @@ async function ensureSchema() {
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 
   await addColumnIfMissing('forum_chat_rooms', 'last_message_at', 'ALTER TABLE forum_chat_rooms ADD last_message_at DATETIME NULL AFTER updated_at');
+  await addColumnIfMissing('forum_chat_rooms', 'direct_pair_key', 'ALTER TABLE forum_chat_rooms ADD direct_pair_key VARCHAR(50) NULL AFTER is_group');
   await addColumnIfMissing('forum_chat_rooms', 'group_image_path', 'ALTER TABLE forum_chat_rooms ADD group_image_path VARCHAR(255) NULL AFTER is_group');
   await addColumnIfMissing('forum_chat_rooms', 'group_image_original_name', 'ALTER TABLE forum_chat_rooms ADD group_image_original_name VARCHAR(255) NULL AFTER group_image_path');
   await addColumnIfMissing('forum_chat_rooms', 'group_image_mime_type', 'ALTER TABLE forum_chat_rooms ADD group_image_mime_type VARCHAR(120) NULL AFTER group_image_original_name');
@@ -323,6 +338,7 @@ async function ensureSchema() {
   }
 
   await addIndexIfMissing('forum_chat_rooms', 'idx_forum_chat_rooms_last_message', ['last_message_at', 'updated_at', 'id'], false, 'ALTER TABLE forum_chat_rooms ADD INDEX idx_forum_chat_rooms_last_message (last_message_at, updated_at, id)');
+  await addIndexIfMissing('forum_chat_rooms', 'uniq_forum_chat_direct_pair', ['direct_pair_key'], true, 'ALTER TABLE forum_chat_rooms ADD UNIQUE KEY uniq_forum_chat_direct_pair (direct_pair_key)');
   await addIndexIfMissing('forum_chat_members', 'idx_forum_chat_members_read', ['room_id', 'graduate_id', 'last_read_at'], false, 'ALTER TABLE forum_chat_members ADD INDEX idx_forum_chat_members_read (room_id, graduate_id, last_read_at)');
   await addIndexIfMissing('forum_chat_members', 'idx_forum_chat_members_read_message', ['room_id', 'graduate_id', 'last_read_message_id'], false, 'ALTER TABLE forum_chat_members ADD INDEX idx_forum_chat_members_read_message (room_id, graduate_id, last_read_message_id)');
   await addIndexIfMissing('forum_chat_members', 'idx_forum_chat_members_visibility', ['graduate_id', 'hidden_at', 'room_id'], false, 'ALTER TABLE forum_chat_members ADD INDEX idx_forum_chat_members_visibility (graduate_id, hidden_at, room_id)');
@@ -333,7 +349,7 @@ async function ensureSchema() {
 
   await pool.query(`CREATE TABLE IF NOT EXISTS forum_chat_message_attachments (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    room_id INT NOT NULL,
+    room_id INT NULL,
     message_id INT NULL,
     uploaded_by INT NOT NULL,
     original_name VARCHAR(255) NOT NULL,
@@ -359,6 +375,9 @@ async function ensureSchema() {
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     CONSTRAINT fk_graduate_presence_graduate FOREIGN KEY (graduate_id) REFERENCES graduates(id) ON DELETE CASCADE
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  if (!(await columnIsNullable('forum_chat_message_attachments', 'room_id'))) {
+    await pool.query('ALTER TABLE forum_chat_message_attachments MODIFY room_id INT NULL');
+  }
 
   await pool.query(`CREATE TABLE IF NOT EXISTS forum_chat_blocks (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -404,7 +423,7 @@ async function verifySchema() {
   await pool.query('SELECT id, room_id, message_id, uploaded_by FROM forum_chat_message_attachments WHERE 1 = 0');
   await pool.query('SELECT room_id, graduate_id, last_read_message_id, hidden_at, hidden_before_message_id FROM forum_chat_members WHERE 1 = 0');
   await pool.query('SELECT graduate_id, last_active_at FROM graduate_presence WHERE 1 = 0');
-  await pool.query('SELECT group_image_path, group_image_updated_at FROM forum_chat_rooms WHERE 1 = 0');
+  await pool.query('SELECT direct_pair_key, group_image_path, group_image_updated_at FROM forum_chat_rooms WHERE 1 = 0');
   await pool.query('SELECT blocker_id, blocked_id FROM forum_chat_blocks WHERE 1 = 0');
 }
 

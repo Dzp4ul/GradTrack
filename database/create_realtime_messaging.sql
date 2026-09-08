@@ -62,6 +62,11 @@ CALL gradtrack_add_column_if_missing(
 );
 CALL gradtrack_add_column_if_missing(
   'forum_chat_rooms',
+  'direct_pair_key',
+  'ALTER TABLE forum_chat_rooms ADD COLUMN direct_pair_key VARCHAR(50) NULL AFTER is_group'
+);
+CALL gradtrack_add_column_if_missing(
+  'forum_chat_rooms',
   'group_image_path',
   'ALTER TABLE forum_chat_rooms ADD COLUMN group_image_path VARCHAR(255) NULL AFTER is_group'
 );
@@ -148,6 +153,12 @@ CALL gradtrack_add_column_if_missing(
 
 CALL gradtrack_add_index_if_missing(
   'forum_chat_rooms',
+  'direct_pair_key',
+  1,
+  'ALTER TABLE forum_chat_rooms ADD UNIQUE KEY uniq_forum_chat_direct_pair (direct_pair_key)'
+);
+CALL gradtrack_add_index_if_missing(
+  'forum_chat_rooms',
   'last_message_at,updated_at,id',
   0,
   'ALTER TABLE forum_chat_rooms ADD INDEX idx_forum_chat_rooms_last_message (last_message_at, updated_at, id)'
@@ -191,7 +202,7 @@ CALL gradtrack_add_index_if_missing(
 
 CREATE TABLE IF NOT EXISTS forum_chat_message_attachments (
   id INT AUTO_INCREMENT PRIMARY KEY,
-  room_id INT NOT NULL,
+  room_id INT NULL,
   message_id INT NULL,
   uploaded_by INT NOT NULL,
   original_name VARCHAR(255) NOT NULL,
@@ -217,6 +228,8 @@ CREATE TABLE IF NOT EXISTS graduate_presence (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_graduate_presence_graduate FOREIGN KEY (graduate_id) REFERENCES graduates(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+ALTER TABLE forum_chat_message_attachments MODIFY room_id INT NULL;
 
 CREATE TABLE IF NOT EXISTS forum_chat_blocks (
   id INT AUTO_INCREMENT PRIMARY KEY,

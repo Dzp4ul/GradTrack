@@ -203,7 +203,15 @@ function gradtrack_forum_chats_rooms(PDO $db, int $currentGraduateId): array
                                  ORDER BY msg.created_at DESC, msg.id DESC
                                 LIMIT 1
                             )
-                          WHERE mine.hidden_at IS NULL OR lm.id IS NOT NULL
+                          WHERE (
+                              r.is_group = 1
+                              OR EXISTS (
+                                  SELECT 1
+                                  FROM forum_chat_messages persisted_message
+                                  WHERE persisted_message.room_id = r.id
+                              )
+                          )
+                            AND (mine.hidden_at IS NULL OR lm.id IS NOT NULL)
                           ORDER BY COALESCE(lm.created_at, r.last_message_at, r.updated_at, r.created_at) DESC, r.id DESC");
     $stmt->execute([
         ':graduate_id' => $currentGraduateId,
@@ -244,22 +252,7 @@ function gradtrack_forum_chats_rooms(PDO $db, int $currentGraduateId): array
 
 function gradtrack_forum_chats_existing_direct_room(PDO $db, int $currentGraduateId, int $targetGraduateId): ?int
 {
-    $stmt = $db->prepare("SELECT r.id
-                          FROM forum_chat_rooms r
-                          JOIN forum_chat_members fcm ON fcm.room_id = r.id
-                          WHERE r.is_group = 0
-                          GROUP BY r.id
-                          HAVING COUNT(*) = 2
-                             AND SUM(CASE WHEN fcm.graduate_id = :graduate_id THEN 1 ELSE 0 END) = 1
-                             AND SUM(CASE WHEN fcm.graduate_id = :target_graduate_id THEN 1 ELSE 0 END) = 1
-                          LIMIT 1");
-    $stmt->execute([
-        ':graduate_id' => $currentGraduateId,
-        ':target_graduate_id' => $targetGraduateId,
-    ]);
-
-    $room = $stmt->fetch(PDO::FETCH_ASSOC);
-    return $room ? (int) $room['id'] : null;
+    return gradtrack_chat_find_direct_room($db, $currentGraduateId, $targetGraduateId);
 }
 
 $database = new Database();
@@ -323,9 +316,20 @@ try {
                     'success' => true,
                     'message' => 'Direct chat opened',
                     'room_id' => $existingRoomId,
+                    'temporary' => false,
+                    'recipient' => $validatedParticipants[$targetGraduateId],
                 ]);
                 exit;
             }
+
+            echo json_encode([
+                'success' => true,
+                'message' => 'Direct message composer opened',
+                'room_id' => null,
+                'temporary' => true,
+                'recipient' => $validatedParticipants[$targetGraduateId],
+            ]);
+            exit;
         }
 
         $db->beginTransaction();
@@ -361,7 +365,7 @@ try {
 
         echo json_encode([
             'success' => true,
-            'message' => $isGroup ? 'Group chat created successfully' : 'Direct chat created successfully',
+            'message' => 'Group chat created successfully',
             'room_id' => $roomId,
         ]);
         exit;

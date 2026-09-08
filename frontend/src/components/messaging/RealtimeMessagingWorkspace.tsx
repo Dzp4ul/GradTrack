@@ -4,6 +4,8 @@ import {
   AlertCircle,
   ArrowLeft,
   Ban,
+  Briefcase,
+  Building2,
   Check,
   CheckCheck,
   ChevronDown,
@@ -15,6 +17,8 @@ import {
   LogOut,
   Loader2,
   MoreHorizontal,
+  GraduationCap,
+  MapPin,
   Paperclip,
   Plus,
   RefreshCw,
@@ -38,6 +42,7 @@ import type {
 import type { RealtimeChatStatus } from '../../services/realtimeChat';
 import ProfileAvatar from '../ProfileAvatar';
 import { formatPresenceLabel } from '../../utils/presence';
+import type { GraduateMiniProfileData } from './GraduateMiniProfile';
 
 interface CurrentGraduate {
   graduate_id: number;
@@ -52,6 +57,9 @@ interface RealtimeMessagingWorkspaceProps {
   rooms: MessagingRoom[];
   selectedRoomId: number | null;
   activeRoom: MessagingRoom | null;
+  temporaryRecipient: MessagingParticipant | null;
+  profileIntro: GraduateMiniProfileData | null;
+  profileIntroLoading: boolean;
   messages: MessagingMessage[];
   search: string;
   draft: string;
@@ -207,10 +215,16 @@ function Avatar({
 }: {
   src?: string | null;
   label?: string | null;
-  size?: 'sm' | 'md' | 'lg';
+  size?: 'sm' | 'md' | 'lg' | 'xl';
   resolveAssetUrl: (path?: string | null) => string;
 }) {
-  const className = size === 'sm' ? 'h-10 w-10 text-xs' : size === 'lg' ? 'h-12 w-12 text-base' : 'h-11 w-11 text-sm';
+  const className = size === 'sm'
+    ? 'h-10 w-10 text-xs'
+    : size === 'lg'
+      ? 'h-12 w-12 text-base'
+      : size === 'xl'
+        ? 'h-24 w-24 text-2xl'
+        : 'h-11 w-11 text-sm';
   return (
     <ProfileAvatar
       src={src}
@@ -393,6 +407,7 @@ function ConversationList({
 
 function ChatHeader({
   room,
+  temporaryRecipient,
   currentGraduateId,
   resolveAssetUrl,
   onBack,
@@ -401,6 +416,7 @@ function ChatHeader({
   infoOpen = false,
 }: {
   room: MessagingRoom | null;
+  temporaryRecipient?: MessagingParticipant | null;
   currentGraduateId: number;
   resolveAssetUrl: (path?: string | null) => string;
   onBack: () => void;
@@ -408,9 +424,9 @@ function ChatHeader({
   onOpenInfo?: () => void;
   infoOpen?: boolean;
 }) {
-  const recipient = getRecipient(room, currentGraduateId);
-  const label = room ? getRoomLabel(room, currentGraduateId) : 'Select a conversation';
-  const canOpenRecipient = !!room && !room.is_group && !!recipient?.graduate_id && recipient.graduate_id !== currentGraduateId;
+  const recipient = room ? getRecipient(room, currentGraduateId) : temporaryRecipient || null;
+  const label = room ? getRoomLabel(room, currentGraduateId) : recipient?.full_name || 'Select a conversation';
+  const canOpenRecipient = !!recipient?.graduate_id && (!room || !room.is_group) && recipient.graduate_id !== currentGraduateId;
   const handleIdentityClick = () => {
     if (canOpenRecipient && onOpenProfile) {
       onOpenProfile(recipient?.graduate_id);
@@ -422,18 +438,18 @@ function ChatHeader({
       <button type="button" onClick={onBack} className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-slate-600 hover:bg-slate-100 lg:hidden" aria-label="Back to conversations">
         <ArrowLeft className="h-5 w-5" />
       </button>
-      {room ? (
+      {room || recipient ? (
         <>
           <button type="button" onClick={handleIdentityClick} disabled={!canOpenRecipient} className="relative shrink-0 disabled:cursor-default" aria-label={canOpenRecipient ? `Open ${label} profile` : undefined}>
-            <Avatar src={getRoomAvatar(room, currentGraduateId)} label={label} size="lg" resolveAssetUrl={resolveAssetUrl} />
-            {room.is_group
+            <Avatar src={room ? getRoomAvatar(room, currentGraduateId) : recipient?.profile_image_path} label={label} size="lg" resolveAssetUrl={resolveAssetUrl} />
+            {room?.is_group
               ? <span className="absolute -bottom-0.5 -right-0.5 inline-flex h-5 w-5 items-center justify-center rounded-full border-2 border-white bg-blue-700 text-white"><Users className="h-3 w-3" /></span>
               : recipient?.is_online && <span className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" />}
           </button>
           <div className="min-w-0">
             <button type="button" onClick={handleIdentityClick} disabled={!canOpenRecipient} className="max-w-full truncate text-left text-base font-bold text-slate-900 transition hover:text-blue-700 disabled:cursor-default disabled:hover:text-slate-900">{label}</button>
             <p className="truncate text-xs font-semibold text-slate-500">
-              {room.is_group ? `${room.participant_count} member${room.participant_count === 1 ? '' : 's'}` : <PresenceText participant={recipient} />}
+              {room?.is_group ? `${room.participant_count} member${room.participant_count === 1 ? '' : 's'}` : <PresenceText participant={recipient} />}
             </p>
           </div>
           {onOpenInfo && (
@@ -675,6 +691,10 @@ function TypingIndicator({ names }: { names: string[] }) {
 
 function MessageList({
   room,
+  temporaryRecipient,
+  profileIntro,
+  profileIntroLoading,
+  currentGraduateId,
   messages,
   loading,
   loadingOlder,
@@ -691,6 +711,10 @@ function MessageList({
   onOpenProfile,
 }: {
   room: MessagingRoom | null;
+  temporaryRecipient?: MessagingParticipant | null;
+  profileIntro?: GraduateMiniProfileData | null;
+  profileIntroLoading?: boolean;
+  currentGraduateId: number;
   messages: MessagingMessage[];
   loading: boolean;
   loadingOlder: boolean;
@@ -712,6 +736,7 @@ function MessageList({
   const positionedRoomRef = useRef<number | null>(null);
   const stickToBottomRef = useRef(true);
   const resizeFrameRef = useRef<number | null>(null);
+  const roomId = room?.id ?? null;
 
   const items = useMemo(() => {
     const output: Array<{ type: 'date'; id: string; label: string } | { type: 'message'; id: string; message: MessagingMessage; showSenderIdentity: boolean }> = [];
@@ -764,13 +789,13 @@ function MessageList({
 
   useLayoutEffect(() => {
     const element = scrollRef.current;
-    if (!room) {
+    if (!roomId) {
       positionedRoomRef.current = null;
       stickToBottomRef.current = true;
       return undefined;
     }
 
-    if (positionedRoomRef.current !== room.id) {
+    if (positionedRoomRef.current !== roomId) {
       stickToBottomRef.current = true;
     }
     if (!element || loading) return undefined;
@@ -778,31 +803,31 @@ function MessageList({
     // Initial smooth scrolling can be interrupted by rerenders or image
     // decoding. Position synchronously, then confirm after browser layout.
     element.scrollTop = element.scrollHeight;
-    positionedRoomRef.current = room.id;
+    positionedRoomRef.current = roomId;
     stickToBottomRef.current = true;
     onNearBottomChange(true);
 
     const frame = window.requestAnimationFrame(() => {
-      if (scrollRef.current && positionedRoomRef.current === room.id) {
+      if (scrollRef.current && positionedRoomRef.current === roomId) {
         scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
       }
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [loading, onNearBottomChange, room?.id]);
+  }, [loading, onNearBottomChange, roomId]);
 
   useEffect(() => {
     const element = scrollRef.current;
     const content = contentRef.current;
-    if (!element || !content || !room || loading || typeof ResizeObserver === 'undefined') return undefined;
+    if (!element || !content || !roomId || loading || typeof ResizeObserver === 'undefined') return undefined;
 
     const observer = new ResizeObserver(() => {
-      if (!stickToBottomRef.current || positionedRoomRef.current !== room.id) return;
+      if (!stickToBottomRef.current || positionedRoomRef.current !== roomId) return;
       if (resizeFrameRef.current !== null) {
         window.cancelAnimationFrame(resizeFrameRef.current);
       }
       resizeFrameRef.current = window.requestAnimationFrame(() => {
         resizeFrameRef.current = null;
-        if (scrollRef.current && stickToBottomRef.current && positionedRoomRef.current === room.id) {
+        if (scrollRef.current && stickToBottomRef.current && positionedRoomRef.current === roomId) {
           scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
         }
       });
@@ -816,7 +841,7 @@ function MessageList({
         resizeFrameRef.current = null;
       }
     };
-  }, [loading, room?.id]);
+  }, [loading, roomId]);
 
   useEffect(() => {
     const element = scrollRef.current;
@@ -863,15 +888,25 @@ function MessageList({
               </div>
             ))}
             </div>
-          ) : !room ? (
+          ) : !room && !temporaryRecipient ? (
             <div className="flex min-h-full items-center justify-center px-6 text-center text-sm text-slate-500">
               Pick a conversation to read and send messages.
             </div>
           ) : messages.length === 0 ? (
             <div className="flex min-h-full flex-col justify-center gap-4 px-6">
-              <div className="rounded-lg border border-dashed border-slate-300 bg-white px-5 py-8 text-center text-sm text-slate-500">
-                No messages yet. Say hello and start the conversation.
-              </div>
+              {room?.is_group ? (
+                <div className="rounded-lg border border-dashed border-slate-300 bg-white px-5 py-8 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
+                  No messages yet. Say hello to the group.
+                </div>
+              ) : (
+                <ConversationProfileIntro
+                  participant={room ? getRecipient(room, currentGraduateId) : temporaryRecipient || null}
+                  profile={profileIntro || null}
+                  loading={Boolean(profileIntroLoading)}
+                  resolveAssetUrl={resolveAssetUrl}
+                  onOpenProfile={onOpenProfile}
+                />
+              )}
               <TypingIndicator names={typingNames} />
             </div>
           ) : (
@@ -1206,6 +1241,74 @@ function ImagePreviewModal({
   );
 }
 
+function ConversationProfileIntro({
+  participant,
+  profile,
+  loading,
+  resolveAssetUrl,
+  onOpenProfile,
+}: {
+  participant: MessagingParticipant | null;
+  profile: GraduateMiniProfileData | null;
+  loading: boolean;
+  resolveAssetUrl: (path?: string | null) => string;
+  onOpenProfile?: (graduateId?: number | null) => void;
+}) {
+  if (!participant) return null;
+
+  const fullName = profile?.full_name || participant.full_name;
+  const program = profile?.program_course || profile?.program_name || profile?.program_code || participant.program_code;
+  const batch = profile?.year_graduated || participant.year_graduated;
+  const canOpenProfile = Boolean(onOpenProfile && participant.graduate_id);
+
+  return (
+    <div className="mx-auto flex w-full max-w-xl flex-col items-center px-5 py-8 text-center">
+      <button
+        type="button"
+        onClick={() => onOpenProfile?.(participant.graduate_id)}
+        disabled={!canOpenProfile}
+        className="relative rounded-full disabled:cursor-default"
+        aria-label={canOpenProfile ? `Open ${fullName} profile` : undefined}
+      >
+        <Avatar
+          src={profile?.profile_image_path || participant.profile_image_path}
+          label={fullName}
+          size="xl"
+          resolveAssetUrl={resolveAssetUrl}
+        />
+        {participant.is_online && <span className="absolute bottom-0 right-0 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500 dark:border-slate-900" />}
+      </button>
+      <button
+        type="button"
+        onClick={() => onOpenProfile?.(participant.graduate_id)}
+        disabled={!canOpenProfile}
+        className="mt-4 text-xl font-bold text-slate-950 transition hover:text-blue-700 disabled:cursor-default disabled:hover:text-slate-950 dark:text-white dark:hover:text-blue-300"
+      >
+        {fullName}
+      </button>
+
+      {loading ? (
+        <div className="mt-4 flex items-center gap-2 text-sm text-slate-500 dark:text-slate-400">
+          <Loader2 className="h-4 w-4 animate-spin" /> Loading profile details...
+        </div>
+      ) : (
+        <div className="mt-4 space-y-2 text-sm text-slate-600 dark:text-slate-300">
+          {program && <p className="flex items-center justify-center gap-2"><GraduationCap className="h-4 w-4 text-blue-600" /> {program}</p>}
+          {batch && <p className="font-semibold text-slate-500 dark:text-slate-400">Batch {batch}</p>}
+          {(profile?.job_title || profile?.company_name) && (
+            <p className="flex items-center justify-center gap-2">
+              {profile.job_title ? <Briefcase className="h-4 w-4 text-blue-600" /> : <Building2 className="h-4 w-4 text-blue-600" />}
+              {[profile.job_title, profile.company_name].filter(Boolean).join(' at ')}
+            </p>
+          )}
+          {profile?.current_location && <p className="flex items-center justify-center gap-2"><MapPin className="h-4 w-4 text-blue-600" /> {profile.current_location}</p>}
+        </div>
+      )}
+      <p className="mt-5 text-xs font-medium text-slate-400 dark:text-slate-500">Start your GradTrack conversation below.</p>
+    </div>
+  );
+}
+
 function ConversationInfoPanel({
   info,
   loading,
@@ -1401,6 +1504,9 @@ export default function RealtimeMessagingWorkspace({
   rooms,
   selectedRoomId,
   activeRoom,
+  temporaryRecipient,
+  profileIntro,
+  profileIntroLoading,
   messages,
   search,
   draft,
@@ -1468,7 +1574,7 @@ export default function RealtimeMessagingWorkspace({
 
         <div className={`${mobileChatOpen ? 'grid' : 'hidden lg:grid'} relative min-h-0 grid-cols-1 bg-white ${conversationInfoOpen ? 'xl:grid-cols-[minmax(0,1fr)_340px]' : ''}`}>
           <div className="flex min-h-0 min-w-0 flex-col">
-          <ChatHeader room={activeRoom} currentGraduateId={currentGraduate.graduate_id} resolveAssetUrl={resolveAssetUrl} onBack={onBackToList} onOpenProfile={onOpenProfile} onOpenInfo={activeRoom ? onToggleConversationInfo : undefined} infoOpen={conversationInfoOpen} />
+          <ChatHeader room={activeRoom} temporaryRecipient={temporaryRecipient} currentGraduateId={currentGraduate.graduate_id} resolveAssetUrl={resolveAssetUrl} onBack={onBackToList} onOpenProfile={onOpenProfile} onOpenInfo={activeRoom ? onToggleConversationInfo : undefined} infoOpen={conversationInfoOpen} />
           {(connectionStatus === 'reconnecting' || connectionStatus === 'error') && (
             <div className="flex items-center justify-center gap-2 border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800" role="status">
               {connectionStatus === 'reconnecting' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
@@ -1477,6 +1583,10 @@ export default function RealtimeMessagingWorkspace({
           )}
           <MessageList
             room={activeRoom}
+            temporaryRecipient={temporaryRecipient}
+            profileIntro={profileIntro}
+            profileIntroLoading={profileIntroLoading}
+            currentGraduateId={currentGraduate.graduate_id}
             messages={messages}
             loading={roomLoading}
             loadingOlder={loadingOlder}
@@ -1494,7 +1604,7 @@ export default function RealtimeMessagingWorkspace({
           />
           <MessageComposer
             draft={draft}
-            disabled={!activeRoom || !!conversationInfo?.block?.blocked}
+            disabled={(!activeRoom && !temporaryRecipient) || !!conversationInfo?.block?.blocked}
             disabledReason={conversationInfo?.block?.blocked ? 'Messaging is unavailable while this conversation is blocked' : undefined}
             selectedAttachment={selectedAttachment}
             onDraftChange={onDraftChange}
@@ -1544,4 +1654,5 @@ export {
   MessageList,
   PresenceText,
   TypingIndicator,
+  ConversationProfileIntro,
 };
