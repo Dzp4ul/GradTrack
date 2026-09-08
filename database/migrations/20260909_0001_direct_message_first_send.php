@@ -20,7 +20,7 @@ return static function (PDO $db): void {
         $rooms = $db->query("SELECT room.id,
                                 MIN(member.graduate_id) AS first_graduate_id,
                                 MAX(member.graduate_id) AS second_graduate_id,
-                                COUNT(DISTINCT message.id) AS message_count,
+                                COUNT(message.id) AS message_count,
                                 MAX(message.created_at) AS latest_message_at
                          FROM forum_chat_rooms room
                          JOIN forum_chat_members member ON member.room_id = room.id
@@ -39,57 +39,57 @@ return static function (PDO $db): void {
         }
 
         foreach ($byPair as $pairKey => $pairRooms) {
-            usort($pairRooms, static function (array $first, array $second): int {
-                $messageComparison = (int) $second['message_count'] <=> (int) $first['message_count'];
-                if ($messageComparison !== 0) return $messageComparison;
-                $dateComparison = strcmp((string) ($second['latest_message_at'] ?? ''), (string) ($first['latest_message_at'] ?? ''));
-                if ($dateComparison !== 0) return $dateComparison;
-                return (int) $first['id'] <=> (int) $second['id'];
-            });
+        usort($pairRooms, static function (array $first, array $second): int {
+            $messageComparison = (int) $second['message_count'] <=> (int) $first['message_count'];
+            if ($messageComparison !== 0) return $messageComparison;
+            $dateComparison = strcmp((string) ($second['latest_message_at'] ?? ''), (string) ($first['latest_message_at'] ?? ''));
+            if ($dateComparison !== 0) return $dateComparison;
+            return (int) $first['id'] <=> (int) $second['id'];
+        });
 
-            $canonicalRoomId = (int) $pairRooms[0]['id'];
-            foreach (array_slice($pairRooms, 1) as $duplicateRoom) {
-                $duplicateRoomId = (int) $duplicateRoom['id'];
+        $canonicalRoomId = (int) $pairRooms[0]['id'];
+        foreach (array_slice($pairRooms, 1) as $duplicateRoom) {
+            $duplicateRoomId = (int) $duplicateRoom['id'];
 
-                $clientIdStmt = $db->prepare("UPDATE forum_chat_messages
-                                              SET client_message_id = CONCAT('legacy:', id)
-                                              WHERE room_id = :room_id AND client_message_id IS NOT NULL");
-                $clientIdStmt->execute([':room_id' => $duplicateRoomId]);
+            $clientIdStmt = $db->prepare("UPDATE forum_chat_messages
+                                          SET client_message_id = CONCAT('legacy:', id)
+                                          WHERE room_id = :room_id AND client_message_id IS NOT NULL");
+            $clientIdStmt->execute([':room_id' => $duplicateRoomId]);
 
-                $attachmentStmt = $db->prepare('UPDATE forum_chat_message_attachments
-                                                SET room_id = :canonical_room_id
-                                                WHERE room_id = :duplicate_room_id');
-                $attachmentStmt->execute([
-                    ':canonical_room_id' => $canonicalRoomId,
-                    ':duplicate_room_id' => $duplicateRoomId,
-                ]);
+            $attachmentStmt = $db->prepare('UPDATE forum_chat_message_attachments
+                                            SET room_id = :canonical_room_id
+                                            WHERE room_id = :duplicate_room_id');
+            $attachmentStmt->execute([
+                ':canonical_room_id' => $canonicalRoomId,
+                ':duplicate_room_id' => $duplicateRoomId,
+            ]);
 
-                $messageStmt = $db->prepare('UPDATE forum_chat_messages
-                                             SET room_id = :canonical_room_id
-                                             WHERE room_id = :duplicate_room_id');
-                $messageStmt->execute([
-                    ':canonical_room_id' => $canonicalRoomId,
-                    ':duplicate_room_id' => $duplicateRoomId,
-                ]);
+            $messageStmt = $db->prepare('UPDATE forum_chat_messages
+                                         SET room_id = :canonical_room_id
+                                         WHERE room_id = :duplicate_room_id');
+            $messageStmt->execute([
+                ':canonical_room_id' => $canonicalRoomId,
+                ':duplicate_room_id' => $duplicateRoomId,
+            ]);
 
-                $db->prepare('DELETE FROM forum_chat_members WHERE room_id = :room_id')
-                    ->execute([':room_id' => $duplicateRoomId]);
-                $db->prepare('DELETE FROM forum_chat_rooms WHERE id = :room_id')
-                    ->execute([':room_id' => $duplicateRoomId]);
-            }
+            $db->prepare('DELETE FROM forum_chat_members WHERE room_id = :room_id')
+                ->execute([':room_id' => $duplicateRoomId]);
+            $db->prepare('DELETE FROM forum_chat_rooms WHERE id = :room_id')
+                ->execute([':room_id' => $duplicateRoomId]);
+        }
 
             $db->prepare('UPDATE forum_chat_rooms
-                          SET direct_pair_key = :direct_pair_key,
-                              last_message_at = (
-                                  SELECT MAX(message.created_at)
-                                  FROM forum_chat_messages message
-                                  WHERE message.room_id = :message_room_id AND message.deleted_at IS NULL
-                              )
-                          WHERE id = :room_id')
-                ->execute([
-                    ':direct_pair_key' => $pairKey,
-                    ':message_room_id' => $canonicalRoomId,
-                    ':room_id' => $canonicalRoomId,
+                      SET direct_pair_key = :direct_pair_key,
+                          last_message_at = (
+                              SELECT MAX(message.created_at)
+                              FROM forum_chat_messages message
+                              WHERE message.room_id = :message_room_id AND message.deleted_at IS NULL
+                          )
+                      WHERE id = :room_id')
+            ->execute([
+                ':direct_pair_key' => $pairKey,
+                ':message_room_id' => $canonicalRoomId,
+                ':room_id' => $canonicalRoomId,
                 ]);
         }
 
