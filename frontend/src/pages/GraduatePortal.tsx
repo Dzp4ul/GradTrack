@@ -1020,6 +1020,7 @@ export default function GraduatePortal() {
   const chatJoinedRoomIdRef = useRef<number | null>(null);
   const selectedRoomIdRef = useRef<number | null>(null);
   const temporaryChatRecipientRef = useRef<ChatParticipant | null>(null);
+  const directChatOpeningRef = useRef(false);
   const previousSelectedRoomIdRef = useRef<number | null>(null);
   const roomMessagesRef = useRef<ChatMessage[]>([]);
   const chatPresenceByGraduateRef = useRef<Map<number, ChatPresenceStatus>>(new Map());
@@ -3109,6 +3110,11 @@ export default function GraduatePortal() {
       return;
     }
 
+    if (directChatOpeningRef.current) {
+      return;
+    }
+
+    directChatOpeningRef.current = true;
     setChatCreating(true);
 
     try {
@@ -3121,6 +3127,11 @@ export default function GraduatePortal() {
       });
 
       const roomId = Number(response.room_id || 0);
+      setSelectedPostOpen(false);
+      setChatModalOpen(false);
+      setChatMobileConversationOpen(true);
+      selectTab('messages');
+
       const profileRequestId = ++chatProfileIntroRequestRef.current;
       setChatProfileIntro(null);
       setChatProfileIntroLoading(true);
@@ -3144,11 +3155,13 @@ export default function GraduatePortal() {
       if (roomId > 0) {
         temporaryChatRecipientRef.current = null;
         setTemporaryChatRecipient(null);
-        await loadChats();
         selectedRoomIdRef.current = roomId;
         setSelectedRoomId(roomId);
-        setChatMobileConversationOpen(true);
-        await loadRoomMessages(roomId);
+        const knownRoom = rooms.find((room) => room.id === roomId) || null;
+        setActiveRoom(knownRoom ? mergeKnownPresenceIntoRoom(knownRoom, chatPresenceByGraduateRef.current) : null);
+        setRoomMessages([]);
+        roomMessagesRef.current = [];
+        await Promise.all([loadChats(), loadRoomMessages(roomId)]);
       } else {
         const recipient = (response.recipient as ChatParticipant | undefined)
           || directory.find((participant) => participant.graduate_id === graduateId)
@@ -3168,14 +3181,11 @@ export default function GraduatePortal() {
         setMessagePagination(null);
         setConversationInfo(null);
         setConversationInfoOpen(false);
-        setChatMobileConversationOpen(true);
       }
-      setSelectedPostOpen(false);
-      setChatModalOpen(false);
-      selectTab('messages');
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to start direct chat', 'Chats');
     } finally {
+      directChatOpeningRef.current = false;
       setChatCreating(false);
     }
   };
@@ -5669,7 +5679,7 @@ export default function GraduatePortal() {
                 <p className="text-sm text-slate-500">
                   {chatModalMode === 'group'
                     ? 'Choose multiple graduates and give your chat a name.'
-                    : 'Choose one graduate to start a private conversation.'}
+                    : 'Select a graduate to open a private conversation.'}
                 </p>
               </div>
               <button type="button" onClick={() => setChatModalOpen(false)} className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100" aria-label="Close chat creator">
@@ -5733,6 +5743,10 @@ export default function GraduatePortal() {
                   filteredDirectory.map((participant) => {
                     const selected = chatModalSelectedIds.includes(participant.graduate_id);
                     const toggleParticipant = () => {
+                      if (chatCreating) {
+                        return;
+                      }
+
                       if (chatModalMode === 'group') {
                         setChatModalSelectedIds((current) =>
                           current.includes(participant.graduate_id)
@@ -5741,6 +5755,7 @@ export default function GraduatePortal() {
                         );
                       } else {
                         setChatModalSelectedIds([participant.graduate_id]);
+                        void createDirectChat(participant.graduate_id);
                       }
                     };
 
@@ -5750,9 +5765,10 @@ export default function GraduatePortal() {
                           type={chatModalMode === 'group' ? 'checkbox' : 'radio'}
                           name="chat_participant"
                           checked={selected}
+                          disabled={chatCreating}
                           onChange={toggleParticipant}
                         />
-                        <button type="button" onClick={toggleParticipant} className="flex min-w-0 flex-1 items-center gap-3 text-left">
+                        <button type="button" disabled={chatCreating} onClick={toggleParticipant} className="flex min-w-0 flex-1 items-center gap-3 text-left disabled:cursor-wait">
                           <Avatar src={resolveAssetUrl(participant.profile_image_path)} label={participant.full_name} size="sm" />
                           <span className="min-w-0">
                             <span className="block truncate font-semibold text-slate-900 transition hover:text-blue-700">{participant.full_name}</span>
@@ -5768,14 +5784,22 @@ export default function GraduatePortal() {
               </div>
             </div>
 
-            <div className="flex flex-wrap justify-end gap-3 border-t border-slate-100 px-6 py-5">
-              <button type="button" onClick={() => setChatModalOpen(false)} className="rounded-full border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
+            <div className="flex flex-wrap items-center justify-end gap-3 border-t border-slate-100 px-6 py-5">
+              {chatModalMode === 'direct' && (
+                <span className="mr-auto inline-flex items-center gap-2 text-sm text-slate-500" aria-live="polite">
+                  {chatCreating && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {chatCreating ? 'Opening conversation...' : 'Select a graduate to open the conversation.'}
+                </span>
+              )}
+              <button type="button" disabled={chatCreating} onClick={() => setChatModalOpen(false)} className="rounded-full border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60">
                 Cancel
               </button>
-              <button type="submit" disabled={chatCreating} className="inline-flex items-center gap-2 rounded-full bg-blue-700 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60">
-                {chatCreating && <Loader2 className="h-4 w-4 animate-spin" />}
-                {chatModalMode === 'group' ? 'Create Group Chat' : 'Open Direct Chat'}
-              </button>
+              {chatModalMode === 'group' && (
+                <button type="submit" disabled={chatCreating} className="inline-flex items-center gap-2 rounded-full bg-blue-700 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60">
+                  {chatCreating && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Create Group Chat
+                </button>
+              )}
             </div>
           </form>
         </div>
