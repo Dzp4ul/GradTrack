@@ -50,19 +50,20 @@ function gradtrack_chat_attachments_load_authorized(PDO $db, int $attachmentId, 
                            AND m.room_id = a.room_id
                           WHERE a.id = :id
                             AND (
-                                (a.room_id IS NULL AND a.message_id IS NULL AND a.uploaded_by = :uploaded_by)
+                                (a.room_id IS NULL AND a.message_id IS NULL AND a.uploaded_by = :pending_uploaded_by)
                                 OR (fcm.room_id IS NOT NULL
                                  AND a.message_id IS NOT NULL
                                  AND m.id IS NOT NULL
                                  AND m.deleted_at IS NULL
                                  AND m.id > COALESCE(fcm.hidden_before_message_id, 0))
-                                OR (fcm.room_id IS NOT NULL AND a.message_id IS NULL AND a.uploaded_by = :uploaded_by)
+                                OR (fcm.room_id IS NOT NULL AND a.message_id IS NULL AND a.uploaded_by = :room_uploaded_by)
                             )
                           LIMIT 1");
     $stmt->execute([
         ':id' => $attachmentId,
         ':graduate_id' => $graduateId,
-        ':uploaded_by' => $graduateId,
+        ':pending_uploaded_by' => $graduateId,
+        ':room_uploaded_by' => $graduateId,
     ]);
 
     $row = $stmt->fetch(PDO::FETCH_ASSOC);

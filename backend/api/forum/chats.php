@@ -209,6 +209,8 @@ function gradtrack_forum_chats_rooms(PDO $db, int $currentGraduateId): array
                                   SELECT 1
                                   FROM forum_chat_messages persisted_message
                                   WHERE persisted_message.room_id = r.id
+                                    AND persisted_message.deleted_at IS NULL
+                                    AND persisted_message.id > COALESCE(mine.hidden_before_message_id, 0)
                               )
                           )
                             AND (mine.hidden_at IS NULL OR lm.id IS NOT NULL)
@@ -305,13 +307,6 @@ try {
             $existingRoomId = gradtrack_forum_chats_existing_direct_room($db, $currentGraduateId, $targetGraduateId);
 
             if ($existingRoomId !== null) {
-                $reopenStmt = $db->prepare('UPDATE forum_chat_members
-                                            SET hidden_at = NULL
-                                            WHERE room_id = :room_id AND graduate_id = :graduate_id');
-                $reopenStmt->execute([
-                    ':room_id' => $existingRoomId,
-                    ':graduate_id' => $currentGraduateId,
-                ]);
                 echo json_encode([
                     'success' => true,
                     'message' => 'Direct chat opened',

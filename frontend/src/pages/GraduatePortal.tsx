@@ -3207,19 +3207,19 @@ export default function GraduatePortal() {
       }
 
       const roomId = Number(response.room_id || 0);
-      if (roomId > 0) {
+      const resolvedRoom = roomId > 0 ? rooms.find((room) => room.id === roomId) || null : null;
+      if (roomId > 0 && resolvedRoom) {
         temporaryChatRecipientRef.current = null;
         setTemporaryChatRecipient(null);
         selectedRoomIdRef.current = roomId;
         setSelectedRoomId(roomId);
-        const resolvedRoom = rooms.find((room) => room.id === roomId) || null;
-        setActiveRoom(resolvedRoom ? mergeKnownPresenceIntoRoom(resolvedRoom, chatPresenceByGraduateRef.current) : null);
+        setActiveRoom(mergeKnownPresenceIntoRoom(resolvedRoom, chatPresenceByGraduateRef.current));
         setRoomMessages([]);
         roomMessagesRef.current = [];
         setChatProfileIntro(null);
         setChatProfileIntroLoading(false);
         chatProfileIntroRequestRef.current += 1;
-        await Promise.all([loadChats(), loadRoomMessages(roomId)]);
+        await loadRoomMessages(roomId);
       } else {
         const confirmedRecipient = (response.recipient as ChatParticipant | undefined) || synchronizedRecipient;
         const synchronizedConfirmedRecipient = mergeKnownPresenceIntoParticipant(confirmedRecipient, chatPresenceByGraduateRef.current);
