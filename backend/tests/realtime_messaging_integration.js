@@ -582,6 +582,8 @@ async function main() {
       assert(outsiderRefresh.success === false, 'an authenticated non-participant cannot broadcast conversation changes');
       const outsiderPolicy = await emitWithAck(outsider, 'conversation:policy-changed', { room_id: Number(fixture.room_id) });
       assert(outsiderPolicy.success === false, 'an authenticated non-participant cannot broadcast conversation policy changes');
+      const outsiderTyping = await emitWithAck(outsider, 'typing:start', { room_id: Number(fixture.room_id) });
+      assert(outsiderTyping.success === false, 'an authenticated non-participant cannot broadcast typing activity');
     }
 
     const [temporaryPostInsert] = await pool.query(
@@ -668,6 +670,37 @@ async function main() {
     await emitWithAck(sender, 'typing:stop', { room_id: Number(fixture.room_id) });
     await typingStopped;
     assert(true, 'typing:stop clears the other participant indicator');
+
+    await emitWithAck(sender, 'conversation:leave', { room_id: Number(fixture.room_id) });
+    await emitWithAck(recipient, 'conversation:leave', { room_id: Number(fixture.room_id) });
+    const typingWithoutRoomJoin = waitForEvent(
+      recipient,
+      'typing:update',
+      (payload) => Number(payload?.room_id) === Number(fixture.room_id)
+        && Number(payload?.graduate_id) === Number(fixture.sender_id)
+        && payload?.is_typing === true,
+    );
+    const typingWithoutRoomJoinAck = await emitWithAck(sender, 'typing:start', { room_id: Number(fixture.room_id) });
+    await typingWithoutRoomJoin;
+    assert(
+      typingWithoutRoomJoinAck.success === true,
+      'typing reaches authenticated participants through their user channel even while a conversation join is pending',
+    );
+
+    const typingStopWithoutRoomJoin = waitForEvent(
+      recipient,
+      'typing:update',
+      (payload) => Number(payload?.room_id) === Number(fixture.room_id)
+        && Number(payload?.graduate_id) === Number(fixture.sender_id)
+        && payload?.is_typing === false,
+    );
+    await emitWithAck(sender, 'typing:stop', { room_id: Number(fixture.room_id) });
+    await typingStopWithoutRoomJoin;
+    assert(true, 'typing stop also reaches participants through their user channel');
+
+    const senderRejoin = await emitWithAck(sender, 'conversation:join', { room_id: Number(fixture.room_id) });
+    const recipientRejoin = await emitWithAck(recipient, 'conversation:join', { room_id: Number(fixture.room_id) });
+    assert(senderRejoin.success === true && recipientRejoin.success === true, 'participants can rejoin after the typing delivery race test');
 
     const [[beforeCount]] = await pool.query(
       'SELECT COUNT(*) AS total FROM forum_chat_messages WHERE room_id = ?',

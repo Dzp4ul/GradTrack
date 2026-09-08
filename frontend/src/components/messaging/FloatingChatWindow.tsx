@@ -105,7 +105,14 @@ export default function FloatingChatWindow({
       </span>
       <span className="min-w-0">
         <span className="block truncate text-sm font-bold text-slate-900">{label}</span>
-        <span className="block truncate text-[11px] font-semibold text-slate-500">{room.is_group ? `${room.participant_count} members` : <PresenceText participant={recipient} />}</span>
+        <span className={`flex items-center gap-1 truncate text-[11px] font-semibold ${typingNames.length > 0 ? 'text-blue-700' : 'text-slate-500'}`} aria-live="polite">
+          {typingNames.length > 0 ? (
+            <>
+              <span className="truncate">{typingNames.length === 1 ? `${typingNames[0]} is typing` : 'Several people are typing'}</span>
+              <span className="typing-dots shrink-0" aria-hidden="true"><span /><span /><span /></span>
+            </>
+          ) : room.is_group ? `${room.participant_count} members` : <PresenceText participant={recipient} />}
+        </span>
       </span>
     </button>
   );

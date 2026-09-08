@@ -863,12 +863,19 @@ function runInBackground(label, task) {
 
 function emitTypingStopped(socket, roomId, graduateId) {
   if (!roomId || Number(socket.data.typingConversationId || 0) !== Number(roomId)) return;
-  socket.to(socketRoom(roomId)).emit('typing:update', {
+  const recipientIds = Array.isArray(socket.data.typingRecipientIds)
+    ? socket.data.typingRecipientIds
+    : [];
+  socket.to([
+    socketRoom(roomId),
+    ...recipientIds.map((recipientId) => userRoom(recipientId)),
+  ]).emit('typing:update', {
     room_id: roomId,
     graduate_id: graduateId,
     is_typing: false,
   });
   socket.data.typingConversationId = null;
+  socket.data.typingRecipientIds = [];
   console.log(`[Realtime] Typing stopped: user=${graduateId} room=${roomId}`);
 }
 
@@ -1086,6 +1093,7 @@ io.on('connection', (socket) => {
   onlineSocketsByGraduate.set(graduateId, existingSet);
   socket.data.activeConversationId = null;
   socket.data.typingConversationId = null;
+  socket.data.typingRecipientIds = [];
   socket.data.joinRequestNumber = 0;
   socket.join(userRoom(graduateId));
   console.log(`[Realtime] Connected: ${socket.id}`);
@@ -1185,12 +1193,19 @@ io.on('connection', (socket) => {
   socket.on('typing:start', async (payload, ack) => {
     try {
       const roomId = Number(payload?.room_id || payload?.conversation_id || 0);
-      if (Number(socket.data.activeConversationId || 0) !== roomId || !socket.rooms.has(socketRoom(roomId))) {
-        throw new Error('Join the conversation before sending typing events');
-      }
       await assertMessageAllowed(roomId, graduateId);
+      const participantIds = await getRoomParticipants(roomId);
+      const recipientIds = participantIds.filter((participantId) => participantId !== graduateId);
+      const previousTypingRoomId = Number(socket.data.typingConversationId || 0);
+      if (previousTypingRoomId && previousTypingRoomId !== roomId) {
+        emitTypingStopped(socket, previousTypingRoomId, graduateId);
+      }
       socket.data.typingConversationId = roomId;
-      socket.to(socketRoom(roomId)).emit('typing:update', {
+      socket.data.typingRecipientIds = recipientIds;
+      socket.to([
+        socketRoom(roomId),
+        ...recipientIds.map((recipientId) => userRoom(recipientId)),
+      ]).emit('typing:update', {
         room_id: roomId,
         graduate_id: graduateId,
         name: socket.data.user.full_name,
@@ -1205,7 +1220,7 @@ io.on('connection', (socket) => {
 
   socket.on('typing:stop', async (payload, ack) => {
     const roomId = Number(payload?.room_id || payload?.conversation_id || socket.data.typingConversationId || 0);
-    if (roomId > 0 && Number(socket.data.activeConversationId || 0) === roomId) {
+    if (roomId > 0) {
       emitTypingStopped(socket, roomId, graduateId);
     }
     ack?.({ success: true });

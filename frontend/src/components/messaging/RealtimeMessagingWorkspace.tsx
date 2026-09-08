@@ -408,6 +408,7 @@ function ConversationList({
 function ChatHeader({
   room,
   temporaryRecipient,
+  typingNames,
   currentGraduateId,
   resolveAssetUrl,
   onBack,
@@ -417,6 +418,7 @@ function ChatHeader({
 }: {
   room: MessagingRoom | null;
   temporaryRecipient?: MessagingParticipant | null;
+  typingNames: string[];
   currentGraduateId: number;
   resolveAssetUrl: (path?: string | null) => string;
   onBack: () => void;
@@ -426,6 +428,11 @@ function ChatHeader({
 }) {
   const recipient = room ? getRecipient(room, currentGraduateId) : temporaryRecipient || null;
   const label = room ? getRoomLabel(room, currentGraduateId) : recipient?.full_name || 'Select a conversation';
+  const typingLabel = typingNames.length === 1
+    ? `${typingNames[0]} is typing`
+    : typingNames.length > 1
+      ? 'Several people are typing'
+      : '';
   const canOpenRecipient = !!recipient?.graduate_id && (!room || !room.is_group) && recipient.graduate_id !== currentGraduateId;
   const handleIdentityClick = () => {
     if (canOpenRecipient && onOpenProfile) {
@@ -448,8 +455,13 @@ function ChatHeader({
           </button>
           <div className="min-w-0">
             <button type="button" onClick={handleIdentityClick} disabled={!canOpenRecipient} className="max-w-full truncate text-left text-base font-bold text-slate-900 transition hover:text-blue-700 disabled:cursor-default disabled:hover:text-slate-900">{label}</button>
-            <p className="truncate text-xs font-semibold text-slate-500">
-              {room?.is_group ? `${room.participant_count} member${room.participant_count === 1 ? '' : 's'}` : <PresenceText participant={recipient} />}
+            <p className={`flex min-h-4 items-center gap-1.5 truncate text-xs font-semibold ${typingLabel ? 'text-blue-700' : 'text-slate-500'}`} aria-live="polite">
+              {typingLabel ? (
+                <>
+                  <span className="truncate">{typingLabel}</span>
+                  <span className="typing-dots shrink-0" aria-hidden="true"><span /><span /><span /></span>
+                </>
+              ) : room?.is_group ? `${room.participant_count} member${room.participant_count === 1 ? '' : 's'}` : <PresenceText participant={recipient} />}
             </p>
           </div>
           {onOpenInfo && (
@@ -1574,7 +1586,7 @@ export default function RealtimeMessagingWorkspace({
 
         <div className={`${mobileChatOpen ? 'grid' : 'hidden lg:grid'} relative min-h-0 grid-cols-1 bg-white ${conversationInfoOpen ? 'xl:grid-cols-[minmax(0,1fr)_340px]' : ''}`}>
           <div className="flex min-h-0 min-w-0 flex-col">
-          <ChatHeader room={activeRoom} temporaryRecipient={temporaryRecipient} currentGraduateId={currentGraduate.graduate_id} resolveAssetUrl={resolveAssetUrl} onBack={onBackToList} onOpenProfile={onOpenProfile} onOpenInfo={activeRoom ? onToggleConversationInfo : undefined} infoOpen={conversationInfoOpen} />
+          <ChatHeader room={activeRoom} temporaryRecipient={temporaryRecipient} typingNames={typingNames} currentGraduateId={currentGraduate.graduate_id} resolveAssetUrl={resolveAssetUrl} onBack={onBackToList} onOpenProfile={onOpenProfile} onOpenInfo={activeRoom ? onToggleConversationInfo : undefined} infoOpen={conversationInfoOpen} />
           {(connectionStatus === 'reconnecting' || connectionStatus === 'error') && (
             <div className="flex items-center justify-center gap-2 border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800" role="status">
               {connectionStatus === 'reconnecting' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
