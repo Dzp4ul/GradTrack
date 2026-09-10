@@ -11,6 +11,7 @@ interface MessageBoxProps {
   type?: 'success' | 'error' | 'warning' | 'info' | 'confirm';
   confirmText?: string;
   cancelText?: string;
+  destructive?: boolean;
 }
 
 export default function MessageBox({
@@ -22,6 +23,7 @@ export default function MessageBox({
   type = 'info',
   confirmText,
   cancelText = 'Cancel',
+  destructive = false,
 }: MessageBoxProps) {
   useEffect(() => {
     if (!isOpen) return;
@@ -139,7 +141,11 @@ export default function MessageBox({
               <button
                 type="button"
                 onClick={handleConfirm}
-                className={`rounded px-4 py-2.5 text-sm font-semibold shadow-sm transition focus:outline-none focus:ring-2 focus:ring-offset-2 ${current.button}`}
+                className={`rounded px-4 py-2.5 text-sm font-semibold shadow-sm transition focus:outline-none focus:ring-2 focus:ring-offset-2 ${
+                  destructive
+                    ? 'bg-red-600 text-white hover:bg-red-700 focus:ring-red-400'
+                    : current.button
+                }`}
               >
                 {primaryText}
               </button>

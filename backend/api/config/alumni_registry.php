@@ -492,6 +492,16 @@ if (!function_exists('gradtrack_alumni_registry_current_admin')) {
 if (!function_exists('gradtrack_alumni_registry_require_admin')) {
     function gradtrack_alumni_registry_require_admin(PDO $db): array
     {
+        $user = gradtrack_current_admin_user($db);
+        if ($user === null) {
+            http_response_code(401);
+            echo json_encode([
+                'success' => false,
+                'error' => 'Authentication required',
+            ]);
+            exit;
+        }
+
         $admin = gradtrack_alumni_registry_current_admin($db);
         if ($admin === null) {
             http_response_code(403);

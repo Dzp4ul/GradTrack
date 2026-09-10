@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Search, Plus, Edit2, Archive, RotateCcw, X, ChevronLeft, ChevronRight, Download,
+  Search, Plus, Archive, RotateCcw, Trash2, X, ChevronLeft, ChevronRight, Download,
 } from 'lucide-react';
 import MessageBox from '../../components/MessageBox';
 import { API_ROOT } from '../../config/api';
 import { readSpreadsheet } from '../../lib/spreadsheets';
+import { normalizeGraduationYear, normalizeGraduationYears } from '../../utils/graduationYears';
 
 const API_BASE = API_ROOT;
 
@@ -17,15 +18,8 @@ interface Graduate {
   name_extension?: string;
   email: string;
   phone: string;
-  program_id: number;
-  program_name: string;
   program_code: string;
   year_graduated: number;
-  address: string;
-  employment_status: string;
-  is_aligned: string;
-  job_title: string;
-  company_name: string;
   archived_at?: string | null;
   archived_by_name?: string | null;
   restored_at?: string | null;
@@ -33,7 +27,6 @@ interface Graduate {
 }
 
 interface FormData {
-  id?: number;
   student_id: string;
   first_name: string;
   middle_name: string;
@@ -78,8 +71,6 @@ const PROGRAM_DURATION_YEARS: Record<string, number> = {
 };
 
 const NAME_EXTENSION_OPTIONS = ['', 'Jr.', 'Sr.', 'II', 'III', 'IV', 'V', 'VI'];
-
-const DEFAULT_YEAR_TAB_OPTIONS = ['2021', '2022', '2023', '2024', '2025'];
 
 const normalizeText = (value: unknown): string => {
   if (value === null || value === undefined) return '';
@@ -207,11 +198,6 @@ const extractGraduationYearFromRows = (rows: unknown[][]): string => {
     }
   }
   return '';
-};
-
-const mergeAndSortYears = (prevYears: string[], nextYears: string[]): string[] => {
-  const merged = new Set([...prevYears, ...nextYears].filter(Boolean));
-  return Array.from(merged).sort((a, b) => Number.parseInt(a, 10) - Number.parseInt(b, 10));
 };
 
 const getProgramDurationById = (programId: string): number | null => {
@@ -395,7 +381,7 @@ export default function Graduates() {
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState('1');
   const [filterYear, setFilterYear] = useState('');
-  const [yearTabOptions, setYearTabOptions] = useState<string[]>(DEFAULT_YEAR_TAB_OPTIONS);
+  const [yearTabOptions, setYearTabOptions] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
@@ -403,17 +389,18 @@ export default function Graduates() {
   const [archiveCounts, setArchiveCounts] = useState({ active: 0, archived: 0 });
   const [showModal, setShowModal] = useState(false);
   const [formData, setFormData] = useState<FormData>(emptyForm);
-  const [isEditing, setIsEditing] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [selectedGraduateIds, setSelectedGraduateIds] = useState<number[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [msgBox, setMsgBox] = useState<{
     isOpen: boolean;
     type: MessageType;
+    title?: string;
     message: string;
     onConfirm?: () => void;
     confirmText?: string;
     cancelText?: string;
+    destructive?: boolean;
   }>({ isOpen: false, type: 'success', message: '' });
 
   const buildQueryParams = (targetPage: number, limit: number) => {
@@ -440,17 +427,20 @@ export default function Graduates() {
         throw new Error(res.error || 'Failed to load graduates');
       }
 
+      const nextTotalPages = Math.max(1, Number(res.pagination?.pages || 1));
       setGraduates(res.data);
-      setTotalPages(res.pagination.pages);
+      setTotalPages(nextTotalPages);
       setTotal(res.pagination.total);
       setArchiveCounts(res.archive_counts || { active: 0, archived: 0 });
       setSelectedGraduateIds([]);
 
-      const fetchedYears = (res.data as Graduate[])
-        .map((graduate) => normalizeText(graduate.year_graduated))
-        .filter((year) => /^\d{4}$/.test(year));
-      if (fetchedYears.length > 0) {
-        setYearTabOptions((prev) => mergeAndSortYears(prev, fetchedYears));
+      const nextYears = normalizeGraduationYears(Array.isArray(res.year_options) ? res.year_options : []);
+      setYearTabOptions(nextYears);
+      if (filterYear && !nextYears.includes(filterYear)) {
+        setFilterYear('');
+      }
+      if (page > nextTotalPages) {
+        setPage(nextTotalPages);
       }
     } catch (error) {
       setMsgBox({
@@ -469,33 +459,6 @@ export default function Graduates() {
 
   const openAdd = () => {
     setFormData({ ...emptyForm, program_id: activeTab });
-    setIsEditing(false);
-    setShowModal(true);
-  };
-
-  const openEdit = (g: Graduate) => {
-    setFormData({
-      id: g.id,
-      student_id: g.student_id || '',
-      first_name: g.first_name,
-      middle_name: g.middle_name || '',
-      last_name: g.last_name,
-      name_extension: g.name_extension || '',
-      email: g.email || '',
-      phone: g.phone || '',
-      program_id: g.program_id?.toString() || '',
-      year_graduated: g.year_graduated?.toString() || '',
-      address: g.address || '',
-      employment_status: g.employment_status || 'unemployed',
-      is_aligned: g.is_aligned || 'not_aligned',
-      company_name: g.company_name || '',
-      job_title: g.job_title || '',
-      industry: '',
-      date_hired: '',
-      monthly_salary: '',
-      time_to_employment: '',
-    });
-    setIsEditing(true);
     setShowModal(true);
   };
 
@@ -520,10 +483,18 @@ export default function Graduates() {
       return;
     }
 
+    if (!normalizeGraduationYear(formData.year_graduated)) {
+      setMsgBox({
+        isOpen: true,
+        type: 'error',
+        message: 'Year Graduated must be a valid four-digit year.',
+      });
+      return;
+    }
+
     try {
-      const method = isEditing ? 'PUT' : 'POST';
       const response = await fetch(`${API_BASE}/graduates/index.php`, {
-        method,
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify(formData),
@@ -539,7 +510,7 @@ export default function Graduates() {
       setMsgBox({
         isOpen: true,
         type: 'success',
-        message: isEditing ? 'Graduate updated successfully.' : 'Graduate added successfully.',
+        message: 'Graduate added successfully.',
       });
     } catch (error) {
       setMsgBox({
@@ -551,45 +522,6 @@ export default function Graduates() {
         ),
       });
     }
-  };
-
-  const handleArchive = (id: number) => {
-    setMsgBox({
-      isOpen: true,
-      type: 'confirm',
-      message: 'Archive Graduate Record?\n\nThis graduate record will be removed from the active Registrar list and moved to Archive. The record and all related data will be preserved.',
-      confirmText: 'Archive',
-      cancelText: 'Cancel',
-      onConfirm: async () => {
-        try {
-          const response = await fetch(`${API_BASE}/graduates/index.php`, {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ id }),
-          });
-          const res = await response.json();
-
-          if (!response.ok || !res.success) {
-            throw new Error(res.error || 'Unable to archive graduate');
-          }
-
-          setGraduates((current) => current.filter((graduate) => graduate.id !== id));
-          await fetchGraduates();
-          setMsgBox({
-            isOpen: true,
-            type: 'success',
-            message: 'Graduate archived successfully.',
-          });
-        } catch (error) {
-          setMsgBox({
-            isOpen: true,
-            type: 'error',
-            message: getSafeErrorMessage(error, 'Unable to archive graduate'),
-          });
-        }
-      },
-    });
   };
 
   const isGraduateSelected = (id: number) => selectedGraduateIds.includes(id);
@@ -730,6 +662,41 @@ export default function Graduates() {
     });
   };
 
+  const handlePermanentDelete = (graduate: Graduate) => {
+    setMsgBox({
+      isOpen: true,
+      type: 'confirm',
+      title: 'Permanently Delete Graduate?',
+      message: 'This will permanently delete this graduate account and its account-owned data. Historical survey responses will be preserved for reporting. This action cannot be undone.',
+      confirmText: 'Permanently Delete',
+      cancelText: 'Cancel',
+      destructive: true,
+      onConfirm: async () => {
+        try {
+          const response = await fetch(`${API_BASE}/graduates/index.php`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ id: graduate.id, action: 'permanent_delete' }),
+          });
+          const result = await response.json();
+          if (!response.ok || !result.success) {
+            throw new Error(result.error || 'Unable to permanently delete graduate');
+          }
+
+          await fetchGraduates();
+          setMsgBox({ isOpen: true, type: 'success', message: result.message || 'Graduate permanently deleted successfully.' });
+        } catch (error) {
+          setMsgBox({
+            isOpen: true,
+            type: 'error',
+            message: getSafeErrorMessage(error, 'Unable to permanently delete graduate'),
+          });
+        }
+      },
+    });
+  };
+
   const handleImportClick = () => {
     fileInputRef.current?.click();
   };
@@ -789,7 +756,6 @@ export default function Graduates() {
 
       let successCount = 0;
       let failedCount = 0;
-      const importedYears = new Set<string>();
       const failureReasons: Record<string, number> = {};
 
       const addFailureReason = (reason: string) => {
@@ -825,9 +791,6 @@ export default function Graduates() {
 
         if (response.ok && result.success) {
           successCount += 1;
-          if (/^\d{4}$/.test(payload.year_graduated)) {
-            importedYears.add(payload.year_graduated);
-          }
         } else {
           failedCount += 1;
           addFailureReason(result?.error || 'Rejected by server');
@@ -835,9 +798,6 @@ export default function Graduates() {
       }
 
       await fetchGraduates();
-      if (importedYears.size > 0) {
-        setYearTabOptions((prev) => mergeAndSortYears(prev, Array.from(importedYears)));
-      }
 
       const sortedReasons = Object.entries(failureReasons)
         .sort((a, b) => b[1] - a[1])
@@ -1073,20 +1033,14 @@ export default function Graduates() {
                     </p>
                     <p className="mt-1 font-mono text-xs text-gray-500">{g.student_id}</p>
                   </div>
-                  <div className="flex shrink-0 items-center gap-1">
-                    {archiveView === 'active' ? <>
-                      <button onClick={() => openEdit(g)} className="p-2 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors" aria-label="Edit graduate">
-                        <Edit2 className="w-4 h-4" />
-                      </button>
-                      <button onClick={() => handleArchive(g.id)} className="p-2 rounded-lg hover:bg-amber-50 text-amber-600 transition-colors" aria-label="Archive graduate">
-                        <Archive className="w-4 h-4" />
-                      </button>
-                    </> : (
+                  {archiveView === 'archived' && <div className="flex shrink-0 items-center gap-1">
                       <button onClick={() => handleRestore(g)} className="p-2 rounded-lg hover:bg-emerald-50 text-emerald-600 transition-colors" aria-label="Restore graduate">
                         <RotateCcw className="w-4 h-4" />
                       </button>
-                    )}
-                  </div>
+                      <button onClick={() => handlePermanentDelete(g)} className="p-2 rounded-lg hover:bg-red-50 text-red-600 transition-colors" aria-label="Permanently delete graduate">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                  </div>}
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2 text-sm text-gray-600">
                   <p className="col-span-2 truncate">{g.email || '-'}</p>
@@ -1105,7 +1059,7 @@ export default function Graduates() {
         </div>
 
         <div className="hidden overflow-x-auto md:block">
-          <table className="w-full min-w-[1100px] text-sm">
+          <table className={`w-full text-sm ${archiveView === 'archived' ? 'min-w-[1180px]' : 'min-w-[900px]'}`}>
             <thead className="bg-gray-50 border-b">
               <tr>
                 <th className="text-center px-4 py-3 font-semibold text-gray-600 w-16">
@@ -1122,17 +1076,17 @@ export default function Graduates() {
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Email</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Contact No.</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Program</th>
-                <th className="text-left px-4 py-3 font-semibold text-gray-600">Year</th>
+                <th className="text-left px-4 py-3 font-semibold text-gray-600">Year Graduated</th>
                 {archiveView === 'archived' && <th className="text-left px-4 py-3 font-semibold text-gray-600">Date Archived</th>}
                 {archiveView === 'archived' && <th className="text-left px-4 py-3 font-semibold text-gray-600">Archived By</th>}
-                <th className="text-center px-4 py-3 font-semibold text-gray-600">Actions</th>
+                {archiveView === 'archived' && <th className="text-center px-4 py-3 font-semibold text-gray-600">Actions</th>}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={archiveView === 'archived' ? 10 : 8} className="text-center py-12 text-gray-400">Loading...</td></tr>
+                <tr><td colSpan={archiveView === 'archived' ? 10 : 7} className="text-center py-12 text-gray-400">Loading...</td></tr>
               ) : graduates.length === 0 ? (
-                <tr><td colSpan={archiveView === 'archived' ? 10 : 8} className="text-center py-12 text-gray-400">{archiveView === 'archived' ? 'No archived registrar records.' : 'No graduates found'}</td></tr>
+                <tr><td colSpan={archiveView === 'archived' ? 10 : 7} className="text-center py-12 text-gray-400">{archiveView === 'archived' ? 'No archived registrar records.' : 'No graduates found'}</td></tr>
               ) : (
                 graduates.map((g) => (
                   <tr key={g.id} className="border-b last:border-0 hover:bg-gray-50 transition-colors">
@@ -1161,22 +1115,16 @@ export default function Graduates() {
                     <td className="px-4 py-3">{g.year_graduated || '-'}</td>
                     {archiveView === 'archived' && <td className="px-4 py-3 text-gray-600">{formatDateTime(g.archived_at)}</td>}
                     {archiveView === 'archived' && <td className="px-4 py-3 text-gray-600">{g.archived_by_name || '-'}</td>}
-                    <td className="px-4 py-3">
+                    {archiveView === 'archived' && <td className="px-4 py-3">
                       <div className="flex items-center justify-center gap-1">
-                        {archiveView === 'active' ? <>
-                          <button onClick={() => openEdit(g)} className="p-1.5 rounded-lg hover:bg-blue-50 text-blue-600 transition-colors" aria-label="Edit graduate">
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button onClick={() => handleArchive(g.id)} className="p-1.5 rounded-lg hover:bg-amber-50 text-amber-600 transition-colors" aria-label="Archive graduate">
-                            <Archive className="w-4 h-4" />
-                          </button>
-                        </> : (
-                          <button onClick={() => handleRestore(g)} className="p-1.5 rounded-lg hover:bg-emerald-50 text-emerald-600 transition-colors" aria-label="Restore graduate">
-                            <RotateCcw className="w-4 h-4" />
-                          </button>
-                        )}
+                        <button onClick={() => handleRestore(g)} className="p-1.5 rounded-lg hover:bg-emerald-50 text-emerald-600 transition-colors" aria-label="Restore graduate">
+                          <RotateCcw className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => handlePermanentDelete(g)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-600 transition-colors" aria-label="Permanently delete graduate">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
-                    </td>
+                    </td>}
                   </tr>
                 ))
               )}
@@ -1214,7 +1162,7 @@ export default function Graduates() {
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-5 border-b">
               <h2 className="text-lg font-bold text-[#1b2a4a]">
-                {isEditing ? 'Edit Graduate' : 'Add Graduate'}
+                Add Graduate
               </h2>
               <button onClick={() => setShowModal(false)} className="p-1 rounded-lg hover:bg-gray-100">
                 <X className="w-5 h-5" />
@@ -1310,7 +1258,7 @@ export default function Graduates() {
                   type="submit"
                   className="px-6 py-2.5 bg-[#1b2a4a] text-white rounded-lg text-sm font-medium hover:bg-[#263c66] transition-colors"
                 >
-                  {isEditing ? 'Update' : 'Add Graduate'}
+                  Add Graduate
                 </button>
               </div>
             </form>
@@ -1323,9 +1271,11 @@ export default function Graduates() {
         onClose={() => setMsgBox({ ...msgBox, isOpen: false })}
         onConfirm={msgBox.onConfirm}
         type={msgBox.type}
+        title={msgBox.title}
         message={msgBox.message}
         confirmText={msgBox.confirmText}
         cancelText={msgBox.cancelText}
+        destructive={msgBox.destructive}
       />
     </div>
   );

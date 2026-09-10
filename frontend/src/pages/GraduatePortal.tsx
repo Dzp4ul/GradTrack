@@ -71,6 +71,7 @@ import type { GraduateUser } from '../contexts/GraduateAuthContext';
 import { useSystemSettings } from '../contexts/SystemSettingsContext';
 import { destroyRealtimeChatSocket, emitWithAck, getRealtimeChatSocket } from '../services/realtimeChat';
 import type { RealtimeChatStatus } from '../services/realtimeChat';
+import { normalizeGraduationYears } from '../utils/graduationYears';
 
 type PortalTab = 'announcements' | 'dashboard' | 'community_forum' | 'messages' | 'jobs' | 'job_posting' | 'my_profile';
 type ForumStatus = 'approved' | 'hidden';
@@ -125,6 +126,7 @@ interface ForumPost {
   author_name: string;
   author_program_name?: string | null;
   author_program_code?: string | null;
+  author_year_graduated?: number | null;
   author_profile_image_path?: string | null;
   comment_count: number;
   like_count: number;
@@ -1102,9 +1104,26 @@ export default function GraduatePortal() {
       }
     : getPortalHeading(activeTab);
 
+  const forumProgramOptions = useMemo(() => Array.from(new Set(
+    forumPosts
+      .map((post) => post.author_program_code?.trim())
+      .filter((code): code is string => Boolean(code)),
+  )).sort((left, right) => left.localeCompare(right)), [forumPosts]);
+  const forumYearOptions = useMemo(
+    () => normalizeGraduationYears(forumPosts.map((post) => post.author_year_graduated)),
+    [forumPosts],
+  );
+
+  useEffect(() => {
+    if (programFilter !== 'all' && !forumProgramOptions.includes(programFilter)) setProgramFilter('all');
+    if (yearFilter !== '' && !forumYearOptions.includes(yearFilter)) setYearFilter('');
+  }, [forumProgramOptions, forumYearOptions, programFilter, yearFilter]);
+
   const filteredForumPosts = forumPosts.filter((post) => {
     const matchesCategory = forumCategory === 'all' || post.category === forumCategory;
-    if (!matchesCategory) return false;
+    const matchesProgram = programFilter === 'all' || post.author_program_code === programFilter;
+    const matchesYear = yearFilter === '' || String(post.author_year_graduated ?? '') === yearFilter;
+    if (!matchesCategory || !matchesProgram || !matchesYear) return false;
 
     const query = forumSearch.trim().toLowerCase();
     if (!query) return true;
@@ -4856,20 +4875,16 @@ export default function GraduatePortal() {
 
                           <select value={programFilter} onChange={(event) => { setProgramFilter(event.target.value); }} className="rounded-2xl border border-slate-200 bg-[#fafbff] px-4 py-3 text-sm outline-none transition focus:border-blue-500">
                             <option value="all">All Programs</option>
-                            <option value="BSCS">BSCS</option>
-                            <option value="ACT">ACT</option>
-                            <option value="BSHM">BSHM</option>
-                            <option value="BSED">BSED</option>
-                            <option value="BEED">BEED</option>
+                            {forumProgramOptions.map((code) => (
+                              <option key={code} value={code}>{code}</option>
+                            ))}
                           </select>
 
                           <select value={yearFilter} onChange={(event) => { setYearFilter(event.target.value); }} className="rounded-2xl border border-slate-200 bg-[#fafbff] px-4 py-3 text-sm outline-none transition focus:border-blue-500">
                             <option value="">All Years</option>
-                            <option value="2021">2021</option>
-                            <option value="2022">2022</option>
-                            <option value="2023">2023</option>
-                            <option value="2024">2024</option>
-                            <option value="2025">2025</option>
+                            {forumYearOptions.map((year) => (
+                              <option key={year} value={year}>{year}</option>
+                            ))}
                           </select>
                         </div>
                       </div>

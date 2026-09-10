@@ -4,6 +4,8 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/admin_auth.php';
+require_once __DIR__ . '/../config/graduation_years.php';
+require_once __DIR__ . '/../config/permanent_delete.php';
 
 function normalize_nullable_text($value) {
     if (!isset($value)) {
@@ -162,9 +164,15 @@ try {
                     $where[] = "g.program_id = :program_id";
                     $params[':program_id'] = $_GET['program_id'];
                 }
-                if (isset($_GET['year_graduated']) && !empty($_GET['year_graduated'])) {
+                if (isset($_GET['year_graduated']) && $_GET['year_graduated'] !== '') {
+                    $requestedYear = gradtrack_normalize_graduation_year($_GET['year_graduated']);
+                    if ($requestedYear === null) {
+                        http_response_code(400);
+                        echo json_encode(["success" => false, "error" => "Graduation year must be a valid four-digit year"]);
+                        break;
+                    }
                     $where[] = "g.year_graduated = :year";
-                    $params[':year'] = $_GET['year_graduated'];
+                    $params[':year'] = $requestedYear;
                 }
                 if (isset($_GET['employment_status']) && !empty($_GET['employment_status'])) {
                     $where[] = "e.employment_status = :emp_status";
@@ -205,10 +213,15 @@ try {
                                                 SUM(CASE WHEN archived_at IS NULL THEN 1 ELSE 0 END) AS active,
                                                 SUM(CASE WHEN archived_at IS NOT NULL THEN 1 ELSE 0 END) AS archived
                                              FROM graduates")->fetch(PDO::FETCH_ASSOC) ?: [];
+                $yearProgramId = isset($_GET['program_id']) && (int) $_GET['program_id'] > 0
+                    ? (int) $_GET['program_id']
+                    : null;
+                $yearOptions = gradtrack_fetch_graduate_years($db, $archiveScope, $yearProgramId);
 
                 echo json_encode([
                     "success" => true,
                     "data" => $graduates,
+                    "year_options" => $yearOptions,
                     "archive_counts" => [
                         "active" => (int)($archiveCounts['active'] ?? 0),
                         "archived" => (int)($archiveCounts['archived'] ?? 0),
@@ -217,7 +230,7 @@ try {
                         "total" => (int)$total,
                         "page" => $page,
                         "limit" => $limit,
-                        "pages" => ceil($total / $limit)
+                        "pages" => max(1, (int)ceil($total / $limit))
                     ]
                 ]);
             }
@@ -232,7 +245,14 @@ try {
             $middleName = normalize_nullable_text($data['middle_name'] ?? null);
             $nameExtension = normalize_name_extension($data['name_extension'] ?? null);
             $address = normalize_nullable_text($data['address'] ?? null);
+            $yearGraduated = gradtrack_normalize_graduation_year($data['year_graduated'] ?? null);
             $hasNameExtensionColumn = graduates_has_name_extension_column($db);
+
+            if ($yearGraduated === null) {
+                http_response_code(400);
+                echo json_encode(["success" => false, "error" => "Year Graduated must be a valid four-digit year"]);
+                break;
+            }
 
             if ($studentId !== null) {
                 $studentIdCheckStmt = $db->prepare("SELECT id FROM graduates WHERE student_id = :student_id LIMIT 1");
@@ -254,6 +274,7 @@ try {
                 }
             }
 
+            $db->beginTransaction();
             if ($hasNameExtensionColumn) {
                 $stmt = $db->prepare("
                     INSERT INTO graduates (student_id, first_name, middle_name, last_name, name_extension, email, phone, program_id, year_graduated, address)
@@ -268,7 +289,7 @@ try {
                     ':email' => $email,
                     ':phone' => $phone,
                     ':program_id' => $data['program_id'] ?? null,
-                    ':year_graduated' => $data['year_graduated'] ?? null,
+                    ':year_graduated' => $yearGraduated,
                     ':address' => $address,
                 ]);
             } else {
@@ -284,7 +305,7 @@ try {
                     ':email' => $email,
                     ':phone' => $phone,
                     ':program_id' => $data['program_id'] ?? null,
-                    ':year_graduated' => $data['year_graduated'] ?? null,
+                    ':year_graduated' => $yearGraduated,
                     ':address' => $address,
                 ]);
             }
@@ -306,6 +327,7 @@ try {
                 ':salary' => $data['monthly_salary'] ?? null,
                 ':time' => $data['time_to_employment'] ?? 0,
             ]);
+            $db->commit();
 
             $graduateName = trim((string)$data['first_name'] . ' ' . (string)$data['last_name']);
             $programCode = graduates_program_code_from_program_id($db, $data['program_id'] ?? null);
@@ -387,7 +409,14 @@ try {
             $middleName = normalize_nullable_text($data['middle_name'] ?? null);
             $nameExtension = normalize_name_extension($data['name_extension'] ?? null);
             $address = normalize_nullable_text($data['address'] ?? null);
+            $yearGraduated = gradtrack_normalize_graduation_year($data['year_graduated'] ?? null);
             $hasNameExtensionColumn = graduates_has_name_extension_column($db);
+
+            if ($yearGraduated === null) {
+                http_response_code(400);
+                echo json_encode(["success" => false, "error" => "Year Graduated must be a valid four-digit year"]);
+                break;
+            }
 
             if ($studentId !== null) {
                 $studentIdCheckStmt = $db->prepare("SELECT id FROM graduates WHERE student_id = :student_id AND id <> :id LIMIT 1");
@@ -409,6 +438,7 @@ try {
                 }
             }
 
+            $db->beginTransaction();
             if ($hasNameExtensionColumn) {
                 $stmt = $db->prepare("
                     UPDATE graduates SET 
@@ -427,7 +457,7 @@ try {
                     ':email' => $email,
                     ':phone' => $phone,
                     ':program_id' => $data['program_id'] ?? null,
-                    ':year_graduated' => $data['year_graduated'] ?? null,
+                    ':year_graduated' => $yearGraduated,
                     ':address' => $address,
                 ]);
             } else {
@@ -447,7 +477,7 @@ try {
                     ':email' => $email,
                     ':phone' => $phone,
                     ':program_id' => $data['program_id'] ?? null,
-                    ':year_graduated' => $data['year_graduated'] ?? null,
+                    ':year_graduated' => $yearGraduated,
                     ':address' => $address,
                 ]);
             }
@@ -471,6 +501,7 @@ try {
                 ':salary' => $data['monthly_salary'] ?? null,
                 ':time' => $data['time_to_employment'] ?? 0,
             ]);
+            $db->commit();
 
             $graduateName = trim((string)$data['first_name'] . ' ' . (string)$data['last_name']);
             $programCode = graduates_program_code_from_program_id($db, $data['program_id'] ?? null);
@@ -492,6 +523,35 @@ try {
 
         case 'DELETE':
             $data = json_decode(file_get_contents("php://input"), true);
+
+            if (($data['action'] ?? '') === 'permanent_delete') {
+                $graduateId = isset($data['id']) ? (int) $data['id'] : 0;
+                $result = gradtrack_permanently_delete_graduate($db, $graduateId);
+                $graduate = $result['record'];
+                logAuditTrail(
+                    $auditUser['user_id'],
+                    $auditUser['user_name'],
+                    $auditUser['user_role'],
+                    $graduate['program_code'] ?? null,
+                    'Permanently Delete',
+                    'Graduate Records',
+                    "Permanently deleted archived graduate record with ID {$graduateId}.",
+                    $graduateId,
+                    [
+                        'student_id' => $graduate['student_id'] ?? null,
+                        'name' => graduates_audit_display_name($graduate),
+                        'archived' => true,
+                    ],
+                    null,
+                    [
+                        'preserved_survey_responses' => (int)($result['preserved_response_count'] ?? 0),
+                        'deleted_empty_chat_rooms' => (int)($result['deleted_room_count'] ?? 0),
+                    ]
+                );
+                gradtrack_delete_storage_references($result['storage_references'] ?? []);
+                echo json_encode(["success" => true, "message" => "Graduate permanently deleted successfully."]);
+                break;
+            }
 
             if (isset($data['ids']) && is_array($data['ids'])) {
                 $ids = array_values(array_filter(array_map('intval', $data['ids']), function ($id) {
@@ -635,12 +695,17 @@ try {
             http_response_code(405);
             echo json_encode(["success" => false, "error" => "Method not allowed"]);
     }
+} catch (GradtrackPermanentDeleteException $e) {
+    http_response_code($e->getStatusCode());
+    echo json_encode(["success" => false, "error" => $e->getMessage()]);
 } catch (PDOException $e) {
+    if ($db->inTransaction()) $db->rollBack();
     error_log('Graduates API database error: ' . $e->getMessage());
     $safeError = graduates_safe_database_error($e);
     http_response_code($safeError['status']);
     echo json_encode(["success" => false, "error" => $safeError['message']]);
 } catch (Exception $e) {
+    if ($db->inTransaction()) $db->rollBack();
     error_log('Graduates API error: ' . $e->getMessage());
     http_response_code(500);
     echo json_encode(["success" => false, "error" => "Unable to process graduate records right now. Please try again."]);

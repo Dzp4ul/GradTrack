@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import MessageBox from '../../components/MessageBox';
 import { API_ENDPOINTS } from '../../config/api';
+import { normalizeGraduationYears } from '../../utils/graduationYears';
 
 interface SurveyOption {
   id: number;
@@ -82,8 +83,6 @@ const PROGRAM_OPTIONS = [
   { id: '5', code: 'ACT' },
 ];
 
-const YEAR_TAB_OPTIONS = ['2021', '2022', '2023', '2024', '2025'];
-
 const DEFAULT_EMAIL_MESSAGE =
   'Please complete the Graduate Tracer Study Survey. Your response helps Norzagaray College improve its programs and support graduates with better alumni services.';
 
@@ -103,6 +102,7 @@ export default function GraduateParticipation() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('not_answered');
   const [programFilter, setProgramFilter] = useState('all');
   const [yearFilter, setYearFilter] = useState('');
+  const [yearOptions, setYearOptions] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -197,6 +197,9 @@ export default function GraduateParticipation() {
       setRows(data.data || []);
       setSummary(data.summary || { total: 0, answered: 0, not_answered: 0 });
       setTotalPages(data.pagination?.pages || 1);
+      const nextYearOptions = normalizeGraduationYears(Array.isArray(data.year_options) ? data.year_options : []);
+      setYearOptions(nextYearOptions);
+      if (yearFilter && !nextYearOptions.includes(yearFilter)) setYearFilter('');
     } catch (error) {
       setRows([]);
       setMsgBox({
@@ -639,7 +642,7 @@ export default function GraduateParticipation() {
             className="border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="">All Years</option>
-            {YEAR_TAB_OPTIONS.map((year) => (
+            {yearOptions.map((year) => (
               <option key={year} value={year}>{year}</option>
             ))}
           </select>

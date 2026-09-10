@@ -18,11 +18,13 @@ import {
   UserCheck,
   UserX,
   ShieldCheck,
+  Trash2,
   X,
 } from 'lucide-react';
 import MessageBox from '../../components/MessageBox';
 import { API_ENDPOINTS } from '../../config/api';
 import { createXlsxBlob, readSpreadsheet, type SpreadsheetWorkbook } from '../../lib/spreadsheets';
+import { normalizeGraduationYears } from '../../utils/graduationYears';
 
 type RegistryStatus = 'Unclaimed' | 'Registered' | 'Verified' | 'Inactive';
 type VerificationStatus = 'pending' | 'approved' | 'rejected';
@@ -429,6 +431,7 @@ export default function AlumniRegisteredList() {
     confirmText?: string;
     cancelText?: string;
     onConfirm?: () => void;
+    destructive?: boolean;
   }>({ isOpen: false, type: 'info', message: '' });
 
   const queryParams = useCallback((targetPage = page, targetLimit = limit) => {
@@ -450,7 +453,7 @@ export default function AlumniRegisteredList() {
   const fetchSummary = useCallback(async () => {
     setSummaryLoading(true);
     try {
-      const response = await fetch(`${API_ENDPOINTS.ALUMNI_REGISTRY}?action=summary`, {
+      const response = await fetch(`${API_ENDPOINTS.ALUMNI_REGISTRY}?action=summary&archive=${archiveView}`, {
         credentials: 'include',
       });
       const data = await response.json();
@@ -461,7 +464,12 @@ export default function AlumniRegisteredList() {
       const payload = data as SummaryResponse & { success: boolean };
       setSummary(payload.summary || EMPTY_SUMMARY);
       setPrograms(Array.isArray(payload.filters?.programs) ? payload.filters.programs : []);
-      setBatchYears(Array.isArray(payload.filters?.batch_years) ? payload.filters.batch_years : []);
+      const nextBatchYears = normalizeGraduationYears(
+        Array.isArray(payload.filters?.batch_years) ? payload.filters.batch_years : []
+      ).map(Number);
+      setBatchYears(nextBatchYears);
+      setBatchYear((current) => current && !nextBatchYears.includes(Number(current)) ? '' : current);
+      setExportBatch((current) => current && !nextBatchYears.includes(Number(current)) ? '' : current);
       setCourseCodes(Array.isArray(payload.filters?.course_codes) && payload.filters.course_codes.length > 0 ? payload.filters.course_codes : courseCodeOrder);
     } catch (error) {
       setMsgBox({
@@ -472,7 +480,7 @@ export default function AlumniRegisteredList() {
     } finally {
       setSummaryLoading(false);
     }
-  }, []);
+  }, [archiveView]);
 
   const fetchRecords = useCallback(async () => {
     setLoading(true);
@@ -486,7 +494,9 @@ export default function AlumniRegisteredList() {
       }
 
       setRecords(Array.isArray(data.data) ? data.data : []);
-      setPagination(data.pagination || { total: 0, page, limit, pages: 1 });
+      const nextPagination = data.pagination || { total: 0, page, limit, pages: 1 };
+      setPagination(nextPagination);
+      if (nextPagination.page !== page) setPage(nextPagination.page);
     } catch (error) {
       setRecords([]);
       setMsgBox({
@@ -735,6 +745,45 @@ export default function AlumniRegisteredList() {
             isOpen: true,
             type: 'error',
             message: error instanceof Error ? error.message : 'Unable to restore alumni record',
+          });
+        } finally {
+          setActionKey('');
+        }
+      },
+    });
+  };
+
+  const confirmPermanentDelete = (record: RegisteredAlumni) => {
+    setMsgBox({
+      isOpen: true,
+      type: 'confirm',
+      title: 'Permanently Delete Alumni Record?',
+      message: `Permanently delete the archived registry record for ${record.full_name}? The linked graduate account is not deleted. This cannot be undone.`,
+      confirmText: 'Permanently Delete',
+      cancelText: 'Cancel',
+      destructive: true,
+      onConfirm: async () => {
+        setActionKey(`permanent-delete-${record.id}`);
+        try {
+          const response = await fetch(`${API_ENDPOINTS.ALUMNI_REGISTRY}?action=permanent_delete`, {
+            method: 'DELETE',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: record.id }),
+          });
+          const data = await response.json();
+          if (!response.ok || data.success === false) {
+            throw new Error(data.error || 'Unable to permanently delete alumni record');
+          }
+
+          setRecords((current) => current.filter((item) => item.id !== record.id));
+          await refreshAll();
+          setMsgBox({ isOpen: true, type: 'success', message: data.message || 'Alumni record permanently deleted.' });
+        } catch (error) {
+          setMsgBox({
+            isOpen: true,
+            type: 'error',
+            message: error instanceof Error ? error.message : 'Unable to permanently delete alumni record',
           });
         } finally {
           setActionKey('');
@@ -1310,9 +1359,14 @@ export default function AlumniRegisteredList() {
                         </button>
                       </>
                     ) : (
-                      <button type="button" onClick={() => confirmRestore(record)} className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-100">
-                        <RotateCcw className="h-4 w-4" /> Restore
-                      </button>
+                      <>
+                        <button type="button" onClick={() => confirmRestore(record)} className="inline-flex items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 hover:bg-emerald-100">
+                          <RotateCcw className="h-4 w-4" /> Restore
+                        </button>
+                        <button type="button" onClick={() => confirmPermanentDelete(record)} className="inline-flex items-center gap-1 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 hover:bg-red-100">
+                          <Trash2 className="h-4 w-4" /> Delete Permanently
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -1386,9 +1440,14 @@ export default function AlumniRegisteredList() {
                             </IconButton>
                           </>
                         ) : (
-                          <IconButton title="Restore alumni" onClick={() => confirmRestore(record)} disabled={actionKey !== ''} className="text-emerald-600 hover:bg-emerald-50">
-                            {actionKey === `restore-${record.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
-                          </IconButton>
+                          <>
+                            <IconButton title="Restore alumni" onClick={() => confirmRestore(record)} disabled={actionKey !== ''} className="text-emerald-600 hover:bg-emerald-50">
+                              {actionKey === `restore-${record.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                            </IconButton>
+                            <IconButton title="Delete alumni permanently" onClick={() => confirmPermanentDelete(record)} disabled={actionKey !== ''} className="text-red-600 hover:bg-red-50">
+                              {actionKey === `permanent-delete-${record.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                            </IconButton>
+                          </>
                         )}
                       </div>
                     </td>
@@ -1444,6 +1503,10 @@ export default function AlumniRegisteredList() {
           onRestore={(record) => {
             setViewRecord(null);
             confirmRestore(record);
+          }}
+          onPermanentDelete={(record) => {
+            setViewRecord(null);
+            confirmPermanentDelete(record);
           }}
         />
       )}
@@ -1521,6 +1584,7 @@ export default function AlumniRegisteredList() {
         message={msgBox.message}
         confirmText={msgBox.confirmText}
         cancelText={msgBox.cancelText}
+        destructive={msgBox.destructive}
       />
     </div>
   );
@@ -1958,6 +2022,7 @@ function DetailModal({
   onConfirmStatus,
   onArchive,
   onRestore,
+  onPermanentDelete,
 }: {
   record: RegisteredAlumni;
   actionKey: string;
@@ -1966,6 +2031,7 @@ function DetailModal({
   onConfirmStatus: (record: RegisteredAlumni, action: 'verify' | 'inactive') => void;
   onArchive: (record: RegisteredAlumni) => void;
   onRestore: (record: RegisteredAlumni) => void;
+  onPermanentDelete: (record: RegisteredAlumni) => void;
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
@@ -1997,15 +2063,26 @@ function DetailModal({
         <div className="flex flex-col gap-3 border-t px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap gap-1">
             {record.archived_at ? (
-              <button
-                type="button"
-                onClick={() => onRestore(record)}
-                disabled={actionKey !== ''}
-                className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
-              >
-                {actionKey === `restore-${record.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
-                Restore
-              </button>
+              <>
+                <button
+                  type="button"
+                  onClick={() => onRestore(record)}
+                  disabled={actionKey !== ''}
+                  className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {actionKey === `restore-${record.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                  Restore
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onPermanentDelete(record)}
+                  disabled={actionKey !== ''}
+                  className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+                >
+                  {actionKey === `permanent-delete-${record.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                  Delete Permanently
+                </button>
+              </>
             ) : (
               <ActionButtons
                 record={record}

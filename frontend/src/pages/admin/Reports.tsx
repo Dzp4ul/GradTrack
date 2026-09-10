@@ -8,6 +8,7 @@ import {
 } from 'recharts';
 import { Download, Users, Briefcase, Target, FileText, Sparkles, TrendingUp, CheckCircle2, BarChart3, Filter, RotateCcw } from 'lucide-react';
 import { API_ROOT } from '../../config/api';
+import { normalizeGraduationYears } from '../../utils/graduationYears';
 import { PROGRAM_COLORS } from '../../config/programColors';
 
 const API_BASE = API_ROOT;
@@ -363,7 +364,7 @@ export default function Reports() {
       case 'by_year': {
         const typedYearData = data as YearReport[];
         setYearData(typedYearData);
-        const years = typedYearData.map((y) => y.year_graduated.toString());
+        const years = normalizeGraduationYears(typedYearData.map((y) => y.year_graduated));
         setAvailableYears(years);
         break;
       }
@@ -645,7 +646,7 @@ export default function Reports() {
       .then((r) => r.json())
       .then((res) => {
         if (res.success && res.data) {
-          const years: string[] = Array.isArray(res.data.years) ? res.data.years.map(String) : [];
+          const years = normalizeGraduationYears(Array.isArray(res.data.years) ? res.data.years : []);
           const programs: OverviewFilterProgram[] = Array.isArray(res.data.programs)
             ? res.data.programs.map((program: OverviewFilterProgram) => ({
                 id: Number(program.id),
@@ -772,12 +773,28 @@ export default function Reports() {
       .then((r) => r.json())
       .then((res) => {
         if (res.success && res.data) {
-          const years = res.data.map((y: YearReport) => y.year_graduated.toString());
+          const years = normalizeGraduationYears(res.data.map((y: YearReport) => y.year_graduated));
           setAvailableYears(years);
         }
       })
       .catch(() => {});
   }, [selectedSurveyId, surveyItemsLoaded]);
+
+  useEffect(() => {
+    if (selectedYear !== 'all' && !availableYears.includes(selectedYear)) {
+      setSelectedYear('all');
+    }
+  }, [availableYears, selectedYear]);
+
+  useEffect(() => {
+    const isAvailable = (year: string) => year === 'all' || overviewFilterOptions.years.includes(year);
+    setOverviewFilterDraft((current) => isAvailable(current.graduationYear)
+      ? current
+      : { ...current, graduationYear: 'all' });
+    setOverviewFilters((current) => isAvailable(current.graduationYear)
+      ? current
+      : { ...current, graduationYear: 'all' });
+  }, [overviewFilterOptions.years]);
 
   useEffect(() => {
     if (!surveyItemsLoaded) {

@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/admin_auth.php';
+require_once __DIR__ . '/../config/graduation_years.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     http_response_code(405);
@@ -79,9 +80,15 @@ try {
         $params[':search_5'] = $searchTerm;
     }
 
-    if (isset($_GET['year_graduated']) && (int) $_GET['year_graduated'] > 0) {
+    if (isset($_GET['year_graduated']) && $_GET['year_graduated'] !== '') {
+        $requestedYear = gradtrack_normalize_graduation_year($_GET['year_graduated']);
+        if ($requestedYear === null) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Graduation year must be a valid four-digit year']);
+            exit;
+        }
         $whereParts[] = 'g.year_graduated = :year_graduated';
-        $params[':year_graduated'] = (int) $_GET['year_graduated'];
+        $params[':year_graduated'] = $requestedYear;
     }
 
     $status = isset($_GET['status']) ? trim((string) $_GET['status']) : '';
@@ -168,6 +175,7 @@ try {
     echo json_encode([
         "success" => true,
         "program_scope" => $programCodes,
+        "year_options" => gradtrack_fetch_graduate_years($db, 'active', null, $programCodes),
         "selected_survey" => $selectedSurvey,
         "summary" => [
             "total" => (int) $summaryResult['total'],

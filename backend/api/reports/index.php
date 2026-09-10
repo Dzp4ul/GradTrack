@@ -4,6 +4,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../config/survey_response_analytics.php';
 require_once __DIR__ . '/../config/admin_auth.php';
+require_once __DIR__ . '/../config/graduation_years.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -305,30 +306,20 @@ function getOverviewFilterOptions(PDO $db, ?int $surveyId, ?array $allowedProgra
 {
     $years = [];
     if ($surveyId !== null) {
-        $baseWhere = ['sr.survey_id = :survey_id', 'sr.submitted_at IS NOT NULL'];
-        $baseBindings = [
-            ':survey_id' => ['value' => $surveyId, 'type' => PDO::PARAM_INT],
-        ];
-        appendAllowedProgramCodeFilter($baseWhere, $baseBindings, $allowedProgramCodes);
+        $questions = getSurveyQuestions($db, $surveyId);
+        $responses = getSurveyResponses($db, $surveyId);
+        $yearValues = [];
+        foreach ($responses as $response) {
+            $rowProgramCode = strtoupper(trim((string)($response['program_code'] ?? '')));
+            if (is_array($allowedProgramCodes)
+                && ($rowProgramCode === '' || !in_array($rowProgramCode, $allowedProgramCodes, true))) {
+                continue;
+            }
 
-        $yearWhere = $baseWhere;
-        $yearWhere[] = 'g.year_graduated IS NOT NULL';
-        $yearSql = "
-            SELECT DISTINCT g.year_graduated
-            FROM survey_responses sr
-            LEFT JOIN graduates g ON g.id = sr.graduate_id
-            LEFT JOIN programs p ON p.id = g.program_id
-            WHERE " . implode(' AND ', $yearWhere) . "
-            ORDER BY g.year_graduated DESC
-        ";
-        $yearStmt = $db->prepare($yearSql);
-        foreach ($baseBindings as $placeholder => $binding) {
-            $yearStmt->bindValue($placeholder, $binding['value'], $binding['type']);
+            $details = getReportResponseDetails($response, $questions);
+            $yearValues[] = $details['year_graduated'] ?? null;
         }
-        $yearStmt->execute();
-        $years = array_map(static function ($row) {
-            return (string)$row['year_graduated'];
-        }, $yearStmt->fetchAll(PDO::FETCH_ASSOC));
+        $years = array_map('strval', gradtrack_normalize_graduation_years($yearValues));
     }
 
     $programWhere = ['p.id IS NOT NULL'];
@@ -472,11 +463,6 @@ function getSurveyResponses(PDO $db, ?int $surveyId, array $overviewFilters = []
         ':survey_id' => ['value' => $surveyId, 'type' => PDO::PARAM_INT],
     ];
 
-    if (($overviewFilters['graduation_year'] ?? null) !== null) {
-        $whereParts[] = 'g.year_graduated = :graduation_year';
-        $bindings[':graduation_year'] = ['value' => $overviewFilters['graduation_year'], 'type' => PDO::PARAM_STR];
-    }
-
     if (($overviewFilters['program_id'] ?? null) !== null) {
         $whereParts[] = 'g.program_id = :program_id';
         $bindings[':program_id'] = ['value' => (int)$overviewFilters['program_id'], 'type' => PDO::PARAM_INT];
@@ -507,9 +493,8 @@ function getReportResponseDetails(array $response, array $questions): array
 {
     $rowProgramCode = strtoupper((string)($response['program_code'] ?? ''));
     $degreeProgram = trim((string)($response['program_name'] ?? ''));
-    $yearGraduated = isset($response['year_graduated']) && $response['year_graduated'] !== null
-        ? (string)$response['year_graduated']
-        : '';
+    $canonicalYear = gradtrack_normalize_graduation_year($response['year_graduated'] ?? null);
+    $yearGraduated = $canonicalYear !== null ? (string)$canonicalYear : '';
 
     $isEmployed = false;
     $isUnemployed = false;
@@ -540,9 +525,12 @@ function getReportResponseDetails(array $response, array $questions): array
                 }
             }
 
-            if (strpos($questionText, 'year graduated') !== false) {
-                if (is_string($answer) && !empty($answer)) {
-                    $yearGraduated = $answer;
+            if (strpos($questionText, 'year graduated') !== false
+                || strpos($questionText, 'graduation year') !== false
+                || strpos($questionText, 'year of graduation') !== false) {
+                $answerYear = gradtrack_normalize_graduation_year($answer);
+                if ($answerYear !== null) {
+                    $yearGraduated = (string)$answerYear;
                 }
             }
 
@@ -630,6 +618,11 @@ function getReportResponseDetails(array $response, array $questions): array
 
 function responseMatchesOverviewFilters(array $details, array $filters): bool
 {
+    $graduationYear = $filters['graduation_year'] ?? null;
+    if ($graduationYear !== null && (string)($details['year_graduated'] ?? '') !== (string)$graduationYear) {
+        return false;
+    }
+
     $employmentStatus = $filters['employment_status'] ?? null;
     if ($employmentStatus === 'employed' && empty($details['is_employed'])) {
         return false;

@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import {
-  Plus, Edit2, Archive, RotateCcw, Search, ChevronLeft, ChevronRight, X, ClipboardList, ChevronDown, ChevronUp, ShieldCheck, BarChart3, Briefcase, Info,
+  Plus, Edit2, Archive, RotateCcw, Search, ChevronLeft, ChevronRight, X, ClipboardList, ChevronDown, ChevronUp, ShieldCheck, BarChart3, Briefcase, Info, Trash2,
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import MessageBox from '../../components/MessageBox';
 import { API_ROOT } from '../../config/api';
+import { normalizeGraduationYears } from '../../utils/graduationYears';
 
 const API_BASE = API_ROOT;
 
@@ -79,6 +80,7 @@ export default function Surveys() {
     routeSearchParams.get('archive') === 'archived' ? 'archived' : 'active'
   );
   const [archiveCounts, setArchiveCounts] = useState({ active: 0, archived: 0 });
+  const [graduationYearOptions, setGraduationYearOptions] = useState<string[]>([]);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
@@ -92,6 +94,7 @@ export default function Surveys() {
     onConfirm?: () => void;
     confirmText?: string;
     cancelText?: string;
+    destructive?: boolean;
   }>({ isOpen: false, type: 'success', message: '' });
 
   const fetchSurveys = () => {
@@ -136,7 +139,14 @@ export default function Surveys() {
           });
           setSurveys(surveysWithDetails);
           setArchiveCounts(res.archive_counts || { active: 0, archived: 0 });
-          setPagination(res.pagination || { total: surveysWithDetails.length, page: 1, limit, pages: 1 });
+          setGraduationYearOptions(normalizeGraduationYears(
+            Array.isArray(res.graduation_year_options) ? res.graduation_year_options : []
+          ));
+          const nextPagination = res.pagination || { total: surveysWithDetails.length, page: 1, limit, pages: 1 };
+          setPagination(nextPagination);
+          if (page > Math.max(1, Number(nextPagination.pages || 1))) {
+            setPage(Math.max(1, Number(nextPagination.pages || 1)));
+          }
         }
       })
       .catch(() => {})
@@ -190,7 +200,14 @@ export default function Surveys() {
         
         // SECTION 2: EDUCATIONAL BACKGROUND
         { question_text: 'Degree Program & Specialization', question_type: 'multiple_choice', options: ['Bachelor of Secondary Education Major in General Science', 'Bachelor of Elementary Education', 'Bachelor of Science in Hospitality Management', 'Bachelor of Science in Computer Science', 'Associate in Computer Technology' ], is_required: 1, sort_order: 13, section: 'Educational Background' },
-        { question_text: 'Year Graduated', question_type: 'multiple_choice', options: ['2021', '2022', '2023', '2024', '2025'], is_required: 1, sort_order: 14, section: 'Educational Background' },
+        {
+          question_text: 'Year Graduated',
+          question_type: graduationYearOptions.length > 0 ? 'multiple_choice' : 'text',
+          options: graduationYearOptions.length > 0 ? graduationYearOptions : null,
+          is_required: 1,
+          sort_order: 14,
+          section: 'Educational Background',
+        },
         { question_text: 'Honors / Awards Received', question_type: 'checkbox', options: ['Cum Laude', 'Magna Cum Laude', 'Leadership Award', 'Best in Thesis', 'Dean\'s lister', 'Academic Excellence', 'Other' ], is_required: 0, sort_order: 15, section: 'Educational Background' },
         { question_text: 'Professional Examination(s) Passed (if applicable)', question_type: 'header', options: null, is_required: 0, sort_order: 16, section: 'Educational Background' },
         { question_text: 'Name of Examination', question_type: 'radio', options: ['Licensure Examination for Teachers', 'Civil Service Examination', 'Other:'], is_required: 0, sort_order: 17, section: 'Educational Background' },
@@ -425,6 +442,39 @@ export default function Surveys() {
     });
   };
 
+  const handlePermanentDelete = (survey: Survey) => {
+    setMsgBox({
+      isOpen: true,
+      type: 'confirm',
+      title: 'Permanently Delete Survey?',
+      message: `Permanently delete "${survey.title}"? Its questions, responses, reminder history, and analytics source data will be deleted. This cannot be undone.`,
+      confirmText: 'Permanently Delete',
+      cancelText: 'Cancel',
+      destructive: true,
+      onConfirm: () => {
+        fetch(`${API_BASE}/surveys/index.php`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ id: survey.id, action: 'permanent_delete' }),
+        })
+          .then((response) => response.json().then((body) => ({ ok: response.ok, body })))
+          .then(({ ok, body }) => {
+            if (!ok || !body.success) throw new Error(body.error || 'Unable to permanently delete survey');
+            setSurveys((current) => current.filter((item) => item.id !== survey.id));
+            if (surveys.length === 1 && page > 1) setPage((current) => Math.max(1, current - 1));
+            else fetchSurveys();
+            setMsgBox({ isOpen: true, type: 'success', message: body.message || 'Survey permanently deleted.' });
+          })
+          .catch((error) => setMsgBox({
+            isOpen: true,
+            type: 'error',
+            message: error instanceof Error ? error.message : 'Unable to permanently delete survey.',
+          }));
+      },
+    });
+  };
+
   const updateQuestion = (index: number, field: keyof Question, value: string | string[] | number | null) => {
     setFormData((prev) => {
       const questions = [...prev.questions];
@@ -492,7 +542,7 @@ export default function Surveys() {
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 text-center sm:p-12">
           <ClipboardList className="w-16 h-16 text-gray-300 mx-auto mb-4" />
           <p className="text-gray-600 text-lg font-medium">{archiveView === 'archived' ? 'No archived surveys.' : 'No surveys yet'}</p>
-          <p className="text-gray-500 text-sm mb-6">{archiveView === 'archived' ? 'Archived surveys will appear here and can be restored.' : 'Create your first survey using the Graduate Tracer Study template'}</p>
+          <p className="text-gray-500 text-sm mb-6">{archiveView === 'archived' ? 'Archived surveys will appear here and can be restored or permanently deleted.' : 'Create your first survey using the Graduate Tracer Study template'}</p>
           {archiveView === 'active' && <button onClick={openAdd} className={`${createSurveyButtonClass} mx-auto`}>
             <Plus className="w-5 h-5" /> Create Survey
           </button>}
@@ -537,9 +587,14 @@ export default function Surveys() {
                         <Archive className="w-5 h-5" />
                       </button>
                     </> : (
-                      <button onClick={() => handleRestore(s)} className="p-2 rounded-lg hover:bg-emerald-50 text-emerald-600 transition-colors font-medium" title="Restore">
-                        <RotateCcw className="w-5 h-5" />
-                      </button>
+                      <>
+                        <button onClick={() => handleRestore(s)} className="p-2 rounded-lg hover:bg-emerald-50 text-emerald-600 transition-colors font-medium" title="Restore">
+                          <RotateCcw className="w-5 h-5" />
+                        </button>
+                        <button onClick={() => handlePermanentDelete(s)} className="p-2 rounded-lg hover:bg-red-50 text-red-600 transition-colors font-medium" title="Delete permanently">
+                          <Trash2 className="w-5 h-5" />
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -897,6 +952,7 @@ export default function Surveys() {
         message={msgBox.message}
         confirmText={msgBox.confirmText}
         cancelText={msgBox.cancelText}
+        destructive={msgBox.destructive}
       />
     </div>
   );

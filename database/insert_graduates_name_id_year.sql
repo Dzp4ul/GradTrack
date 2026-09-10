@@ -1,5 +1,5 @@
 -- Seed survey responses for analytics using existing graduates data.
--- Scope: 2021-2025 graduates only, with partial coverage (about 72%) so not all graduates are marked as answered.
+-- Scope: graduates with a valid stored graduation year, with partial coverage (about 72%) so not all graduates are marked as answered.
 
 USE gradtrack_db;
 
@@ -106,13 +106,13 @@ LEFT JOIN survey_responses sr
 	ON sr.survey_id = @active_survey_id
    AND sr.graduate_id = g.id
 WHERE @active_survey_id IS NOT NULL
-  AND g.year_graduated BETWEEN 2021 AND 2025
+  AND g.year_graduated BETWEEN 1900 AND 2099
   AND sr.id IS NULL
   AND MOD(g.id, 100) < 72;
 
 -- Verification summary for the selected cohort and active survey.
 SELECT
-	COUNT(*) AS total_2021_2025_graduates,
+	COUNT(*) AS total_valid_year_graduates,
 	SUM(CASE WHEN sr.id IS NOT NULL THEN 1 ELSE 0 END) AS answered,
 	SUM(CASE WHEN sr.id IS NULL THEN 1 ELSE 0 END) AS not_answered,
 	ROUND((SUM(CASE WHEN sr.id IS NOT NULL THEN 1 ELSE 0 END) / COUNT(*)) * 100, 2) AS answered_rate
@@ -120,4 +120,4 @@ FROM graduates g
 LEFT JOIN survey_responses sr
 	ON sr.graduate_id = g.id
    AND sr.survey_id = @active_survey_id
-WHERE g.year_graduated BETWEEN 2021 AND 2025;
+WHERE g.year_graduated BETWEEN 1900 AND 2099;

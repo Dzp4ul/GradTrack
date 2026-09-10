@@ -4,6 +4,8 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../config/alumni_registry.php';
+require_once __DIR__ . '/../config/graduation_years.php';
+require_once __DIR__ . '/../config/permanent_delete.php';
 
 function alumni_registry_json_error(int $statusCode, string $message): void
 {
@@ -276,10 +278,11 @@ function alumni_registry_handle_summary(PDO $db): void
         ];
     }
 
-    $yearStmt = $db->query('SELECT DISTINCT batch_year FROM registered_alumni ORDER BY batch_year DESC');
-    $batchYears = array_map(static function (array $row): int {
-        return (int) $row['batch_year'];
-    }, $yearStmt->fetchAll(PDO::FETCH_ASSOC));
+    $yearArchiveScope = gradtrack_alumni_registry_clean_text($_GET['archive'] ?? 'active', 20) === 'archived'
+        ? 'archived_at IS NOT NULL'
+        : 'archived_at IS NULL';
+    $yearStmt = $db->query('SELECT DISTINCT batch_year FROM registered_alumni WHERE ' . $yearArchiveScope . ' ORDER BY batch_year DESC');
+    $batchYears = gradtrack_normalize_graduation_years($yearStmt->fetchAll(PDO::FETCH_ASSOC));
 
     echo json_encode([
         'success' => true,
@@ -1109,6 +1112,33 @@ function alumni_registry_handle_restore(PDO $db, array $admin): void
     echo json_encode(['success' => true, 'message' => 'Alumni record restored successfully']);
 }
 
+function alumni_registry_handle_permanent_delete(PDO $db, array $admin): void
+{
+    $data = alumni_registry_request_data();
+    $id = isset($data['id']) ? (int) $data['id'] : 0;
+    $result = gradtrack_permanently_delete_registered_alumni($db, $id);
+    $record = $result['record'];
+
+    logAuditTrail(
+        $admin['id'],
+        $admin['full_name'] ?: $admin['email'],
+        $admin['role'],
+        $record['course_code'] ?? null,
+        'Permanently Delete',
+        'Alumni Registered List',
+        "Permanently deleted archived alumni record with ID {$id}.",
+        $id,
+        [
+            'full_name' => $record['full_name'] ?? null,
+            'batch_year' => isset($record['batch_year']) ? (int) $record['batch_year'] : null,
+            'archived' => true,
+        ],
+        null
+    );
+
+    echo json_encode(['success' => true, 'message' => 'Alumni record permanently deleted successfully.']);
+}
+
 $database = new Database();
 $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
@@ -1188,11 +1218,18 @@ try {
     }
 
     if ($method === 'DELETE') {
+        if ($action === 'permanent_delete') {
+            alumni_registry_handle_permanent_delete($db, $admin);
+            exit;
+        }
         alumni_registry_handle_archive($db, $admin);
         exit;
     }
 
     alumni_registry_json_error(405, 'Method not allowed');
+} catch (GradtrackPermanentDeleteException $e) {
+    if ($db->inTransaction()) $db->rollBack();
+    alumni_registry_json_error($e->getStatusCode(), $e->getMessage());
 } catch (PDOException $e) {
     error_log('Alumni registry database error: ' . $e->getMessage());
     if (($e->errorInfo[1] ?? null) === 1062) {

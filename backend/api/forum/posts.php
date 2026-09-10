@@ -67,7 +67,7 @@ function gradtrack_forum_posts_detail_query(): string
     return "SELECT fp.id, fp.graduate_id, fp.title, fp.content, fp.category, fp.status,
                    fp.image_path, fp.image_original_name, fp.image_mime_type, fp.image_file_size_bytes,
                    fp.created_at, fp.updated_at,
-                   g.first_name, g.middle_name, g.last_name,
+                   g.first_name, g.middle_name, g.last_name, g.year_graduated AS author_year_graduated,
                    p.name AS author_program_name, p.code AS author_program_code,
                    gpi.file_path AS author_profile_image_path,
                    (
@@ -105,6 +105,9 @@ function gradtrack_forum_posts_normalize_row(array $row): array
 {
     $row['id'] = (int) $row['id'];
     $row['graduate_id'] = (int) $row['graduate_id'];
+    $row['author_year_graduated'] = isset($row['author_year_graduated'])
+        ? (int) $row['author_year_graduated']
+        : null;
     $row['comment_count'] = isset($row['comment_count']) ? (int) $row['comment_count'] : 0;
     $row['like_count'] = isset($row['like_count']) ? (int) $row['like_count'] : 0;
     $row['report_count'] = isset($row['report_count']) ? (int) $row['report_count'] : 0;

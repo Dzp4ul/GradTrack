@@ -5,6 +5,8 @@ require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/admin_roles.php';
 require_once __DIR__ . '/../config/admin_auth.php';
+require_once __DIR__ . '/../config/graduation_years.php';
+require_once __DIR__ . '/../config/permanent_delete.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -222,6 +224,7 @@ try {
                 echo json_encode([
                     "success" => true,
                     "data" => $surveys,
+                    'graduation_year_options' => gradtrack_fetch_graduate_years($db, 'active'),
                     'archive_counts' => $counts,
                     'pagination' => [
                         'total' => $total,
@@ -533,6 +536,26 @@ try {
                 break;
             }
 
+            if (($data['action'] ?? '') === 'permanent_delete') {
+                $surveyId = (int) $data['id'];
+                $result = gradtrack_permanently_delete_survey($db, $surveyId);
+                $survey = $result['record'];
+                logAuditTrail(
+                    $auditUser['user_id'],
+                    $auditUser['user_name'],
+                    $auditUser['user_role'],
+                    $auditUser['department'],
+                    'Permanently Delete',
+                    'Survey Management',
+                    "Permanently deleted archived survey with record ID {$surveyId}.",
+                    $surveyId,
+                    ['title' => $survey['title'] ?? null, 'archived' => true],
+                    null
+                );
+                echo json_encode(['success' => true, 'message' => 'Survey permanently deleted successfully.']);
+                break;
+            }
+
             $surveyStmt = $db->prepare("SELECT title, status FROM surveys WHERE id = :id AND archived_at IS NULL LIMIT 1");
             $surveyStmt->execute([':id' => $data['id']]);
             $surveyToArchive = $surveyStmt->fetch(PDO::FETCH_ASSOC);
@@ -570,6 +593,10 @@ try {
             http_response_code(405);
             echo json_encode(["success" => false, "error" => "Method not allowed"]);
     }
+} catch (GradtrackPermanentDeleteException $e) {
+    if ($db->inTransaction()) $db->rollBack();
+    http_response_code($e->getStatusCode());
+    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
 } catch (Throwable $e) {
     if ($db->inTransaction()) $db->rollBack();
     error_log('Surveys API error: ' . $e->getMessage());
