@@ -260,6 +260,11 @@ try {
         VALUES (:survey_id, 'Profile', 'Year Graduated', 'text', 1, 1)");
     $questionStmt->execute([':survey_id' => $fixtureIds['survey']]);
     $questionId = (int) $db->lastInsertId();
+    $programQuestionStmt = $db->prepare("INSERT INTO survey_questions
+        (survey_id, section, question_text, question_type, is_required, sort_order)
+        VALUES (:survey_id, 'Profile', 'Degree Program', 'text', 1, 2)");
+    $programQuestionStmt->execute([':survey_id' => $fixtureIds['survey']]);
+    $programQuestionId = (int) $db->lastInsertId();
     foreach ([[$graduate2026, 2026], [$graduate2027, 2027]] as [$graduateId, $year]) {
         $responseStmt = $db->prepare('INSERT INTO survey_responses
             (survey_id, graduate_id, responses, submitted_at)
@@ -267,7 +272,10 @@ try {
         $responseStmt->execute([
             ':survey_id' => $fixtureIds['survey'],
             ':graduate_id' => $graduateId,
-            ':responses' => json_encode([(string) $questionId => (string) $year]),
+            ':responses' => json_encode([
+                (string) $questionId => (string) $year,
+                (string) $programQuestionId => (string) $program['name'],
+            ]),
         ]);
         $fixtureIds['responses'][] = (int) $db->lastInsertId();
     }
@@ -314,6 +322,11 @@ try {
     graduation_http_assert($responsePersistCheck->fetchColumn() === null, 'graduate deletion retained and detached the historical report response');
     $historicalReport = graduation_http_request('reports/index.php?type=overview_filter_options&survey_id=' . $fixtureIds['survey'], $adminSession);
     graduation_http_assert(in_array('2027', $historicalReport['json']['data']['years'] ?? [], true), 'Reports keeps historical 2027 after graduate deletion');
+    $dashboardAfterGraduateDelete = graduation_http_request('dashboard/stats.php?survey_id=' . $fixtureIds['survey'], $adminSession);
+    graduation_http_assert(
+        $dashboardAfterGraduateDelete['status'] === 200 && ($dashboardAfterGraduateDelete['json']['success'] ?? false) === true,
+        'Dashboard processes a preserved survey response after its graduate is permanently deleted'
+    );
 
     $activeSurveyDelete = graduation_http_request('surveys/index.php', $adminSession, 'DELETE', ['id' => $fixtureIds['survey'], 'action' => 'permanent_delete']);
     graduation_http_assert($activeSurveyDelete['status'] === 409, 'Survey permanent-delete API rejects an active archive-state record');

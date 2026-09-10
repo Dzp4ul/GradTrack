@@ -260,6 +260,20 @@ function getTotalEligibleGraduates(PDO $db): int
     return (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
 }
 
+function gradtrackDashboardProgramCode(string $programName): string
+{
+    $programLower = strtolower($programName);
+    if (strpos($programLower, 'computer science') !== false) return 'BSCS';
+    if (strpos($programLower, 'secondary education') !== false) return 'BSED';
+    if (strpos($programLower, 'elementary education') !== false) return 'BEED';
+    if (strpos($programLower, 'hospitality management') !== false) return 'BSHM';
+    if (strpos($programLower, 'computer technology') !== false) return 'ACT';
+    preg_match('/\b([A-Z]{3,})\b/', $programName, $matches);
+    return isset($matches[1]) && strlen($matches[1]) > 3
+        ? $matches[1]
+        : strtoupper(substr(preg_replace('/[^A-Za-z]/', '', $programName), 0, 4));
+}
+
 try {
     $selectedSurveyId = getSelectedSurveyId($db);
 
@@ -425,7 +439,7 @@ try {
         
         // Resolve fallback program code/name from survey answer if canonical graduate program is not available
         if (empty($degreeProgramCode) && !empty($fallbackProgramAnswer)) {
-            $degreeProgramCode = getProgramCode($fallbackProgramAnswer);
+            $degreeProgramCode = gradtrackDashboardProgramCode($fallbackProgramAnswer);
             $degreeProgramName = $fallbackProgramAnswer;
         }
 
@@ -460,18 +474,6 @@ try {
     
     $stmt = $db->query("SELECT AVG(time_to_employment) as avg_time FROM employment WHERE employment_status IN ('employed', 'self_employed', 'freelance') AND time_to_employment > 0");
     $avgTime = round($stmt->fetch(PDO::FETCH_ASSOC)['avg_time'] ?? 0, 1);
-
-    // Map program names to codes
-    function getProgramCode($programName) {
-        $programLower = strtolower($programName);
-        if (strpos($programLower, 'computer science') !== false) return 'BSCS';
-        if (strpos($programLower, 'secondary education') !== false) return 'BSED';
-        if (strpos($programLower, 'elementary education') !== false) return 'BEED';
-        if (strpos($programLower, 'hospitality management') !== false) return 'BSHM';
-        if (strpos($programLower, 'computer technology') !== false) return 'ACT';
-        preg_match('/\b([A-Z]{3,})\b/', $programName, $matches);
-        return isset($matches[1]) && strlen($matches[1]) > 3 ? $matches[1] : strtoupper(substr(preg_replace('/[^A-Za-z]/', '', $programName), 0, 4));
-    }
 
     // Build program stats from survey data
     $programStats = [];
