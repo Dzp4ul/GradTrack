@@ -107,16 +107,8 @@ try {
     $responseId = (int) $db->lastInsertId();
 
     $filterOptions = getOverviewFilterOptions($db, $surveyId, null);
-    graduation_archive_assert(in_array('2027', $filterOptions['years'], true), 'reports derive 2027 from the selected survey response data');
-    $details = getReportResponseDetails(getSurveyResponses($db, $surveyId)[0], getSurveyQuestions($db, $surveyId));
-    graduation_archive_assert(
-        responseMatchesOverviewFilters($details, ['graduation_year' => '2027']),
-        'the reports graduation-year filter matches the parsed canonical response year'
-    );
-    graduation_archive_assert(
-        !responseMatchesOverviewFilters($details, ['graduation_year' => '2026']),
-        'the reports graduation-year filter excludes a different year'
-    );
+    graduation_archive_assert(!in_array('2027', $filterOptions['years'], true), 'active reports exclude responses owned by archived graduates');
+    graduation_archive_assert(getSurveyResponses($db, $surveyId) === [], 'canonical report responses require an active, non-archived graduate');
 
     graduation_archive_expect_status(
         static fn () => gradtrack_permanently_delete_graduate($db, $graduate2026),
@@ -144,7 +136,7 @@ try {
     $responseCheck->execute([':id' => $responseId]);
     graduation_archive_assert($responseCheck->fetchColumn() === null, 'preserved historical response no longer references the deleted graduate');
     $historicalOptions = getOverviewFilterOptions($db, $surveyId, null);
-    graduation_archive_assert(in_array('2027', $historicalOptions['years'], true), 'reports retain 2027 after its graduate record is permanently deleted');
+    graduation_archive_assert(!in_array('2027', $historicalOptions['years'], true), 'detached historical responses remain excluded from active reports');
 
     graduation_archive_expect_status(
         static fn () => gradtrack_permanently_delete_survey($db, $surveyId + 1000000000),

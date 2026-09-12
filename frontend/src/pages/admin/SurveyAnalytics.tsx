@@ -22,23 +22,30 @@ interface QuestionAnalytics {
 }
 
 interface EmploymentInsights {
-  employment_rate: number;
+  employment_rate: number | null;
   employed_count: number;
   unemployed_count: number;
-  alignment_rate: number;
+  employment_total: number;
+  alignment_rate: number | null;
   aligned_count: number;
+  alignment_total: number;
   partially_aligned_count: number;
   not_aligned_count: number;
+  binary_not_aligned_count: number;
   salary_distribution: Record<string, number>;
   time_to_job_distribution: Record<string, number>;
 }
+
+const formatRate = (value: number | null): string => (
+  value === null || !Number.isFinite(Number(value)) ? 'No data' : `${Number(value).toFixed(1)}%`
+);
 
 interface Analytics {
   survey_id: number;
   survey_title: string;
   total_responses: number;
-  response_rate: number;
-  completion_rate: number;
+  response_rate: number | null;
+  completion_rate: number | null;
   questions_analytics: QuestionAnalytics[];
   employment_insights?: EmploymentInsights;
 }
@@ -114,13 +121,13 @@ export default function SurveyAnalytics() {
         <StatCard
           icon={TrendingUp}
           label="Response Rate"
-          value={`${analytics.response_rate}%`}
+          value={formatRate(analytics.response_rate)}
           color="bg-green-100 text-green-700"
         />
         <StatCard
           icon={CheckCircle2}
           label="Completion Rate"
-          value={`${analytics.completion_rate}%`}
+          value={formatRate(analytics.completion_rate)}
           color="bg-purple-100 text-purple-700"
         />
         <StatCard
@@ -146,7 +153,7 @@ export default function SurveyAnalytics() {
                 <div>
                   <p className="text-sm text-gray-600">Employment Rate</p>
                   <p className="text-2xl font-bold text-blue-900 sm:text-3xl">
-                    {analytics.employment_insights.employment_rate}%
+                    {formatRate(analytics.employment_insights.employment_rate)}
                   </p>
                 </div>
               </div>
@@ -159,6 +166,9 @@ export default function SurveyAnalytics() {
                   <span className="text-gray-600">Unemployed:</span>
                   <span className="font-semibold">{analytics.employment_insights.unemployed_count}</span>
                 </div>
+                <p className="pt-1 text-xs text-gray-500">
+                  {analytics.employment_insights.employed_count} / {analytics.employment_insights.employment_total} valid employment-status responses
+                </p>
               </div>
             </div>
 
@@ -171,7 +181,7 @@ export default function SurveyAnalytics() {
                 <div>
                   <p className="text-sm text-gray-600">Job Alignment Rate</p>
                   <p className="text-2xl font-bold text-blue-900 sm:text-3xl">
-                    {analytics.employment_insights.alignment_rate}%
+                    {formatRate(analytics.employment_insights.alignment_rate)}
                   </p>
                 </div>
               </div>
@@ -188,6 +198,9 @@ export default function SurveyAnalytics() {
                   <span className="text-gray-600">Not Aligned:</span>
                   <span className="font-semibold text-red-600">{analytics.employment_insights.not_aligned_count}</span>
                 </div>
+                <p className="pt-1 text-xs text-gray-500">
+                  {analytics.employment_insights.aligned_count} / {analytics.employment_insights.alignment_total} valid applicable alignment responses
+                </p>
               </div>
             </div>
           </div>

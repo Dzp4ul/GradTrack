@@ -825,6 +825,13 @@ function gradtrack_genai_percent(int $part, int $whole): float
     return round(($part / $whole) * 100, 1);
 }
 
+function gradtrack_genai_rate_label($rate): string
+{
+    return $rate === null || !is_numeric($rate)
+        ? 'No data'
+        : number_format((float)$rate, 1) . '%';
+}
+
 function gradtrack_genai_dataset_with_stamp(array $dataset): array
 {
     $hashSource = $dataset;
@@ -849,12 +856,22 @@ function gradtrack_genai_finalize_program_rows(array $programs): array
 {
     $rows = array_values($programs);
     foreach ($rows as &$row) {
-        $total = (int)($row['total_graduates'] ?? 0);
         $employed = (int)($row['employed'] ?? 0);
-        $row['unemployed'] = (int)($row['unemployed'] ?? 0);
-        $row['not_employed'] = max($total - $employed, 0);
-        $row['employment_rate'] = gradtrack_genai_percent($employed, $total);
-        $row['alignment_rate'] = gradtrack_genai_percent((int)($row['aligned'] ?? 0), $employed);
+        $unemployed = (int)($row['unemployed'] ?? 0);
+        $alignmentTotal = (int)($row['aligned'] ?? 0)
+            + (int)($row['partially_aligned'] ?? 0)
+            + (int)($row['not_aligned'] ?? 0);
+        $row['unemployed'] = $unemployed;
+        $row['not_employed'] = $unemployed;
+        $row['employment_total'] = $employed + $unemployed;
+        $row['alignment_total'] = $alignmentTotal;
+        $row['not_aligned_binary'] = (int)($row['partially_aligned'] ?? 0) + (int)($row['not_aligned'] ?? 0);
+        $row['employment_rate'] = $row['employment_total'] > 0
+            ? gradtrack_genai_percent($employed, $row['employment_total'])
+            : null;
+        $row['alignment_rate'] = $alignmentTotal > 0
+            ? gradtrack_genai_percent((int)($row['aligned'] ?? 0), $alignmentTotal)
+            : null;
     }
     unset($row);
 
@@ -869,11 +886,20 @@ function gradtrack_genai_finalize_year_rows(array $years): array
 {
     $rows = array_values($years);
     foreach ($rows as &$row) {
-        $total = (int)($row['total_graduates'] ?? 0);
         $employed = (int)($row['employed'] ?? 0);
-        $row['not_employed'] = max($total - $employed, 0);
-        $row['employment_rate'] = gradtrack_genai_percent($employed, $total);
-        $row['alignment_rate'] = gradtrack_genai_percent((int)($row['aligned'] ?? 0), $employed);
+        $unemployed = (int)($row['unemployed'] ?? 0);
+        $alignmentTotal = (int)($row['aligned'] ?? 0)
+            + (int)($row['partially_aligned'] ?? 0)
+            + (int)($row['not_aligned'] ?? 0);
+        $row['not_employed'] = $unemployed;
+        $row['employment_total'] = $employed + $unemployed;
+        $row['alignment_total'] = $alignmentTotal;
+        $row['employment_rate'] = $row['employment_total'] > 0
+            ? gradtrack_genai_percent($employed, $row['employment_total'])
+            : null;
+        $row['alignment_rate'] = $alignmentTotal > 0
+            ? gradtrack_genai_percent((int)($row['aligned'] ?? 0), $alignmentTotal)
+            : null;
     }
     unset($row);
 
@@ -1003,12 +1029,18 @@ function gradtrack_genai_collect_dataset(
             'employed' => 0,
             'unemployed' => 0,
             'aligned' => 0,
+            'partially_aligned' => 0,
+            'not_aligned' => 0,
         ], static function (&$bucket) use ($details) {
             $bucket['total_graduates']++;
             if (!empty($details['is_employed'])) {
                 $bucket['employed']++;
-                if (!empty($details['is_aligned'])) {
+                if (($details['alignment_bucket'] ?? null) === 'aligned') {
                     $bucket['aligned']++;
+                } elseif (($details['alignment_bucket'] ?? null) === 'partially_aligned') {
+                    $bucket['partially_aligned']++;
+                } elseif (($details['alignment_bucket'] ?? null) === 'not_aligned') {
+                    $bucket['not_aligned']++;
                 }
             } elseif (!empty($details['is_unemployed'])) {
                 $bucket['unemployed']++;
@@ -1069,11 +1101,19 @@ function gradtrack_genai_collect_dataset(
         'total_employed_abroad' => $abroad,
         'total_aligned' => $aligned,
         'total_partially_aligned' => $partiallyAligned,
-        'total_not_aligned' => $notAligned,
+        'total_not_aligned' => $partiallyAligned + $notAligned,
+        'total_explicit_not_aligned' => $notAligned,
+        'total_alignment_known' => $aligned + $partiallyAligned + $notAligned,
         'total_survey_responses' => $total,
-        'employment_rate' => gradtrack_genai_percent($employed, $total),
-        'employment_known_rate' => gradtrack_genai_percent($employed, $employed + $unemployed),
-        'alignment_rate' => gradtrack_genai_percent($aligned, $employed),
+        'employment_rate' => ($employed + $unemployed) > 0
+            ? gradtrack_genai_percent($employed, $employed + $unemployed)
+            : null,
+        'employment_known_rate' => ($employed + $unemployed) > 0
+            ? gradtrack_genai_percent($employed, $employed + $unemployed)
+            : null,
+        'alignment_rate' => ($aligned + $partiallyAligned + $notAligned) > 0
+            ? gradtrack_genai_percent($aligned, $aligned + $partiallyAligned + $notAligned)
+            : null,
     ];
 
     $dataset = [
@@ -1104,7 +1144,7 @@ function gradtrack_genai_collect_survey_participation(
     }
 
     $filters = $effectiveContext['overview_filters'];
-    $whereParts = ['g.archived_at IS NULL'];
+    $whereParts = [gradtrack_analytics_active_graduate_condition('g')];
     $bindings = [
         ':participation_survey_id' => ['value' => $surveyId, 'type' => PDO::PARAM_INT],
     ];
@@ -1296,8 +1336,8 @@ function gradtrack_genai_source_metrics(array $dataset, array $effectiveContext,
         ],
         [
             'label' => 'Employed graduates',
-            'value' => $overview['total_employed'] . ' of ' . $overview['total_graduates'] . ' (' . $overview['employment_rate'] . '%)',
-            'context' => 'Employment rate uses the selected report respondents as denominator.',
+            'value' => $overview['total_employed'] . ' of ' . $overview['total_employment_known'] . ' (' . gradtrack_genai_rate_label($overview['employment_rate']) . ')',
+            'context' => 'Employment rate uses respondents with a valid employment status as denominator.',
         ],
         [
             'label' => 'Unemployed graduates',
@@ -1306,8 +1346,8 @@ function gradtrack_genai_source_metrics(array $dataset, array $effectiveContext,
         ],
         [
             'label' => 'Job-aligned employed graduates',
-            'value' => $overview['total_aligned'] . ' of ' . $overview['total_employed'] . ' (' . $overview['alignment_rate'] . '%)',
-            'context' => 'Calculated among employed graduates in the selected dataset.',
+            'value' => $overview['total_aligned'] . ' of ' . $overview['total_alignment_known'] . ' (' . gradtrack_genai_rate_label($overview['alignment_rate']) . ')',
+            'context' => 'Calculated from employed respondents with a valid job-alignment answer.',
         ],
         [
             'label' => 'Dataset hash',
@@ -1515,6 +1555,8 @@ function gradtrack_genai_direct_employment_response(array $intent, array $datase
     $employed = (int)$overview['total_employed'];
     $unemployed = (int)$overview['total_unemployed'];
     $aligned = (int)$overview['total_aligned'];
+    $employmentTotal = (int)$overview['total_employment_known'];
+    $alignmentTotal = (int)$overview['total_alignment_known'];
     $employmentRate = (float)$overview['employment_rate'];
     $alignmentRate = (float)$overview['alignment_rate'];
     $program = (string)($filterLabels['program'] ?? 'All Programs');
@@ -1525,9 +1567,13 @@ function gradtrack_genai_direct_employment_response(array $intent, array $datase
     if ($metric === 'unemployed') {
         $answer = $unemployed . ' submitted tracer-study respondent(s) are classified as unemployed ' . $scope . '. The denominator here is ' . $total . ' submitted response(s), not the total registered graduate population.';
     } elseif ($metric === 'employment_rate') {
-        $answer = 'The employment rate is ' . $employmentRate . '% ' . $scope . ' (' . $employed . ' employed out of ' . $total . ' submitted tracer-study response(s)).';
+        $answer = $employmentTotal > 0
+            ? 'The employment rate is ' . $employmentRate . '% ' . $scope . ' (' . $employed . ' employed out of ' . $employmentTotal . ' valid employment-status response(s)).'
+            : 'No valid employment-status responses are available ' . $scope . '.';
     } elseif ($metric === 'alignment_rate') {
-        $answer = 'The job-alignment rate is ' . $alignmentRate . '% ' . $scope . ' (' . $aligned . ' job-aligned employed graduate(s) out of ' . $employed . ' employed respondent(s)).';
+        $answer = $alignmentTotal > 0
+            ? 'The job-alignment rate is ' . $alignmentRate . '% ' . $scope . ' (' . $aligned . ' aligned out of ' . $alignmentTotal . ' valid applicable alignment response(s)).'
+            : 'No valid applicable job-alignment responses are available ' . $scope . '.';
     } else {
         $answer = $employed . ' submitted tracer-study respondent(s) are classified as employed ' . $scope . '. The denominator here is ' . $total . ' submitted response(s), not the total registered graduate population.';
     }
@@ -1907,7 +1953,8 @@ function gradtrack_genai_fallback_response(string $message, array $dataset, arra
         . $overview['total_employed'] . ' employed, '
         . $overview['total_unemployed'] . ' unemployed, and '
         . $overview['total_aligned'] . ' employed graduate(s) recorded as job-aligned. '
-        . 'The employment rate is ' . $overview['employment_rate'] . '% and the alignment rate is ' . $overview['alignment_rate'] . '%.';
+        . 'The employment rate is ' . gradtrack_genai_rate_label($overview['employment_rate'])
+        . ' and the alignment rate is ' . gradtrack_genai_rate_label($overview['alignment_rate']) . '.';
 
     if ((int)$overview['total_graduates'] === 0) {
         $answer = 'No submitted tracer-study responses matched the selected GradTrack filters, so I cannot generate a data-supported interpretation for this request.';
@@ -1919,8 +1966,8 @@ function gradtrack_genai_fallback_response(string $message, array $dataset, arra
         'executiveSummary' => $answer,
         'keyFindings' => [
             'Submitted tracer-study respondents: ' . $overview['total_graduates'],
-            'Employment Rate: ' . $overview['employment_rate'] . '% (' . $overview['total_employed'] . ' of ' . $overview['total_graduates'] . ' respondents)',
-            'Job Alignment Rate: ' . $overview['alignment_rate'] . '% (' . $overview['total_aligned'] . ' of ' . $overview['total_employed'] . ' employed graduates)',
+            'Employment Rate: ' . gradtrack_genai_rate_label($overview['employment_rate']) . ' (' . $overview['total_employed'] . ' of ' . $overview['total_employment_known'] . ' valid employment-status responses)',
+            'Job Alignment Rate: ' . gradtrack_genai_rate_label($overview['alignment_rate']) . ' (' . $overview['total_aligned'] . ' of ' . $overview['total_alignment_known'] . ' valid applicable alignment responses)',
         ],
         'trends' => [],
         'comparisons' => [],

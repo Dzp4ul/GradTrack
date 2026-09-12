@@ -291,20 +291,20 @@ export default function NotificationBell({ audience, colorScheme = 'light', clas
     colorScheme === 'dark'
       ? 'border-transparent text-white hover:border-white/10 hover:bg-white/10 focus:ring-white/40'
       : 'border-transparent text-gray-600 hover:border-gray-200 hover:bg-gray-100 hover:text-gray-900 focus:ring-blue-500/30 dark:text-slate-300 dark:hover:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-white';
-  const unreadLabel = unreadCount > 9 ? '9+' : String(unreadCount);
+  const unreadLabel = unreadCount > 99 ? '99+' : String(unreadCount);
   const expandedButtonClass = expandLabel
     ? 'w-11 justify-start hover:w-40 focus-visible:w-40'
     : 'w-11 justify-start';
 
   return (
-    <div className={`relative ${className}`} ref={wrapperRef}>
+    <div className={`relative overflow-visible ${className}`} ref={wrapperRef}>
       <button
         type="button"
         onClick={() => {
           setOpen((current) => !current);
           void fetchNotifications(true);
         }}
-        className={`group relative flex h-11 items-center overflow-hidden rounded-full border transition-[width,background-color,border-color,color,box-shadow] duration-[250ms] ease-out focus:outline-none focus:ring-2 ${buttonClass} ${open ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-slate-700 dark:bg-slate-800 dark:text-blue-200' : ''} ${expandedButtonClass}`}
+        className={`group relative flex h-11 items-center overflow-visible rounded-full border transition-[width,background-color,border-color,color,box-shadow] duration-[250ms] ease-out focus:outline-none focus:ring-2 ${buttonClass} ${open ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-slate-700 dark:bg-slate-800 dark:text-blue-200' : ''} ${expandedButtonClass}`}
         aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ''}`}
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -312,7 +312,7 @@ export default function NotificationBell({ audience, colorScheme = 'light', clas
         <span className="relative flex h-11 w-11 shrink-0 items-center justify-center">
           <Bell className="h-5 w-5" />
           {unreadCount > 0 && (
-            <span className="absolute right-0 top-0 flex min-h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold leading-none text-white shadow-sm ring-2 ring-white dark:ring-slate-900">
+            <span className="pointer-events-none absolute right-0 top-0 z-10 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold leading-none text-white shadow-sm ring-2 ring-white dark:ring-slate-900">
               {unreadLabel}
             </span>
           )}

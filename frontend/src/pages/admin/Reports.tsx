@@ -18,12 +18,15 @@ interface Overview {
   total_employed: number;
   total_unemployed?: number;
   total_employment_known?: number;
+  total_employment_unknown?: number;
   total_employed_local: number;
   total_employed_abroad: number;
   total_aligned: number;
+  total_not_aligned?: number;
+  total_alignment_known?: number;
   total_survey_responses: number;
-  employment_rate: number;
-  alignment_rate: number;
+  employment_rate: number | null;
+  alignment_rate: number | null;
 }
 
 interface OverviewFilters {
@@ -48,10 +51,16 @@ interface ProgramReport {
   code: string;
   name: string;
   total_graduates: number;
+  employment_total?: number;
   employed: number;
+  unemployed?: number;
+  employment_rate?: number | null;
   aligned: number;
+  alignment_total?: number;
+  alignment_rate?: number | null;
   partially_aligned: number;
   not_aligned: number;
+  explicit_not_aligned?: number;
   avg_time_to_employment: number;
   avg_salary: number;
 }
@@ -59,8 +68,14 @@ interface ProgramReport {
 interface YearReport {
   year_graduated: number;
   total_graduates: number;
+  employment_total?: number;
   employed: number;
+  unemployed?: number;
+  employment_rate?: number | null;
   aligned: number;
+  alignment_total?: number;
+  alignment_rate?: number | null;
+  not_aligned?: number;
   avg_salary: number;
 }
 
@@ -95,13 +110,16 @@ interface SurveyQuestionAnalytics {
 }
 
 interface SurveyEmploymentInsights {
-  employment_rate: number;
+  employment_rate: number | null;
   employed_count: number;
   unemployed_count: number;
-  alignment_rate: number;
+  employment_total: number;
+  alignment_rate: number | null;
   aligned_count: number;
+  alignment_total: number;
   partially_aligned_count: number;
   not_aligned_count: number;
+  binary_not_aligned_count: number;
   salary_distribution: Record<string, number>;
   time_to_job_distribution: Record<string, number>;
 }
@@ -110,8 +128,8 @@ interface SurveyAnalyticsData {
   survey_id: number;
   survey_title: string;
   total_responses: number;
-  response_rate: number;
-  completion_rate: number;
+  response_rate: number | null;
+  completion_rate: number | null;
   questions_analytics: SurveyQuestionAnalytics[];
   employment_insights?: SurveyEmploymentInsights;
   report_tables?: SurveyReportTable[];
@@ -185,14 +203,6 @@ const SURVEY_REPORT_TABLE_BORDER: Partial<ExcelJS.Borders> = {
   right: { style: 'thin', color: { argb: 'FF000000' } },
 };
 
-const DEFAULT_DEPARTMENTS = [
-  { code: 'BSCS', name: 'Bachelor of Science in Computer Science' },
-  { code: 'ACT', name: 'Associate in Computer Technology' },
-  { code: 'BSED', name: 'Bachelor of Secondary Education' },
-  { code: 'BEED', name: 'Bachelor of Elementary Education' },
-  { code: 'BSHM', name: 'Bachelor of Science in Hospitality Management' },
-];
-
 const SURVEY_DEPARTMENT_OPTIONS = [
   {
     value: 'ccs',
@@ -224,8 +234,14 @@ const parseSurveyId = (value: string | null): number | null => {
   return Number.isFinite(surveyId) && surveyId > 0 ? surveyId : null;
 };
 
-const getNotEmployedCount = (item: Pick<ProgramReport | YearReport, 'total_graduates' | 'employed'>): number => (
-  Math.max(Number(item.total_graduates ?? 0) - Number(item.employed ?? 0), 0)
+const getNotEmployedCount = (item: Pick<ProgramReport | YearReport, 'total_graduates' | 'employment_total' | 'employed'>): number => (
+  Math.max(Number(item.employment_total ?? item.total_graduates ?? 0) - Number(item.employed ?? 0), 0)
+);
+
+const formatNullableRate = (value: number | null | undefined): string => (
+  value === null || value === undefined || !Number.isFinite(Number(value))
+    ? 'No data'
+    : `${Number(value).toFixed(1)}%`
 );
 
 const getEmploymentStatusChartLabel = (status: string): string => {
@@ -1055,8 +1071,8 @@ export default function Reports() {
       head: [['Metric', 'Value']],
       body: [
         ['Total Responses', surveyAnalytics.total_responses],
-        ['Response Rate', `${surveyAnalytics.response_rate}%`],
-        ['Completion Rate', `${surveyAnalytics.completion_rate}%`],
+        ['Response Rate', formatNullableRate(surveyAnalytics.response_rate)],
+        ['Completion Rate', formatNullableRate(surveyAnalytics.completion_rate)],
         ['Questions', surveyAnalytics.questions_analytics.length],
       ],
       styles: { fontSize: 9, cellPadding: 5 },
@@ -1222,8 +1238,8 @@ export default function Reports() {
           { Metric: 'Employed (Abroad)', Value: overviewExport.total_employed_abroad },
           { Metric: 'Total Aligned', Value: overviewExport.total_aligned },
           { Metric: 'Survey Responses', Value: overviewExport.total_survey_responses },
-          { Metric: 'Employment Rate (%)', Value: overviewExport.employment_rate },
-          { Metric: 'Alignment Rate (%)', Value: overviewExport.alignment_rate },
+          { Metric: 'Employment Rate (%)', Value: overviewExport.employment_rate ?? 'No data' },
+          { Metric: 'Alignment Rate (%)', Value: overviewExport.alignment_rate ?? 'No data' },
         ]
       : [];
 
@@ -1235,9 +1251,9 @@ export default function Reports() {
       'Not Employed': getNotEmployedCount(item),
       Aligned: item.aligned,
       'Partially Aligned': item.partially_aligned,
-      'Not Aligned': item.not_aligned,
-      'Employment Rate (%)': item.total_graduates > 0 ? Number(((item.employed / item.total_graduates) * 100).toFixed(1)) : 0,
-      'Alignment Rate (%)': item.employed > 0 ? Number(((item.aligned / item.employed) * 100).toFixed(1)) : 0,
+      'Not Aligned (including partial)': item.not_aligned,
+      'Employment Rate (%)': item.employment_rate ?? 'No data',
+      'Alignment Rate (%)': item.alignment_rate ?? 'No data',
     }));
 
     const yearRows: ExcelRow[] = (yearExport ?? []).map((item) => ({
@@ -1246,8 +1262,8 @@ export default function Reports() {
       Employed: item.employed,
       'Not Employed': getNotEmployedCount(item),
       Aligned: item.aligned,
-      'Employment Rate (%)': item.total_graduates > 0 ? Number(((item.employed / item.total_graduates) * 100).toFixed(1)) : 0,
-      'Alignment Rate (%)': item.employed > 0 ? Number(((item.aligned / item.employed) * 100).toFixed(1)) : 0,
+      'Employment Rate (%)': item.employment_rate ?? 'No data',
+      'Alignment Rate (%)': item.alignment_rate ?? 'No data',
     }));
 
     const statusRows: ExcelRow[] = (statusExport ?? []).map((item) => ({
@@ -1570,8 +1586,8 @@ export default function Reports() {
           ['Employed (Local)', overviewForPdf.total_employed_local],
           ['Employed (Abroad)', overviewForPdf.total_employed_abroad],
           ['Total Aligned', overviewForPdf.total_aligned],
-          ['Employment Rate (%)', overviewForPdf.employment_rate],
-          ['Alignment Rate (%)', overviewForPdf.alignment_rate],
+          ['Employment Rate (%)', overviewForPdf.employment_rate ?? 'No data'],
+          ['Alignment Rate (%)', overviewForPdf.alignment_rate ?? 'No data'],
         ],
         styles: { fontSize: 10, cellPadding: 6 },
         headStyles: { fillColor: [27, 42, 74] },
@@ -1803,8 +1819,10 @@ export default function Reports() {
   const surveyReportGraphCount = surveyAnalytics?.report_tables
     ? buildSurveyReportCharts(surveyAnalytics.report_tables).length
     : 0;
-  const overviewUnemployed = overview?.total_unemployed ?? Math.max((overview?.total_graduates ?? 0) - (overview?.total_employed ?? 0), 0);
-  const overviewNotAligned = Math.max((overview?.total_employed ?? 0) - (overview?.total_aligned ?? 0), 0);
+  const overviewUnemployed = overview?.total_unemployed
+    ?? Math.max((overview?.total_employment_known ?? 0) - (overview?.total_employed ?? 0), 0);
+  const overviewNotAligned = overview?.total_not_aligned
+    ?? Math.max((overview?.total_alignment_known ?? 0) - (overview?.total_aligned ?? 0), 0);
   const overviewPrograms = overviewProgramData;
   const overviewActiveFilterChips = getOverviewActiveFilterChips();
   const overviewHasRecords = (overview?.total_graduates ?? 0) > 0;
@@ -1813,7 +1831,10 @@ export default function Reports() {
   const hasOverviewAlignmentData = (overview?.total_aligned ?? 0) + overviewNotAligned > 0;
   const hasOverviewProgramEmploymentData = overviewPrograms.some((program) => Number(program.employed ?? 0) > 0);
   const hasOverviewProgramAlignmentData = overviewPrograms.some((program) => Number(program.aligned ?? 0) > 0);
-  const hasOverviewProgramRateData = overviewPrograms.some((program) => Number(program.total_graduates ?? 0) > 0 && Number(program.employed ?? 0) > 0);
+  const overviewProgramRateData = overviewPrograms
+    .filter((program) => program.employment_rate !== null && program.employment_rate !== undefined)
+    .map((program) => ({ name: program.code, value: Number(program.employment_rate) }));
+  const hasOverviewProgramRateData = overviewProgramRateData.length > 0;
   const programChartData = programData.map((program) => ({
     ...program,
     not_employed: getNotEmployedCount(program),
@@ -1822,13 +1843,7 @@ export default function Reports() {
     ...year,
     not_employed: getNotEmployedCount(year),
   }));
-  const departmentOptionMap = new Map(DEFAULT_DEPARTMENTS.map((department) => [department.code, department]));
-  availableDepartments.forEach((department) => {
-    if (department.code) {
-      departmentOptionMap.set(department.code, department);
-    }
-  });
-  const departmentOptions = Array.from(departmentOptionMap.values());
+  const departmentOptions = availableDepartments;
   const isSurveyExportDisabled = tab === 'surveys' && (
     surveyLoading || surveyAnalyticsLoading || !selectedSurveyId || !surveyAnalytics
   );
@@ -2078,10 +2093,10 @@ export default function Reports() {
                 <>
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                     <StatCard icon={Users} label="Total Graduate Responses" value={overview.total_graduates.toString()} color="bg-blue-100 text-blue-700" />
-                    <StatCard icon={Briefcase} label="Employed (Total)" value={overview.total_employed.toString()} sub={`${overview.employment_rate}%`} color="bg-green-100 text-green-700" />
+                    <StatCard icon={Briefcase} label="Employed (Total)" value={overview.total_employed.toString()} sub={formatNullableRate(overview.employment_rate)} color="bg-green-100 text-green-700" />
                     <StatCard icon={Briefcase} label="Employed (Local)" value={overview.total_employed_local.toString()} color="bg-teal-100 text-teal-700" />
                     <StatCard icon={Briefcase} label="Employed (Abroad)" value={overview.total_employed_abroad.toString()} color="bg-indigo-100 text-indigo-700" />
-                    <StatCard icon={Target} label="Aligned" value={overview.total_aligned.toString()} sub={`${overview.alignment_rate}%`} color="bg-orange-100 text-orange-700" />
+                    <StatCard icon={Target} label="Aligned" value={overview.total_aligned.toString()} sub={formatNullableRate(overview.alignment_rate)} color="bg-orange-100 text-orange-700" />
                   </div>
 
                   {!overviewHasRecords ? (
@@ -2295,25 +2310,22 @@ export default function Reports() {
                           <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
                               <Pie 
-                                data={overviewPrograms.map((p) => ({ 
-                                  name: p.code, 
-                                  value: p.total_graduates > 0 ? Math.round((p.employed / p.total_graduates) * 100) : 0 
-                                }))} 
+                                data={overviewProgramRateData}
                                 cx="50%" 
                                 cy="50%" 
                                 outerRadius={80} 
                                 dataKey="value"
                                 label={({ name, value }) => `${name}: ${value}%`}
                               >
-                                {overviewPrograms.map((p, i) => (
-                                  <Cell key={i} fill={PROGRAM_COLORS[p.code] || COLORS[i % COLORS.length]} />
+                                {overviewProgramRateData.map((p, i) => (
+                                  <Cell key={p.name} fill={PROGRAM_COLORS[p.name] || COLORS[i % COLORS.length]} />
                                 ))}
                               </Pie>
                               <Tooltip formatter={(value) => `${value}%`} />
                             </PieChart>
                           </ResponsiveContainer>
                         ) : (
-                          <OverviewChartEmptyState message="Employment rates are 0% for the selected filters." />
+                          <OverviewChartEmptyState message="No valid employment-status responses for the selected filters." />
                         )}
                       </div>
                       <div className="flex flex-wrap justify-center gap-2 mt-2">
@@ -2713,8 +2725,8 @@ export default function Reports() {
                           {!(surveyAnalytics.report_tables && surveyAnalytics.report_tables.length > 0) && (
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                               <SurveyAnalyticsStatCard icon={Users} label="Total Responses" value={surveyAnalytics.total_responses.toString()} color="bg-blue-100 text-blue-700" />
-                              <SurveyAnalyticsStatCard icon={TrendingUp} label="Response Rate" value={`${surveyAnalytics.response_rate}%`} color="bg-green-100 text-green-700" />
-                              <SurveyAnalyticsStatCard icon={CheckCircle2} label="Completion Rate" value={`${surveyAnalytics.completion_rate}%`} color="bg-purple-100 text-purple-700" />
+                              <SurveyAnalyticsStatCard icon={TrendingUp} label="Response Rate" value={formatNullableRate(surveyAnalytics.response_rate)} color="bg-green-100 text-green-700" />
+                              <SurveyAnalyticsStatCard icon={CheckCircle2} label="Completion Rate" value={formatNullableRate(surveyAnalytics.completion_rate)} color="bg-purple-100 text-purple-700" />
                               <SurveyAnalyticsStatCard icon={BarChart3} label="Questions" value={surveyAnalytics.questions_analytics.length.toString()} color="bg-orange-100 text-orange-700" />
                             </div>
                           )}
@@ -3277,8 +3289,8 @@ function addSurveyExportSummarySheet(
   sheet.addRow(['Generated At', generatedAt.toLocaleString()]);
   sheet.addRow(['Department Filter', departmentLabel]);
   sheet.addRow(['Total Responses', analytics.total_responses]);
-  sheet.addRow(['Response Rate (%)', analytics.response_rate]);
-  sheet.addRow(['Completion Rate (%)', analytics.completion_rate]);
+  sheet.addRow(['Response Rate (%)', analytics.response_rate ?? 'No data']);
+  sheet.addRow(['Completion Rate (%)', analytics.completion_rate ?? 'No data']);
   sheet.addRow(['Questions', analytics.questions_analytics.length]);
   sheet.addRow(['Report Tables', analytics.report_tables?.length ?? 0]);
   sheet.getColumn(1).width = 24;
@@ -3727,15 +3739,15 @@ function getPdfTableForTab(
         ['Employed (Abroad)', overview.total_employed_abroad],
         ['Total Aligned', overview.total_aligned],
         ['Survey Responses', overview.total_survey_responses],
-        ['Employment Rate (%)', overview.employment_rate],
-        ['Alignment Rate (%)', overview.alignment_rate],
+        ['Employment Rate (%)', overview.employment_rate ?? 'No data'],
+        ['Alignment Rate (%)', overview.alignment_rate ?? 'No data'],
       ],
     };
   }
 
   if (tab === 'program') {
     return {
-      headers: ['Code', 'Program', 'Graduates', 'Employed', 'Not Employed', 'Aligned', 'Partially', 'Not Aligned'],
+      headers: ['Code', 'Program', 'Graduates', 'Employed', 'Not Employed', 'Aligned', 'Partially', 'Not Aligned (including partial)'],
       rows: programData.map((item) => [
         item.code,
         item.name,
@@ -3788,7 +3800,8 @@ function getPdfChartConfig(
   salaryData: SalaryData[],
 ): Record<string, unknown> | null {
   if (tab === 'overview' && overview) {
-    const unemployed = overview.total_unemployed ?? Math.max(overview.total_graduates - overview.total_employed, 0);
+    const unemployed = overview.total_unemployed
+      ?? Math.max((overview.total_employment_known ?? 0) - overview.total_employed, 0);
 
     return {
       type: 'doughnut',
@@ -3946,7 +3959,7 @@ function buildPdfSectionDescriptions(
     cover: `This formal tracer report summarizes graduate outcomes for ${departmentLabel}, covering ${yearLabel}. It consolidates participation, employability, alignment, and salary indicators in one evidence set.`,
     executive: `This page describes the observed counts and percentages from the selected analytics data. It focuses only on the visible totals, distributions, and category differences.`,
     overview: overview
-      ? `The overview indicates ${overview.total_graduates} traced graduates with ${overview.total_employed} employed and ${overview.total_aligned} aligned to their field. This corresponds to an employment rate of ${overview.employment_rate}% and an alignment rate of ${overview.alignment_rate}%, providing a baseline view of current department-level outcomes.`
+      ? `The overview indicates ${overview.total_graduates} traced graduate responses with ${overview.total_employed} employed and ${overview.total_aligned} aligned to their field. This corresponds to an employment rate of ${formatNullableRate(overview.employment_rate)} and an alignment rate of ${formatNullableRate(overview.alignment_rate)}, using their respective valid-response denominators.`
       : `The overview section provides a consolidated snapshot of traced graduates, employed graduates, and alignment outcomes for the selected department and year scope.`,
     program: topProgram
       ? `Program-level comparisons show the graduate totals, employed counts, and alignment counts within the selected scope. In this export, ${topProgram.code} records the highest employed count (${topProgram.employed}) among listed programs.`

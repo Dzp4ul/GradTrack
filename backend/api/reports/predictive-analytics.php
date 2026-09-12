@@ -2,92 +2,50 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/admin_auth.php';
+require_once __DIR__ . '/../config/survey_response_analytics.php';
 
 $database = new Database();
 $db = $database->getConnection();
 $authUser = gradtrack_require_admin_auth($db, ['admin'], 'Only Admin accounts can access predictive analytics');
 
 try {
-    // Get historical data by year
-    $stmt = $db->query("SELECT q.id, q.question_text FROM surveys s JOIN survey_questions q ON s.id = q.survey_id WHERE s.status = 'active' ORDER BY q.sort_order");
-    $questions = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    $questionMap = [];
-    foreach ($questions as $q) {
-        $questionMap[$q['id']] = strtolower($q['question_text']);
+    $surveyStmt = $db->query(
+        "SELECT id
+         FROM surveys
+         WHERE status = 'active'
+           AND archived_at IS NULL
+         ORDER BY created_at DESC, id DESC
+         LIMIT 1"
+    );
+    $surveyId = (int)($surveyStmt->fetchColumn() ?: 0);
+    if ($surveyId <= 0) {
+        throw new Exception('No active survey is available for prediction.');
     }
-    
-    $stmt = $db->query("SELECT responses FROM survey_responses");
-    $surveyResponses = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    
+
+    // Historical inputs use the same valid-graduate population and response
+    // classifiers as the Dashboard and Reports endpoints.
+    $analytics = gradtrack_analytics_calculate($db, $surveyId);
     $yearData = [];
-    
-    foreach ($surveyResponses as $response) {
-        $data = json_decode($response['responses'], true);
-        if (!is_array($data)) continue;
-        
-        $yearGraduated = '';
-        $isEmployed = false;
-        $jobRelated = '';
-        
-        foreach ($data as $questionId => $answer) {
-            $questionText = isset($questionMap[$questionId]) ? $questionMap[$questionId] : '';
-            
-            if (strpos($questionText, 'year graduated') !== false) {
-                if (is_string($answer) && !empty($answer)) {
-                    $yearGraduated = $answer;
-                }
-            }
-            
-            if (strpos($questionText, 'employment status') !== false || strpos($questionText, 'presently employed') !== false) {
-                if (is_string($answer) && (strtolower($answer) === 'employed' || strtolower($answer) === 'yes')) {
-                    $isEmployed = true;
-                }
-            }
-            
-            if (strpos($questionText, 'job related to') !== false || strpos($questionText, 'related to your course') !== false) {
-                $jobRelated = strtolower(trim($answer));
-            }
+    foreach ($analytics['by_year'] as $year) {
+        if ($year['employment_rate'] === null || $year['alignment_rate'] === null) {
+            continue;
         }
-        
-        if (!empty($yearGraduated)) {
-            if (!isset($yearData[$yearGraduated])) {
-                $yearData[$yearGraduated] = [
-                    'year' => (int)$yearGraduated,
-                    'total_graduates' => 0,
-                    'employed' => 0,
-                    'aligned' => 0
-                ];
-            }
-            
-            $yearData[$yearGraduated]['total_graduates']++;
-            if ($isEmployed) {
-                $yearData[$yearGraduated]['employed']++;
-                
-                if (strpos($jobRelated, 'yes') !== false || strpos($jobRelated, 'directly related') !== false) {
-                    $yearData[$yearGraduated]['aligned']++;
-                }
-            }
-        }
+        $yearData[] = [
+            'year' => (int)$year['year'],
+            'total_graduates' => (int)$year['response_count'],
+            'employed' => (int)$year['employed'],
+            'employment_total' => (int)$year['employment_total'],
+            'employment_rate' => (float)$year['employment_rate'],
+            'aligned' => (int)$year['aligned'],
+            'not_aligned' => (int)$year['not_aligned'],
+            'alignment_total' => (int)$year['alignment_total'],
+            'alignment_rate' => (float)$year['alignment_rate'],
+        ];
     }
-    
-    // Sort by year
-    ksort($yearData);
-    $yearData = array_values($yearData);
     
     // Need at least 2 data points for regression
     if (count($yearData) < 2) {
         throw new Exception('Insufficient historical data for prediction. Need at least 2 years of data.');
-    }
-    
-    // Calculate employment rates
-    foreach ($yearData as &$year) {
-        $year['employment_rate'] = $year['total_graduates'] > 0 
-            ? round(($year['employed'] / $year['total_graduates']) * 100, 2) 
-            : 0;
-        // Alignment rate: percentage of total graduates with aligned jobs
-        $year['alignment_rate'] = $year['total_graduates'] > 0 
-            ? round(($year['aligned'] / $year['total_graduates']) * 100, 2) 
-            : 0;
     }
     
     // Linear Regression for Employment Rate

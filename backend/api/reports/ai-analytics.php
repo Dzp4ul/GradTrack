@@ -27,7 +27,7 @@ function getSelectedSurveyId(PDO $db): ?int
     $stmt = $db->query("
         SELECT id
         FROM surveys
-        WHERE status = 'active'
+        WHERE status = 'active' AND archived_at IS NULL
         ORDER BY created_at DESC, id DESC
         LIMIT 1
     ");
@@ -95,112 +95,32 @@ function getOverviewData(PDO $db, ?int $surveyId): array
             'total_employed_local' => 0,
             'total_employed_abroad' => 0,
             'total_aligned' => 0,
+            'total_not_aligned' => 0,
+            'total_alignment_known' => 0,
             'total_survey_responses' => 0,
-            'employment_rate' => 0,
-            'alignment_rate' => 0,
+            'employment_rate' => null,
+            'alignment_rate' => null,
         ];
     }
 
-    $stmt = $db->prepare("SELECT COUNT(DISTINCT id) as total FROM survey_responses WHERE survey_id = :survey_id AND submitted_at IS NOT NULL");
-    $stmt->bindValue(':survey_id', $surveyId, PDO::PARAM_INT);
-    $stmt->execute();
-    $totalResponses = (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
-
-    $stmt = $db->prepare("
-        SELECT id, question_text, sort_order
-        FROM survey_questions
-        WHERE survey_id = :survey_id
-        ORDER BY sort_order
-    ");
-    $stmt->bindValue(':survey_id', $surveyId, PDO::PARAM_INT);
-    $stmt->execute();
-    $questions = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    $stmt = $db->prepare("SELECT id AS response_id, responses FROM survey_responses WHERE survey_id = :survey_id AND submitted_at IS NOT NULL");
-    $stmt->bindValue(':survey_id', $surveyId, PDO::PARAM_INT);
-    $stmt->execute();
-    $surveyResponses = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-    $employedCount = 0;
-    $unemployedCount = 0;
-    $employedLocalCount = 0;
-    $employedAbroadCount = 0;
-    $alignedCount = 0;
-
-    $seenResponses = [];
-    foreach ($surveyResponses as $response) {
-        if (gradtrack_survey_is_duplicate_response($response, $seenResponses)) {
-            continue;
-        }
-
-        $data = json_decode((string)$response['responses'], true);
-        if (!is_array($data)) {
-            continue;
-        }
-
-        $answerMap = gradtrack_survey_build_answer_map($questions, $data);
-        $isEmployed = false;
-        $isUnemployed = false;
-        $jobRelated = '';
-        $workLocation = '';
-
-        foreach ($questions as $question) {
-            $questionId = (string)($question['id'] ?? '');
-            if ($questionId === '') {
-                continue;
-            }
-
-            $answer = $answerMap[$questionId] ?? null;
-            $questionText = strtolower((string)($question['question_text'] ?? ''));
-            $answerValue = is_string($answer) ? strtolower(trim($answer)) : '';
-
-            if (strpos($questionText, 'employment status') !== false || strpos($questionText, 'presently employed') !== false) {
-                $employmentAnswer = parseEmploymentAnswer($answer);
-                if ($employmentAnswer !== null) {
-                    if ($employmentAnswer) {
-                        $isEmployed = true;
-                    } else {
-                        $isUnemployed = true;
-                    }
-                }
-            }
-
-            if (strpos($questionText, 'place of work') !== false) {
-                $workLocation = $answerValue;
-            }
-
-            if (strpos($questionText, 'job related to') !== false || strpos($questionText, 'related to your course') !== false) {
-                $jobRelated = $answerValue;
-            }
-        }
-
-        if ($isEmployed) {
-            $employedCount++;
-            if (strpos($workLocation, 'abroad') !== false || strpos($workLocation, 'overseas') !== false) {
-                $employedAbroadCount++;
-            } else {
-                $employedLocalCount++;
-            }
-
-            if (strpos($jobRelated, 'yes') !== false || strpos($jobRelated, 'directly related') !== false) {
-                $alignedCount++;
-            }
-        } elseif ($isUnemployed) {
-            $unemployedCount++;
-        }
-    }
+    $analytics = gradtrack_analytics_calculate($db, $surveyId);
+    $summary = $analytics['summary'];
 
     return [
         'survey_id' => $surveyId,
-        'total_graduates' => $totalResponses,
-        'total_employed' => $employedCount,
-        'total_unemployed' => $unemployedCount,
-        'total_employment_known' => $employedCount + $unemployedCount,
-        'total_employed_local' => $employedLocalCount,
-        'total_employed_abroad' => $employedAbroadCount,
-        'total_aligned' => $alignedCount,
-        'total_survey_responses' => $totalResponses,
-        'employment_rate' => ($employedCount + $unemployedCount) > 0 ? round(($employedCount / ($employedCount + $unemployedCount)) * 100, 1) : 0,
-        'alignment_rate' => $employedCount > 0 ? round(($alignedCount / $employedCount) * 100, 1) : 0,
+        'total_graduates' => (int)$summary['response_count'],
+        'total_employed' => (int)$summary['employed'],
+        'total_unemployed' => (int)$summary['unemployed'],
+        'total_employment_known' => (int)$summary['employment_total'],
+        'total_employment_unknown' => (int)$summary['employment_unknown'],
+        'total_employed_local' => (int)$summary['employed_local'],
+        'total_employed_abroad' => (int)$summary['employed_abroad'],
+        'total_aligned' => (int)$summary['aligned'],
+        'total_not_aligned' => (int)$summary['not_aligned'],
+        'total_alignment_known' => (int)$summary['alignment_total'],
+        'total_survey_responses' => (int)$summary['response_count'],
+        'employment_rate' => $summary['employment_rate'],
+        'alignment_rate' => $summary['alignment_rate'],
     ];
 }
 
@@ -267,6 +187,13 @@ function formatAnalyticsValue($value): string
     return trim((string)$value);
 }
 
+function formatAnalyticsRate($value): string
+{
+    return $value === null || $value === ''
+        ? 'not available'
+        : formatAnalyticsValue($value) . '%';
+}
+
 function analyticsIntValue(array $data, string $key): int
 {
     $value = $data[$key] ?? 0;
@@ -294,8 +221,11 @@ function buildProgramCountParts(array $programRows): array
 
         $label = analyticsLabelValue($row, ['code', 'name'], 'Program ' . ((int)$index + 1));
         $total = analyticsIntValue($row, 'total_graduates');
+        $employmentTotal = array_key_exists('employment_total', $row)
+            ? analyticsIntValue($row, 'employment_total')
+            : $total;
         $employed = analyticsIntValue($row, 'employed');
-        $notEmployed = max($total - $employed, 0);
+        $notEmployed = max($employmentTotal - $employed, 0);
         $aligned = analyticsIntValue($row, 'aligned');
         $partiallyAligned = analyticsIntValue($row, 'partially_aligned');
         $notAligned = analyticsIntValue($row, 'not_aligned');
@@ -328,6 +258,7 @@ function buildObservedDataSummary(string $type, $reportData): string
         $local = analyticsIntValue($overview, 'total_employed_local');
         $abroad = analyticsIntValue($overview, 'total_employed_abroad');
         $aligned = analyticsIntValue($overview, 'total_aligned');
+        $alignmentKnown = analyticsIntValue($overview, 'total_alignment_known');
         $unknown = max($total - ($employmentKnown > 0 ? $employmentKnown : ($employed + $unemployed)), 0);
 
         $summary = 'Observed data counts: '
@@ -340,8 +271,8 @@ function buildObservedDataSummary(string $type, $reportData): string
             . "employed local {$local}; "
             . "employed abroad {$abroad}; "
             . "aligned {$aligned}; "
-            . 'employment rate ' . formatAnalyticsValue($overview['employment_rate'] ?? 0) . ' percent; '
-            . 'alignment rate ' . formatAnalyticsValue($overview['alignment_rate'] ?? 0) . ' percent.';
+            . 'employment rate ' . formatAnalyticsRate($overview['employment_rate'] ?? null) . '; '
+            . 'alignment rate ' . formatAnalyticsRate($overview['alignment_rate'] ?? null) . '.';
 
         $programParts = buildProgramCountParts($programRows);
         if ($programParts !== []) {
@@ -526,14 +457,14 @@ function buildAnalyticsSummary(string $type, $reportData): string
             : '';
 
         return "The selected overview is based on {$total} graduate responses and {$surveyResponses} survey responses. Employment status is classified for {$employmentKnown} graduates, while {$unknown} record remains without a classified employment status. Within the classified records, {$employed} graduates are employed and {$unemployed} are unemployed, producing an employment rate of "
-            . formatAnalyticsValue($overview['employment_rate'] ?? 0)
-            . "%.\n\nAmong the {$employed} employed graduates, {$local} are employed locally and {$abroad} are employed abroad. Local employment represents "
+            . formatAnalyticsRate($overview['employment_rate'] ?? null)
+            . ".\n\nAmong the {$employed} employed graduates, {$local} are employed locally and {$abroad} are employed abroad. Local employment represents "
             . analyticsPercent($local, $employed)
             . ' of employed graduates, while abroad employment represents '
             . analyticsPercent($abroad, $employed)
-            . ". Course alignment is recorded for {$aligned} employed graduates, giving an alignment rate of "
-            . formatAnalyticsValue($overview['alignment_rate'] ?? 0)
-            . "% among employed graduates.{$programParagraph}";
+            . ". Course alignment is recorded for {$aligned} of {$alignmentKnown} employed graduates with valid applicable answers, giving an alignment rate of "
+            . formatAnalyticsRate($overview['alignment_rate'] ?? null)
+            . " among valid applicable alignment responses.{$programParagraph}";
     }
 
     if ($type === 'by_program') {
@@ -647,8 +578,9 @@ function buildAnalyticsConclusion(string $type, $reportData): string
         $local = analyticsIntValue($overview, 'total_employed_local');
         $abroad = analyticsIntValue($overview, 'total_employed_abroad');
         $aligned = analyticsIntValue($overview, 'total_aligned');
-        $employmentRate = formatAnalyticsValue($overview['employment_rate'] ?? 0);
-        $alignmentRate = formatAnalyticsValue($overview['alignment_rate'] ?? 0);
+        $alignmentKnown = analyticsIntValue($overview, 'total_alignment_known');
+        $employmentRate = formatAnalyticsRate($overview['employment_rate'] ?? null);
+        $alignmentRate = formatAnalyticsRate($overview['alignment_rate'] ?? null);
         $employmentKnown = analyticsIntValue($overview, 'total_employment_known');
         $unemployed = analyticsIntValue($overview, 'total_unemployed');
 
@@ -661,7 +593,7 @@ function buildAnalyticsConclusion(string $type, $reportData): string
             $locationPattern = 'local and abroad employment have equal counts';
         }
 
-        return "Overall, the selected overview describes a mostly classified employment dataset: {$employmentKnown} graduates have a known employment status, with {$employed} employed and {$unemployed} unemployed. The employment rate is {$employmentRate}%, so the employed group forms the larger portion of the classified employment-status records.\n\nWithin the employed group, {$locationPattern}. The local count is {$local}, the abroad count is {$abroad}, and the aligned count is {$aligned}. The alignment rate of {$alignmentRate}% indicates that more than half of the employed graduates in this selected overview are recorded as working in a field aligned with their course.";
+        return "Overall, the selected overview describes a mostly classified employment dataset: {$employmentKnown} graduates have a known employment status, with {$employed} employed and {$unemployed} unemployed. The employment rate is {$employmentRate}, based on valid employment-status responses.\n\nWithin the employed group, {$locationPattern}. The local count is {$local}, the abroad count is {$abroad}, and {$aligned} of {$alignmentKnown} respondents with valid applicable alignment answers are classified as aligned. The alignment rate is {$alignmentRate}.";
     }
 
     if ($type === 'by_program') {

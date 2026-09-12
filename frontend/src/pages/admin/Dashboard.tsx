@@ -1,22 +1,92 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Briefcase,
   Target,
   ClipboardList,
   BarChart3,
+  ChevronDown,
 } from 'lucide-react';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LabelList,
-  LineChart, Line, Legend,
-  PieChart, Pie, Cell,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  LabelList,
+  LineChart,
+  Line,
+  Legend,
+  PieChart,
+  Pie,
+  Cell,
 } from 'recharts';
-import { API_ROOT } from '../../config/api';
+import { API_ENDPOINTS } from '../../config/api';
 import { getProgramColor } from '../../config/programColors';
 
-const API_BASE = API_ROOT;
 const SELECTED_SURVEY_STORAGE_KEY = 'gradtrack_selected_survey_id';
-const DASHBOARD_CACHE_KEY = 'gradtrack_dashboard_cache';
+const DASHBOARD_CACHE_KEY = 'gradtrack_dashboard_cache_v3';
 const DASHBOARD_CACHE_TTL_MS = 2 * 60 * 1000;
+const PIE_COLORS = ['#0d9488', '#e11d48'];
+
+type NullableRate = number | null;
+
+interface DistributionItem {
+  name: 'Aligned' | 'Not Aligned' | string;
+  value: number;
+  percentage: NullableRate;
+}
+
+interface MetricProgram {
+  program_id: number | null;
+  code: string;
+  name: string;
+  rate: NullableRate;
+  count: number;
+  total: number;
+  distribution?: DistributionItem[];
+}
+
+interface EmploymentMetric {
+  rate: NullableRate;
+  employed: number;
+  total: number;
+  by_program: MetricProgram[];
+}
+
+interface AlignmentMetric {
+  rate: NullableRate;
+  aligned: number;
+  not_aligned: number;
+  total: number;
+  distribution: DistributionItem[];
+  by_program: MetricProgram[];
+}
+
+interface ProgramStat {
+  program_id?: number | null;
+  code: string;
+  name: string;
+  total_graduates?: number;
+  employed_count?: number;
+  aligned_count?: number;
+  employment_total?: number;
+  alignment_total?: number;
+  employability_index: NullableRate;
+  alignment_index?: NullableRate;
+  alignment_distribution?: DistributionItem[];
+}
+
+interface EmploymentTrend {
+  year: number;
+  employment_rate: NullableRate;
+  alignment_rate: NullableRate;
+  employed?: number;
+  employment_total?: number;
+  aligned?: number;
+  alignment_total?: number;
+}
 
 interface DashboardData {
   total_graduates: number;
@@ -24,28 +94,24 @@ interface DashboardData {
   total_unemployed?: number;
   total_employment_known?: number;
   total_aligned?: number;
-  employment_rate: number;
-  alignment_rate: number;
-  avg_time_to_employment: number;
+  total_not_aligned?: number;
+  total_alignment_known?: number;
+  employment_rate: NullableRate;
+  alignment_rate: NullableRate;
+  avg_time_to_employment: number | null;
+  employment?: EmploymentMetric;
+  alignment?: AlignmentMetric;
   selected_survey_id?: number | null;
   selected_survey_title?: string;
   at_risk_programs: string[];
-  program_stats: {
-    code: string;
-    name: string;
-    total_graduates?: number;
-    employed_count?: number;
-    aligned_count?: number;
-    employability_index: number;
-    alignment_index?: number;
-  }[];
-  employment_trends: { year: number; employment_rate: number; alignment_rate: number }[];
-  alignment_distribution: { name: string; value: number; percentage: number }[];
+  program_stats: ProgramStat[];
+  employment_trends: EmploymentTrend[];
+  alignment_distribution: DistributionItem[];
   total_responses: number;
   active_surveys: number;
   total_eligible_graduates?: number;
   pending_responses?: number;
-  survey_completion_rate?: number;
+  survey_completion_rate?: NullableRate;
 }
 
 interface DashboardCacheEntry {
@@ -53,40 +119,65 @@ interface DashboardCacheEntry {
   storedAt: number;
 }
 
-const PIE_COLORS = ['#0d9488', '#e11d48', '#64748b'];
-
 const numberFormatter = new Intl.NumberFormat('en-US');
 
 function formatNumber(value: number | null | undefined) {
   return numberFormatter.format(Number(value ?? 0));
 }
 
-function formatPercent(value: number | null | undefined) {
-  const normalized = Number(value ?? 0);
-  return Number.isInteger(normalized) ? `${normalized}` : normalized.toFixed(1);
+function validRate(value: unknown): NullableRate {
+  if (value === null || value === undefined || value === '') return null;
+  const rate = Number(value);
+  return Number.isFinite(rate) ? rate : null;
 }
 
-function formatPercentOneDecimal(value: unknown) {
-  return `${Number(value ?? 0).toFixed(1)}%`;
+function formatRate(value: unknown, includeSymbol = true) {
+  const rate = validRate(value);
+  if (rate === null) return 'No data';
+  return `${rate.toFixed(1)}${includeSymbol ? '%' : ''}`;
+}
+
+function ProgramBreakdown({ programs, noun }: { programs: MetricProgram[]; noun: string }) {
+  return (
+    <details className="group mt-4 border-t border-gray-100 pt-3">
+      <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-semibold text-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:text-blue-300">
+        <span>View by Program</span>
+        <ChevronDown className="h-3.5 w-3.5 transition group-open:rotate-180" />
+      </summary>
+      <div className="mt-3 max-h-48 space-y-2 overflow-y-auto pr-1">
+        {programs.map((program) => (
+          <div
+            key={program.program_id ?? program.code}
+            className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 text-xs"
+            title={program.name}
+          >
+            <span className="truncate font-semibold text-gray-700">{program.code}</span>
+            <span className="tabular-nums font-semibold text-gray-700">{formatRate(program.rate)}</span>
+            <span className="min-w-14 text-right tabular-nums text-gray-400">
+              {program.total > 0 ? `${formatNumber(program.count)}/${formatNumber(program.total)}` : `No ${noun}`}
+            </span>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
 }
 
 export default function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [alignmentProgram, setAlignmentProgram] = useState('overall');
 
   useEffect(() => {
+    const controller = new AbortController();
     const cachedRaw = sessionStorage.getItem(DASHBOARD_CACHE_KEY);
     let hasFreshCache = false;
 
     if (cachedRaw) {
       try {
         const cached = JSON.parse(cachedRaw) as DashboardCacheEntry;
-        if (
-          cached
-          && typeof cached.storedAt === 'number'
-          && cached.data
-          && (Date.now() - cached.storedAt) <= DASHBOARD_CACHE_TTL_MS
-        ) {
+        if (cached?.data && typeof cached.storedAt === 'number' && Date.now() - cached.storedAt <= DASHBOARD_CACHE_TTL_MS) {
           setData(cached.data);
           setLoading(false);
           hasFreshCache = true;
@@ -98,424 +189,314 @@ export default function Dashboard() {
 
     const selectedSurveyId = localStorage.getItem(SELECTED_SURVEY_STORAGE_KEY);
     const params = new URLSearchParams();
-    if (selectedSurveyId) {
-      params.set('survey_id', selectedSurveyId);
-    }
+    if (selectedSurveyId) params.set('survey_id', selectedSurveyId);
+    const dashboardUrl = params.size > 0
+      ? `${API_ENDPOINTS.DASHBOARD}?${params.toString()}`
+      : API_ENDPOINTS.DASHBOARD;
 
-    const dashboardUrl = params.toString()
-      ? `${API_BASE}/dashboard/stats.php?${params.toString()}`
-      : `${API_BASE}/dashboard/stats.php`;
-
-    fetch(dashboardUrl, { credentials: 'include' })
-      .then((res) => res.json())
-      .then((res) => {
-        if (res.success) {
-          setData(res.data);
-          sessionStorage.setItem(DASHBOARD_CACHE_KEY, JSON.stringify({
-            data: res.data,
-            storedAt: Date.now(),
-          }));
+    fetch(dashboardUrl, { credentials: 'include', signal: controller.signal })
+      .then(async (response) => {
+        const result = await response.json();
+        if (!response.ok || !result.success || !result.data) {
+          throw new Error(result.error || 'Unable to load dashboard analytics.');
         }
+        return result.data as DashboardData;
       })
-      .catch(() => {
-        // Use fallback data if API is not available
-        setData({
-          total_graduates: 20,
-          employment_rate: 78,
-          alignment_rate: 62,
-          avg_time_to_employment: 5.4,
-          selected_survey_id: null,
-          selected_survey_title: 'Graduate Tracer Study Survey',
-          at_risk_programs: [],
-          program_stats: [
-            {
-              code: 'BSCS',
-              name: 'BS Computer Science',
-              total_graduates: 7,
-              employed_count: 6,
-              aligned_count: 4,
-              employability_index: 82,
-              alignment_index: 67,
-            },
-            {
-              code: 'BSHM',
-              name: 'BS Hospitality Management',
-              total_graduates: 5,
-              employed_count: 4,
-              aligned_count: 2,
-              employability_index: 75,
-              alignment_index: 50,
-            },
-            {
-              code: 'BSED',
-              name: 'BS Secondary Education',
-              total_graduates: 4,
-              employed_count: 3,
-              aligned_count: 2,
-              employability_index: 70,
-              alignment_index: 67,
-            },
-            {
-              code: 'BEED',
-              name: 'BS Elementary Education',
-              total_graduates: 4,
-              employed_count: 3,
-              aligned_count: 2,
-              employability_index: 68,
-              alignment_index: 67,
-            },
-          ],
-          employment_trends: [
-            { year: 2019, employment_rate: 80, alignment_rate: 72 },
-            { year: 2020, employment_rate: 78, alignment_rate: 68 },
-            { year: 2021, employment_rate: 76, alignment_rate: 65 },
-            { year: 2022, employment_rate: 75, alignment_rate: 60 },
-          ],
-          alignment_distribution: [
-            { name: 'Aligned', value: 10, percentage: 65 },
-            { name: 'Partially Aligned', value: 3, percentage: 20 },
-            { name: 'Not Aligned', value: 2, percentage: 15 },
-          ],
-          total_responses: 6,
-          active_surveys: 2,
-          total_eligible_graduates: 20,
-          pending_responses: 14,
-          survey_completion_rate: 30,
-        });
+      .then((dashboardData) => {
+        setData(dashboardData);
+        setError('');
+        sessionStorage.setItem(DASHBOARD_CACHE_KEY, JSON.stringify({
+          data: dashboardData,
+          storedAt: Date.now(),
+        } satisfies DashboardCacheEntry));
+      })
+      .catch((requestError: unknown) => {
+        if (requestError instanceof DOMException && requestError.name === 'AbortError') return;
+        setError(requestError instanceof Error ? requestError.message : 'Unable to load dashboard analytics.');
       })
       .finally(() => {
-        if (!hasFreshCache) {
-          setLoading(false);
-        }
+        if (!hasFreshCache) setLoading(false);
       });
+
+    return () => controller.abort();
   }, []);
 
-  const trendData = useMemo(() => {
-    if (!data?.employment_trends?.length) return [];
-    if (data.employment_trends.length > 1) return data.employment_trends;
-
-    const current = data.employment_trends[0];
-    return [
-      {
-        year: current.year - 1,
-        employment_rate: current.employment_rate,
-        alignment_rate: current.alignment_rate,
-      },
-      current,
-    ];
-  }, [data?.employment_trends]);
-
-  const alignmentDistribution = useMemo(() => {
-    if (!data?.alignment_distribution?.length) {
-      return [
-        { name: 'Aligned', value: 0, percentage: 0 },
-        { name: 'Not Aligned', value: 0, percentage: 0 },
-      ];
-    }
-
-    const aligned = data.alignment_distribution.find((item) =>
-      item.name.toLowerCase().includes('aligned') && !item.name.toLowerCase().includes('not') && !item.name.toLowerCase().includes('partial')
-    );
-    const notAlignedTotal = data.alignment_distribution
-      .filter((item) => item.name.toLowerCase().includes('not') || item.name.toLowerCase().includes('partial'))
-      .reduce((sum, item) => sum + item.value, 0);
-
-    const alignedValue = aligned?.value ?? 0;
-    const total = alignedValue + notAlignedTotal;
-
-    if (total === 0) {
-      return [
-        { name: 'Aligned', value: 0, percentage: 0 },
-        { name: 'Not Aligned', value: 0, percentage: 0 },
-      ];
-    }
-
-    return [
-      {
-        name: 'Aligned',
-        value: alignedValue,
-        percentage: Number(((alignedValue / total) * 100).toFixed(1)),
-      },
-      {
-        name: 'Not Aligned',
-        value: notAlignedTotal,
-        percentage: Number(((notAlignedTotal / total) * 100).toFixed(1)),
-      },
-    ];
-  }, [data?.alignment_distribution]);
-
-  const surveySummary = useMemo(() => {
-    if (!data) {
-      return { eligible: 0, pending: 0, rate: 0 };
-    }
-
-    const eligible = data.total_eligible_graduates ?? data.total_responses;
-    const pending = data.pending_responses ?? Math.max(eligible - data.total_responses, 0);
-    const rate = data.survey_completion_rate ?? (eligible > 0
-      ? Number(((data.total_responses / eligible) * 100).toFixed(1))
-      : 0);
-
-    return { eligible, pending, rate };
+  const employment = useMemo<EmploymentMetric>(() => {
+    if (data?.employment) return data.employment;
+    return {
+      rate: data?.employment_rate ?? null,
+      employed: Number(data?.total_employed ?? 0),
+      total: Number(data?.total_employment_known ?? 0),
+      by_program: (data?.program_stats ?? []).map((program) => ({
+        program_id: program.program_id ?? null,
+        code: program.code,
+        name: program.name,
+        rate: program.employability_index,
+        count: Number(program.employed_count ?? 0),
+        total: Number(program.employment_total ?? program.total_graduates ?? 0),
+      })),
+    };
   }, [data]);
 
-  const employmentSummary = useMemo(() => {
-    if (!data) {
-      return { employed: 0, unemployed: 0, aligned: 0, notAligned: 0 };
-    }
-
-    const employedCount = Number(data.total_employed ?? Math.round((data.total_responses * data.employment_rate) / 100));
-    const unemployedCount = Number(data.total_unemployed ?? Math.max(data.total_responses - employedCount, 0));
-    const alignedCount = alignmentDistribution.find((item) => item.name === 'Aligned')?.value ?? 0;
-    const notAlignedCount = alignmentDistribution.find((item) => item.name === 'Not Aligned')?.value ?? 0;
-
+  const alignment = useMemo<AlignmentMetric>(() => {
+    if (data?.alignment) return data.alignment;
     return {
-      employed: employedCount,
-      unemployed: unemployedCount,
-      aligned: alignedCount,
-      notAligned: notAlignedCount,
+      rate: data?.alignment_rate ?? null,
+      aligned: Number(data?.total_aligned ?? 0),
+      not_aligned: Number(data?.total_not_aligned ?? 0),
+      total: Number(data?.total_alignment_known ?? 0),
+      distribution: data?.alignment_distribution ?? [],
+      by_program: (data?.program_stats ?? []).map((program) => ({
+        program_id: program.program_id ?? null,
+        code: program.code,
+        name: program.name,
+        rate: program.alignment_index ?? null,
+        count: Number(program.aligned_count ?? 0),
+        total: Number(program.alignment_total ?? 0),
+        distribution: program.alignment_distribution ?? [],
+      })),
     };
-  }, [alignmentDistribution, data]);
+  }, [data]);
+
+  const selectedAlignment = useMemo(() => {
+    if (alignmentProgram === 'overall') {
+      return {
+        label: 'Overall',
+        total: alignment.total,
+        distribution: alignment.distribution,
+      };
+    }
+    const program = alignment.by_program.find((item) => item.code === alignmentProgram);
+    return {
+      label: program?.code ?? alignmentProgram,
+      total: program?.total ?? 0,
+      distribution: program?.distribution ?? [],
+    };
+  }, [alignment, alignmentProgram]);
+
+  const surveySummary = useMemo(() => {
+    const eligible = Number(data?.total_eligible_graduates ?? 0);
+    const responses = Number(data?.total_responses ?? 0);
+    return {
+      eligible,
+      pending: Number(data?.pending_responses ?? Math.max(eligible - responses, 0)),
+      rate: validRate(data?.survey_completion_rate),
+    };
+  }, [data]);
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-96">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#1b2a4a]" />
+      <div className="flex h-96 items-center justify-center">
+        <div className="h-12 w-12 animate-spin rounded-full border-b-2 border-[#1b2a4a]" />
       </div>
     );
   }
 
-  if (!data) return <p className="text-red-500">Failed to load dashboard data.</p>;
+  if (!data) {
+    return <p className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">{error || 'Failed to load dashboard data.'}</p>;
+  }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div>
         <h1 className="text-xl font-bold text-[#1b2a4a] sm:text-2xl">GradTrack Dashboard</h1>
         <p className="text-sm text-gray-500">Norzagaray College</p>
       </div>
 
-      {/* Stat Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Employment Rate */}
-        <div className="bg-white rounded-xl shadow-sm border p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="p-2 bg-blue-100 rounded-lg">
-              <Briefcase className="w-5 h-5 text-blue-700" />
+      {error && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Showing the latest saved dashboard while fresh analytics could not be loaded: {error}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-xl border bg-white p-5 shadow-sm">
+          <div className="mb-3 flex items-center gap-2">
+            <div className="rounded-lg bg-blue-100 p-2">
+              <Briefcase className="h-5 w-5 text-blue-700" />
             </div>
             <span className="text-sm font-medium text-gray-600">Employment Rate</span>
           </div>
-          <p className="text-3xl font-bold text-[#1b2a4a] sm:text-4xl">
-            {data.employment_rate}<span className="text-2xl">%</span>
+          <p className="text-3xl font-bold text-[#1b2a4a] sm:text-4xl">{formatRate(employment.rate)}</p>
+          <p className="mt-1 text-xs text-gray-500">
+            {employment.total > 0
+              ? `${formatNumber(employment.employed)} employed / ${formatNumber(employment.total)} valid respondents`
+              : 'No valid employment-status responses'}
           </p>
-          <p className="text-xs text-gray-400 mt-1">{data.employment_rate}% Employed</p>
+          <ProgramBreakdown programs={employment.by_program} noun="responses" />
         </div>
 
-        {/* Alignment Rate */}
-        <div className="bg-white rounded-xl shadow-sm border p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="p-2 bg-orange-100 rounded-lg">
-              <Target className="w-5 h-5 text-orange-600" />
+        <div className="rounded-xl border bg-white p-5 shadow-sm">
+          <div className="mb-3 flex items-center gap-2">
+            <div className="rounded-lg bg-orange-100 p-2">
+              <Target className="h-5 w-5 text-orange-600" />
             </div>
             <span className="text-sm font-medium text-gray-600">Alignment Rate</span>
           </div>
-          <p className="text-3xl font-bold text-[#1b2a4a] sm:text-4xl">
-            {data.alignment_rate}<span className="text-2xl">%</span>
+          <p className="text-3xl font-bold text-[#1b2a4a] sm:text-4xl">{formatRate(alignment.rate)}</p>
+          <p className="mt-1 text-xs text-gray-500">
+            {alignment.total > 0
+              ? `${formatNumber(alignment.aligned)} aligned / ${formatNumber(alignment.total)} valid applicable respondents`
+              : 'No valid applicable alignment responses'}
           </p>
-          <p className="text-xs text-gray-400 mt-1">{data.alignment_rate}% Aligned to Course</p>
+          <ProgramBreakdown programs={alignment.by_program} noun="answers" />
         </div>
 
-        {/* Active Surveys */}
-        <div className="bg-white rounded-lg shadow-sm border border-amber-200 p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="p-2 bg-amber-100 rounded-lg">
-              <ClipboardList className="w-5 h-5 text-amber-700" />
+        <div className="rounded-lg border border-amber-200 bg-white p-5 shadow-sm">
+          <div className="mb-3 flex items-center gap-2">
+            <div className="rounded-lg bg-amber-100 p-2">
+              <ClipboardList className="h-5 w-5 text-amber-700" />
             </div>
             <span className="text-sm font-medium text-gray-600">Active Surveys</span>
           </div>
-          <p className="text-3xl font-bold text-[#1b2a4a] sm:text-4xl">
-            {formatNumber(data.active_surveys)}
-          </p>
-          <p className="text-xs text-gray-400 mt-1 truncate">
-            {data.selected_survey_title || 'Survey campaigns currently open'}
-          </p>
-          <p className="text-xs text-amber-700 mt-2 font-medium">
-            Survey forms and response windows
-          </p>
+          <p className="text-3xl font-bold text-[#1b2a4a] sm:text-4xl">{formatNumber(data.active_surveys)}</p>
+          <p className="mt-1 truncate text-xs text-gray-400">{data.selected_survey_title || 'No survey selected'}</p>
+          <p className="mt-2 text-xs font-medium text-amber-700">Survey forms and response windows</p>
         </div>
 
-        {/* Survey Coverage */}
-        <div className="bg-white rounded-lg shadow-sm border border-emerald-200 p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="p-2 bg-emerald-100 rounded-lg">
-              <ClipboardList className="w-5 h-5 text-emerald-700" />
+        <div className="rounded-lg border border-emerald-200 bg-white p-5 shadow-sm">
+          <div className="mb-3 flex items-center gap-2">
+            <div className="rounded-lg bg-emerald-100 p-2">
+              <ClipboardList className="h-5 w-5 text-emerald-700" />
             </div>
             <span className="text-sm font-medium text-gray-600">Survey Coverage</span>
           </div>
-          <p className="text-3xl font-bold text-[#1b2a4a] sm:text-4xl">
-            {formatPercent(surveySummary.rate)}<span className="text-2xl">%</span>
+          <p className="text-3xl font-bold text-[#1b2a4a] sm:text-4xl">{formatRate(surveySummary.rate)}</p>
+          <p className="mt-1 text-xs text-gray-400">
+            {formatNumber(data.total_responses)} of {formatNumber(surveySummary.eligible)} active graduates
           </p>
-          <p className="text-xs text-gray-400 mt-1">
-            {formatNumber(data.total_responses)} of {formatNumber(surveySummary.eligible)} responses
-          </p>
-          <p className="text-xs text-emerald-700 mt-2 font-medium flex items-center gap-1">
-            <BarChart3 className="w-3 h-3" /> {formatNumber(surveySummary.pending)} pending responses
+          <p className="mt-2 flex items-center gap-1 text-xs font-medium text-emerald-700">
+            <BarChart3 className="h-3 w-3" /> {formatNumber(surveySummary.pending)} pending responses
           </p>
         </div>
       </div>
 
-      {/* Charts Row 1 */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Employability Index by Program */}
-        <div className="bg-white rounded-xl shadow-sm border p-5">
-          <h3 className="text-lg font-semibold text-[#1b2a4a] mb-4">Employability Index by Program</h3>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={data.program_stats} barSize={50} margin={{ top: 28 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="code" tick={{ fontSize: 13, fontWeight: 600 }} />
-              <YAxis domain={[0, 100]} tick={{ fontSize: 12 }} />
-              <Tooltip
-                formatter={(value) => {
-                  const numericValue = typeof value === 'number' ? value : Number(value);
-                  return [`${numericValue.toFixed(1)}%`, 'Employability Index'];
-                }}
-                contentStyle={{ borderRadius: 8, border: '1px solid #e5e7eb' }}
-              />
-              <Bar dataKey="employability_index" radius={[6, 6, 0, 0]}>
-                <LabelList
-                  dataKey="employability_index"
-                  position="top"
-                  offset={8}
-                  formatter={formatPercentOneDecimal}
-                  style={{
-                    fill: '#1b2a4a',
-                    fontSize: 12,
-                    fontWeight: 600,
-                  }}
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div className="rounded-xl border bg-white p-5 shadow-sm">
+          <h3 className="mb-4 text-lg font-semibold text-[#1b2a4a]">Employability Index by Program</h3>
+          {data.program_stats.length > 0 ? (
+            <ResponsiveContainer width="100%" height={260}>
+              <BarChart data={data.program_stats} barSize={50} margin={{ top: 28 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="code" tick={{ fontSize: 13, fontWeight: 600 }} />
+                <YAxis domain={[0, 100]} tick={{ fontSize: 12 }} tickFormatter={(value) => `${value}%`} />
+                <Tooltip
+                  formatter={(value) => [formatRate(value), 'Employability Index']}
+                  contentStyle={{ borderRadius: 8, border: '1px solid #e5e7eb' }}
                 />
-                {data.program_stats.map((program) => (
-                  <Cell key={program.code} fill={getProgramColor(program.code)} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+                <Bar dataKey="employability_index" radius={[6, 6, 0, 0]}>
+                  <LabelList
+                    dataKey="employability_index"
+                    position="top"
+                    offset={8}
+                    formatter={(value: unknown) => validRate(value) === null ? '' : formatRate(value)}
+                    style={{ fill: '#1b2a4a', fontSize: 12, fontWeight: 600 }}
+                  />
+                  {data.program_stats.map((program) => (
+                    <Cell key={program.code} fill={getProgramColor(program.code)} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex h-64 items-center justify-center text-sm text-gray-500">No program data</div>
+          )}
         </div>
 
-        {/* Employment Trends */}
-        <div className="bg-white rounded-xl shadow-sm border p-5">
-          <h3 className="text-lg font-semibold text-[#1b2a4a] mb-4">Employment Trends</h3>
-          <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={trendData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="year" tick={{ fontSize: 12 }} />
-              <YAxis domain={[40, 90]} tick={{ fontSize: 12 }} tickFormatter={(v) => `${v}%`} />
-              <Tooltip formatter={(value) => `${value}%`} contentStyle={{ borderRadius: 8 }} />
-              <Legend />
-              <Line
-                type="linear"
-                dataKey="employment_rate"
-                name="Employment Rate"
-                stroke="#2563eb"
-                strokeWidth={2.5}
-                dot={{ r: 5 }}
-                activeDot={{ r: 7 }}
-              />
-              <Line
-                type="linear"
-                dataKey="alignment_rate"
-                name="Alignment Rate"
-                stroke="#f97316"
-                strokeWidth={2.5}
-                dot={{ r: 5 }}
-                activeDot={{ r: 7 }}
-              />
-            </LineChart>
-          </ResponsiveContainer>
+        <div className="rounded-xl border bg-white p-5 shadow-sm">
+          <h3 className="mb-4 text-lg font-semibold text-[#1b2a4a]">Employment Trends</h3>
+          {data.employment_trends.length > 0 ? (
+            <ResponsiveContainer width="100%" height={260}>
+              <LineChart data={data.employment_trends}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="year" tick={{ fontSize: 12 }} />
+                <YAxis domain={[0, 100]} tick={{ fontSize: 12 }} tickFormatter={(value) => `${value}%`} />
+                <Tooltip formatter={(value) => formatRate(value)} contentStyle={{ borderRadius: 8 }} />
+                <Legend />
+                <Line type="linear" connectNulls={false} dataKey="employment_rate" name="Employment Rate" stroke="#2563eb" strokeWidth={2.5} dot={{ r: 5 }} activeDot={{ r: 7 }} />
+                <Line type="linear" connectNulls={false} dataKey="alignment_rate" name="Alignment Rate" stroke="#f97316" strokeWidth={2.5} dot={{ r: 5 }} activeDot={{ r: 7 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="flex h-64 items-center justify-center text-sm text-gray-500">No graduation-year analytics</div>
+          )}
         </div>
       </div>
 
-      {/* Row 2: Alignment + Survey Snapshot */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Job Alignment Distribution */}
-        <div className="bg-white rounded-xl shadow-sm border p-5">
-          <h3 className="text-lg font-semibold text-[#1b2a4a] mb-4">Job Alignment Distribution</h3>
-          <div className="flex flex-col items-center gap-4 sm:flex-row">
-            <div className="w-40 h-40">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={alignmentDistribution}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={35}
-                    outerRadius={65}
-                    paddingAngle={3}
-                    dataKey="value"
-                  >
-                    {alignmentDistribution.map((_, i) => (
-                      <Cell key={i} fill={PIE_COLORS[i]} />
-                    ))}
-                  </Pie>
-                  <Tooltip formatter={(value, name) => [value, name]} />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="space-y-2 text-sm">
-              {alignmentDistribution.map((item, i) => (
-                <div key={item.name} className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-full" style={{ backgroundColor: PIE_COLORS[i] }} />
-                  <span className="text-gray-700">
-                    {item.percentage}% {item.name}
-                  </span>
-                </div>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div className="rounded-xl border bg-white p-5 shadow-sm">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h3 className="text-lg font-semibold text-[#1b2a4a]">Job Alignment Distribution</h3>
+            <select
+              value={alignmentProgram}
+              onChange={(event) => setAlignmentProgram(event.target.value)}
+              className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              aria-label="Filter job alignment by program"
+            >
+              <option value="overall">Overall</option>
+              {alignment.by_program.map((program) => (
+                <option key={program.program_id ?? program.code} value={program.code}>{program.code}</option>
               ))}
-            </div>
+            </select>
           </div>
+          {selectedAlignment.total > 0 ? (
+            <div className="flex flex-col items-center gap-4 sm:flex-row">
+              <div className="h-40 w-40">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={selectedAlignment.distribution} cx="50%" cy="50%" innerRadius={35} outerRadius={65} paddingAngle={3} dataKey="value">
+                      {selectedAlignment.distribution.map((item, index) => (
+                        <Cell key={item.name} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value) => [formatNumber(Number(value)), 'Respondents']} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="space-y-2 text-sm">
+                {selectedAlignment.distribution.map((item, index) => (
+                  <div key={item.name} className="flex items-center gap-2">
+                    <div className="h-3 w-3 rounded-full" style={{ backgroundColor: PIE_COLORS[index % PIE_COLORS.length] }} />
+                    <span className="text-gray-700">
+                      {formatRate(item.percentage)} {item.name} ({formatNumber(item.value)})
+                    </span>
+                  </div>
+                ))}
+                <p className="pt-1 text-xs text-gray-400">
+                  {formatNumber(selectedAlignment.total)} valid applicable {selectedAlignment.label} responses
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex h-40 items-center justify-center text-sm text-gray-500">
+              No valid applicable alignment responses for {selectedAlignment.label}
+            </div>
+          )}
         </div>
 
-        {/* Selected Survey Snapshot */}
-        <div className="bg-white rounded-lg shadow-sm border p-5">
-          <h3 className="text-lg font-semibold text-[#1b2a4a] mb-2">Selected Survey Snapshot</h3>
-          <p className="text-xs text-gray-500 truncate mb-4">
-            {data.selected_survey_title || 'All graduate tracer responses'}
-          </p>
+        <div className="rounded-lg border bg-white p-5 shadow-sm">
+          <h3 className="mb-2 text-lg font-semibold text-[#1b2a4a]">Selected Survey Snapshot</h3>
+          <p className="mb-4 truncate text-xs text-gray-500">{data.selected_survey_title || 'No survey selected'}</p>
           <div className="space-y-3 text-sm">
             <div>
-              <div className="flex items-center justify-between gap-3 mb-1">
+              <div className="mb-1 flex items-center justify-between gap-3">
                 <span className="font-medium text-gray-700">Survey coverage</span>
-                <span className="font-bold text-[#1b2a4a]">{formatPercent(surveySummary.rate)}%</span>
+                <span className="font-bold text-[#1b2a4a]">{formatRate(surveySummary.rate)}</span>
               </div>
-              <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+              <div className="h-2 overflow-hidden rounded-full bg-gray-100">
                 <div
                   className="h-full rounded-full bg-emerald-600"
-                  style={{ width: `${Math.min(surveySummary.rate, 100)}%` }}
+                  style={{ width: `${Math.min(surveySummary.rate ?? 0, 100)}%` }}
                 />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-x-4 gap-y-3 pt-2">
-              <div>
-                <p className="text-xs text-gray-500">Responses</p>
-                <p className="text-lg font-bold text-[#1b2a4a]">{formatNumber(data.total_responses)}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500">Pending</p>
-                <p className="text-lg font-bold text-emerald-700">{formatNumber(surveySummary.pending)}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500">Employed</p>
-                <p className="text-lg font-bold text-blue-700">{formatNumber(employmentSummary.employed)}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500">Unemployed</p>
-                <p className="text-lg font-bold text-orange-700">{formatNumber(employmentSummary.unemployed)}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500">Aligned jobs</p>
-                <p className="text-lg font-bold text-green-700">{formatNumber(employmentSummary.aligned)}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500">Not aligned</p>
-                <p className="text-lg font-bold text-amber-700">{formatNumber(employmentSummary.notAligned)}</p>
-              </div>
+              <div><p className="text-xs text-gray-500">Valid responses</p><p className="text-lg font-bold text-[#1b2a4a]">{formatNumber(data.total_responses)}</p></div>
+              <div><p className="text-xs text-gray-500">Pending</p><p className="text-lg font-bold text-emerald-700">{formatNumber(surveySummary.pending)}</p></div>
+              <div><p className="text-xs text-gray-500">Employed</p><p className="text-lg font-bold text-blue-700">{formatNumber(employment.employed)}</p></div>
+              <div><p className="text-xs text-gray-500">Unemployed</p><p className="text-lg font-bold text-orange-700">{formatNumber(data.total_unemployed)}</p></div>
+              <div><p className="text-xs text-gray-500">Aligned jobs</p><p className="text-lg font-bold text-green-700">{formatNumber(alignment.aligned)}</p></div>
+              <div><p className="text-xs text-gray-500">Not aligned</p><p className="text-lg font-bold text-amber-700">{formatNumber(alignment.not_aligned)}</p></div>
             </div>
           </div>
         </div>

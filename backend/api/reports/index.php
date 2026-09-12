@@ -54,7 +54,7 @@ function getSelectedSurveyId(PDO $db): ?int
     $stmt = $db->query("
         SELECT id
         FROM surveys
-        WHERE status = 'active'
+        WHERE status = 'active' AND archived_at IS NULL
         ORDER BY created_at DESC, id DESC
         LIMIT 1
     ");
@@ -175,19 +175,6 @@ function mapSalaryAnswerToRange(string $answerText): ?string
     }
 
     return null;
-}
-
-function getProgramDisplayNameByCode(string $programCode): string
-{
-    $map = [
-        'BSCS' => 'Bachelor of Science in Computer Science',
-        'ACT' => 'Associate in Computer Technology',
-        'BSED' => 'Bachelor of Secondary Education',
-        'BEED' => 'Bachelor of Elementary Education',
-        'BSHM' => 'Bachelor of Science in Hospitality Management',
-    ];
-
-    return $map[$programCode] ?? $programCode;
 }
 
 function getOptionalQueryValue(array $names): ?string
@@ -322,27 +309,16 @@ function getOverviewFilterOptions(PDO $db, ?int $surveyId, ?array $allowedProgra
         $years = array_map('strval', gradtrack_normalize_graduation_years($yearValues));
     }
 
-    $programWhere = ['p.id IS NOT NULL'];
-    $programBindings = [];
-    appendAllowedProgramCodeFilter($programWhere, $programBindings, $allowedProgramCodes);
-    $programSql = "
-        SELECT p.id, p.code, p.name
-        FROM programs p
-        WHERE " . implode(' AND ', $programWhere) . "
-        ORDER BY p.code ASC
-    ";
-    $programStmt = $db->prepare($programSql);
-    foreach ($programBindings as $placeholder => $binding) {
-        $programStmt->bindValue($placeholder, $binding['value'], $binding['type']);
-    }
-    $programStmt->execute();
+    $programDimensions = gradtrack_analytics_fetch_program_dimensions($db, [
+        'program_codes' => $allowedProgramCodes,
+    ]);
     $programs = array_map(static function ($row) {
         return [
-            'id' => (int)$row['id'],
+            'id' => (int)$row['program_id'],
             'code' => (string)$row['code'],
             'name' => (string)$row['name'],
         ];
-    }, $programStmt->fetchAll(PDO::FETCH_ASSOC));
+    }, $programDimensions);
 
     return ['years' => $years, 'programs' => $programs];
 }
@@ -458,35 +434,9 @@ function getSurveyResponses(PDO $db, ?int $surveyId, array $overviewFilters = []
         return [];
     }
 
-    $whereParts = ['sr.survey_id = :survey_id', 'sr.submitted_at IS NOT NULL'];
-    $bindings = [
-        ':survey_id' => ['value' => $surveyId, 'type' => PDO::PARAM_INT],
-    ];
-
-    if (($overviewFilters['program_id'] ?? null) !== null) {
-        $whereParts[] = 'g.program_id = :program_id';
-        $bindings[':program_id'] = ['value' => (int)$overviewFilters['program_id'], 'type' => PDO::PARAM_INT];
-    }
-
-    $stmt = $db->prepare("
-        SELECT
-            sr.id AS response_id,
-            sr.responses,
-            g.year_graduated,
-            g.program_id,
-            p.code AS program_code,
-            p.name AS program_name
-        FROM survey_responses sr
-        LEFT JOIN graduates g ON g.id = sr.graduate_id
-        LEFT JOIN programs p ON p.id = g.program_id
-        WHERE " . implode(' AND ', $whereParts) . "
-    ");
-    foreach ($bindings as $placeholder => $binding) {
-        $stmt->bindValue($placeholder, $binding['value'], $binding['type']);
-    }
-    $stmt->execute();
-
-    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    return gradtrack_analytics_fetch_valid_responses($db, $surveyId, [
+        'program_id' => $overviewFilters['program_id'] ?? null,
+    ]);
 }
 
 function getReportResponseDetails(array $response, array $questions): array
@@ -516,7 +466,7 @@ function getReportResponseDetails(array $response, array $questions): array
             $answer = $answers[$questionId] ?? null;
             $questionText = strtolower((string)($question['question_text'] ?? ''));
 
-            if (strpos($questionText, 'degree program') !== false) {
+            if ($rowProgramCode === '' && strpos($questionText, 'degree program') !== false) {
                 if (is_string($answer) && !empty($answer)) {
                     $candidateProgram = trim($answer);
                     if ($candidateProgram !== '' && !isYearLikeAnswer($candidateProgram)) {
@@ -525,9 +475,9 @@ function getReportResponseDetails(array $response, array $questions): array
                 }
             }
 
-            if (strpos($questionText, 'year graduated') !== false
+            if ($canonicalYear === null && (strpos($questionText, 'year graduated') !== false
                 || strpos($questionText, 'graduation year') !== false
-                || strpos($questionText, 'year of graduation') !== false) {
+                || strpos($questionText, 'year of graduation') !== false)) {
                 $answerYear = gradtrack_normalize_graduation_year($answer);
                 if ($answerYear !== null) {
                     $yearGraduated = (string)$answerYear;
@@ -589,17 +539,30 @@ function getReportResponseDetails(array $response, array $questions): array
         }
     }
 
-    $isAligned = $isEmployed && (strpos($jobRelated, 'yes') !== false || strpos($jobRelated, 'directly related') !== false);
-    $alignmentBucket = null;
-    if ($isEmployed) {
-        if ($isAligned) {
-            $alignmentBucket = 'aligned';
-        } elseif (strpos($jobRelated, 'partially') !== false) {
-            $alignmentBucket = 'partially_aligned';
-        } elseif ($jobRelated !== '') {
-            $alignmentBucket = 'not_aligned';
-        }
-    }
+    $roles = gradtrack_analytics_question_roles($questions);
+    $employmentStatus = gradtrack_analytics_first_classified_answer(
+        $answers,
+        $roles['employment'] ?? [],
+        'gradtrack_analytics_classify_employment'
+    );
+    $alignmentBucket = $employmentStatus === 'employed'
+        ? gradtrack_analytics_first_classified_answer(
+            $answers,
+            array_slice($roles['alignment'] ?? [], 0, 1),
+            'gradtrack_analytics_classify_alignment'
+        )
+        : null;
+    $canonicalWorkLocation = $employmentStatus === 'employed'
+        ? gradtrack_analytics_first_classified_answer(
+            $answers,
+            array_slice($roles['work_location'] ?? [], 0, 1),
+            'gradtrack_analytics_classify_work_location'
+        )
+        : null;
+    $isEmployed = $employmentStatus === 'employed';
+    $isUnemployed = $employmentStatus === 'unemployed';
+    $isAligned = $alignmentBucket === 'aligned';
+    $workLocation = $canonicalWorkLocation ?? '';
 
     return [
         'row_program_code' => $rowProgramCode,
@@ -635,7 +598,8 @@ function responseMatchesOverviewFilters(array $details, array $filters): bool
     if ($programAlignment === 'aligned' && empty($details['is_aligned'])) {
         return false;
     }
-    if ($programAlignment === 'not_aligned' && (empty($details['is_employed']) || !empty($details['is_aligned']))) {
+    if ($programAlignment === 'not_aligned'
+        && !in_array($details['alignment_bucket'] ?? null, ['partially_aligned', 'not_aligned'], true)) {
         return false;
     }
 
@@ -648,11 +612,7 @@ function getSurveyResponseCount(PDO $db, ?int $surveyId): int
         return 0;
     }
 
-    $stmt = $db->prepare("SELECT COUNT(DISTINCT id) as total FROM survey_responses WHERE survey_id = :survey_id AND submitted_at IS NOT NULL");
-    $stmt->bindValue(':survey_id', $surveyId, PDO::PARAM_INT);
-    $stmt->execute();
-
-    return (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
+    return count(gradtrack_analytics_fetch_valid_responses($db, $surveyId));
 }
 
 if (!defined('GRADTRACK_REPORTS_INDEX_NO_RUN')) {
@@ -728,224 +688,106 @@ try {
             
             // Parse survey responses with canonical graduate year/program context
             $surveyResponses = getSurveyResponses($db, $selectedSurveyId, $overviewFilters);
-            
-            $totalResponses = 0;
-            $employedCount = 0;
-            $unemployedCount = 0;
-            $employedLocalCount = 0;
-            $employedAbroadCount = 0;
-            $alignedCount = 0;
-            $seenResponses = [];
-            
-            foreach ($surveyResponses as $response) {
-                if (gradtrack_survey_is_duplicate_response($response, $seenResponses)) {
-                    continue;
-                }
-
-                $rowProgramCode = strtoupper((string)($response['program_code'] ?? ''));
-                if ($filterDepartment !== null && $rowProgramCode !== $filterDepartment) {
-                    continue;
-                }
-                if (is_array($allowedProgramCodes) && ($rowProgramCode === '' || !in_array($rowProgramCode, $allowedProgramCodes, true))) {
-                    continue;
-                }
-
-                $details = getReportResponseDetails($response, $questions);
-                if (!responseMatchesOverviewFilters($details, $overviewFilters)) {
-                    continue;
-                }
-
-                $totalResponses++;
-                $isEmployed = (bool)$details['is_employed'];
-                $isUnemployed = (bool)$details['is_unemployed'];
-                $workLocation = (string)$details['work_location'];
-
-                if ($isEmployed) {
-                    $employedCount++;
-                } elseif ($isUnemployed) {
-                    $unemployedCount++;
-                }
-                
-                // Count local vs abroad employment
-                if ($isEmployed) {
-                    if (strpos($workLocation, 'abroad') !== false || strpos($workLocation, 'overseas') !== false) {
-                        $employedAbroadCount++;
-                    } else {
-                        $employedLocalCount++;
-                    }
-                }
-                
-                // Count as aligned if job is directly related
-                if (!empty($details['is_aligned'])) {
-                    $alignedCount++;
-                }
-            }
-
-            $aligned = $alignedCount;
+            $recordFilters = [
+                'program_id' => $overviewFilters['program_id'] ?? null,
+                'program_codes' => $filterDepartment !== null
+                    ? [$filterDepartment]
+                    : $allowedProgramCodes,
+                'graduation_year' => $overviewFilters['graduation_year'] ?? null,
+                'employment_status' => $overviewFilters['employment_status'] ?? null,
+                'alignment_status' => $overviewFilters['program_alignment'] ?? null,
+            ];
+            $records = gradtrack_analytics_filter_records(
+                gradtrack_analytics_build_records($surveyResponses, $questions),
+                $recordFilters
+            );
+            $summary = gradtrack_analytics_summarize_records($records);
 
             echo json_encode(["success" => true, "data" => [
                 "survey_id" => $selectedSurveyId,
-                "total_graduates" => (int)$totalResponses,
-                "total_employed" => (int)$employedCount,
-                "total_unemployed" => (int)$unemployedCount,
-                "total_employment_known" => (int)($employedCount + $unemployedCount),
-                "total_employed_local" => (int)$employedLocalCount,
-                "total_employed_abroad" => (int)$employedAbroadCount,
-                "total_aligned" => (int)$aligned,
-                "total_survey_responses" => (int)$totalResponses,
-                "employment_rate" => $totalResponses > 0 ? round(($employedCount / $totalResponses) * 100, 1) : 0,
-                "alignment_rate" => $employedCount > 0 ? round(($aligned / $employedCount) * 100, 1) : 0
+                "total_graduates" => (int)$summary['response_count'],
+                "total_employed" => (int)$summary['employed'],
+                "total_unemployed" => (int)$summary['unemployed'],
+                "total_employment_known" => (int)$summary['employment_total'],
+                "total_employment_unknown" => (int)$summary['employment_unknown'],
+                "total_employed_local" => (int)$summary['employed_local'],
+                "total_employed_abroad" => (int)$summary['employed_abroad'],
+                "total_aligned" => (int)$summary['aligned'],
+                "total_not_aligned" => (int)$summary['not_aligned'],
+                "total_alignment_known" => (int)$summary['alignment_total'],
+                "total_survey_responses" => (int)$summary['response_count'],
+                "employment_rate" => $summary['employment_rate'],
+                "alignment_rate" => $summary['alignment_rate']
             ]]);
             break;
 
         case 'by_program':
-            // Map program names to codes
-            function getProgramCode($programName) {
-                $programLower = strtolower($programName);
-                if (strpos($programLower, 'computer science') !== false) return 'BSCS';
-                if (strpos($programLower, 'secondary education') !== false) return 'BSED';
-                if (strpos($programLower, 'elementary education') !== false) return 'BEED';
-                if (strpos($programLower, 'hospitality management') !== false) return 'BSHM';
-                if (strpos($programLower, 'computer technology') !== false) return 'ACT';
-                preg_match('/\b([A-Z]{3,})\b/', $programName, $matches);
-                return isset($matches[1]) && strlen($matches[1]) > 3 ? $matches[1] : strtoupper(substr(preg_replace('/[^A-Za-z]/', '', $programName), 0, 4));
-            }
-
-            // Get survey responses and parse by program
             $questions = getSurveyQuestions($db, $selectedSurveyId);
-            
             $surveyResponses = getSurveyResponses($db, $selectedSurveyId, $overviewFilters);
-            
-            $programData = [];
-            $seenResponses = [];
-            
-            foreach ($surveyResponses as $response) {
-                if (gradtrack_survey_is_duplicate_response($response, $seenResponses)) {
-                    continue;
-                }
+            $records = gradtrack_analytics_filter_records(
+                gradtrack_analytics_build_records($surveyResponses, $questions),
+                [
+                    'program_id' => $overviewFilters['program_id'] ?? null,
+                    'program_codes' => $filterDepartment !== null ? [$filterDepartment] : $allowedProgramCodes,
+                    'graduation_year' => $filterYear ?? ($overviewFilters['graduation_year'] ?? null),
+                    'employment_status' => $overviewFilters['employment_status'] ?? null,
+                    'alignment_status' => $overviewFilters['program_alignment'] ?? null,
+                ]
+            );
+            $programData = array_map(static function (array $program): array {
+                return [
+                    'program_id' => $program['program_id'],
+                    'code' => $program['code'],
+                    'name' => $program['name'],
+                    'total_graduates' => (int)$program['response_count'],
+                    'employment_total' => (int)$program['employment_total'],
+                    'employed' => (int)$program['employed'],
+                    'unemployed' => (int)$program['unemployed'],
+                    'employment_rate' => $program['employment_rate'],
+                    'aligned' => (int)$program['aligned'],
+                    'alignment_total' => (int)$program['alignment_total'],
+                    'alignment_rate' => $program['alignment_rate'],
+                    'partially_aligned' => (int)$program['partially_aligned'],
+                    'not_aligned' => (int)$program['not_aligned'],
+                    'explicit_not_aligned' => (int)$program['explicit_not_aligned'],
+                    'avg_time_to_employment' => null,
+                    'avg_salary' => null,
+                ];
+            }, gradtrack_analytics_group_by_program($records));
 
-                $rowProgramCode = strtoupper((string)($response['program_code'] ?? ''));
-                if ($filterDepartment !== null && $rowProgramCode !== $filterDepartment) {
-                    continue;
-                }
-                if (is_array($allowedProgramCodes) && ($rowProgramCode === '' || !in_array($rowProgramCode, $allowedProgramCodes, true))) {
-                    continue;
-                }
-
-                $details = getReportResponseDetails($response, $questions);
-                if (!responseMatchesOverviewFilters($details, $overviewFilters)) {
-                    continue;
-                }
-
-                $degreeProgram = (string)$details['degree_program'];
-                $yearGraduated = (string)$details['year_graduated'];
-                $isEmployed = (bool)$details['is_employed'];
-                $jobRelated = (string)$details['job_related'];
-                
-                // Apply year filter if specified
-                if ($filterYear !== null && $yearGraduated !== $filterYear) {
-                    continue;
-                }
-                
-                $code = !empty($rowProgramCode) ? $rowProgramCode : (!empty($degreeProgram) ? getProgramCode($degreeProgram) : '');
-                if (!empty($code)) {
-                    $programName = !empty($degreeProgram) && !isYearLikeAnswer($degreeProgram)
-                        ? $degreeProgram
-                        : getProgramDisplayNameByCode($code);
-                    
-                    if (!isset($programData[$code])) {
-                        $programData[$code] = [
-                            'code' => $code,
-                            'name' => $programName,
-                            'total_graduates' => 0,
-                            'employed' => 0,
-                            'aligned' => 0,
-                            'partially_aligned' => 0,
-                            'not_aligned' => 0,
-                            'avg_time_to_employment' => null,
-                            'avg_salary' => null
-                        ];
-                    } elseif (isYearLikeAnswer((string)$programData[$code]['name'])) {
-                        $programData[$code]['name'] = $programName;
-                    }
-                    
-                    $programData[$code]['total_graduates']++;
-                    if ($isEmployed) {
-                        $programData[$code]['employed']++;
-                        
-                        // Calculate alignment from survey response
-                        if (strpos($jobRelated, 'yes') !== false || strpos($jobRelated, 'directly related') !== false) {
-                            $programData[$code]['aligned']++;
-                        } else if (strpos($jobRelated, 'partially') !== false) {
-                            $programData[$code]['partially_aligned']++;
-                        } else if (!empty($jobRelated)) {
-                            $programData[$code]['not_aligned']++;
-                        }
-                    }
-                }
-            }
-            
-            echo json_encode(["success" => true, "data" => array_values($programData)]);
+            echo json_encode(["success" => true, "data" => $programData]);
             break;
 
         case 'by_year':
-            // Get survey responses and parse by year
             $questions = getSurveyQuestions($db, $selectedSurveyId);
-            
             $surveyResponses = getSurveyResponses($db, $selectedSurveyId, $overviewFilters);
-            
-            $yearData = [];
-            $seenResponses = [];
-            
-            foreach ($surveyResponses as $response) {
-                if (gradtrack_survey_is_duplicate_response($response, $seenResponses)) {
-                    continue;
-                }
+            $records = gradtrack_analytics_filter_records(
+                gradtrack_analytics_build_records($surveyResponses, $questions),
+                [
+                    'program_id' => $overviewFilters['program_id'] ?? null,
+                    'program_codes' => $filterDepartment !== null ? [$filterDepartment] : $allowedProgramCodes,
+                    'graduation_year' => $filterYear ?? ($overviewFilters['graduation_year'] ?? null),
+                    'employment_status' => $overviewFilters['employment_status'] ?? null,
+                    'alignment_status' => $overviewFilters['program_alignment'] ?? null,
+                ]
+            );
+            $yearData = array_map(static function (array $year): array {
+                return [
+                    'year_graduated' => (int)$year['year'],
+                    'total_graduates' => (int)$year['response_count'],
+                    'employment_total' => (int)$year['employment_total'],
+                    'employed' => (int)$year['employed'],
+                    'unemployed' => (int)$year['unemployed'],
+                    'employment_rate' => $year['employment_rate'],
+                    'aligned' => (int)$year['aligned'],
+                    'alignment_total' => (int)$year['alignment_total'],
+                    'alignment_rate' => $year['alignment_rate'],
+                    'not_aligned' => (int)$year['not_aligned'],
+                    'avg_salary' => null,
+                ];
+            }, array_reverse(gradtrack_analytics_group_by_year($records)));
 
-                $rowProgramCode = strtoupper((string)($response['program_code'] ?? ''));
-                if ($filterDepartment !== null && $rowProgramCode !== $filterDepartment) {
-                    continue;
-                }
-                if (is_array($allowedProgramCodes) && ($rowProgramCode === '' || !in_array($rowProgramCode, $allowedProgramCodes, true))) {
-                    continue;
-                }
-
-                $details = getReportResponseDetails($response, $questions);
-                if (!responseMatchesOverviewFilters($details, $overviewFilters)) {
-                    continue;
-                }
-
-                $yearGraduated = (string)$details['year_graduated'];
-                $isEmployed = (bool)$details['is_employed'];
-                $jobRelated = (string)$details['job_related'];
-                
-                if (!empty($yearGraduated)) {
-                    if (!isset($yearData[$yearGraduated])) {
-                        $yearData[$yearGraduated] = [
-                            'year_graduated' => (int)$yearGraduated,
-                            'total_graduates' => 0,
-                            'employed' => 0,
-                            'aligned' => 0,
-                            'avg_salary' => null
-                        ];
-                    }
-                    
-                    $yearData[$yearGraduated]['total_graduates']++;
-                    if ($isEmployed) {
-                        $yearData[$yearGraduated]['employed']++;
-                        
-                        // Calculate alignment from survey
-                        if (strpos($jobRelated, 'yes') !== false || strpos($jobRelated, 'directly related') !== false) {
-                            $yearData[$yearGraduated]['aligned']++;
-                        }
-                    }
-                }
-            }
-            
-            // Sort by year descending
-            krsort($yearData);
-            
-            echo json_encode(["success" => true, "data" => array_values($yearData)]);
+            echo json_encode(["success" => true, "data" => $yearData]);
             break;
 
         case 'employment_status':

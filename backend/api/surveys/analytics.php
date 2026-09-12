@@ -39,24 +39,10 @@ try {
         exit;
     }
 
-    // Get total responses
-    $stmt = $db->prepare("SELECT COUNT(DISTINCT id) as total FROM survey_responses WHERE survey_id = :id AND submitted_at IS NOT NULL");
-    $stmt->bindParam(':id', $surveyId);
-    $stmt->execute();
-    $totalResponses = (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
-
-    // Get all responses
-    $stmt = $db->prepare("
-        SELECT sr.id AS response_id, sr.responses, sr.graduate_id, g.year_graduated, p.code AS program_code, p.name AS program_name
-        FROM survey_responses sr
-        LEFT JOIN graduates g ON g.id = sr.graduate_id
-        LEFT JOIN programs p ON p.id = g.program_id
-        WHERE sr.survey_id = :id
-          AND sr.submitted_at IS NOT NULL
-    ");
-    $stmt->bindParam(':id', $surveyId);
-    $stmt->execute();
-    $responses = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    // Current analytics intentionally exclude detached, inactive, and archived graduates.
+    // The shared loader also selects one deterministic response per graduate.
+    $responses = gradtrack_analytics_fetch_valid_responses($db, (int)$surveyId);
+    $totalResponses = count($responses);
 
     // Get questions
     $stmt = $db->prepare("SELECT * FROM survey_questions WHERE survey_id = :id ORDER BY sort_order ASC");
@@ -70,8 +56,8 @@ try {
         'survey_id' => $surveyId,
         'survey_title' => $survey['title'],
         'total_responses' => $totalResponses,
-        'response_rate' => calculateResponseRate($db, $surveyId),
-        'completion_rate' => 100, // Assuming all submitted responses are complete
+        'response_rate' => calculateResponseRate($db, $surveyId, $totalResponses),
+        'completion_rate' => calculateCompletionRate($responses, $questions),
         'questions_analytics' => []
     ];
 
@@ -159,19 +145,51 @@ function isDisplayOnlyQuestion($question) {
     return $questionType === 'header' || strpos($questionText, 'professional examination(s) passed') === 0;
 }
 
-function calculateResponseRate($db, $surveyId) {
+function calculateResponseRate($db, $surveyId, $validResponseCount = null) {
     // Get total graduates
     $stmt = $db->query("SELECT COUNT(*) as total FROM graduates WHERE status = 'active' AND archived_at IS NULL");
     $totalGraduates = (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
     
-    // Get total responses
-    $stmt = $db->prepare("SELECT COUNT(DISTINCT id) as total FROM survey_responses WHERE survey_id = :id AND submitted_at IS NOT NULL");
-    $stmt->bindParam(':id', $surveyId);
-    $stmt->execute();
-    $totalResponses = (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
+    $totalResponses = $validResponseCount !== null
+        ? (int)$validResponseCount
+        : count(gradtrack_analytics_fetch_valid_responses($db, (int)$surveyId));
     
-    if ($totalGraduates === 0) return 0;
+    if ($totalGraduates === 0) return null;
     return round(($totalResponses / $totalGraduates) * 100, 2);
+}
+
+function calculateCompletionRate(array $responses, array $questions): ?float {
+    if ($responses === []) {
+        return null;
+    }
+
+    $requiredQuestions = array_values(array_filter($questions, static function (array $question): bool {
+        return !empty($question['is_required']) && !isDisplayOnlyQuestion($question);
+    }));
+    if ($requiredQuestions === []) {
+        return null;
+    }
+
+    $complete = 0;
+    foreach ($responses as $response) {
+        $data = json_decode((string)($response['responses'] ?? ''), true);
+        if (!is_array($data)) {
+            continue;
+        }
+        $answers = gradtrack_survey_build_answer_map($questions, $data);
+        $hasEveryRequiredAnswer = true;
+        foreach ($requiredQuestions as $question) {
+            if (!gradtrack_survey_has_answer($answers[(string)$question['id']] ?? null)) {
+                $hasEveryRequiredAnswer = false;
+                break;
+            }
+        }
+        if ($hasEveryRequiredAnswer) {
+            $complete++;
+        }
+    }
+
+    return gradtrack_survey_percentage($complete, count($responses), 1);
 }
 
 function decodeQuestionOptions($options) {
@@ -1977,47 +1995,15 @@ function getCompetencyCategories() {
 }
 
 function analyzeEmploymentData($responses, $questions, $questionResponseKeys) {
-    // Find employment-related questions
-    $employmentQuestionId = null;
-    $alignmentQuestionId = null;
+    // Salary and time-to-job remain descriptive distributions. Employment and
+    // alignment counts below come only from the canonical analytics service.
     $salaryQuestionId = null;
     $timeToJobQuestionId = null;
-    $employmentPriority = -1;
-    $alignmentPriority = -1;
     $salaryPriority = -1;
     $timeToJobPriority = -1;
     
     foreach ($questions as $q) {
         $text = strtolower(trim($q['question_text']));
-
-        // Prefer direct employment-status questions over fields that merely mention employment.
-        $currentEmploymentPriority = -1;
-        if (strpos($text, 'are you presently employed') !== false) {
-            $currentEmploymentPriority = 100;
-        } elseif (strpos($text, 'present employment status') !== false) {
-            $currentEmploymentPriority = 90;
-        } elseif (strpos($text, 'employment status') !== false) {
-            $currentEmploymentPriority = 80;
-        } elseif (strpos($text, 'presently employed') !== false) {
-            $currentEmploymentPriority = 10;
-        }
-        if ($currentEmploymentPriority > $employmentPriority) {
-            $employmentPriority = $currentEmploymentPriority;
-            $employmentQuestionId = (string)$q['id'];
-        }
-
-        $currentAlignmentPriority = -1;
-        if (strpos($text, 'is your first job related') !== false) {
-            $currentAlignmentPriority = 100;
-        } elseif (strpos($text, 'job related to') !== false || strpos($text, 'related to your course') !== false) {
-            $currentAlignmentPriority = 90;
-        } elseif (strpos($text, 'curriculum relevant') !== false) {
-            $currentAlignmentPriority = 50;
-        }
-        if ($currentAlignmentPriority > $alignmentPriority) {
-            $alignmentPriority = $currentAlignmentPriority;
-            $alignmentQuestionId = (string)$q['id'];
-        }
 
         $currentSalaryPriority = -1;
         if (strpos($text, 'initial gross monthly') !== false || strpos($text, 'gross monthly earning') !== false) {
@@ -2042,13 +2028,9 @@ function analyzeEmploymentData($responses, $questions, $questionResponseKeys) {
         }
     }
     
-    if (!$employmentQuestionId) return null;
-    
-    $employed = 0;
-    $unemployed = 0;
-    $aligned = 0;
-    $partiallyAligned = 0;
-    $notAligned = 0;
+    $roles = gradtrack_analytics_question_roles($questions);
+    if (empty($roles['employment'])) return null;
+
     $salaryDistribution = [];
     $timeToJobDistribution = [];
     $seenResponses = [];
@@ -2064,33 +2046,6 @@ function analyzeEmploymentData($responses, $questions, $questionResponseKeys) {
         }
 
         $answerMap = gradtrack_survey_build_answer_map($questions, $data);
-        
-        // Employment status
-        $employmentAnswer = $answerMap[$employmentQuestionId] ?? null;
-        if ($employmentAnswer !== null) {
-            $employmentStatus = parseEmploymentAnswer($employmentAnswer);
-
-            if ($employmentStatus === true) {
-                $employed++;
-            } elseif ($employmentStatus === false) {
-                $unemployed++;
-            }
-        }
-        
-        // Alignment
-        if ($alignmentQuestionId) {
-            $alignmentAnswer = $answerMap[$alignmentQuestionId] ?? null;
-            $alignment = strtolower(trim((string)$alignmentAnswer));
-            if ($alignment !== '') {
-                if (strpos($alignment, 'directly') !== false || strpos($alignment, 'yes') !== false) {
-                    $aligned++;
-                } elseif (strpos($alignment, 'partially') !== false) {
-                    $partiallyAligned++;
-                } else {
-                    $notAligned++;
-                }
-            }
-        }
         
         // Salary
         if ($salaryQuestionId) {
@@ -2115,17 +2070,21 @@ function analyzeEmploymentData($responses, $questions, $questionResponseKeys) {
         }
     }
     
-    $total = $employed + $unemployed;
-    $totalAlignment = $aligned + $partiallyAligned + $notAligned;
+    $canonicalSummary = gradtrack_analytics_summarize_records(
+        gradtrack_analytics_build_records($responses, $questions)
+    );
     
     return [
-        'employment_rate' => $total > 0 ? round(($employed / $total) * 100, 2) : 0,
-        'employed_count' => $employed,
-        'unemployed_count' => $unemployed,
-        'alignment_rate' => $totalAlignment > 0 ? round(($aligned / $totalAlignment) * 100, 2) : 0,
-        'aligned_count' => $aligned,
-        'partially_aligned_count' => $partiallyAligned,
-        'not_aligned_count' => $notAligned,
+        'employment_rate' => $canonicalSummary['employment_rate'],
+        'employed_count' => (int)$canonicalSummary['employed'],
+        'unemployed_count' => (int)$canonicalSummary['unemployed'],
+        'employment_total' => (int)$canonicalSummary['employment_total'],
+        'alignment_rate' => $canonicalSummary['alignment_rate'],
+        'aligned_count' => (int)$canonicalSummary['aligned'],
+        'alignment_total' => (int)$canonicalSummary['alignment_total'],
+        'partially_aligned_count' => (int)$canonicalSummary['partially_aligned'],
+        'not_aligned_count' => (int)$canonicalSummary['explicit_not_aligned'],
+        'binary_not_aligned_count' => (int)$canonicalSummary['not_aligned'],
         'salary_distribution' => $salaryDistribution,
         'time_to_job_distribution' => $timeToJobDistribution
     ];

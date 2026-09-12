@@ -51,8 +51,8 @@ if ($type === 'overview' && is_array($data)) {
         'Employed (Abroad)' => $data['total_employed_abroad'] ?? 0,
         'Total Aligned' => $data['total_aligned'] ?? 0,
         'Survey Responses' => $data['total_survey_responses'] ?? 0,
-        'Employment Rate (%)' => $data['employment_rate'] ?? 0,
-        'Alignment Rate (%)' => $data['alignment_rate'] ?? 0,
+        'Employment Rate (%)' => $data['employment_rate'] ?? 'No data',
+        'Alignment Rate (%)' => $data['alignment_rate'] ?? 'No data',
     ];
 
     foreach ($rows as $metric => $value) {
