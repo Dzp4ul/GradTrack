@@ -198,6 +198,44 @@ if (!function_exists('gradtrack_permanently_delete_graduate')) {
     }
 }
 
+if (!function_exists('gradtrack_permanently_delete_graduates')) {
+    function gradtrack_permanently_delete_graduates(PDO $db, array $graduateIds): array
+    {
+        $ids = array_values(array_unique(array_filter(array_map('intval', $graduateIds), static function (int $id): bool {
+            return $id > 0;
+        })));
+        if ($ids === []) {
+            throw new GradtrackPermanentDeleteException('At least one graduate ID is required', 400);
+        }
+        if (count($ids) > 100) {
+            throw new GradtrackPermanentDeleteException('A maximum of 100 graduate records can be permanently deleted at a time', 400);
+        }
+
+        return gradtrack_permanent_delete_transaction($db, function () use ($db, $ids): array {
+            $records = [];
+            $storageReferences = [];
+            $preservedResponseCount = 0;
+            $deletedRoomCount = 0;
+
+            foreach ($ids as $graduateId) {
+                $result = gradtrack_permanently_delete_graduate($db, $graduateId);
+                $records[] = $result['record'];
+                $storageReferences = array_merge($storageReferences, $result['storage_references'] ?? []);
+                $preservedResponseCount += (int) ($result['preserved_response_count'] ?? 0);
+                $deletedRoomCount += (int) ($result['deleted_room_count'] ?? 0);
+            }
+
+            return [
+                'records' => $records,
+                'storage_references' => array_values(array_unique($storageReferences)),
+                'preserved_response_count' => $preservedResponseCount,
+                'deleted_room_count' => $deletedRoomCount,
+                'deleted_count' => count($records),
+            ];
+        });
+    }
+}
+
 if (!function_exists('gradtrack_permanently_delete_survey')) {
     function gradtrack_permanently_delete_survey(PDO $db, int $surveyId): array
     {

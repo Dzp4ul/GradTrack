@@ -541,6 +541,45 @@ try {
             $data = json_decode(file_get_contents("php://input"), true);
 
             if (($data['action'] ?? '') === 'permanent_delete') {
+                if (isset($data['ids']) && is_array($data['ids'])) {
+                    $result = gradtrack_permanently_delete_graduates($db, $data['ids']);
+                    $records = $result['records'] ?? [];
+                    $programCodes = array_values(array_unique(array_filter(array_map(static function (array $record): ?string {
+                        return isset($record['program_code']) ? (string) $record['program_code'] : null;
+                    }, $records))));
+                    $deletedCount = (int) ($result['deleted_count'] ?? count($records));
+
+                    logAuditTrail(
+                        $auditUser['user_id'],
+                        $auditUser['user_name'],
+                        $auditUser['user_role'],
+                        count($programCodes) === 1 ? $programCodes[0] : null,
+                        'Permanently Delete',
+                        'Graduate Records',
+                        "Permanently deleted {$deletedCount} selected archived graduate records.",
+                        null,
+                        [
+                            'graduate_ids' => array_map(static function (array $record): int {
+                                return (int) ($record['id'] ?? 0);
+                            }, $records),
+                            'archived' => true,
+                        ],
+                        null,
+                        [
+                            'deleted_count' => $deletedCount,
+                            'preserved_survey_responses' => (int) ($result['preserved_response_count'] ?? 0),
+                            'deleted_empty_chat_rooms' => (int) ($result['deleted_room_count'] ?? 0),
+                        ]
+                    );
+                    gradtrack_delete_storage_references($result['storage_references'] ?? []);
+                    echo json_encode([
+                        "success" => true,
+                        "message" => "{$deletedCount} selected graduate record(s) permanently deleted.",
+                        "deleted" => $deletedCount,
+                    ]);
+                    break;
+                }
+
                 $graduateId = isset($data['id']) ? (int) $data['id'] : 0;
                 $result = gradtrack_permanently_delete_graduate($db, $graduateId);
                 $graduate = $result['record'];

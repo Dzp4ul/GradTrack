@@ -138,6 +138,17 @@ try {
     $historicalOptions = getOverviewFilterOptions($db, $surveyId, null);
     graduation_archive_assert(!in_array('2027', $historicalOptions['years'], true), 'detached historical responses remain excluded from active reports');
 
+    $bulkGraduateOne = graduation_archive_insert_graduate($db, (int) $program['id'], 2027, true, $suffix . 'bulk1');
+    $bulkGraduateTwo = graduation_archive_insert_graduate($db, (int) $program['id'], 2027, true, $suffix . 'bulk2');
+    $bulkDeleteResult = gradtrack_permanently_delete_graduates($db, [$bulkGraduateOne, $bulkGraduateTwo, $bulkGraduateOne]);
+    graduation_archive_assert(
+        (int) $bulkDeleteResult['deleted_count'] === 2,
+        'bulk graduate permanent deletion de-duplicates IDs and deletes every selected archived record'
+    );
+    $bulkCheck = $db->prepare('SELECT COUNT(*) FROM graduates WHERE id IN (:id_1, :id_2)');
+    $bulkCheck->execute([':id_1' => $bulkGraduateOne, ':id_2' => $bulkGraduateTwo]);
+    graduation_archive_assert((int) $bulkCheck->fetchColumn() === 0, 'bulk-deleted graduates are absent from the database');
+
     graduation_archive_expect_status(
         static fn () => gradtrack_permanently_delete_survey($db, $surveyId + 1000000000),
         404,

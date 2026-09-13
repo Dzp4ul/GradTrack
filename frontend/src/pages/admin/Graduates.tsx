@@ -5,6 +5,7 @@ import {
 import MessageBox from '../../components/MessageBox';
 import { API_ROOT } from '../../config/api';
 import { readSpreadsheet } from '../../lib/spreadsheets';
+import { extractOfficialListGraduationYear, resolveImportedGraduationYear } from '../../utils/graduateImport';
 import { normalizeGraduationYear, normalizeGraduationYears } from '../../utils/graduationYears';
 
 const API_BASE = API_ROOT;
@@ -186,18 +187,6 @@ const findHeaderRowIndex = (rows: unknown[][]): number => {
   return -1;
 };
 
-const extractGraduationYearFromRows = (rows: unknown[][]): string => {
-  const topRows = rows.slice(0, 20);
-  for (const row of topRows) {
-    const joined = row.map((cell) => normalizeText(cell)).join(' ');
-    const match = joined.match(/(?:19|20)\d{2}/);
-    if (match) {
-      return match[0];
-    }
-  }
-  return '';
-};
-
 const getProgramDurationById = (programId: string, programOptions: ProgramOption[]): number | null => {
   const selectedProgram = programOptions.find((option) => option.id === programId);
   if (!selectedProgram) return null;
@@ -269,7 +258,12 @@ const resolveProgramId = (row: Record<string, unknown>, programOptions: ProgramO
   return '';
 };
 
-const mapExcelRowToPayload = (row: Record<string, unknown>, programOptions: ProgramOption[], fallbackYear = ''): FormData => {
+const mapExcelRowToPayload = (
+  row: Record<string, unknown>,
+  programOptions: ProgramOption[],
+  officialListYear = '',
+  selectedFilterYear = '',
+): FormData => {
   const fullName = pickValue(row, ['Name', 'Full Name', 'full_name', 'fullName']);
   const parsedName = splitName(fullName);
 
@@ -280,8 +274,7 @@ const mapExcelRowToPayload = (row: Record<string, unknown>, programOptions: Prog
     pickValue(row, ['Name Extension', 'Name Ext', 'Suffix', 'name_extension', 'nameExtension', 'suffix']) || parsedName.nameExtension
   );
 
-  const rawYear = pickValue(row, ['Year Graduated', 'Graduation Year', 'year_graduated', 'yearGraduated']) || fallbackYear;
-  const parsedYear = rawYear ? Number.parseInt(rawYear, 10) : NaN;
+  const rowYear = pickValue(row, ['Year Graduated', 'Graduation Year', 'year_graduated', 'yearGraduated']);
 
   return {
     ...emptyForm,
@@ -293,7 +286,7 @@ const mapExcelRowToPayload = (row: Record<string, unknown>, programOptions: Prog
     email: pickValue(row, ['Email', 'Email Add', 'Email Address', 'email']),
     phone: pickValue(row, ['Contact No.', 'Contact No', 'Contact Number', 'Phone', 'phone']),
     program_id: resolveProgramId(row, programOptions),
-    year_graduated: Number.isNaN(parsedYear) ? '' : String(parsedYear),
+    year_graduated: resolveImportedGraduationYear(officialListYear, rowYear, selectedFilterYear),
     address: pickValue(row, ['Address', 'address']),
     employment_status: normalizeEmploymentStatus(pickValue(row, ['Employment Status', 'employment_status', 'employmentStatus'])),
     is_aligned: normalizeAlignment(pickValue(row, ['Course Alignment', 'is_aligned', 'isAligned'])),
@@ -389,6 +382,7 @@ export default function Graduates() {
   const [showModal, setShowModal] = useState(false);
   const [formData, setFormData] = useState<FormData>(emptyForm);
   const [isImporting, setIsImporting] = useState(false);
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [selectedGraduateIds, setSelectedGraduateIds] = useState<number[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [msgBox, setMsgBox] = useState<{
@@ -713,6 +707,51 @@ export default function Graduates() {
     });
   };
 
+  const handlePermanentDeleteSelected = () => {
+    if (selectedGraduateIds.length === 0 || isBulkDeleting) return;
+
+    const selectedCount = selectedGraduateIds.length;
+    setMsgBox({
+      isOpen: true,
+      type: 'confirm',
+      title: 'Permanently Delete Selected Graduates?',
+      message: `This will permanently delete ${selectedCount} selected graduate record(s) and their account-owned data. Historical survey responses will be preserved for reporting. This action cannot be undone.`,
+      confirmText: 'Permanently Delete',
+      cancelText: 'Cancel',
+      destructive: true,
+      onConfirm: async () => {
+        setIsBulkDeleting(true);
+        try {
+          const response = await fetch(`${API_BASE}/graduates/index.php`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ ids: selectedGraduateIds, action: 'permanent_delete' }),
+          });
+          const result = await response.json();
+          if (!response.ok || !result.success) {
+            throw new Error(result.error || 'Unable to permanently delete selected graduates');
+          }
+
+          await fetchGraduates();
+          setMsgBox({
+            isOpen: true,
+            type: 'success',
+            message: result.message || `${result.deleted ?? selectedCount} selected graduate record(s) permanently deleted.`,
+          });
+        } catch (error) {
+          setMsgBox({
+            isOpen: true,
+            type: 'error',
+            message: getSafeErrorMessage(error, 'Unable to permanently delete selected graduates'),
+          });
+        } finally {
+          setIsBulkDeleting(false);
+        }
+      },
+    });
+  };
+
   const handleImportClick = () => {
     fileInputRef.current?.click();
   };
@@ -734,10 +773,9 @@ export default function Graduates() {
 
       const matrixRows = workbook.sheets[firstSheetName] || [];
 
-      const inferredYear = extractGraduationYearFromRows(matrixRows);
-      const fallbackYear = filterYear || inferredYear;
-
       const headerRowIndex = findHeaderRowIndex(matrixRows);
+      const headingRows = headerRowIndex >= 0 ? matrixRows.slice(0, headerRowIndex) : matrixRows.slice(0, 20);
+      const officialListYear = extractOfficialListGraduationYear(headingRows) || '';
       let rows: Record<string, unknown>[] = [];
 
       if (headerRowIndex >= 0) {
@@ -780,7 +818,7 @@ export default function Graduates() {
       };
 
       for (const row of rows) {
-        const payload = mapExcelRowToPayload(row, programOptions, fallbackYear);
+        const payload = mapExcelRowToPayload(row, programOptions, officialListYear, filterYear);
         if (!payload.program_id) {
           payload.program_id = selectedProgramId;
         }
@@ -832,11 +870,14 @@ export default function Graduates() {
         : successCount > 0
           ? 'Import completed with some skipped rows.'
           : 'Import failed.';
+      const graduationYearNotice = officialListYear
+        ? `\nGraduation year: ${officialListYear} (from the official list heading).`
+        : '';
 
       setMsgBox({
         isOpen: true,
         type: msgType,
-        message: `${statusLabel}\nAdded: ${successCount}. Failed: ${failedCount}.${sortedReasons ? `\nSkipped rows: ${sortedReasons}.` : ''}`,
+        message: `${statusLabel}${graduationYearNotice}\nAdded: ${successCount}. Failed: ${failedCount}.${sortedReasons ? `\nSkipped rows: ${sortedReasons}.` : ''}`,
       });
     } catch (error) {
       setMsgBox({
@@ -1005,6 +1046,25 @@ export default function Graduates() {
             </button>
           </div>}
 
+          {archiveView === 'archived' && <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={toggleSelectAllVisible}
+              className="px-3 py-2 border rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+              type="button"
+            >
+              {allVisibleSelected ? 'Clear Selection' : 'Select All (This Page)'}
+            </button>
+
+            <button
+              onClick={handlePermanentDeleteSelected}
+              disabled={selectedGraduateIds.length === 0 || isBulkDeleting}
+              className="px-3 py-2 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              type="button"
+            >
+              {isBulkDeleting ? 'Deleting...' : `Delete Permanently (${selectedGraduateIds.length})`}
+            </button>
+          </div>}
+
         </div>
       </div>
 
@@ -1019,7 +1079,7 @@ export default function Graduates() {
               <div key={g.id} className="p-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    {archiveView === 'active' && <label className="mb-2 inline-flex items-center gap-2 text-xs text-gray-600">
+                    <label className="mb-2 inline-flex items-center gap-2 text-xs text-gray-600">
                       <input
                         type="checkbox"
                         checked={isGraduateSelected(g.id)}
@@ -1027,7 +1087,7 @@ export default function Graduates() {
                         className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       />
                       Select
-                    </label>}
+                    </label>
                     <p className="font-semibold text-[#1b2a4a]">
                       {formatGraduateDisplayName(g)}
                     </p>
@@ -1063,13 +1123,13 @@ export default function Graduates() {
             <thead className="bg-gray-50 border-b">
               <tr>
                 <th className="text-center px-4 py-3 font-semibold text-gray-600 w-16">
-                  {archiveView === 'active' && <input
+                  <input
                     type="checkbox"
                     checked={allVisibleSelected}
                     onChange={toggleSelectAllVisible}
                     className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                     aria-label="Select all visible graduates"
-                  />}
+                  />
                 </th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Student ID</th>
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Name</th>
@@ -1091,13 +1151,13 @@ export default function Graduates() {
                 graduates.map((g) => (
                   <tr key={g.id} className="border-b last:border-0 hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 text-center">
-                      {archiveView === 'active' && <input
+                      <input
                         type="checkbox"
                         checked={isGraduateSelected(g.id)}
                         onChange={() => toggleGraduateSelection(g.id)}
                         className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                         aria-label={`Select graduate ${g.student_id}`}
-                      />}
+                      />
                     </td>
                     <td className="px-4 py-3 font-mono text-xs">{g.student_id}</td>
                     <td className="px-4 py-3">

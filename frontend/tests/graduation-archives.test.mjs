@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { normalizeGraduationYear, normalizeGraduationYears } from '../src/utils/graduationYears.ts';
+import {
+  extractOfficialListGraduationYear,
+  resolveImportedGraduationYear,
+} from '../src/utils/graduateImport.ts';
 
 assert.equal(normalizeGraduationYear(' 2027 '), '2027');
 assert.equal(normalizeGraduationYear('2027x'), null);
@@ -10,11 +14,38 @@ assert.deepEqual(
   ['2027', '2026', '2023'],
 );
 
+const official2027Rows = [
+  ['NORZAGARAY COLLEGE'],
+  ['OFFICE OF THE REGISTRAR'],
+  ['Official List of Graduates Year 2027'],
+  ['', 'Student Number', 'Name', 'Email Add', 'Contact Number'],
+  [1, '2019-0093', 'Medina, Gleiza B.', 'graduate@example.invalid', '09123456789'],
+];
+assert.equal(extractOfficialListGraduationYear(official2027Rows.slice(0, 3)), '2027');
+assert.equal(
+  resolveImportedGraduationYear('2027', '', '2023'),
+  '2027',
+  'the official-list heading overrides the currently selected Registrar year',
+);
+assert.equal(
+  resolveImportedGraduationYear('2027', '2023', ''),
+  '2027',
+  'the official-list heading is authoritative for every imported row',
+);
+assert.equal(
+  extractOfficialListGraduationYear([['Student Number'], ['2019-0093']]),
+  null,
+  'a student-number year is never treated as the graduation year',
+);
+
 const registrar = await readFile(new URL('../src/pages/admin/Graduates.tsx', import.meta.url), 'utf8');
 assert.match(registrar, />Year Graduated<\/th>/);
 assert.match(registrar, /archiveView === 'archived' && <th[^>]*>Actions<\/th>/);
 assert.doesNotMatch(registrar, /Edit2|openEdit|handleArchive\(g/);
 assert.match(registrar, /archiveView === 'archived' && <td[^>]*>[\s\S]*handlePermanentDelete\(g\)/);
+assert.match(registrar, /handlePermanentDeleteSelected/);
+assert.match(registrar, /action: 'permanent_delete'/);
+assert.match(registrar, /Delete Permanently/);
 assert.match(registrar, /aria-label="Filter graduates by department"/);
 assert.match(registrar, /aria-label="Filter graduates by graduation year"/);
 assert.match(registrar, /res\.program_options/);

@@ -328,6 +328,32 @@ try {
         'Dashboard processes a preserved survey response after its graduate is permanently deleted'
     );
 
+    $bulkCreateOne = graduation_http_request('graduates/index.php', $registrarSession, 'POST', $graduatePayload(2027, 'BulkOne'));
+    $bulkCreateTwo = graduation_http_request('graduates/index.php', $registrarSession, 'POST', $graduatePayload(2027, 'BulkTwo'));
+    $bulkGraduateIds = [
+        (int) ($bulkCreateOne['json']['id'] ?? 0),
+        (int) ($bulkCreateTwo['json']['id'] ?? 0),
+    ];
+    foreach ($bulkGraduateIds as $bulkGraduateId) {
+        if ($bulkGraduateId > 0) $fixtureIds['graduates'][] = $bulkGraduateId;
+    }
+    $bulkArchive = graduation_http_request('graduates/index.php', $registrarSession, 'DELETE', ['ids' => $bulkGraduateIds]);
+    $bulkDelete = graduation_http_request(
+        'graduates/index.php',
+        $registrarSession,
+        'DELETE',
+        ['ids' => $bulkGraduateIds, 'action' => 'permanent_delete']
+    );
+    graduation_http_assert(
+        $bulkCreateOne['status'] === 200 && $bulkCreateTwo['status'] === 200
+            && $bulkArchive['status'] === 200 && $bulkDelete['status'] === 200
+            && (int) ($bulkDelete['json']['deleted'] ?? 0) === 2,
+        'Registrar can permanently delete multiple selected archived graduates through one API request'
+    );
+    $bulkDbCheck = $db->prepare('SELECT COUNT(*) FROM graduates WHERE id IN (:id_1, :id_2)');
+    $bulkDbCheck->execute([':id_1' => $bulkGraduateIds[0], ':id_2' => $bulkGraduateIds[1]]);
+    graduation_http_assert((int) $bulkDbCheck->fetchColumn() === 0, 'bulk permanent deletion persists after the request completes');
+
     $activeSurveyDelete = graduation_http_request('surveys/index.php', $adminSession, 'DELETE', ['id' => $fixtureIds['survey'], 'action' => 'permanent_delete']);
     graduation_http_assert($activeSurveyDelete['status'] === 409, 'Survey permanent-delete API rejects an active archive-state record');
     graduation_http_assert(graduation_http_request('surveys/index.php', $anonymousSession, 'DELETE', ['id' => $fixtureIds['survey'], 'action' => 'permanent_delete'])['status'] === 401, 'Survey permanent-delete API rejects an unauthenticated session');
