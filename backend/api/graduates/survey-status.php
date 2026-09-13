@@ -22,35 +22,49 @@ try {
         ? (int) $_GET['survey_id']
         : null;
 
-    if ($requestedSurveyId !== null) {
-        $surveyStmt = $db->prepare("SELECT id, title, status FROM surveys WHERE id = :id AND archived_at IS NULL LIMIT 1");
-        $surveyStmt->execute([':id' => $requestedSurveyId]);
-        $selectedSurvey = $surveyStmt->fetch(PDO::FETCH_ASSOC);
-
-        if (!$selectedSurvey) {
-            http_response_code(404);
-            echo json_encode(["success" => false, "error" => "Survey not found"]);
-            exit;
-        }
-    } else {
-        $surveyStmt = $db->query("
-            SELECT id, title, status
-            FROM surveys
-            WHERE archived_at IS NULL
-            ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, created_at DESC, id DESC
-            LIMIT 1
-        ");
-        $selectedSurvey = $surveyStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+    $coverage = gradtrack_get_active_survey_graduation_year_coverage($db);
+    if ($coverage['survey'] === null) {
+        http_response_code(409);
+        echo json_encode([
+            'success' => false,
+            'code' => 'NO_ACTIVE_SURVEY',
+            'error' => 'No active survey is available for graduate monitoring.',
+        ]);
+        exit;
+    }
+    if (!$coverage['configured']) {
+        http_response_code(422);
+        echo json_encode([
+            'success' => false,
+            'code' => 'GRADUATION_YEAR_COVERAGE_NOT_CONFIGURED',
+            'error' => 'Graduation year coverage has not been configured for the active survey.',
+            'details' => $coverage['error'],
+        ]);
+        exit;
     }
 
-    $selectedSurveyId = $selectedSurvey ? (int) $selectedSurvey['id'] : null;
+    $selectedSurvey = $coverage['survey'];
+    $selectedSurveyId = (int) $selectedSurvey['id'];
+    $allowedYears = $coverage['years'];
+    if ($requestedSurveyId !== null && $requestedSurveyId !== $selectedSurveyId) {
+        http_response_code(409);
+        echo json_encode([
+            'success' => false,
+            'code' => 'ACTIVE_SURVEY_REQUIRED',
+            'error' => 'Graduate monitoring is available only for the active survey.',
+        ]);
+        exit;
+    }
 
     $whereParts = ['g.archived_at IS NULL'];
-    $params = [];
-
-    if ($selectedSurveyId !== null) {
-        $params[':survey_id'] = $selectedSurveyId;
-    }
+    $params = [':survey_id' => $selectedSurveyId];
+    gradtrack_append_graduation_year_coverage_filter(
+        $whereParts,
+        $params,
+        'g.year_graduated',
+        $allowedYears,
+        'admin_coverage_year'
+    );
 
     $search = isset($_GET['search']) ? trim((string) $_GET['search']) : '';
     if ($search !== '') {
@@ -75,6 +89,15 @@ try {
             echo json_encode(['success' => false, 'error' => 'Graduation year must be a valid four-digit year']);
             exit;
         }
+        if (!in_array($requestedYear, $allowedYears, true)) {
+            http_response_code(422);
+            echo json_encode([
+                'success' => false,
+                'code' => 'GRADUATION_YEAR_OUTSIDE_ACTIVE_SURVEY',
+                'error' => 'The selected graduation year is not included in the active survey.',
+            ]);
+            exit;
+        }
         $whereParts[] = 'g.year_graduated = :year_graduated';
         $params[':year_graduated'] = $requestedYear;
     }
@@ -93,9 +116,7 @@ try {
     $limit = isset($_GET['limit']) ? min(5000, max(1, (int) $_GET['limit'])) : 20;
     $offset = ($page - 1) * $limit;
 
-    $responseJoin = $selectedSurveyId !== null
-        ? 'LEFT JOIN survey_responses sr ON sr.graduate_id = g.id AND sr.survey_id = :survey_id AND sr.submitted_at IS NOT NULL'
-        : 'LEFT JOIN survey_responses sr ON sr.graduate_id = g.id AND sr.submitted_at IS NOT NULL';
+    $responseJoin = 'LEFT JOIN survey_responses sr ON sr.graduate_id = g.id AND sr.survey_id = :survey_id AND sr.submitted_at IS NOT NULL';
 
     $fromAndJoins = "
         FROM graduates g
@@ -163,7 +184,7 @@ try {
     echo json_encode([
         "success" => true,
         "selected_survey" => $selectedSurvey,
-        "year_options" => gradtrack_fetch_graduate_years($db, 'active'),
+        "year_options" => $allowedYears,
         "summary" => [
             "total" => (int) $summaryResult['total'],
             "answered" => (int) $summaryResult['answered'],

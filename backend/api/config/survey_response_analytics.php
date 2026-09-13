@@ -373,6 +373,35 @@ function gradtrack_analytics_append_program_filters(
     }
 }
 
+function gradtrack_analytics_append_graduation_year_coverage(
+    array &$where,
+    array &$bindings,
+    array $options,
+    string $graduateAlias = 'g',
+    string $prefix = 'analytics_coverage'
+): void {
+    if (!array_key_exists('allowed_graduation_years', $options)) {
+        return;
+    }
+
+    $years = is_array($options['allowed_graduation_years'])
+        ? array_values(array_unique(array_map('intval', $options['allowed_graduation_years'])))
+        : [];
+    $years = array_values(array_filter($years, static fn (int $year): bool => $year > 0));
+    if ($years === []) {
+        $where[] = '1 = 0';
+        return;
+    }
+
+    $placeholders = [];
+    foreach ($years as $index => $year) {
+        $placeholder = ':' . $prefix . '_year_' . $index;
+        $placeholders[] = $placeholder;
+        $bindings[$placeholder] = ['value' => $year, 'type' => PDO::PARAM_INT];
+    }
+    $where[] = "{$graduateAlias}.year_graduated IN (" . implode(', ', $placeholders) . ')';
+}
+
 function gradtrack_analytics_bind_values(PDOStatement $stmt, array $bindings): void
 {
     foreach ($bindings as $placeholder => $binding) {
@@ -397,6 +426,7 @@ function gradtrack_analytics_fetch_valid_responses(PDO $db, int $surveyId, array
     ];
 
     gradtrack_analytics_append_program_filters($where, $bindings, $options);
+    gradtrack_analytics_append_graduation_year_coverage($where, $bindings, $options, 'g', 'analytics_response_coverage');
 
     $graduationYear = trim((string)($options['graduation_year'] ?? ''));
     if ($graduationYear !== '') {
@@ -443,6 +473,7 @@ function gradtrack_analytics_fetch_program_dimensions(PDO $db, array $options = 
     $joinConditions = [gradtrack_analytics_active_graduate_condition('g')];
     $where = [];
     $bindings = [];
+    gradtrack_analytics_append_graduation_year_coverage($joinConditions, $bindings, $options, 'g', 'program_dimension_coverage');
 
     $programId = (int)($options['program_id'] ?? 0);
     if ($programId > 0) {
@@ -491,6 +522,7 @@ function gradtrack_analytics_fetch_year_dimensions(PDO $db, array $options = [])
     ];
     $bindings = [];
     gradtrack_analytics_append_program_filters($where, $bindings, $options, 'g', 'p', 'year_dimension');
+    gradtrack_analytics_append_graduation_year_coverage($where, $bindings, $options, 'g', 'year_dimension_coverage');
 
     $graduationYear = trim((string)($options['graduation_year'] ?? ''));
     if ($graduationYear !== '') {
@@ -894,6 +926,9 @@ function gradtrack_analytics_calculate(PDO $db, int $surveyId, array $options = 
         'program_codes' => $options['program_codes'] ?? null,
         'graduation_year' => $options['graduation_year'] ?? null,
     ];
+    if (array_key_exists('allowed_graduation_years', $options)) {
+        $queryOptions['allowed_graduation_years'] = $options['allowed_graduation_years'];
+    }
     $responses = gradtrack_analytics_fetch_valid_responses($db, $surveyId, $queryOptions);
     $questions = gradtrack_analytics_fetch_questions($db, $surveyId);
     $records = gradtrack_analytics_build_records($responses, $questions);

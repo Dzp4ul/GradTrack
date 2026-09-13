@@ -87,6 +87,8 @@ function SurveyVerification() {
   const [programs, setPrograms] = useState<Program[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingPrograms, setLoadingPrograms] = useState(true);
+  const [loadingSurvey, setLoadingSurvey] = useState(true);
+  const [surveyError, setSurveyError] = useState('');
   const [activeSurvey, setActiveSurvey] = useState<SurveySummary | null>(null);
   const [accountContext, setAccountContext] = useState<AccountCreationContext | null>(null);
   const [accountEmail, setAccountEmail] = useState('');
@@ -105,6 +107,7 @@ function SurveyVerification() {
   useEffect(() => {
     if (isMaintenanceMode || !surveyAvailable) {
       setLoadingPrograms(false);
+      setLoadingSurvey(false);
       return;
     }
 
@@ -113,29 +116,43 @@ function SurveyVerification() {
   }, [isMaintenanceMode, surveyAvailable]);
 
   const fetchActiveSurvey = async () => {
+    setLoadingSurvey(true);
+    setSurveyError('');
     try {
       if (surveyId) {
         const detailResponse = await fetch(`${API_ROOT}/surveys/index.php?id=${surveyId}`);
         const detailResult = await detailResponse.json();
 
-        if (detailResult.success && detailResult.data?.status === 'active') {
-          setActiveSurvey(detailResult.data);
+        if (!detailResponse.ok || !detailResult.success || detailResult.data?.status !== 'active') {
+          throw new Error('This Graduate Tracer Survey is not active or is no longer available.');
+        }
+        setActiveSurvey(detailResult.data);
+        if (!detailResult.data?.graduation_year_coverage?.configured) {
+          setSurveyError('The Graduate Tracer Survey is not available right now because its graduation year coverage has not been configured. Please contact the administrator.');
         }
         return;
       }
 
       const response = await fetch(`${API_ROOT}/surveys/index.php`);
       const result = await response.json();
-      
-      if (result.success && result.data.length > 0) {
-        // Find the first active survey
-        const active = result.data.find((s: SurveySummary) => s.status === 'active');
-        if (active) {
-          setActiveSurvey(active);
-        }
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Unable to load the active survey.');
+      }
+
+      const active = (result.data || []).find((s: SurveySummary) => s.status === 'active');
+      if (!active) {
+        throw new Error('There is no active Graduate Tracer Survey available right now.');
+      }
+      setActiveSurvey(active);
+      if (!result.active_survey_coverage?.configured) {
+        setSurveyError('The Graduate Tracer Survey is not available right now because its graduation year coverage has not been configured. Please contact the administrator.');
       }
     } catch (error) {
-      console.error('Error fetching survey:', error);
+      setActiveSurvey(null);
+      setSurveyError(error instanceof Error ? error.message : 'Unable to load the active survey.');
+    } finally {
+      setLoadingSurvey(false);
     }
   };
 
@@ -297,6 +314,15 @@ function SurveyVerification() {
 
   const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loadingSurvey || surveyError) {
+      setMsgBox({
+        isOpen: true,
+        type: 'warning',
+        title: 'Survey Not Available',
+        message: surveyError || 'Please wait while the active survey is loading.',
+      });
+      return;
+    }
     const selectedIdentifier = verificationMethod === 'student_number' ? studentNumber.trim() : email.trim();
     const selectedIdentifierLabel = verificationMethod === 'student_number' ? 'student number' : 'email address';
     
@@ -408,17 +434,19 @@ function SurveyVerification() {
 
         setMsgBox({
           isOpen: true,
-          type: isAlreadyAnswered ? 'info' : 'error',
+          type: result.code === 'GRADUATION_YEAR_NOT_ELIGIBLE' || result.title === 'Survey Not Available'
+            ? 'warning'
+            : isAlreadyAnswered ? 'info' : 'error',
           message: isAlreadyAnswered
             ? result.data?.account_exists
               ? 'You already answered this survey and your Graduate Portal account already exists. Please log in instead.'
               : 'You already answered this survey. Thank you for your response.'
             : failureMessage,
-          title: isAlreadyAnswered
+          title: result.title || (isAlreadyAnswered
             ? result.data?.account_exists
               ? 'Account Already Exists'
               : 'Survey Already Answered'
-            : 'Verification Failed'
+            : 'Verification Failed')
         });
       }
     } catch (error) {
@@ -669,6 +697,13 @@ function SurveyVerification() {
           </p>
         </div>
 
+        {surveyError && (
+          <div className="mb-6 flex items-start space-x-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+            <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0" />
+            <p>{surveyError}</p>
+          </div>
+        )}
+
         <form onSubmit={handleVerify} className="space-y-4">
           <div>
             <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -773,13 +808,13 @@ function SurveyVerification() {
 
           <button
             type="submit"
-            disabled={loading || loadingPrograms}
+            disabled={loading || loadingPrograms || loadingSurvey || Boolean(surveyError)}
             className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-semibold transition shadow-md hover:shadow-lg flex items-center justify-center space-x-2"
           >
-            {loading ? (
+            {loading || loadingSurvey ? (
               <>
                 <Loader2 className="w-5 h-5 animate-spin" />
-                <span>Verifying...</span>
+                <span>{loading ? 'Verifying...' : 'Loading Survey...'}</span>
               </>
             ) : (
               <span>Verify & Continue</span>

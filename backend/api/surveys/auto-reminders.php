@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/survey_reminders.php';
+require_once __DIR__ . '/../config/graduation_years.php';
 
 gradtrack_require_cli();
 
@@ -122,8 +123,26 @@ function auto_reminder_default_message(int $intervalDays): string
         . ' while your response is still pending.';
 }
 
-function auto_reminder_load_recipients(PDO $db, int $intervalDays, int $limit): array
+function auto_reminder_load_recipients(PDO $db, int $surveyId, array $allowedYears, int $intervalDays, int $limit): array
 {
+    $whereParts = [
+        's.id = :survey_id',
+        "s.status = 'active'",
+        's.archived_at IS NULL',
+        'g.archived_at IS NULL',
+        'sr.id IS NULL',
+        'g.email IS NOT NULL',
+        "TRIM(g.email) <> ''",
+    ];
+    $params = [':survey_id' => $surveyId];
+    gradtrack_append_graduation_year_coverage_filter(
+        $whereParts,
+        $params,
+        'g.year_graduated',
+        $allowedYears,
+        'auto_reminder_coverage_year'
+    );
+
     $sql = "
         SELECT
             s.id AS survey_id,
@@ -143,16 +162,12 @@ function auto_reminder_load_recipients(PDO $db, int $intervalDays, int $limit): 
         LEFT JOIN survey_responses sr
             ON sr.survey_id = s.id
             AND sr.graduate_id = g.id
+            AND sr.submitted_at IS NOT NULL
         LEFT JOIN survey_reminder_logs rl
             ON rl.survey_id = s.id
             AND rl.graduate_id = g.id
             AND rl.status = 'sent'
-        WHERE s.status = 'active'
-          AND s.archived_at IS NULL
-          AND g.archived_at IS NULL
-          AND sr.id IS NULL
-          AND g.email IS NOT NULL
-          AND TRIM(g.email) <> ''
+        WHERE " . implode(' AND ', $whereParts) . "
         GROUP BY
             s.id,
             s.title,
@@ -176,6 +191,9 @@ function auto_reminder_load_recipients(PDO $db, int $intervalDays, int $limit): 
     ";
 
     $stmt = $db->prepare($sql);
+    foreach ($params as $placeholder => $value) {
+        $stmt->bindValue($placeholder, $value, PDO::PARAM_INT);
+    }
     $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
     $stmt->execute();
 
@@ -213,7 +231,30 @@ try {
         auto_reminder_arg('message', getenv('SURVEY_REMINDER_MESSAGE') ?: auto_reminder_default_message($intervalDays))
     );
 
-    $recipients = auto_reminder_load_recipients($db, $intervalDays, $limit);
+    $coverage = gradtrack_get_active_survey_graduation_year_coverage($db);
+    if ($coverage['survey'] === null) {
+        auto_reminder_response(200, [
+            'success' => true,
+            'message' => 'No active survey is available for automatic reminders.',
+            'counts' => ['eligible' => 0, 'sent' => 0, 'failed' => 0, 'skipped' => 0],
+        ]);
+    }
+    if (!$coverage['configured']) {
+        auto_reminder_response(500, [
+            'success' => false,
+            'code' => 'GRADUATION_YEAR_COVERAGE_NOT_CONFIGURED',
+            'error' => 'Graduation year coverage has not been configured for the active survey.',
+            'counts' => ['eligible' => 0, 'sent' => 0, 'failed' => 0, 'skipped' => 0],
+        ]);
+    }
+
+    $recipients = auto_reminder_load_recipients(
+        $db,
+        (int) $coverage['survey']['id'],
+        $coverage['years'],
+        $intervalDays,
+        $limit
+    );
     $sent = [];
     $failed = [];
     $skipped = [];

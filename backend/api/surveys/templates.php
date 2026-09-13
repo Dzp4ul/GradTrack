@@ -97,7 +97,8 @@ function getTemplateById($id) {
                 
                 // Section B - Educational Background
                 ['question_text' => '10. Degree Program & Specialization', 'question_type' => 'multiple_choice', 'options' => ['Bachelor of Science in Computer Science', 'Associate in Computer Technology', 'Bachelor of Secondary Education - General Science', 'Bachelor of Elementary Education', 'Bachelor of Science in Hospitality Management'], 'is_required' => 1, 'sort_order' => 13],
-                ['question_text' => '11. Year Graduated', 'question_type' => 'text', 'options' => null, 'is_required' => 1, 'sort_order' => 14],
+                // The administrator must explicitly enter the survey's covered years.
+                ['question_text' => '11. Year Graduated', 'question_type' => 'multiple_choice', 'options' => [], 'is_required' => 1, 'sort_order' => 14],
                 ['question_text' => '12. Honors / Awards Received', 'question_type' => 'checkbox', 'options' => ['Cum Laude', 'Magna Cum Laude', 'Leadership Award', 'Best in Thesis', "Dean's Lister", 'Academic Excellence'], 'is_required' => 0, 'sort_order' => 15],
                 
                 // Section C - Employment Data

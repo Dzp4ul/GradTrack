@@ -1148,6 +1148,16 @@ function gradtrack_genai_collect_survey_participation(
     $bindings = [
         ':participation_survey_id' => ['value' => $surveyId, 'type' => PDO::PARAM_INT],
     ];
+    $coverageYears = getReportGraduationYearCoverage($db, $surveyId);
+    if (is_array($coverageYears)) {
+        gradtrack_analytics_append_graduation_year_coverage(
+            $whereParts,
+            $bindings,
+            ['allowed_graduation_years' => $coverageYears],
+            'g',
+            'genai_participation_coverage'
+        );
+    }
 
     $program = null;
     if (($filters['program_id'] ?? null) !== null) {
@@ -1175,8 +1185,18 @@ function gradtrack_genai_collect_survey_participation(
 
     $year = $effectiveContext['year'] ?? ($filters['graduation_year'] ?? null);
     if ($year !== null) {
+        $normalizedYear = gradtrack_normalize_graduation_year($year);
+        if ($normalizedYear === null || (is_array($coverageYears) && !in_array($normalizedYear, $coverageYears, true))) {
+            return [
+                'available' => false,
+                'reason' => 'The requested graduation year is not included in the selected survey.',
+                'selected_survey' => $survey,
+                'source' => 'graduates/survey-status.php summary logic',
+            ];
+        }
         $whereParts[] = 'g.year_graduated = :participation_year_graduated';
-        $bindings[':participation_year_graduated'] = ['value' => (string)$year, 'type' => PDO::PARAM_STR];
+        $bindings[':participation_year_graduated'] = ['value' => $normalizedYear, 'type' => PDO::PARAM_INT];
+        $year = $normalizedYear;
     }
 
     $whereClause = count($whereParts) > 0 ? 'WHERE ' . implode(' AND ', $whereParts) : '';

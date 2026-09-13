@@ -4,6 +4,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/survey_response_analytics.php';
 require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/admin_auth.php';
+require_once __DIR__ . '/../config/graduation_years.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -39,9 +40,23 @@ try {
         exit;
     }
 
+    $coverage = gradtrack_get_survey_graduation_year_coverage($db, (int) $surveyId);
+    $analyticsOptions = [];
+    if ($coverage['configured']) {
+        $analyticsOptions['allowed_graduation_years'] = $coverage['years'];
+    } elseif (($survey['status'] ?? '') === 'active' && empty($survey['archived_at'])) {
+        http_response_code(422);
+        echo json_encode([
+            'success' => false,
+            'code' => 'GRADUATION_YEAR_COVERAGE_NOT_CONFIGURED',
+            'error' => 'Graduation year coverage has not been configured for the active survey.',
+        ]);
+        exit;
+    }
+
     // Current analytics intentionally exclude detached, inactive, and archived graduates.
     // The shared loader also selects one deterministic response per graduate.
-    $responses = gradtrack_analytics_fetch_valid_responses($db, (int)$surveyId);
+    $responses = gradtrack_analytics_fetch_valid_responses($db, (int)$surveyId, $analyticsOptions);
     $totalResponses = count($responses);
 
     // Get questions
@@ -56,7 +71,7 @@ try {
         'survey_id' => $surveyId,
         'survey_title' => $survey['title'],
         'total_responses' => $totalResponses,
-        'response_rate' => calculateResponseRate($db, $surveyId, $totalResponses),
+        'response_rate' => calculateResponseRate($db, $surveyId, $totalResponses, $coverage['configured'] ? $coverage['years'] : null),
         'completion_rate' => calculateCompletionRate($responses, $questions),
         'questions_analytics' => []
     ];
@@ -145,14 +160,30 @@ function isDisplayOnlyQuestion($question) {
     return $questionType === 'header' || strpos($questionText, 'professional examination(s) passed') === 0;
 }
 
-function calculateResponseRate($db, $surveyId, $validResponseCount = null) {
+function calculateResponseRate($db, $surveyId, $validResponseCount = null, ?array $allowedYears = null) {
     // Get total graduates
-    $stmt = $db->query("SELECT COUNT(*) as total FROM graduates WHERE status = 'active' AND archived_at IS NULL");
+    $where = ["g.status = 'active'", 'g.archived_at IS NULL'];
+    $params = [];
+    if (is_array($allowedYears)) {
+        gradtrack_append_graduation_year_coverage_filter(
+            $where,
+            $params,
+            'g.year_graduated',
+            $allowedYears,
+            'survey_analytics_coverage_year'
+        );
+    }
+    $stmt = $db->prepare('SELECT COUNT(*) AS total FROM graduates g WHERE ' . implode(' AND ', $where));
+    $stmt->execute($params);
     $totalGraduates = (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
     
     $totalResponses = $validResponseCount !== null
         ? (int)$validResponseCount
-        : count(gradtrack_analytics_fetch_valid_responses($db, (int)$surveyId));
+        : count(gradtrack_analytics_fetch_valid_responses(
+            $db,
+            (int)$surveyId,
+            is_array($allowedYears) ? ['allowed_graduation_years' => $allowedYears] : []
+        ));
     
     if ($totalGraduates === 0) return null;
     return round(($totalResponses / $totalGraduates) * 100, 2);

@@ -4,6 +4,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/survey_reminders.php';
 require_once __DIR__ . '/../config/admin_auth.php';
+require_once __DIR__ . '/../config/graduation_years.php';
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 use PHPMailer\PHPMailer\Exception as MailException;
@@ -179,26 +180,33 @@ try {
     gradtrack_ensure_archive_schema($db, 'surveys', true);
     gradtrack_survey_reminder_ensure_log_table($db);
 
-    $surveyId = isset($data['survey_id']) ? (int) $data['survey_id'] : 0;
-    if ($surveyId > 0) {
-        $surveyStmt = $db->prepare("SELECT id, title, status FROM surveys WHERE id = :id AND archived_at IS NULL LIMIT 1");
-        $surveyStmt->execute([':id' => $surveyId]);
-    } else {
-        $surveyStmt = $db->query("
-            SELECT id, title, status
-            FROM surveys
-            WHERE archived_at IS NULL
-            ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, created_at DESC, id DESC
-            LIMIT 1
-        ");
+    $requestedSurveyId = isset($data['survey_id']) ? (int) $data['survey_id'] : 0;
+    $coverage = gradtrack_get_active_survey_graduation_year_coverage($db);
+    if ($coverage['survey'] === null) {
+        notify_json_response(409, [
+            'success' => false,
+            'code' => 'NO_ACTIVE_SURVEY',
+            'error' => 'No active survey is available for reminders.',
+        ]);
+    }
+    if (!$coverage['configured']) {
+        notify_json_response(422, [
+            'success' => false,
+            'code' => 'GRADUATION_YEAR_COVERAGE_NOT_CONFIGURED',
+            'error' => 'Graduation year coverage has not been configured for the active survey.',
+        ]);
     }
 
-    $survey = $surveyStmt->fetch(PDO::FETCH_ASSOC);
-    if (!$survey) {
-        notify_json_response(404, ["success" => false, "error" => "Survey not found"]);
-    }
-
+    $survey = $coverage['survey'];
     $surveyId = (int) $survey['id'];
+    $allowedYears = $coverage['years'];
+    if ($requestedSurveyId > 0 && $requestedSurveyId !== $surveyId) {
+        notify_json_response(409, [
+            'success' => false,
+            'code' => 'ACTIVE_SURVEY_REQUIRED',
+            'error' => 'Reminders can only be sent for the active survey.',
+        ]);
+    }
     $mode = notify_clean_text($data['mode'] ?? 'selected');
     $onlyNotAnswered = array_key_exists('only_not_answered', $data)
         ? filter_var($data['only_not_answered'], FILTER_VALIDATE_BOOLEAN)
@@ -206,6 +214,13 @@ try {
 
     $whereParts = ['g.archived_at IS NULL'];
     $params = [':survey_id' => $surveyId];
+    gradtrack_append_graduation_year_coverage_filter(
+        $whereParts,
+        $params,
+        'g.year_graduated',
+        $allowedYears,
+        'notify_coverage_year'
+    );
 
     if ($isDean) {
         $scopePlaceholders = [];
@@ -236,9 +251,17 @@ try {
             $params[':program_id'] = (int) $filters['program_id'];
         }
 
-        if (isset($filters['year_graduated']) && (int) $filters['year_graduated'] > 0) {
+        if (isset($filters['year_graduated']) && trim((string) $filters['year_graduated']) !== '') {
+            $requestedYear = gradtrack_normalize_graduation_year($filters['year_graduated']);
+            if ($requestedYear === null || !in_array($requestedYear, $allowedYears, true)) {
+                notify_json_response(422, [
+                    'success' => false,
+                    'code' => 'GRADUATION_YEAR_OUTSIDE_ACTIVE_SURVEY',
+                    'error' => 'The selected graduation year is not included in the active survey.',
+                ]);
+            }
             $whereParts[] = 'g.year_graduated = :year_graduated';
-            $params[':year_graduated'] = (int) $filters['year_graduated'];
+            $params[':year_graduated'] = $requestedYear;
         }
 
         $status = notify_clean_text($filters['status'] ?? 'not_answered');
@@ -287,7 +310,7 @@ try {
             COUNT(sr.id) AS response_count
         FROM graduates g
         LEFT JOIN programs p ON p.id = g.program_id
-        LEFT JOIN survey_responses sr ON sr.graduate_id = g.id AND sr.survey_id = :survey_id
+        LEFT JOIN survey_responses sr ON sr.graduate_id = g.id AND sr.survey_id = :survey_id AND sr.submitted_at IS NOT NULL
         $whereClause
         GROUP BY g.id
         $havingClause

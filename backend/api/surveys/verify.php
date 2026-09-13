@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/system_settings.php';
 require_once __DIR__ . '/../config/archive.php';
+require_once __DIR__ . '/../config/graduation_years.php';
 
 function survey_verification_graduate_name(array $graduate): string
 {
@@ -152,6 +153,60 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $graduateProfile = survey_verification_graduate_profile($graduate);
+
+        // Eligibility is based on the Registrar's stored graduation year and the
+        // active survey's configured Year Graduated options. Student-number
+        // prefixes and client-provided values are never used for this decision.
+        $coverage = gradtrack_get_active_survey_graduation_year_coverage($conn);
+        if ($coverage['survey'] === null) {
+            http_response_code(404);
+            echo json_encode([
+                'success' => false,
+                'code' => 'NO_ACTIVE_SURVEY',
+                'title' => 'Survey Not Available',
+                'error' => 'Survey not available',
+                'message' => 'There is no active Graduate Tracer Survey available right now.',
+            ]);
+            exit();
+        }
+        if (!$coverage['configured']) {
+            http_response_code(503);
+            echo json_encode([
+                'success' => false,
+                'code' => 'GRADUATION_YEAR_COVERAGE_NOT_CONFIGURED',
+                'title' => 'Survey Not Available',
+                'error' => 'Survey not available',
+                'message' => 'The Graduate Tracer Survey is not available right now because its graduation year coverage has not been configured. Please contact the administrator.',
+            ]);
+            exit();
+        }
+
+        $activeSurveyId = (int) $coverage['survey']['id'];
+        if ($surveyId !== null && (int) $surveyId !== $activeSurveyId) {
+            http_response_code(403);
+            echo json_encode([
+                'success' => false,
+                'code' => 'ACTIVE_SURVEY_REQUIRED',
+                'title' => 'Survey Not Available',
+                'error' => 'Survey not active',
+                'message' => 'This Graduate Tracer Survey is no longer active.',
+            ]);
+            exit();
+        }
+        $surveyId = $activeSurveyId;
+
+        if (!gradtrack_graduation_year_is_allowed($graduate['year_graduated'] ?? null, $coverage['years'])) {
+            $coverageLabel = gradtrack_format_graduation_year_coverage($coverage['years']);
+            http_response_code(403);
+            echo json_encode([
+                'success' => false,
+                'code' => 'GRADUATION_YEAR_NOT_ELIGIBLE',
+                'title' => 'Survey Not Available',
+                'error' => 'Graduation year not included',
+                'message' => "This Graduate Tracer Survey is currently intended for graduates from {$coverageLabel}. Your graduation year is not included in the current survey.",
+            ]);
+            exit();
+        }
         
         // Step 3: Check if survey exists
         if ($surveyId) {

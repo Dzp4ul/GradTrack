@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/system_settings.php';
 require_once __DIR__ . '/../config/archive.php';
+require_once __DIR__ . '/../config/graduation_years.php';
 
 $database = new Database();
 $conn = $database->getConnection();
@@ -103,6 +104,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 "success" => false,
                 "error" => "Survey inactive",
                 "message" => "This survey is no longer active"
+            ]);
+            exit();
+        }
+
+        $coverage = gradtrack_get_active_survey_graduation_year_coverage($conn);
+        if ($coverage['survey'] === null || (int) $coverage['survey']['id'] !== (int) $tokenData['survey_id']) {
+            http_response_code(403);
+            echo json_encode([
+                'success' => false,
+                'code' => 'ACTIVE_SURVEY_REQUIRED',
+                'error' => 'Survey not active',
+                'message' => 'This Graduate Tracer Survey is no longer active.',
+            ]);
+            exit();
+        }
+        if (!$coverage['configured']) {
+            http_response_code(503);
+            echo json_encode([
+                'success' => false,
+                'code' => 'GRADUATION_YEAR_COVERAGE_NOT_CONFIGURED',
+                'error' => 'Survey not available',
+                'message' => 'The active survey graduation year coverage has not been configured.',
+            ]);
+            exit();
+        }
+        if (!gradtrack_graduation_year_is_allowed($tokenData['year_graduated'] ?? null, $coverage['years'])) {
+            http_response_code(403);
+            echo json_encode([
+                'success' => false,
+                'code' => 'GRADUATION_YEAR_NOT_ELIGIBLE',
+                'error' => 'Survey not available',
+                'message' => 'Your graduation year is not included in the current survey.',
             ]);
             exit();
         }

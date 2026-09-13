@@ -39,6 +39,8 @@ interface StatusData {
     title: string;
     status: string;
   } | null;
+  allowed_graduation_years?: number[];
+  configuration_error?: string | null;
   eligible_count: number;
   interval_days: number;
   email_enabled: boolean;
@@ -228,6 +230,16 @@ export default function AutoReminders() {
       return;
     }
 
+    if (statusData.configuration_error) {
+      setMsgBox({
+        isOpen: true,
+        type: 'warning',
+        title: 'Survey Configuration Required',
+        message: statusData.configuration_error,
+      });
+      return;
+    }
+
     if (!statusData.email_enabled) {
       setMsgBox({
         isOpen: true,
@@ -308,6 +320,12 @@ export default function AutoReminders() {
       {/* Tab: Dashboard */}
       {activeTab === 'dashboard' && statusData && (
         <div className="space-y-6">
+          {statusData.configuration_error && (
+            <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+              <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0" />
+              <p>{statusData.configuration_error}</p>
+            </div>
+          )}
           {/* Status Cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
             <StatusCard
@@ -473,7 +491,7 @@ export default function AutoReminders() {
 
             <button
               onClick={confirmSend}
-              disabled={sending || !statusData?.active_survey || statusData.eligible_count === 0}
+              disabled={sending || !statusData?.active_survey || Boolean(statusData.configuration_error) || statusData.eligible_count === 0}
               className="flex items-center gap-2 bg-blue-900 hover:bg-blue-800 text-white px-6 py-2.5 rounded-lg font-semibold transition-colors disabled:opacity-60 disabled:cursor-not-allowed shadow-md hover:shadow-lg"
             >
               {sending ? (

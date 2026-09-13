@@ -210,7 +210,29 @@ function getProgramById(PDO $db, int $programId): ?array
     return $program ?: null;
 }
 
-function getOverviewFilters(PDO $db, ?array $allowedProgramCodes): array
+function getReportGraduationYearCoverage(PDO $db, ?int $surveyId): ?array
+{
+    if ($surveyId === null) {
+        return null;
+    }
+
+    $coverage = gradtrack_get_survey_graduation_year_coverage($db, $surveyId);
+    if ($coverage['configured']) {
+        return $coverage['years'];
+    }
+
+    if (($coverage['survey']['status'] ?? '') === 'active' && empty($coverage['survey']['archived_at'])) {
+        throw new ReportValidationException(
+            'Graduation year coverage has not been configured for the active survey.',
+            422
+        );
+    }
+
+    // Legacy historical surveys without coverage options remain reportable.
+    return null;
+}
+
+function getOverviewFilters(PDO $db, ?array $allowedProgramCodes, ?int $surveyId = null): array
 {
     $employmentStatus = getOptionalQueryValue(['employmentStatus', 'employment_status']);
     if ($employmentStatus !== null) {
@@ -234,6 +256,10 @@ function getOverviewFilters(PDO $db, ?array $allowedProgramCodes): array
     $graduationYear = getOptionalQueryValue(['graduationYear', 'graduation_year']);
     if ($graduationYear !== null && preg_match('/^(19|20)\d{2}$/', $graduationYear) !== 1) {
         throw new ReportValidationException('Invalid graduationYear parameter. Use a four-digit year.');
+    }
+    $coverageYears = getReportGraduationYearCoverage($db, $surveyId);
+    if ($graduationYear !== null && is_array($coverageYears) && !in_array((int) $graduationYear, $coverageYears, true)) {
+        throw new ReportValidationException('The selected graduation year is not included in this survey.', 422);
     }
 
     $programIdText = getOptionalQueryValue(['programId', 'program_id', 'courseId', 'course_id']);
@@ -293,25 +319,35 @@ function getOverviewFilterOptions(PDO $db, ?int $surveyId, ?array $allowedProgra
 {
     $years = [];
     if ($surveyId !== null) {
-        $questions = getSurveyQuestions($db, $surveyId);
-        $responses = getSurveyResponses($db, $surveyId);
-        $yearValues = [];
-        foreach ($responses as $response) {
-            $rowProgramCode = strtoupper(trim((string)($response['program_code'] ?? '')));
-            if (is_array($allowedProgramCodes)
-                && ($rowProgramCode === '' || !in_array($rowProgramCode, $allowedProgramCodes, true))) {
-                continue;
-            }
+        $coverageYears = getReportGraduationYearCoverage($db, $surveyId);
+        if (is_array($coverageYears)) {
+            $years = array_map('strval', $coverageYears);
+        } else {
+            $questions = getSurveyQuestions($db, $surveyId);
+            $responses = getSurveyResponses($db, $surveyId);
+            $yearValues = [];
+            foreach ($responses as $response) {
+                $rowProgramCode = strtoupper(trim((string)($response['program_code'] ?? '')));
+                if (is_array($allowedProgramCodes)
+                    && ($rowProgramCode === '' || !in_array($rowProgramCode, $allowedProgramCodes, true))) {
+                    continue;
+                }
 
-            $details = getReportResponseDetails($response, $questions);
-            $yearValues[] = $details['year_graduated'] ?? null;
+                $details = getReportResponseDetails($response, $questions);
+                $yearValues[] = $details['year_graduated'] ?? null;
+            }
+            $years = array_map('strval', gradtrack_normalize_graduation_years($yearValues));
         }
-        $years = array_map('strval', gradtrack_normalize_graduation_years($yearValues));
     }
 
-    $programDimensions = gradtrack_analytics_fetch_program_dimensions($db, [
+    $programOptions = [
         'program_codes' => $allowedProgramCodes,
-    ]);
+    ];
+    $coverageYears = getReportGraduationYearCoverage($db, $surveyId);
+    if (is_array($coverageYears)) {
+        $programOptions['allowed_graduation_years'] = $coverageYears;
+    }
+    $programDimensions = gradtrack_analytics_fetch_program_dimensions($db, $programOptions);
     $programs = array_map(static function ($row) {
         return [
             'id' => (int)$row['program_id'],
@@ -434,9 +470,14 @@ function getSurveyResponses(PDO $db, ?int $surveyId, array $overviewFilters = []
         return [];
     }
 
-    return gradtrack_analytics_fetch_valid_responses($db, $surveyId, [
+    $options = [
         'program_id' => $overviewFilters['program_id'] ?? null,
-    ]);
+    ];
+    $coverageYears = getReportGraduationYearCoverage($db, $surveyId);
+    if (is_array($coverageYears)) {
+        $options['allowed_graduation_years'] = $coverageYears;
+    }
+    return gradtrack_analytics_fetch_valid_responses($db, $surveyId, $options);
 }
 
 function getReportResponseDetails(array $response, array $questions): array
@@ -639,7 +680,19 @@ try {
         exit;
     }
 
-    $overviewFilters = getOverviewFilters($db, $allowedProgramCodes);
+    $coverageYears = getReportGraduationYearCoverage($db, $selectedSurveyId);
+    if ($filterYear !== null) {
+        $normalizedFilterYear = gradtrack_normalize_graduation_year($filterYear);
+        if ($normalizedFilterYear === null) {
+            throw new ReportValidationException('Invalid year parameter. Use a four-digit year.');
+        }
+        if (is_array($coverageYears) && !in_array($normalizedFilterYear, $coverageYears, true)) {
+            throw new ReportValidationException('The selected graduation year is not included in this survey.', 422);
+        }
+        $filterYear = (string) $normalizedFilterYear;
+    }
+
+    $overviewFilters = getOverviewFilters($db, $allowedProgramCodes, $selectedSurveyId);
 
     if ($reportType === 'overview_filter_options') {
         echo json_encode([

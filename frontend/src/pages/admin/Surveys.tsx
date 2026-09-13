@@ -5,7 +5,7 @@ import {
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import MessageBox from '../../components/MessageBox';
 import { API_ROOT } from '../../config/api';
-import { normalizeGraduationYears } from '../../utils/graduationYears';
+import { analyzeGraduationYearOptions, isGraduationYearQuestion } from '../../utils/graduationYears';
 
 const API_BASE = API_ROOT;
 
@@ -80,7 +80,7 @@ export default function Surveys() {
     routeSearchParams.get('archive') === 'archived' ? 'archived' : 'active'
   );
   const [archiveCounts, setArchiveCounts] = useState({ active: 0, archived: 0 });
-  const [graduationYearOptions, setGraduationYearOptions] = useState<string[]>([]);
+  const [coverageWarning, setCoverageWarning] = useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
@@ -139,9 +139,11 @@ export default function Surveys() {
           });
           setSurveys(surveysWithDetails);
           setArchiveCounts(res.archive_counts || { active: 0, archived: 0 });
-          setGraduationYearOptions(normalizeGraduationYears(
-            Array.isArray(res.graduation_year_options) ? res.graduation_year_options : []
-          ));
+          setCoverageWarning(
+            res.active_survey_coverage?.survey_id && !res.active_survey_coverage?.configured
+              ? res.active_survey_coverage?.error || 'Graduation year coverage has not been configured for the active survey.'
+              : ''
+          );
           const nextPagination = res.pagination || { total: surveysWithDetails.length, page: 1, limit, pages: 1 };
           setPagination(nextPagination);
           if (page > Math.max(1, Number(nextPagination.pages || 1))) {
@@ -202,8 +204,8 @@ export default function Surveys() {
         { question_text: 'Degree Program & Specialization', question_type: 'multiple_choice', options: ['Bachelor of Secondary Education Major in General Science', 'Bachelor of Elementary Education', 'Bachelor of Science in Hospitality Management', 'Bachelor of Science in Computer Science', 'Associate in Computer Technology' ], is_required: 1, sort_order: 13, section: 'Educational Background' },
         {
           question_text: 'Year Graduated',
-          question_type: graduationYearOptions.length > 0 ? 'multiple_choice' : 'text',
-          options: graduationYearOptions.length > 0 ? graduationYearOptions : null,
+          question_type: 'multiple_choice',
+          options: [],
           is_required: 1,
           sort_order: 14,
           section: 'Educational Background',
@@ -354,13 +356,43 @@ export default function Surveys() {
       return;
     }
 
+    const yearQuestionIndexes = formData.questions
+      .map((question, index) => isGraduationYearQuestion(question.question_text) ? index : -1)
+      .filter((index) => index >= 0);
+    const coverageErrors: string[] = [];
+    if (yearQuestionIndexes.length > 1) {
+      coverageErrors.push('Only one Year Graduated question can define survey coverage.');
+    }
+    if (formData.status === 'active' && yearQuestionIndexes.length === 0) {
+      coverageErrors.push('Add a Year Graduated multiple-choice question before activating this survey.');
+    }
+
+    const normalizedQuestions = formData.questions.map((question, index) => {
+      if (!yearQuestionIndexes.includes(index)) return question;
+      if (question.question_type !== 'multiple_choice') {
+        coverageErrors.push('Year Graduated must use the Multiple Choice question type.');
+      }
+      const analysis = analyzeGraduationYearOptions(question.options || []);
+      coverageErrors.push(...analysis.errors);
+      return { ...question, options: analysis.years };
+    });
+
+    if (coverageErrors.length > 0) {
+      setMsgBox({
+        isOpen: true,
+        type: 'error',
+        title: 'Invalid Year Graduated Coverage',
+        message: Array.from(new Set(coverageErrors)).join('\n'),
+      });
+      return;
+    }
+
     const method = isEditing ? 'PUT' : 'POST';
-    console.log('Submitting survey data:', formData);
     fetch(`${API_BASE}/surveys/index.php`, {
       method,
       headers: { 'Content-Type': 'application/json' },
       credentials: 'include',
-      body: JSON.stringify(formData),
+      body: JSON.stringify({ ...formData, questions: normalizedQuestions }),
     })
       .then((r) => r.json())
       .then((res) => {
@@ -501,6 +533,12 @@ export default function Surveys() {
           </button>}
         </div>
       </div>
+
+      {coverageWarning && archiveView === 'active' && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <span className="font-semibold">Active survey configuration:</span> {coverageWarning}
+        </div>
+      )}
 
       <div className="flex flex-col gap-3 rounded-xl border bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <nav aria-label="Survey sections" className="flex flex-wrap gap-2">
@@ -910,7 +948,11 @@ export default function Surveys() {
                                 </div>
                                 {!isHeader && (q.question_type === 'multiple_choice' || q.question_type === 'radio' || q.question_type === 'checkbox') && (
                                   <div>
-                                    <label className="block text-sm font-semibold text-gray-700 mb-2">Options (one per line)</label>
+                                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                                      {isGraduationYearQuestion(q.question_text)
+                                        ? 'Options (official survey graduation-year coverage)'
+                                        : 'Options (one per line)'}
+                                    </label>
                                     <textarea
                                       value={q.options?.join('\n') || ''}
                                       onChange={(e) => updateQuestion(i, 'options', e.target.value.split('\n'))}
@@ -918,6 +960,11 @@ export default function Surveys() {
                                       placeholder="Option 1&#10;Option 2&#10;Option 3"
                                       className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition resize-none"
                                     />
+                                    {isGraduationYearQuestion(q.question_text) && (
+                                      <p className="mt-2 text-xs text-gray-500">
+                                        Enter one four-digit year per line. These exact years control survey eligibility, monitoring, filters, and reminders.
+                                      </p>
+                                    )}
                                   </div>
                                 )}
                               </div>

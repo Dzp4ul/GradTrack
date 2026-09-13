@@ -163,6 +163,13 @@ try {
 
                     $survey['created_by'] = trim((string)($survey['created_by'] ?? '')) ?: gradtrack_current_admin_display_name();
                     $survey['modified_by'] = trim((string)($survey['modified_by'] ?? '')) ?: $survey['created_by'];
+                    $coverage = gradtrack_get_survey_graduation_year_coverage($db, (int) $survey['id']);
+                    $survey['graduation_year_coverage'] = [
+                        'configured' => (bool) $coverage['configured'],
+                        'years' => $coverage['years'],
+                        'question_id' => $coverage['question_id'],
+                        'error' => $coverage['error'],
+                    ];
 
                     echo json_encode(["success" => true, "data" => $survey]);
                 } else {
@@ -221,10 +228,17 @@ try {
                         'archived' => (int)($countRows['archived'] ?? 0),
                     ];
                 }
+                $activeCoverage = gradtrack_get_active_survey_graduation_year_coverage($db);
                 echo json_encode([
                     "success" => true,
                     "data" => $surveys,
-                    'graduation_year_options' => gradtrack_fetch_graduate_years($db, 'active'),
+                    'graduation_year_options' => $activeCoverage['configured'] ? $activeCoverage['years'] : [],
+                    'active_survey_coverage' => [
+                        'survey_id' => $activeCoverage['survey'] !== null ? (int) $activeCoverage['survey']['id'] : null,
+                        'configured' => (bool) $activeCoverage['configured'],
+                        'years' => $activeCoverage['years'],
+                        'error' => $activeCoverage['error'],
+                    ],
                     'archive_counts' => $counts,
                     'pagination' => [
                         'total' => $total,
@@ -267,6 +281,19 @@ try {
                 echo json_encode(['success' => false, 'error' => 'Invalid survey status']);
                 break;
             }
+
+            $questions = isset($data['questions']) && is_array($data['questions']) ? $data['questions'] : [];
+            $questionValidation = gradtrack_prepare_survey_questions($questions, $status === 'active');
+            if ($questionValidation['errors'] !== []) {
+                http_response_code(422);
+                echo json_encode([
+                    'success' => false,
+                    'error' => implode("\n", $questionValidation['errors']),
+                    'code' => 'INVALID_GRADUATION_YEAR_COVERAGE',
+                ]);
+                break;
+            }
+            $data['questions'] = $questionValidation['questions'];
 
             $db->beginTransaction();
 
@@ -432,6 +459,31 @@ try {
                     ]);
                     break;
                 }
+            }
+
+            if (isset($data['questions']) && is_array($data['questions'])) {
+                $questionsForValidation = $data['questions'];
+            } else {
+                $questionsForValidationStmt = $db->prepare(
+                    'SELECT id, section, question_text, question_type, options, is_required, sort_order
+                     FROM survey_questions WHERE survey_id = :survey_id ORDER BY sort_order ASC, id ASC'
+                );
+                $questionsForValidationStmt->execute([':survey_id' => $surveyId]);
+                $questionsForValidation = $questionsForValidationStmt->fetchAll(PDO::FETCH_ASSOC);
+            }
+            $questionValidation = gradtrack_prepare_survey_questions($questionsForValidation, $status === 'active');
+            if ($questionValidation['errors'] !== []) {
+                $db->rollBack();
+                http_response_code(422);
+                echo json_encode([
+                    'success' => false,
+                    'error' => implode("\n", $questionValidation['errors']),
+                    'code' => 'INVALID_GRADUATION_YEAR_COVERAGE',
+                ]);
+                break;
+            }
+            if (isset($data['questions']) && is_array($data['questions'])) {
+                $data['questions'] = $questionValidation['questions'];
             }
 
             if ($auditColumnsReady) {

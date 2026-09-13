@@ -4,6 +4,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/survey_reminders.php';
 require_once __DIR__ . '/../config/admin_auth.php';
+require_once __DIR__ . '/../config/graduation_years.php';
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 use PHPMailer\PHPMailer\Exception as MailException;
@@ -167,27 +168,39 @@ function super_reminder_get_setting(PDO $db, string $key, string $default): stri
 
 function super_reminder_get_active_survey(PDO $db): ?array
 {
-    $stmt = $db->query("SELECT id, title, status, created_at, updated_at FROM surveys WHERE status = 'active' AND archived_at IS NULL ORDER BY updated_at DESC, id DESC LIMIT 1");
-    $survey = $stmt->fetch(PDO::FETCH_ASSOC);
-    return $survey ?: null;
+    $coverage = gradtrack_get_active_survey_graduation_year_coverage($db);
+    return $coverage['survey'];
 }
 
-function super_reminder_get_eligible_graduates(PDO $db, int $surveyId, int $limit = 5000): array
+function super_reminder_get_eligible_graduates(PDO $db, int $surveyId, array $allowedYears, int $limit = 5000): array
 {
+    $whereParts = [
+        'sr.id IS NULL',
+        'g.archived_at IS NULL',
+        'g.email IS NOT NULL',
+        "TRIM(g.email) <> ''",
+    ];
+    $params = [':survey_id' => $surveyId];
+    gradtrack_append_graduation_year_coverage_filter(
+        $whereParts,
+        $params,
+        'g.year_graduated',
+        $allowedYears,
+        'super_reminder_coverage_year'
+    );
     $sql = "
         SELECT g.id, g.student_id, g.first_name, g.last_name, g.email, p.code AS program_code
         FROM graduates g
         LEFT JOIN programs p ON p.id = g.program_id
-        LEFT JOIN survey_responses sr ON sr.graduate_id = g.id AND sr.survey_id = :survey_id
-        WHERE sr.id IS NULL
-          AND g.archived_at IS NULL
-          AND g.email IS NOT NULL
-          AND TRIM(g.email) <> ''
+        LEFT JOIN survey_responses sr ON sr.graduate_id = g.id AND sr.survey_id = :survey_id AND sr.submitted_at IS NOT NULL
+        WHERE " . implode(' AND ', $whereParts) . "
         ORDER BY g.last_name ASC, g.first_name ASC
         LIMIT :limit
     ";
     $stmt = $db->prepare($sql);
-    $stmt->bindValue(':survey_id', $surveyId, PDO::PARAM_INT);
+    foreach ($params as $placeholder => $value) {
+        $stmt->bindValue($placeholder, $value, PDO::PARAM_INT);
+    }
     $stmt->bindValue(':limit', $limit, PDO::PARAM_INT);
     $stmt->execute();
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -250,10 +263,11 @@ try {
         $action = super_reminder_clean_text($_GET['action'] ?? 'status');
 
         if ($action === 'status') {
-            $activeSurvey = super_reminder_get_active_survey($db);
+            $coverage = gradtrack_get_active_survey_graduation_year_coverage($db);
+            $activeSurvey = $coverage['survey'];
             $eligibleCount = 0;
-            if ($activeSurvey) {
-                $eligible = super_reminder_get_eligible_graduates($db, (int) $activeSurvey['id'], 999999);
+            if ($activeSurvey && $coverage['configured']) {
+                $eligible = super_reminder_get_eligible_graduates($db, (int) $activeSurvey['id'], $coverage['years'], 999999);
                 $eligibleCount = count($eligible);
             }
 
@@ -264,6 +278,10 @@ try {
                 'success' => true,
                 'data' => [
                     'active_survey' => $activeSurvey,
+                    'allowed_graduation_years' => $coverage['years'],
+                    'configuration_error' => $activeSurvey && !$coverage['configured']
+                        ? 'Graduation year coverage has not been configured for the active survey.'
+                        : null,
                     'eligible_count' => $eligibleCount,
                     'interval_days' => $intervalDays,
                     'email_enabled' => $emailEnabled,
@@ -283,20 +301,25 @@ try {
         }
 
         if ($action === 'eligible') {
+            $coverage = gradtrack_get_active_survey_graduation_year_coverage($db);
+            if ($coverage['survey'] === null) {
+                super_reminder_json_response(409, ['success' => false, 'error' => 'No active survey found']);
+            }
+            if (!$coverage['configured']) {
+                super_reminder_json_response(422, [
+                    'success' => false,
+                    'code' => 'GRADUATION_YEAR_COVERAGE_NOT_CONFIGURED',
+                    'error' => 'Graduation year coverage has not been configured for the active survey.',
+                ]);
+            }
             $surveyId = isset($_GET['survey_id']) ? (int) $_GET['survey_id'] : 0;
             if ($surveyId <= 0) {
-                $activeSurvey = super_reminder_get_active_survey($db);
-                $surveyId = $activeSurvey ? (int) $activeSurvey['id'] : 0;
+                $surveyId = (int) $coverage['survey']['id'];
             }
-            if ($surveyId <= 0) {
-                super_reminder_json_response(400, ['success' => false, 'error' => 'No active survey found']);
+            if ($surveyId !== (int) $coverage['survey']['id']) {
+                super_reminder_json_response(409, ['success' => false, 'error' => 'Reminders can only use the active survey']);
             }
-            $surveyStmt = $db->prepare('SELECT id FROM surveys WHERE id = :id AND archived_at IS NULL LIMIT 1');
-            $surveyStmt->execute([':id' => $surveyId]);
-            if (!$surveyStmt->fetch(PDO::FETCH_ASSOC)) {
-                super_reminder_json_response(404, ['success' => false, 'error' => 'Survey not found']);
-            }
-            $eligible = super_reminder_get_eligible_graduates($db, $surveyId);
+            $eligible = super_reminder_get_eligible_graduates($db, $surveyId, $coverage['years']);
             echo json_encode([
                 'success' => true,
                 'data' => $eligible,
@@ -317,13 +340,23 @@ try {
         $action = super_reminder_clean_text($data['action'] ?? 'send_reminders');
 
         if ($action === 'send_reminders') {
+            $coverage = gradtrack_get_active_survey_graduation_year_coverage($db);
+            if ($coverage['survey'] === null) {
+                super_reminder_json_response(409, ['success' => false, 'error' => 'No active survey found']);
+            }
+            if (!$coverage['configured']) {
+                super_reminder_json_response(422, [
+                    'success' => false,
+                    'code' => 'GRADUATION_YEAR_COVERAGE_NOT_CONFIGURED',
+                    'error' => 'Graduation year coverage has not been configured for the active survey.',
+                ]);
+            }
             $surveyId = isset($data['survey_id']) ? (int) $data['survey_id'] : 0;
             if ($surveyId <= 0) {
-                $activeSurvey = super_reminder_get_active_survey($db);
-                $surveyId = $activeSurvey ? (int) $activeSurvey['id'] : 0;
+                $surveyId = (int) $coverage['survey']['id'];
             }
-            if ($surveyId <= 0) {
-                super_reminder_json_response(400, ['success' => false, 'error' => 'No active survey found']);
+            if ($surveyId !== (int) $coverage['survey']['id']) {
+                super_reminder_json_response(409, ['success' => false, 'error' => 'Reminders can only use the active survey']);
             }
 
             $surveyStmt = $db->prepare("SELECT id, title, status FROM surveys WHERE id = :id AND archived_at IS NULL LIMIT 1");
@@ -357,6 +390,19 @@ try {
 
             if (!empty($graduateIds)) {
                 $params = [':survey_id' => $surveyId];
+                $whereParts = [
+                    'g.archived_at IS NULL',
+                    'sr.id IS NULL',
+                    'g.email IS NOT NULL',
+                    "TRIM(g.email) <> ''",
+                ];
+                gradtrack_append_graduation_year_coverage_filter(
+                    $whereParts,
+                    $params,
+                    'g.year_graduated',
+                    $coverage['years'],
+                    'super_selected_coverage_year'
+                );
                 $idPlaceholders = [];
                 foreach ($graduateIds as $index => $id) {
                     $placeholder = ':gid_' . $index;
@@ -367,19 +413,16 @@ try {
                     SELECT g.id, g.student_id, g.first_name, g.last_name, g.email, p.code AS program_code
                     FROM graduates g
                     LEFT JOIN programs p ON p.id = g.program_id
-                    LEFT JOIN survey_responses sr ON sr.graduate_id = g.id AND sr.survey_id = :survey_id
+                    LEFT JOIN survey_responses sr ON sr.graduate_id = g.id AND sr.survey_id = :survey_id AND sr.submitted_at IS NOT NULL
                     WHERE g.id IN (" . implode(', ', $idPlaceholders) . ")
-                      AND g.archived_at IS NULL
-                      AND sr.id IS NULL
-                      AND g.email IS NOT NULL
-                      AND TRIM(g.email) <> ''
+                      AND " . implode(' AND ', $whereParts) . "
                     ORDER BY g.last_name ASC, g.first_name ASC
                 ";
                 $stmt = $db->prepare($sql);
                 $stmt->execute($params);
                 $recipients = $stmt->fetchAll(PDO::FETCH_ASSOC);
             } else {
-                $recipients = super_reminder_get_eligible_graduates($db, $surveyId);
+                $recipients = super_reminder_get_eligible_graduates($db, $surveyId, $coverage['years']);
             }
 
             if (empty($recipients)) {

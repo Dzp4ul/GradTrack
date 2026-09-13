@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/survey_response_analytics.php';
 require_once __DIR__ . '/../config/admin_auth.php';
+require_once __DIR__ . '/../config/graduation_years.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -103,7 +104,17 @@ function getOverviewData(PDO $db, ?int $surveyId): array
         ];
     }
 
-    $analytics = gradtrack_analytics_calculate($db, $surveyId);
+    $coverage = gradtrack_get_survey_graduation_year_coverage($db, $surveyId);
+    $options = $coverage['configured']
+        ? ['allowed_graduation_years' => $coverage['years']]
+        : [];
+    if (!$coverage['configured']
+        && ($coverage['survey']['status'] ?? '') === 'active'
+        && empty($coverage['survey']['archived_at'])) {
+        throw new RuntimeException('Graduation year coverage has not been configured for the active survey.');
+    }
+
+    $analytics = gradtrack_analytics_calculate($db, $surveyId, $options);
     $summary = $analytics['summary'];
 
     return [
@@ -837,6 +848,21 @@ try {
     $selectedYear = (string)($_GET['year'] ?? 'all');
     $selectedDepartment = strtoupper((string)($_GET['department'] ?? 'all'));
     $selectedSurveyId = getSelectedSurveyId($db);
+
+    if ($selectedSurveyId !== null) {
+        $selectedCoverage = gradtrack_get_survey_graduation_year_coverage($db, $selectedSurveyId);
+        if (!$selectedCoverage['configured']
+            && ($selectedCoverage['survey']['status'] ?? '') === 'active'
+            && empty($selectedCoverage['survey']['archived_at'])) {
+            http_response_code(422);
+            echo json_encode([
+                'success' => false,
+                'code' => 'GRADUATION_YEAR_COVERAGE_NOT_CONFIGURED',
+                'error' => 'Graduation year coverage has not been configured for the active survey.',
+            ]);
+            exit;
+        }
+    }
 
     $requestBody = json_decode((string)file_get_contents('php://input'), true);
     $reportData = is_array($requestBody) && array_key_exists('report_data', $requestBody)

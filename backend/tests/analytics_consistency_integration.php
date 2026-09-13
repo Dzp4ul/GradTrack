@@ -35,10 +35,15 @@ try {
     analytics_assert($surveyId > 0, 'an active, non-archived survey is available');
 
     if ($surveyId > 0) {
+        $coverage = gradtrack_get_survey_graduation_year_coverage($db, $surveyId);
+        analytics_assert($coverage['configured'], 'the active survey has configured graduation-year coverage');
+        $coverageOptions = $coverage['configured']
+            ? ['allowed_graduation_years' => $coverage['years']]
+            : ['allowed_graduation_years' => []];
         $analytics = gradtrack_analytics_calculate($db, $surveyId, [
             'include_empty_programs' => true,
             'include_empty_years' => true,
-        ]);
+        ] + $coverageOptions);
         $summary = $analytics['summary'];
         $programs = $analytics['by_program'];
         $years = $analytics['by_year'];
@@ -61,16 +66,27 @@ try {
             );
         }
 
+        $eligibleWhere = [
+            'sr.survey_id = :survey_id',
+            'sr.submitted_at IS NOT NULL',
+            "g.status = 'active'",
+            'g.archived_at IS NULL',
+        ];
+        $eligibleParams = [':survey_id' => $surveyId];
+        gradtrack_append_graduation_year_coverage_filter(
+            $eligibleWhere,
+            $eligibleParams,
+            'g.year_graduated',
+            $coverage['years'],
+            'analytics_test_coverage_year'
+        );
         $eligibleStmt = $db->prepare(
             "SELECT COUNT(DISTINCT sr.graduate_id)
              FROM survey_responses sr
              INNER JOIN graduates g ON g.id = sr.graduate_id
-             WHERE sr.survey_id = :survey_id
-               AND sr.submitted_at IS NOT NULL
-               AND g.status = 'active'
-               AND g.archived_at IS NULL"
+             WHERE " . implode(' AND ', $eligibleWhere)
         );
-        $eligibleStmt->execute([':survey_id' => $surveyId]);
+        $eligibleStmt->execute($eligibleParams);
         analytics_assert(
             (int)$summary['response_count'] === (int)$eligibleStmt->fetchColumn(),
             'responses are counted once and require an active, non-archived graduate'
@@ -127,10 +143,10 @@ try {
 
         $expectedYears = array_map(
             static fn (array $row): int => (int)$row['year'],
-            gradtrack_analytics_fetch_year_dimensions($db)
+            gradtrack_analytics_fetch_year_dimensions($db, $coverageOptions)
         );
         $actualYears = array_map(static fn (array $row): int => (int)$row['year'], $years);
-        analytics_assert($actualYears === $expectedYears, 'trend years exactly match active graduate years');
+        analytics_assert($actualYears === $expectedYears, 'trend years exactly match active-survey graduate years');
         $sortedYears = $actualYears;
         sort($sortedYears, SORT_NUMERIC);
         analytics_assert($actualYears === $sortedYears, 'trend years are sorted ascending without a generated date window');

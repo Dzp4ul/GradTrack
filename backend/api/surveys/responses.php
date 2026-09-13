@@ -7,6 +7,7 @@ require_once __DIR__ . '/../config/psgc_address.php';
 require_once __DIR__ . '/../config/system_settings.php';
 require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/survey_validation.php';
+require_once __DIR__ . '/../config/graduation_years.php';
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 use PHPMailer\PHPMailer\Exception as MailException;
@@ -445,6 +446,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit();
         }
 
+        $coverage = gradtrack_get_active_survey_graduation_year_coverage($conn);
+        if ($coverage['survey'] === null || (int) $coverage['survey']['id'] !== (int) $surveyId) {
+            http_response_code(403);
+            echo json_encode(['success' => false, 'error' => 'This survey is not the active survey']);
+            exit();
+        }
+        if (!$coverage['configured']) {
+            http_response_code(503);
+            echo json_encode([
+                'success' => false,
+                'code' => 'GRADUATION_YEAR_COVERAGE_NOT_CONFIGURED',
+                'error' => 'The active survey graduation year coverage has not been configured.',
+            ]);
+            exit();
+        }
+
         $validatedPsgcAddress = $surveyId
             ? survey_response_validate_psgc_submission($conn, (int) $surveyId, $responses, $submittedPsgcAddress)
             : null;
@@ -519,12 +536,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // The authenticated graduate identity always comes from the server token.
         $graduateId = (int) $tokenData['graduate_id'];
-        $graduateLockStmt = $conn->prepare('SELECT id FROM graduates WHERE id = :id AND archived_at IS NULL FOR UPDATE');
+        $graduateLockStmt = $conn->prepare('SELECT id, year_graduated FROM graduates WHERE id = :id AND archived_at IS NULL FOR UPDATE');
         $graduateLockStmt->execute([':id' => $graduateId]);
-        if (!$graduateLockStmt->fetch(PDO::FETCH_ASSOC)) {
+        $lockedGraduate = $graduateLockStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$lockedGraduate) {
             $conn->rollBack();
             http_response_code(403);
             echo json_encode(['success' => false, 'error' => 'Graduate record is not active']);
+            exit();
+        }
+        if (!gradtrack_graduation_year_is_allowed($lockedGraduate['year_graduated'] ?? null, $coverage['years'])) {
+            $conn->rollBack();
+            http_response_code(403);
+            echo json_encode([
+                'success' => false,
+                'code' => 'GRADUATION_YEAR_NOT_ELIGIBLE',
+                'error' => 'Your graduation year is not included in the current survey.',
+            ]);
             exit();
         }
 

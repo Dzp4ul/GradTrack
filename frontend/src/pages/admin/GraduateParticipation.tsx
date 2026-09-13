@@ -90,12 +90,15 @@ export default function GraduateParticipation() {
   const location = useLocation();
   const navigate = useNavigate();
   const autoOpenRequestRef = useRef<string>('');
+  const statusRequestRef = useRef<{ id: number; key: string } | null>(null);
+  const statusRequestSequenceRef = useRef(0);
   const [rows, setRows] = useState<GraduateParticipationRow[]>([]);
   const [summary, setSummary] = useState<ParticipationSummary>({ total: 0, answered: 0, not_answered: 0 });
   const [surveys, setSurveys] = useState<SurveyOption[]>([]);
   const [surveysLoaded, setSurveysLoaded] = useState(false);
   const [selectedSurveyId, setSelectedSurveyId] = useState('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [selectingAll, setSelectingAll] = useState(false);
   const [notifying, setNotifying] = useState(false);
   const [search, setSearch] = useState('');
@@ -158,14 +161,14 @@ export default function GraduateParticipation() {
         throw new Error(data.error || 'Failed to load surveys');
       }
 
-      const surveyOptions = (data.data || []) as SurveyOption[];
+      const surveyOptions = ((data.data || []) as SurveyOption[]).filter((survey) => survey.status === 'active');
       setSurveys(surveyOptions);
 
       const surveyIdFromUrl = new URLSearchParams(location.search).get('survey_id');
       const preferredSurvey = surveyIdFromUrl
-        ? surveyOptions.find((survey) => String(survey.id) === surveyIdFromUrl)
+        ? surveyOptions.find((survey) => String(survey.id) === surveyIdFromUrl && survey.status === 'active')
         : null;
-      const defaultSurvey = preferredSurvey || surveyOptions.find((survey) => survey.status === 'active') || surveyOptions[0];
+      const defaultSurvey = preferredSurvey || surveyOptions[0];
       if (defaultSurvey && !selectedSurveyId) {
         setSelectedSurveyId(String(defaultSurvey.id));
       }
@@ -181,34 +184,47 @@ export default function GraduateParticipation() {
   };
 
   const fetchGraduateStatus = async () => {
+    const params = buildStatusParams(page, 10);
+    const requestKey = params.toString();
+    if (statusRequestRef.current?.key === requestKey) return;
+    const requestId = ++statusRequestSequenceRef.current;
+    statusRequestRef.current = { id: requestId, key: requestKey };
     setLoading(true);
+    setError('');
+    setRows([]);
+    setSummary({ total: 0, answered: 0, not_answered: 0 });
 
     try {
-      const params = buildStatusParams(page, 10);
-      const response = await fetch(`${API_ENDPOINTS.GRADUATE_SURVEY_STATUS}?${params.toString()}`, {
+      const response = await fetch(`${API_ENDPOINTS.GRADUATE_SURVEY_STATUS}?${requestKey}`, {
         credentials: 'include',
       });
       const data = await response.json();
+      if (statusRequestRef.current?.id !== requestId) return;
 
       if (!response.ok || !data.success) {
+        if (data.code === 'GRADUATION_YEAR_OUTSIDE_ACTIVE_SURVEY') {
+          setYearFilter('');
+        }
         throw new Error(data.error || 'Failed to load graduate participation');
       }
 
       setRows(data.data || []);
       setSummary(data.summary || { total: 0, answered: 0, not_answered: 0 });
       setTotalPages(data.pagination?.pages || 1);
-      const nextYearOptions = normalizeGraduationYears(Array.isArray(data.year_options) ? data.year_options : []);
+      const nextYearOptions = normalizeGraduationYears(Array.isArray(data.year_options) ? data.year_options : [], 'asc');
       setYearOptions(nextYearOptions);
       if (yearFilter && !nextYearOptions.includes(yearFilter)) setYearFilter('');
     } catch (error) {
+      if (statusRequestRef.current?.id !== requestId) return;
       setRows([]);
-      setMsgBox({
-        isOpen: true,
-        type: 'error',
-        message: error instanceof Error ? error.message : 'Failed to load graduate participation',
-      });
+      setYearOptions([]);
+      setTotalPages(1);
+      setError(error instanceof Error ? error.message : 'Failed to load graduate participation');
     } finally {
-      setLoading(false);
+      if (statusRequestRef.current?.id === requestId) {
+        statusRequestRef.current = null;
+        setLoading(false);
+      }
     }
   };
 
@@ -489,9 +505,6 @@ export default function GraduateParticipation() {
     if (autoOpenRequestRef.current === requestKey) return;
     autoOpenRequestRef.current = requestKey;
 
-    if (selectedSurveyId !== surveyIdParam) {
-      setSelectedSurveyId(surveyIdParam);
-    }
     if (statusFilter !== 'answered') {
       setStatusFilter('answered');
     }
@@ -543,7 +556,7 @@ export default function GraduateParticipation() {
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={handleSelectAllMatching}
-            disabled={selectingAll || loading || !selectedSurveyId}
+            disabled={selectingAll || loading || Boolean(error) || !selectedSurveyId}
             className="flex items-center gap-2 border border-blue-200 text-blue-700 px-4 py-2.5 rounded-lg hover:bg-blue-50 transition-colors text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {selectingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
@@ -565,19 +578,19 @@ export default function GraduateParticipation() {
         <SummaryCard
           icon={<Users className="w-5 h-5 text-blue-700" />}
           label="Total Graduates"
-          value={summary.total}
+          value={loading || error ? '—' : summary.total}
           cardClass="bg-blue-50 border-blue-200"
         />
         <SummaryCard
           icon={<CheckCircle2 className="w-5 h-5 text-green-700" />}
           label="Answered Survey"
-          value={summary.answered}
+          value={loading || error ? '—' : summary.answered}
           cardClass="bg-green-50 border-green-200"
         />
         <SummaryCard
           icon={<XCircle className="w-5 h-5 text-red-700" />}
           label="No Survey Response"
-          value={summary.not_answered}
+          value={loading || error ? '—' : summary.not_answered}
           cardClass="bg-red-50 border-red-200"
         />
       </div>
@@ -600,11 +613,8 @@ export default function GraduateParticipation() {
 
           <select
             value={selectedSurveyId}
-            onChange={(event) => {
-              setSelectedSurveyId(event.target.value);
-              setPage(1);
-            }}
-            className="border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            disabled
+            className="border rounded-lg px-3 py-2.5 text-sm text-gray-700 disabled:bg-gray-50 disabled:cursor-not-allowed"
           >
             {surveys.length === 0 ? (
               <option value="">No surveys available</option>
@@ -635,11 +645,12 @@ export default function GraduateParticipation() {
 
           <select
             value={yearFilter}
+            disabled={loading || Boolean(error) || yearOptions.length === 0}
             onChange={(event) => {
               setYearFilter(event.target.value);
               setPage(1);
             }}
-            className="border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:cursor-not-allowed"
           >
             <option value="">All Years</option>
             {yearOptions.map((year) => (
@@ -677,6 +688,12 @@ export default function GraduateParticipation() {
           />
         </div>
       </div>
+
+      {error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
         <div className="overflow-x-auto">
@@ -875,7 +892,7 @@ export default function GraduateParticipation() {
   );
 }
 
-function SummaryCard({ icon, label, value, cardClass }: { icon: ReactNode; label: string; value: number; cardClass: string }) {
+function SummaryCard({ icon, label, value, cardClass }: { icon: ReactNode; label: string; value: ReactNode; cardClass: string }) {
   return (
     <div className={`rounded-xl border p-4 ${cardClass}`}>
       <div className="flex items-center justify-between">

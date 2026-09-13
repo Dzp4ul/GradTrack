@@ -24,6 +24,7 @@
     "test:genai-history": "php backend/tests/genai_conversation_history_integration.php",
     "test:genai-live": "php backend/tests/genai_live_data_http_integration.php",
     "test:mini-profile": "php backend/tests/mini_profile_http_integration.php",
+    "test:active-survey-years": "php backend/tests/active_survey_graduation_year_coverage_integration.php && cd frontend && npm run test:active-survey-years",
     "test:survey-validation": "php backend/tests/survey_validation_rules_test.php && php backend/tests/psgc_cache_test.php && cd frontend && npm run test:survey-validation",
     "build:frontend": "cd frontend && npm run build",
     "deploy:backend": "cd backend && eb deploy",

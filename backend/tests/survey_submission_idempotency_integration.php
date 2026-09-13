@@ -55,17 +55,35 @@ $baseUrl = rtrim((string) (getenv('GRADTRACK_API_BASE_URL') ?: 'http://localhost
 $endpoint = $baseUrl . '/api/surveys/responses.php';
 $surveyId = 0;
 $graduateId = 0;
+$graduationYearQuestionId = 0;
+$previousActiveSurveyIds = [];
 
 try {
     $suffix = bin2hex(random_bytes(6));
+    $previousActiveSurveyIds = array_map(
+        'intval',
+        $db->query("SELECT id FROM surveys WHERE status = 'active' AND archived_at IS NULL")
+            ->fetchAll(PDO::FETCH_COLUMN)
+    );
+    $db->exec("UPDATE surveys SET status = 'inactive' WHERE status = 'active' AND archived_at IS NULL");
+
     $surveyStmt = $db->prepare("INSERT INTO surveys (title, description, status, created_by)
                                 VALUES (:title, 'Automated concurrency regression fixture', 'active', 'integration-test')");
     $surveyStmt->execute([':title' => 'Idempotency Test ' . $suffix]);
     $surveyId = (int) $db->lastInsertId();
 
+    $questionStmt = $db->prepare("INSERT INTO survey_questions
+        (survey_id, section, question_text, question_type, options, is_required, sort_order)
+        VALUES (:survey_id, 'Educational Background', 'Year Graduated', 'multiple_choice', :options, 1, 1)");
+    $questionStmt->execute([
+        ':survey_id' => $surveyId,
+        ':options' => json_encode(['2025'], JSON_THROW_ON_ERROR),
+    ]);
+    $graduationYearQuestionId = (int) $db->lastInsertId();
+
     $graduateStmt = $db->prepare("INSERT INTO graduates
-        (student_id, first_name, last_name, email, status)
-        VALUES (:student_id, 'Concurrency', 'Fixture', :email, 'active')");
+        (student_id, first_name, last_name, email, year_graduated, status)
+        VALUES (:student_id, 'Concurrency', 'Fixture', :email, 2025, 'active')");
     $graduateStmt->execute([
         ':student_id' => 'IDEM-' . $suffix,
         ':email' => 'invalid-' . $suffix,
@@ -85,7 +103,7 @@ try {
         'survey_id' => $surveyId,
         'graduate_id' => $graduateId,
         'token' => $token,
-        'responses' => [],
+        'responses' => [(string) $graduationYearQuestionId => '2025'],
     ];
     $requests = [
         survey_idempotency_request($endpoint, $payload),
@@ -180,6 +198,11 @@ try {
     if ($graduateId > 0) {
         $cleanupGraduate = $db->prepare('DELETE FROM graduates WHERE id = :id');
         $cleanupGraduate->execute([':id' => $graduateId]);
+    }
+    if ($previousActiveSurveyIds !== []) {
+        $placeholders = implode(',', array_fill(0, count($previousActiveSurveyIds), '?'));
+        $restoreActiveSurveys = $db->prepare("UPDATE surveys SET status = 'active' WHERE id IN ($placeholders)");
+        $restoreActiveSurveys->execute($previousActiveSurveyIds);
     }
 }
 

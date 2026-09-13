@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/admin_auth.php';
 require_once __DIR__ . '/../config/survey_response_analytics.php';
+require_once __DIR__ . '/../config/graduation_years.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -22,9 +23,22 @@ try {
         throw new Exception('No active survey is available for prediction.');
     }
 
+    $coverage = gradtrack_get_survey_graduation_year_coverage($db, $surveyId);
+    if (!$coverage['configured']) {
+        http_response_code(422);
+        echo json_encode([
+            'success' => false,
+            'code' => 'GRADUATION_YEAR_COVERAGE_NOT_CONFIGURED',
+            'error' => 'Graduation year coverage has not been configured for the active survey.',
+        ]);
+        exit;
+    }
+
     // Historical inputs use the same valid-graduate population and response
     // classifiers as the Dashboard and Reports endpoints.
-    $analytics = gradtrack_analytics_calculate($db, $surveyId);
+    $analytics = gradtrack_analytics_calculate($db, $surveyId, [
+        'allowed_graduation_years' => $coverage['years'],
+    ]);
     $yearData = [];
     foreach ($analytics['by_year'] as $year) {
         if ($year['employment_rate'] === null || $year['alignment_rate'] === null) {

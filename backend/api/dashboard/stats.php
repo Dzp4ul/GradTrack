@@ -4,6 +4,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/survey_response_analytics.php';
 require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/admin_auth.php';
+require_once __DIR__ . '/../config/graduation_years.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -52,11 +53,21 @@ function getSurveyTitle(PDO $db, ?int $surveyId): string
     return (string)($stmt->fetchColumn() ?: '');
 }
 
-function getTotalEligibleGraduates(PDO $db): int
+function getTotalEligibleGraduates(PDO $db, ?array $allowedYears = null): int
 {
-    $stmt = $db->query(
-        'SELECT COUNT(*) FROM graduates g WHERE ' . gradtrack_analytics_active_graduate_condition('g')
-    );
+    $where = [gradtrack_analytics_active_graduate_condition('g')];
+    $params = [];
+    if (is_array($allowedYears)) {
+        gradtrack_append_graduation_year_coverage_filter(
+            $where,
+            $params,
+            'g.year_graduated',
+            $allowedYears,
+            'dashboard_coverage_year'
+        );
+    }
+    $stmt = $db->prepare('SELECT COUNT(*) FROM graduates g WHERE ' . implode(' AND ', $where));
+    $stmt->execute($params);
     return (int)$stmt->fetchColumn();
 }
 
@@ -117,16 +128,35 @@ function dashboardMetricPrograms(array $programs, string $metric): array
 
 try {
     $selectedSurveyId = getSelectedSurveyId($db);
-    $totalEligibleGraduates = getTotalEligibleGraduates($db);
+    $allowedYears = null;
+    if ($selectedSurveyId !== null) {
+        $coverage = gradtrack_get_survey_graduation_year_coverage($db, $selectedSurveyId);
+        if ($coverage['configured']) {
+            $allowedYears = $coverage['years'];
+        } elseif (($coverage['survey']['status'] ?? '') === 'active' && empty($coverage['survey']['archived_at'])) {
+            http_response_code(422);
+            echo json_encode([
+                'success' => false,
+                'code' => 'GRADUATION_YEAR_COVERAGE_NOT_CONFIGURED',
+                'error' => 'Graduation year coverage has not been configured for the active survey.',
+            ]);
+            exit;
+        }
+    }
+    $totalEligibleGraduates = getTotalEligibleGraduates($db, $allowedYears);
     $activeSurveys = (int)$db->query(
         "SELECT COUNT(*) FROM surveys WHERE status = 'active' AND archived_at IS NULL"
     )->fetchColumn();
 
-    $analytics = $selectedSurveyId !== null
-        ? gradtrack_analytics_calculate($db, $selectedSurveyId, [
+    $analyticsOptions = [
             'include_empty_programs' => true,
             'include_empty_years' => true,
-        ])
+        ];
+    if (is_array($allowedYears)) {
+        $analyticsOptions['allowed_graduation_years'] = $allowedYears;
+    }
+    $analytics = $selectedSurveyId !== null
+        ? gradtrack_analytics_calculate($db, $selectedSurveyId, $analyticsOptions)
         : [
             'summary' => array_merge(gradtrack_analytics_empty_bucket(), [
                 'distribution' => gradtrack_analytics_distribution(gradtrack_analytics_empty_bucket()),
