@@ -217,11 +217,27 @@ try {
                     ? (int) $_GET['program_id']
                     : null;
                 $yearOptions = gradtrack_fetch_graduate_years($db, $archiveScope, $yearProgramId);
+                $programOptionsStmt = $db->query(
+                    "SELECT p.id, p.code, p.name
+                     FROM programs p
+                     INNER JOIN graduates g ON g.program_id = p.id
+                     WHERE " . ($archiveScope === 'archived' ? 'g.archived_at IS NOT NULL' : 'g.archived_at IS NULL') . "
+                     GROUP BY p.id, p.code, p.name
+                     ORDER BY p.id ASC"
+                );
+                $programOptions = array_map(static function (array $program): array {
+                    return [
+                        'id' => (int)$program['id'],
+                        'code' => (string)$program['code'],
+                        'name' => (string)$program['name'],
+                    ];
+                }, $programOptionsStmt->fetchAll(PDO::FETCH_ASSOC));
 
                 echo json_encode([
                     "success" => true,
                     "data" => $graduates,
                     "year_options" => $yearOptions,
+                    "program_options" => $programOptions,
                     "archive_counts" => [
                         "active" => (int)($archiveCounts['active'] ?? 0),
                         "archived" => (int)($archiveCounts['archived'] ?? 0),

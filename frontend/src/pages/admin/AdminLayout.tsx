@@ -52,7 +52,6 @@ const superAdminNavItems: NavItem[] = [
 ];
 
 const registrarNavItems: NavItem[] = [
-  { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true },
   { to: '/admin/graduates', icon: GraduationCap, label: 'Manage Graduates' },
 ];
 

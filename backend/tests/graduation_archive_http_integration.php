@@ -321,7 +321,7 @@ try {
     $responsePersistCheck->execute([':id' => $fixtureIds['responses'][1]]);
     graduation_http_assert($responsePersistCheck->fetchColumn() === null, 'graduate deletion retained and detached the historical report response');
     $historicalReport = graduation_http_request('reports/index.php?type=overview_filter_options&survey_id=' . $fixtureIds['survey'], $adminSession);
-    graduation_http_assert(in_array('2027', $historicalReport['json']['data']['years'] ?? [], true), 'Reports keeps historical 2027 after graduate deletion');
+    graduation_http_assert(!in_array('2027', $historicalReport['json']['data']['years'] ?? [], true), 'active Reports excludes the detached historical response year');
     $dashboardAfterGraduateDelete = graduation_http_request('dashboard/stats.php?survey_id=' . $fixtureIds['survey'], $adminSession);
     graduation_http_assert(
         $dashboardAfterGraduateDelete['status'] === 200 && ($dashboardAfterGraduateDelete['json']['success'] ?? false) === true,

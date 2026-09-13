@@ -26,6 +26,12 @@ interface Graduate {
   restored_by_name?: string | null;
 }
 
+interface ProgramOption {
+  id: string;
+  code: string;
+  name: string;
+}
+
 interface FormData {
   student_id: string;
   first_name: string;
@@ -53,14 +59,6 @@ const emptyForm: FormData = {
   is_aligned: 'not_aligned', company_name: '', job_title: '', industry: '',
   date_hired: '', monthly_salary: '', time_to_employment: '',
 };
-
-const PROGRAM_OPTIONS = [
-  { id: '1', code: 'BSCS', name: 'Bachelor of Science in Computer Science (BSCS)' },
-  { id: '2', code: 'BSHM', name: 'Bachelor of Science in Hospitality Management (BSHM)' },
-  { id: '3', code: 'BSED', name: 'Bachelor of Secondary Education (BSED)' },
-  { id: '4', code: 'BEED', name: 'Bachelor of Elementary Education (BEED)' },
-  { id: '5', code: 'ACT', name: 'Associate in Computer Technology (ACT)' },
-];
 
 const PROGRAM_DURATION_YEARS: Record<string, number> = {
   BSCS: 4,
@@ -200,8 +198,8 @@ const extractGraduationYearFromRows = (rows: unknown[][]): string => {
   return '';
 };
 
-const getProgramDurationById = (programId: string): number | null => {
-  const selectedProgram = PROGRAM_OPTIONS.find((option) => option.id === programId);
+const getProgramDurationById = (programId: string, programOptions: ProgramOption[]): number | null => {
+  const selectedProgram = programOptions.find((option) => option.id === programId);
   if (!selectedProgram) return null;
   return PROGRAM_DURATION_YEARS[selectedProgram.code] ?? null;
 };
@@ -217,9 +215,9 @@ const extractStartYearFromStudentId = (studentId: string): number | null => {
   return Number.isNaN(startYear) ? null : startYear;
 };
 
-const inferGraduationYear = (studentId: string, programId: string): string => {
+const inferGraduationYear = (studentId: string, programId: string, programOptions: ProgramOption[]): string => {
   const startYear = extractStartYearFromStudentId(studentId);
-  const duration = getProgramDurationById(programId);
+  const duration = getProgramDurationById(programId, programOptions);
 
   if (!startYear || !duration) return '';
 
@@ -250,28 +248,28 @@ const normalizeAlignment = (value: string): string => {
   return 'not_aligned';
 };
 
-const resolveProgramId = (row: Record<string, unknown>): string => {
+const resolveProgramId = (row: Record<string, unknown>, programOptions: ProgramOption[]): string => {
   const programId = pickValue(row, ['Program ID', 'program_id', 'programId']);
-  if (programId !== '' && PROGRAM_OPTIONS.some((option) => option.id === programId)) {
+  if (programId !== '' && programOptions.some((option) => option.id === programId)) {
     return programId;
   }
 
   const code = pickValue(row, ['Program Code', 'program_code', 'programCode']).toUpperCase();
   if (code !== '') {
-    const matchByCode = PROGRAM_OPTIONS.find((option) => option.code === code);
+    const matchByCode = programOptions.find((option) => option.code === code);
     if (matchByCode) return matchByCode.id;
   }
 
   const name = pickValue(row, ['Program', 'Program Name', 'program_name', 'programName']).toLowerCase();
   if (name !== '') {
-    const matchByName = PROGRAM_OPTIONS.find((option) => option.name.toLowerCase() === name);
+    const matchByName = programOptions.find((option) => option.name.toLowerCase() === name);
     if (matchByName) return matchByName.id;
   }
 
   return '';
 };
 
-const mapExcelRowToPayload = (row: Record<string, unknown>, fallbackYear = ''): FormData => {
+const mapExcelRowToPayload = (row: Record<string, unknown>, programOptions: ProgramOption[], fallbackYear = ''): FormData => {
   const fullName = pickValue(row, ['Name', 'Full Name', 'full_name', 'fullName']);
   const parsedName = splitName(fullName);
 
@@ -294,7 +292,7 @@ const mapExcelRowToPayload = (row: Record<string, unknown>, fallbackYear = ''): 
     name_extension: nameExtension,
     email: pickValue(row, ['Email', 'Email Add', 'Email Address', 'email']),
     phone: pickValue(row, ['Contact No.', 'Contact No', 'Contact Number', 'Phone', 'phone']),
-    program_id: resolveProgramId(row),
+    program_id: resolveProgramId(row, programOptions),
     year_graduated: Number.isNaN(parsedYear) ? '' : String(parsedYear),
     address: pickValue(row, ['Address', 'address']),
     employment_status: normalizeEmploymentStatus(pickValue(row, ['Employment Status', 'employment_status', 'employmentStatus'])),
@@ -379,7 +377,8 @@ export default function Graduates() {
   const [graduates, setGraduates] = useState<Graduate[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [activeTab, setActiveTab] = useState('1');
+  const [selectedProgramId, setSelectedProgramId] = useState('');
+  const [programOptions, setProgramOptions] = useState<ProgramOption[]>([]);
   const [filterYear, setFilterYear] = useState('');
   const [yearTabOptions, setYearTabOptions] = useState<string[]>([]);
   const [page, setPage] = useState(1);
@@ -409,7 +408,7 @@ export default function Graduates() {
     params.append('limit', limit.toString());
     params.append('archive', archiveView);
     if (search) params.append('search', search);
-    if (activeTab) params.append('program_id', activeTab);
+    if (selectedProgramId) params.append('program_id', selectedProgramId);
     if (filterYear) params.append('year_graduated', filterYear);
     return params;
   };
@@ -425,6 +424,23 @@ export default function Graduates() {
 
       if (!response.ok || !res.success) {
         throw new Error(res.error || 'Failed to load graduates');
+      }
+
+      const nextProgramOptions: ProgramOption[] = Array.isArray(res.program_options)
+        ? res.program_options.map((program: { id?: unknown; code?: unknown; name?: unknown }) => ({
+            id: String(program.id ?? ''),
+            code: normalizeText(program.code).toUpperCase(),
+            name: normalizeText(program.name),
+          })).filter((program: ProgramOption) => program.id !== '' && program.code !== '')
+        : [];
+      setProgramOptions(nextProgramOptions);
+
+      const nextProgramId = nextProgramOptions.some((program) => program.id === selectedProgramId)
+        ? selectedProgramId
+        : nextProgramOptions[0]?.id ?? '';
+      if (nextProgramId !== selectedProgramId) {
+        setSelectedProgramId(nextProgramId);
+        return;
       }
 
       const nextTotalPages = Math.max(1, Number(res.pagination?.pages || 1));
@@ -455,10 +471,10 @@ export default function Graduates() {
 
   useEffect(() => {
     fetchGraduates();
-  }, [page, search, activeTab, filterYear, archiveView]);
+  }, [page, search, selectedProgramId, filterYear, archiveView]);
 
   const openAdd = () => {
-    setFormData({ ...emptyForm, program_id: activeTab });
+    setFormData({ ...emptyForm, program_id: selectedProgramId });
     setShowModal(true);
   };
 
@@ -601,14 +617,14 @@ export default function Graduates() {
     setMsgBox({
       isOpen: true,
       type: 'confirm',
-      message: `Archive all graduates for year ${filterYear} in ${PROGRAM_OPTIONS.find((p) => p.id === activeTab)?.code || 'the selected program'}?\n\nThe records will be moved to Registrar Archive and all related data will be preserved.`,
+      message: `Archive all graduates for year ${filterYear} in ${programOptions.find((p) => p.id === selectedProgramId)?.code || 'the selected program'}?\n\nThe records will be moved to Registrar Archive and all related data will be preserved.`,
       confirmText: 'Archive',
       cancelText: 'Cancel',
       onConfirm: async () => {
         try {
           const result = await performArchiveRequest({
             year_graduated: filterYear,
-            program_id: activeTab,
+            program_id: selectedProgramId,
           });
 
           await fetchGraduates();
@@ -764,9 +780,9 @@ export default function Graduates() {
       };
 
       for (const row of rows) {
-        const payload = mapExcelRowToPayload(row, fallbackYear);
+        const payload = mapExcelRowToPayload(row, programOptions, fallbackYear);
         if (!payload.program_id) {
-          payload.program_id = activeTab;
+          payload.program_id = selectedProgramId;
         }
 
         if (!payload.first_name || !payload.last_name) {
@@ -843,7 +859,7 @@ export default function Graduates() {
       const next = { ...prev, [field]: normalizedValue };
 
       if (field === 'student_id' || field === 'program_id') {
-        const computedYear = inferGraduationYear(next.student_id, next.program_id);
+        const computedYear = inferGraduationYear(next.student_id, next.program_id, programOptions);
         if (computedYear) {
           next.year_graduated = computedYear;
         }
@@ -909,60 +925,56 @@ export default function Graduates() {
       </nav>
 
       <div className="bg-white rounded-xl shadow-sm border">
-        <div className="flex items-center gap-1 px-4 pt-4 border-b overflow-x-auto overflow-y-hidden">
-          {PROGRAM_OPTIONS.map((program) => (
-            <button
-              key={program.id}
-              onClick={() => { setActiveTab(program.id); setPage(1); }}
-              className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
-                activeTab === program.id
-                  ? 'border-[#1b2a4a] text-[#1b2a4a]'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {program.code}
-            </button>
-          ))}
-        </div>
-
-        <div className="flex items-center gap-1 px-4 pt-2 border-b overflow-x-auto overflow-y-hidden">
-          <button
-            onClick={() => { setFilterYear(''); setPage(1); }}
-            className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px whitespace-nowrap ${
-              filterYear === ''
-                ? 'border-[#1b2a4a] text-[#1b2a4a]'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-          >
-            All Years
-          </button>
-          {yearTabOptions.map((year) => (
-            <button
-              key={year}
-              onClick={() => { setFilterYear(year); setPage(1); }}
-              className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px whitespace-nowrap ${
-                filterYear === year
-                  ? 'border-[#1b2a4a] text-[#1b2a4a]'
-                  : 'border-transparent text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              {year}
-            </button>
-          ))}
-        </div>
-
         <div className="p-4 space-y-3">
-          <div className="flex items-center gap-3">
-            <div className="relative flex-1">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                placeholder="Search by name, student ID, or email..."
-                value={search}
-                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-                className="w-full pl-10 pr-4 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_220px_180px] lg:items-end">
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-gray-600">Search graduates</span>
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search by name, student ID, or email..."
+                  value={search}
+                  onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                  className="w-full pl-10 pr-4 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+            </label>
+
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-gray-600">Department</span>
+              <select
+                aria-label="Filter graduates by department"
+                value={selectedProgramId}
+                disabled={programOptions.length === 0}
+                onChange={(event) => {
+                  setSelectedProgramId(event.target.value);
+                  setFilterYear('');
+                  setPage(1);
+                }}
+                className="w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-400"
+              >
+                {programOptions.length === 0 && <option value="">No departments</option>}
+                {programOptions.map((program) => (
+                  <option key={program.id} value={program.id}>{program.code} — {program.name}</option>
+                ))}
+              </select>
+            </label>
+
+            <label className="block">
+              <span className="mb-1 block text-xs font-medium text-gray-600">Year Graduated</span>
+              <select
+                aria-label="Filter graduates by graduation year"
+                value={filterYear}
+                onChange={(event) => { setFilterYear(event.target.value); setPage(1); }}
+                className="w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">All Years</option>
+                {yearTabOptions.map((year) => (
+                  <option key={year} value={year}>{year}</option>
+                ))}
+              </select>
+            </label>
           </div>
 
           {archiveView === 'active' && <div className="flex flex-wrap items-center gap-2">
@@ -993,18 +1005,6 @@ export default function Graduates() {
             </button>
           </div>}
 
-          <div className="flex flex-wrap gap-3 pt-2 border-t">
-            <select
-              value={filterYear}
-              onChange={(e) => { setFilterYear(e.target.value); setPage(1); }}
-            className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 sm:w-auto"
-            >
-              <option value="">All Years</option>
-              {yearTabOptions.map((year) => (
-                <option key={year} value={year}>{year}</option>
-              ))}
-            </select>
-          </div>
         </div>
       </div>
 
@@ -1226,7 +1226,7 @@ export default function Graduates() {
                     className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">Select</option>
-                    {PROGRAM_OPTIONS.map((program) => (
+                    {programOptions.map((program) => (
                       <option key={program.id} value={program.id}>{program.name}</option>
                     ))}
                   </select>

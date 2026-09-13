@@ -15,6 +15,15 @@ assert.match(registrar, />Year Graduated<\/th>/);
 assert.match(registrar, /archiveView === 'archived' && <th[^>]*>Actions<\/th>/);
 assert.doesNotMatch(registrar, /Edit2|openEdit|handleArchive\(g/);
 assert.match(registrar, /archiveView === 'archived' && <td[^>]*>[\s\S]*handlePermanentDelete\(g\)/);
+assert.match(registrar, /aria-label="Filter graduates by department"/);
+assert.match(registrar, /aria-label="Filter graduates by graduation year"/);
+assert.match(registrar, /res\.program_options/);
+assert.doesNotMatch(registrar, /PROGRAM_OPTIONS/);
+
+const adminLayout = await readFile(new URL('../src/pages/admin/AdminLayout.tsx', import.meta.url), 'utf8');
+const registrarNavigation = adminLayout.match(/const registrarNavItems:[\s\S]*?= \[([\s\S]*?)\];/)?.[1] ?? '';
+assert.match(registrarNavigation, /Manage Graduates/);
+assert.doesNotMatch(registrarNavigation, /Dashboard/);
 
 const forum = await readFile(new URL('../src/pages/GraduatePortal.tsx', import.meta.url), 'utf8');
 assert.doesNotMatch(forum, /<option value="202[1-9]">/);
