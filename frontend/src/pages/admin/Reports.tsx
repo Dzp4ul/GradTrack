@@ -195,6 +195,7 @@ const DEFAULT_OVERVIEW_FILTERS: OverviewFilters = {
 };
 const SELECTED_SURVEY_STORAGE_KEY = 'gradtrack_selected_survey_id';
 const NO_SURVEY_SELECTION_VALUE = 'none';
+const ALL_SURVEY_TABLES_VALUE = 'all';
 const SURVEY_REPORT_HEADER_COLOR = 'FF1B2A4A';
 const SURVEY_REPORT_TABLE_BORDER: Partial<ExcelJS.Borders> = {
   top: { style: 'thin', color: { argb: 'FF000000' } },
@@ -337,6 +338,7 @@ export default function Reports() {
   const [surveyAnalytics, setSurveyAnalytics] = useState<SurveyAnalyticsData | null>(null);
   const [surveyAnalyticsLoading, setSurveyAnalyticsLoading] = useState(false);
   const [showSurveyGraphs, setShowSurveyGraphs] = useState(false);
+  const [selectedSurveyTable, setSelectedSurveyTable] = useState(ALL_SURVEY_TABLES_VALUE);
   const reportCacheRef = useRef<Record<string, unknown>>({});
   const aiCacheRef = useRef<Record<string, AiAnalyticsCacheEntry>>({});
   const surveyAnalyticsCacheRef = useRef<Record<string, SurveyAnalyticsData>>({});
@@ -845,7 +847,33 @@ export default function Reports() {
 
   useEffect(() => {
     setShowSurveyGraphs(false);
+    setSelectedSurveyTable(ALL_SURVEY_TABLES_VALUE);
   }, [selectedSurveyId, selectedSurveyDepartment]);
+
+  useEffect(() => {
+    if (selectedSurveyTable === ALL_SURVEY_TABLES_VALUE) {
+      return;
+    }
+
+    const tableIndex = Number(selectedSurveyTable);
+    const tableCount = surveyAnalytics?.report_tables?.length ?? 0;
+    if (!Number.isInteger(tableIndex) || tableIndex < 0 || tableIndex >= tableCount) {
+      setSelectedSurveyTable(ALL_SURVEY_TABLES_VALUE);
+    }
+  }, [selectedSurveyTable, surveyAnalytics]);
+
+  const handleSurveyTableChange = (value: string) => {
+    setSelectedSurveyTable(value);
+
+    if (!showSurveyGraphs || value === ALL_SURVEY_TABLES_VALUE) {
+      return;
+    }
+
+    const table = surveyAnalytics?.report_tables?.[Number(value)];
+    if (!table || buildSurveyReportCharts([table]).length === 0) {
+      setShowSurveyGraphs(false);
+    }
+  };
 
   const updateOverviewFilterDraft = <K extends keyof OverviewFilters>(key: K, value: OverviewFilters[K]) => {
     setOverviewFilterDraft((current) => ({ ...current, [key]: value }));
@@ -1816,9 +1844,16 @@ export default function Reports() {
   );
 
   const selectedSurvey = surveyItems.find((survey) => Number(survey.id) === selectedSurveyId);
-  const surveyReportGraphCount = surveyAnalytics?.report_tables
-    ? buildSurveyReportCharts(surveyAnalytics.report_tables).length
-    : 0;
+  const surveyReportTables = surveyAnalytics?.report_tables ?? [];
+  const selectedSurveyTableIndex = Number(selectedSurveyTable);
+  const hasValidSurveyTableSelection = selectedSurveyTable !== ALL_SURVEY_TABLES_VALUE
+    && Number.isInteger(selectedSurveyTableIndex)
+    && selectedSurveyTableIndex >= 0
+    && selectedSurveyTableIndex < surveyReportTables.length;
+  const visibleSurveyReportTables = hasValidSurveyTableSelection
+    ? [surveyReportTables[selectedSurveyTableIndex]]
+    : surveyReportTables;
+  const surveyReportGraphCount = buildSurveyReportCharts(visibleSurveyReportTables).length;
   const overviewUnemployed = overview?.total_unemployed
     ?? Math.max((overview?.total_employment_known ?? 0) - (overview?.total_employed ?? 0), 0);
   const overviewNotAligned = overview?.total_not_aligned
@@ -2710,15 +2745,37 @@ export default function Reports() {
                               <h2 className="text-xl font-bold text-[#1b2a4a]">{surveyAnalytics.survey_title}</h2>
                               <p className="text-sm text-gray-500">Survey Analytics & Insights</p>
                             </div>
-                            {surveyAnalytics.report_tables && surveyAnalytics.report_tables.length > 0 && surveyReportGraphCount > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => setShowSurveyGraphs((current) => !current)}
-                                className="flex w-full items-center justify-center gap-2 rounded-lg border border-[#1b2a4a] px-4 py-2.5 text-sm font-semibold text-[#1b2a4a] transition-colors hover:bg-[#1b2a4a] hover:text-white sm:w-auto"
-                              >
-                                <BarChart3 className="w-4 h-4" />
-                                {showSurveyGraphs ? 'Show Tables' : 'Show Graph'}
-                              </button>
+                            {surveyReportTables.length > 0 && (
+                              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                                <label className="flex w-full items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 sm:w-auto">
+                                  <Filter className="h-4 w-4 flex-none text-[#1b2a4a]" />
+                                  <span className="whitespace-nowrap text-sm font-semibold text-gray-700">Table:</span>
+                                  <select
+                                    value={selectedSurveyTable}
+                                    onChange={(event) => handleSurveyTableChange(event.target.value)}
+                                    className="min-w-0 flex-1 bg-white text-sm font-medium text-[#1b2a4a] outline-none sm:w-[260px]"
+                                    aria-label="Filter survey analytics table"
+                                  >
+                                    <option value={ALL_SURVEY_TABLES_VALUE}>All tables ({surveyReportTables.length})</option>
+                                    {surveyReportTables.map((table, index) => (
+                                      <option key={`${table.number}-${index}`} value={index.toString()}>
+                                        Table {table.number} - {table.title}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+
+                                {surveyReportGraphCount > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowSurveyGraphs((current) => !current)}
+                                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-[#1b2a4a] px-4 py-2.5 text-sm font-semibold text-[#1b2a4a] transition-colors hover:bg-[#1b2a4a] hover:text-white sm:w-auto"
+                                  >
+                                    <BarChart3 className="w-4 h-4" />
+                                    {showSurveyGraphs ? 'Show Tables' : 'Show Graph'}
+                                  </button>
+                                )}
+                              </div>
                             )}
                           </div>
 
@@ -2731,11 +2788,11 @@ export default function Reports() {
                             </div>
                           )}
 
-                          {surveyAnalytics.report_tables && surveyAnalytics.report_tables.length > 0 ? (
+                          {surveyReportTables.length > 0 ? (
                             showSurveyGraphs ? (
-                              <SurveyReportGraphs tables={surveyAnalytics.report_tables} />
+                              <SurveyReportGraphs tables={visibleSurveyReportTables} />
                             ) : (
-                              <SurveyNumberedReportTables tables={surveyAnalytics.report_tables} />
+                              <SurveyNumberedReportTables tables={visibleSurveyReportTables} />
                             )
                           ) : (
                             <SurveyQuestionReportTable analytics={surveyAnalytics} />
