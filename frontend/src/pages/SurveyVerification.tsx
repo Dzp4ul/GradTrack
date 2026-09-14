@@ -102,6 +102,7 @@ function SurveyVerification() {
     type: 'success' | 'error' | 'warning' | 'info';
     message: string;
     title?: string;
+    clearVerificationOnClose?: boolean;
   }>({ isOpen: false, type: 'info', message: '' });
 
   useEffect(() => {
@@ -177,6 +178,26 @@ function SurveyVerification() {
     setAccountConfirmPassword('');
     setShowAccountPassword(false);
     setShowAccountConfirmPassword(false);
+  };
+
+  const resetVerificationForm = () => {
+    setVerificationMethod('student_number');
+    setStudentNumber('');
+    setEmail('');
+    setLastName('');
+    setProgram('');
+  };
+
+  const closeMessageBox = () => {
+    if (msgBox.clearVerificationOnClose) {
+      resetVerificationForm();
+    }
+
+    setMsgBox((current) => ({
+      ...current,
+      isOpen: false,
+      clearVerificationOnClose: false,
+    }));
   };
 
   const openAccountCreation = (data: Record<string, unknown> | undefined, fallbackEmail: string) => {
@@ -446,7 +467,8 @@ function SurveyVerification() {
             ? result.data?.account_exists
               ? 'Account Already Exists'
               : 'Survey Already Answered'
-            : 'Verification Failed')
+            : 'Verification Failed'),
+          clearVerificationOnClose: true,
         });
       }
     } catch (error) {
@@ -651,7 +673,7 @@ function SurveyVerification() {
 
         <MessageBox
           isOpen={msgBox.isOpen}
-          onClose={() => setMsgBox({ ...msgBox, isOpen: false })}
+          onClose={closeMessageBox}
           type={msgBox.type}
           message={msgBox.message}
           title={msgBox.title}
@@ -849,7 +871,7 @@ function SurveyVerification() {
 
       <MessageBox
         isOpen={msgBox.isOpen}
-        onClose={() => setMsgBox({ ...msgBox, isOpen: false })}
+        onClose={closeMessageBox}
         type={msgBox.type}
         message={msgBox.message}
         title={msgBox.title}
