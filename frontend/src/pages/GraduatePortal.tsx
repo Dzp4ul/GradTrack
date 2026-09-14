@@ -370,6 +370,7 @@ interface MessageBoxState {
   message: string;
   confirmText?: string;
   cancelText?: string;
+  destructive?: boolean;
   onConfirm?: () => void;
 }
 
@@ -953,7 +954,11 @@ export default function GraduatePortal() {
   const [mediaViewerCommentDraft, setMediaViewerCommentDraft] = useState('');
   const [mediaViewerCommentSubmitting, setMediaViewerCommentSubmitting] = useState(false);
   const [newMediaViewerCommentId, setNewMediaViewerCommentId] = useState<number | null>(null);
-  const [profileImageViewer, setProfileImageViewer] = useState<{ src: string; alt: string } | null>(null);
+  const [profileImageViewer, setProfileImageViewer] = useState<{
+    src: string;
+    alt: string;
+    kind: 'profile' | 'cover';
+  } | null>(null);
   const [postComments, setPostComments] = useState<ForumComment[]>([]);
   const [commentDraft, setCommentDraft] = useState('');
   const [commentSubmitting, setCommentSubmitting] = useState(false);
@@ -4282,12 +4287,14 @@ export default function GraduatePortal() {
   const submitProfileUpdate = async ({
     profileFile = profileImageFile,
     coverFile = coverImageFile,
+    removeProfile = false,
     removeCover = coverRemoveRequested,
     includeProfileFields = false,
     includePassword = false,
   }: {
     profileFile?: File | null;
     coverFile?: File | null;
+    removeProfile?: boolean;
     removeCover?: boolean;
     includeProfileFields?: boolean;
     includePassword?: boolean;
@@ -4322,7 +4329,9 @@ export default function GraduatePortal() {
       formData.append('password', profileForm.password);
     }
 
-    if (profileFile) {
+    if (removeProfile) {
+      formData.append('remove_profile_image', '1');
+    } else if (profileFile) {
       formData.append('profile_image', profileFile);
     }
 
@@ -4380,6 +4389,11 @@ export default function GraduatePortal() {
 
     if (!file) return;
 
+    const input = kind === 'profile' ? profileImageInputRef.current : coverImageInputRef.current;
+    if (input) {
+      input.value = '';
+    }
+
     const extension = file.name.split('.').pop()?.toLowerCase() || '';
     if (extension === 'heic' || extension === 'heif' || /image\/(?:hei[cf]|heif)/i.test(file.type)) {
       notify('warning', 'HEIC/HEIF photos are not supported. Please convert the photo to JPG, PNG, or WEBP.', 'My Profile');
@@ -4396,29 +4410,84 @@ export default function GraduatePortal() {
       return;
     }
 
-    const previewUrl = URL.createObjectURL(file);
-    if (kind === 'profile') {
-      setProfileImageFile(file);
-      setAuthenticatedProfileImagePreview(previewUrl);
-      void submitProfileUpdate({ profileFile: file, coverFile: null, removeCover: false });
+    const photoLabel = kind === 'profile' ? 'profile photo' : 'cover photo';
+    const hasExistingPhoto = kind === 'profile' ? Boolean(profileImageUrl) : Boolean(profileCoverImageUrl);
+    setMsgBox({
+      isOpen: true,
+      type: 'confirm',
+      title: `${hasExistingPhoto ? 'Change' : 'Upload'} ${kind === 'profile' ? 'Profile' : 'Cover'} Photo?`,
+      message: `Use “${file.name}” as your ${photoLabel}? It will be visible on your GradTrack profile.`,
+      confirmText: hasExistingPhoto ? 'Change Photo' : 'Upload Photo',
+      cancelText: 'Cancel',
+      onConfirm: () => {
+        const previewUrl = URL.createObjectURL(file);
+        if (kind === 'profile') {
+          setProfileImageFile(file);
+          setAuthenticatedProfileImagePreview(previewUrl);
+          void submitProfileUpdate({ profileFile: file, coverFile: null, removeProfile: false, removeCover: false })
+            .finally(() => URL.revokeObjectURL(previewUrl));
+          return;
+        }
+
+        setCoverImageFile(file);
+        setCoverImagePreview(previewUrl);
+        setCoverRemoveRequested(false);
+        void submitProfileUpdate({ profileFile: null, coverFile: file, removeProfile: false, removeCover: false })
+          .finally(() => URL.revokeObjectURL(previewUrl));
+      },
+    });
+  };
+
+  const removeProfileImage = async (kind: 'profile' | 'cover') => {
+    if (!isViewingOwnProfile) {
       return;
     }
 
-    setCoverImageFile(file);
-    setCoverImagePreview(previewUrl);
-    setCoverRemoveRequested(false);
-    void submitProfileUpdate({ profileFile: null, coverFile: file, removeCover: false });
-  };
-
-  const handleRemoveCoverImage = () => {
-    if (!isViewingOwnProfile) {
+    setProfileImageViewer(null);
+    if (kind === 'profile') {
+      setProfileImageFile(null);
+      await submitProfileUpdate({
+        profileFile: null,
+        coverFile: null,
+        removeProfile: true,
+        removeCover: false,
+      });
       return;
     }
 
     setCoverRemoveRequested(true);
     setCoverImageFile(null);
     setCoverImagePreview('');
-    void submitProfileUpdate({ profileFile: null, coverFile: null, removeCover: true });
+    await submitProfileUpdate({
+      profileFile: null,
+      coverFile: null,
+      removeProfile: false,
+      removeCover: true,
+    });
+  };
+
+  const requestProfileImageRemoval = (kind: 'profile' | 'cover') => {
+    const isProfilePhoto = kind === 'profile';
+    setMsgBox({
+      isOpen: true,
+      type: 'confirm',
+      title: `Remove ${isProfilePhoto ? 'Profile' : 'Cover'} Photo?`,
+      message: isProfilePhoto
+        ? 'Your current profile photo will be permanently removed. Your initials will be shown instead.'
+        : 'Your current cover photo will be permanently removed and the default GradTrack cover will be shown.',
+      confirmText: 'Remove Photo',
+      cancelText: 'Keep Photo',
+      destructive: true,
+      onConfirm: () => {
+        void removeProfileImage(kind);
+      },
+    });
+  };
+
+  const changeProfileImageFromViewer = (kind: 'profile' | 'cover') => {
+    setProfileImageViewer(null);
+    const input = kind === 'profile' ? profileImageInputRef.current : coverImageInputRef.current;
+    input?.click();
   };
 
   const handleProfileSave = async (event: FormEvent<HTMLFormElement>) => {
@@ -5407,8 +5476,8 @@ export default function GraduatePortal() {
                       onEdit={openProfileSettings}
                       onChangeProfilePhoto={() => profileImageInputRef.current?.click()}
                       onChangeCoverPhoto={() => coverImageInputRef.current?.click()}
-                      onRemoveCoverPhoto={handleRemoveCoverImage}
-                      onOpenProfileImage={(src, alt) => setProfileImageViewer({ src, alt })}
+                      onRemoveCoverPhoto={() => requestProfileImageRemoval('cover')}
+                      onOpenProfileImage={(src, alt, kind) => setProfileImageViewer({ src, alt, kind })}
                       onMessage={() => viewedProfileUser?.graduate_id && void createDirectChat(viewedProfileUser.graduate_id)}
                       onOpenPost={(post) => void loadPostDetail(post.id)}
                       onOpenMedia={openMediaViewer}
@@ -5442,7 +5511,7 @@ export default function GraduatePortal() {
                       onBack={() => selectTab('my_profile')}
                       onChangeProfilePhoto={() => profileImageInputRef.current?.click()}
                       onChangeCoverPhoto={() => coverImageInputRef.current?.click()}
-                      onRemoveCoverPhoto={handleRemoveCoverImage}
+                      onRemoveCoverPhoto={() => requestProfileImageRemoval('cover')}
                     />
                   )}
                 </section>
@@ -5636,7 +5705,12 @@ export default function GraduatePortal() {
         <ImageLightbox
           src={profileImageViewer.src}
           alt={profileImageViewer.alt}
+          kind={profileImageViewer.kind}
+          canManage={isViewingOwnProfile}
+          saving={profileSaving}
           onClose={() => setProfileImageViewer(null)}
+          onChange={() => changeProfileImageFromViewer(profileImageViewer.kind)}
+          onRemove={() => requestProfileImageRemoval(profileImageViewer.kind)}
         />
       )}
 
@@ -6048,6 +6122,7 @@ export default function GraduatePortal() {
         message={msgBox.message}
         confirmText={msgBox.confirmText}
         cancelText={msgBox.cancelText}
+        destructive={msgBox.destructive}
       />
     </div>
   );
@@ -6107,7 +6182,7 @@ function ProfileWorkspace({
   onChangeProfilePhoto: () => void;
   onChangeCoverPhoto: () => void;
   onRemoveCoverPhoto: () => void;
-  onOpenProfileImage: (src: string, alt: string) => void;
+  onOpenProfileImage: (src: string, alt: string, kind: 'profile' | 'cover') => void;
   onMessage: () => void;
   onOpenPost: (post: ForumPost) => void;
   onOpenMedia: (post: ForumPost, mediaIndex?: number) => void;
@@ -6207,7 +6282,7 @@ function ProfileIdentityPanel({
   onChangeProfilePhoto: () => void;
   onChangeCoverPhoto: () => void;
   onRemoveCoverPhoto: () => void;
-  onOpenImage: (src: string, alt: string) => void;
+  onOpenImage: (src: string, alt: string, kind: 'profile' | 'cover') => void;
   onMessage: () => void;
 }) {
   const fullName = getGraduateFullName(user);
@@ -6229,7 +6304,7 @@ function ProfileIdentityPanel({
         {coverImageUrl && (
           <button
             type="button"
-            onClick={() => onOpenImage(coverImageUrl, `${fullName} profile cover`)}
+            onClick={() => onOpenImage(coverImageUrl, `${fullName} profile cover`, 'cover')}
             className="absolute inset-0 z-[1] h-full w-full cursor-zoom-in"
             aria-label={`View ${fullName} cover photo`}
           >
@@ -6270,7 +6345,7 @@ function ProfileIdentityPanel({
             {profileImageUrl ? (
               <button
                 type="button"
-                onClick={() => onOpenImage(profileImageUrl, `${fullName} profile photo`)}
+                onClick={() => onOpenImage(profileImageUrl, `${fullName} profile photo`, 'profile')}
                 className="block cursor-zoom-in rounded-full"
                 aria-label={`View ${fullName} profile photo`}
               >
@@ -7156,7 +7231,25 @@ function SafeImage({ src, fallback = null, logContext = 'image', onError, ...pro
   );
 }
 
-function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClose: () => void }) {
+function ImageLightbox({
+  src,
+  alt,
+  kind,
+  canManage,
+  saving,
+  onClose,
+  onChange,
+  onRemove,
+}: {
+  src: string;
+  alt: string;
+  kind: 'profile' | 'cover';
+  canManage: boolean;
+  saving: boolean;
+  onClose: () => void;
+  onChange: () => void;
+  onRemove: () => void;
+}) {
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -7175,7 +7268,7 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClos
 
   return (
     <div
-      className="fixed inset-0 z-[80] flex cursor-zoom-out items-center justify-center bg-black/95 p-4 sm:p-8"
+      className="fixed inset-0 z-[80] flex cursor-zoom-out flex-col items-center justify-center gap-4 bg-black/95 p-4 sm:gap-5 sm:p-8"
       role="dialog"
       aria-modal="true"
       aria-label={alt}
@@ -7194,13 +7287,45 @@ function ImageLightbox({ src, alt, onClose }: { src: string; alt: string; onClos
         alt={alt}
         logContext="full image"
         onClick={(event) => event.stopPropagation()}
-        className="gradtrack-media-image max-h-full max-w-full cursor-default select-none object-contain"
+        className={`gradtrack-media-image max-w-full cursor-default select-none object-contain ${canManage ? 'max-h-[calc(100vh-12rem)]' : 'max-h-full'}`}
         fallback={(
           <div className="cursor-default rounded-2xl border border-white/15 bg-white/10 px-6 py-8 text-center text-sm font-semibold text-white/80" onClick={(event) => event.stopPropagation()}>
             This image is currently unavailable.
           </div>
         )}
       />
+
+      {canManage && (
+        <div
+          className="relative z-10 flex w-full max-w-xl shrink-0 flex-col gap-2 rounded-2xl border border-white/15 bg-black/70 p-3 shadow-2xl backdrop-blur sm:w-auto sm:flex-row"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={onChange}
+            disabled={saving}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-white px-5 py-3 text-sm font-bold text-slate-900 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {saving ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : kind === 'profile' ? (
+              <Camera className="h-4 w-4" />
+            ) : (
+              <ImagePlus className="h-4 w-4" />
+            )}
+            Change {kind === 'profile' ? 'Profile' : 'Cover'} Photo
+          </button>
+          <button
+            type="button"
+            onClick={onRemove}
+            disabled={saving}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border border-rose-300/50 bg-rose-600 px-5 py-3 text-sm font-bold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <Trash2 className="h-4 w-4" />
+            Remove {kind === 'profile' ? 'Profile' : 'Cover'} Photo
+          </button>
+        </div>
+      )}
     </div>
   );
 }

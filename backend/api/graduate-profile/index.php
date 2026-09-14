@@ -254,6 +254,18 @@ function gradtrack_profile_remove_cover_image(PDO $db, int $accountId): ?string
     return $existingPath;
 }
 
+function gradtrack_profile_remove_profile_image(PDO $db, int $accountId): ?string
+{
+    $existingStmt = $db->prepare('SELECT file_path FROM graduate_profile_images WHERE graduate_account_id = :account_id LIMIT 1');
+    $existingStmt->execute([':account_id' => $accountId]);
+    $existingPath = $existingStmt->fetch(PDO::FETCH_ASSOC)['file_path'] ?? null;
+
+    $deleteStmt = $db->prepare('DELETE FROM graduate_profile_images WHERE graduate_account_id = :account_id');
+    $deleteStmt->execute([':account_id' => $accountId]);
+
+    return $existingPath;
+}
+
 function gradtrack_profile_normalize_label($value): string
 {
     $text = strtolower(trim((string) ($value ?? '')));
@@ -1032,7 +1044,17 @@ try {
             $updatePassword->execute();
         }
 
-        if (isset($_FILES['profile_image']) && (int) ($_FILES['profile_image']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
+        $removeProfile = isset($_POST['remove_profile_image'])
+            && in_array(strtolower((string) $_POST['remove_profile_image']), ['1', 'true', 'yes'], true);
+
+        if ($removeProfile) {
+            $removedProfileReference = gradtrack_profile_remove_profile_image($db, $accountId);
+            if ($removedProfileReference) {
+                $oldStorageReferences[] = $removedProfileReference;
+            }
+        }
+
+        if (!$removeProfile && isset($_FILES['profile_image']) && (int) ($_FILES['profile_image']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE) {
             $profileStorageChange = gradtrack_profile_save_image($db, $accountId, $_FILES['profile_image'], 'profile');
             $newStorageReferences[] = $profileStorageChange['new_reference'];
             if (!empty($profileStorageChange['old_reference'])) {
