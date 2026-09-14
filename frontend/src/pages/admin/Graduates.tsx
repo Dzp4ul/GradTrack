@@ -6,6 +6,7 @@ import MessageBox from '../../components/MessageBox';
 import { API_ROOT } from '../../config/api';
 import { readSpreadsheet } from '../../lib/spreadsheets';
 import { extractOfficialListGraduationYear, resolveImportedGraduationYear } from '../../utils/graduateImport';
+import { parseGraduateName } from '../../utils/graduateNames';
 import { normalizeGraduationYear, normalizeGraduationYears } from '../../utils/graduationYears';
 
 const API_BASE = API_ROOT;
@@ -105,56 +106,6 @@ const normalizeNameExtension = (value: string): string => {
   if (!normalized) return '';
   const lower = normalized.toLowerCase();
   return NAME_EXTENSION_ALIASES[lower] ?? normalized;
-};
-
-const popTrailingNameExtension = (tokens: string[]): string => {
-  if (tokens.length === 0) return '';
-
-  const last = normalizeNameExtension(tokens[tokens.length - 1]);
-  if (last && Object.values(NAME_EXTENSION_ALIASES).includes(last)) {
-    tokens.pop();
-    return last;
-  }
-
-  return '';
-};
-
-const splitName = (fullName: string): { firstName: string; middleName: string; lastName: string; nameExtension: string } => {
-  const normalized = normalizeText(fullName).replace(/\s+/g, ' ');
-  if (!normalized) {
-    return {
-      firstName: '', middleName: '', lastName: '', nameExtension: '',
-    };
-  }
-
-  if (normalized.includes(',')) {
-    const [lastPart, ...restParts] = normalized.split(',');
-    const lastName = normalizeText(lastPart);
-    const given = normalizeText(restParts.join(' '));
-    const nameParts = given ? given.split(' ').filter(Boolean) : [];
-    const nameExtension = popTrailingNameExtension(nameParts);
-    const firstName = nameParts[0] ?? '';
-    const middleName = nameParts.slice(1).join(' ');
-    return {
-      firstName, middleName, lastName, nameExtension,
-    };
-  }
-
-  const tokens = normalized.split(' ').filter(Boolean);
-  const nameExtension = popTrailingNameExtension(tokens);
-
-  if (tokens.length === 1) {
-    return {
-      firstName: tokens[0], middleName: '', lastName: '', nameExtension,
-    };
-  }
-
-  return {
-    firstName: tokens[0],
-    middleName: tokens.slice(1, -1).join(' '),
-    lastName: tokens[tokens.length - 1],
-    nameExtension,
-  };
 };
 
 const formatGraduateDisplayName = (graduate: {
@@ -265,7 +216,7 @@ const mapExcelRowToPayload = (
   selectedFilterYear = '',
 ): FormData => {
   const fullName = pickValue(row, ['Name', 'Full Name', 'full_name', 'fullName']);
-  const parsedName = splitName(fullName);
+  const parsedName = parseGraduateName(fullName);
 
   const firstName = pickValue(row, ['First Name', 'first_name', 'firstName']) || parsedName.firstName;
   const middleName = pickValue(row, ['Middle Name', 'middle_name', 'middleName']) || parsedName.middleName;

@@ -35,6 +35,8 @@ interface AccountCreationContext {
   graduateId: number;
   graduateName: string;
   surveyResponseId: number;
+  surveyToken: string;
+  surveyTitle: string;
   prefill: AccountPrefillData;
 }
 
@@ -203,8 +205,15 @@ function SurveyVerification() {
   const openAccountCreation = (data: Record<string, unknown> | undefined, fallbackEmail: string) => {
     const graduateId = Number(data?.graduate_id);
     const surveyResponseId = Number(data?.survey_response_id);
+    const surveyToken = cleanText(data?.survey_token);
 
-    if (!Number.isFinite(graduateId) || graduateId <= 0 || !Number.isFinite(surveyResponseId) || surveyResponseId <= 0) {
+    if (
+      !Number.isFinite(graduateId)
+      || graduateId <= 0
+      || !Number.isFinite(surveyResponseId)
+      || surveyResponseId <= 0
+      || !surveyToken
+    ) {
       return false;
     }
 
@@ -212,6 +221,8 @@ function SurveyVerification() {
     setAccountContext({
       graduateId,
       surveyResponseId,
+      surveyToken,
+      surveyTitle: cleanText(data?.survey_title),
       graduateName: cleanText(data?.graduate_name),
       prefill,
     });
@@ -288,6 +299,7 @@ function SurveyVerification() {
         body: JSON.stringify({
           survey_response_id: accountContext.surveyResponseId,
           graduate_id: accountContext.graduateId,
+          survey_token: accountContext.surveyToken,
           email: cleanEmail,
           phone: accountContext.prefill.phone,
           year_graduated: accountContext.prefill.year_graduated ? Number(accountContext.prefill.year_graduated) : null,
@@ -335,12 +347,12 @@ function SurveyVerification() {
 
   const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (loadingSurvey || surveyError) {
+    if (loadingSurvey) {
       setMsgBox({
         isOpen: true,
         type: 'warning',
         title: 'Survey Not Available',
-        message: surveyError || 'Please wait while the active survey is loading.',
+        message: 'Please wait while the active survey is loading.',
       });
       return;
     }
@@ -370,29 +382,10 @@ function SurveyVerification() {
     // Use surveyId from URL or active survey
     const targetSurveyId = surveyId || activeSurvey?.id;
     
-    if (!targetSurveyId) {
-      setMsgBox({
-        isOpen: true,
-        type: 'error',
-        message: 'No active survey found. Please contact administrator.',
-        title: 'Survey Not Found'
-      });
-      return;
-    }
-
     setLoading(true);
     resetAccountCreation();
 
     try {
-      console.log('Sending verification request:', {
-        verification_method: verificationMethod,
-        student_number: verificationMethod === 'student_number' ? selectedIdentifier : '',
-        email: verificationMethod === 'email' ? selectedIdentifier : '',
-        last_name: lastName,
-        program: program,
-        survey_id: targetSurveyId
-      });
-
       const response = await fetch(`${API_ROOT}/surveys/verify.php`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -402,12 +395,11 @@ function SurveyVerification() {
           email: verificationMethod === 'email' ? selectedIdentifier : '',
           last_name: lastName,
           program: program,
-          survey_id: targetSurveyId
+          survey_id: targetSurveyId || null
         })
       });
 
       const result = await response.json();
-      console.log('Verification response:', result);
 
       if (result.success) {
         // Store survey access outside the browser session so graduates can resume later.
@@ -422,7 +414,6 @@ function SurveyVerification() {
             localStorage.removeItem('graduate_profile');
           }
           
-          console.log('Token stored:', result.data.token);
         }
 
         setMsgBox({
@@ -434,12 +425,12 @@ function SurveyVerification() {
 
         // Redirect to survey after 1.5 seconds
         setTimeout(() => {
-          console.log('Redirecting to:', `/survey?survey_id=${targetSurveyId}`);
-          navigate(`/survey?survey_id=${targetSurveyId}`);
+          const verifiedSurveyId = result.data.survey_id || targetSurveyId;
+          navigate(verifiedSurveyId ? `/survey?survey_id=${verifiedSurveyId}` : '/survey');
         }, 1500);
       } else {
         const failureMessage = result.message || result.error || 'Verification failed';
-        const isAlreadyAnswered = /already completed this survey|already answered|already submitted/i.test(failureMessage);
+        const isAlreadyAnswered = /already completed(?: this| the)? survey|already answered|already submitted/i.test(failureMessage);
         const canCreateAccount = Boolean(result.data?.already_answered && result.data?.can_create_account);
 
         if (isAlreadyAnswered && canCreateAccount) {
@@ -534,13 +525,16 @@ function SurveyVerification() {
           <h1 className="text-2xl font-bold text-blue-900 text-center mb-2">
             Create Graduate Portal Account
           </h1>
-          {activeSurvey && (
+          {(accountContext.surveyTitle || activeSurvey) && (
             <p className="text-center text-sm text-gray-500 mb-2">
-              Survey: <span className="font-semibold text-blue-600">{activeSurvey.title}</span>
+              Completed survey:{' '}
+              <span className="font-semibold text-blue-600">
+                {accountContext.surveyTitle || activeSurvey?.title}
+              </span>
             </p>
           )}
           <p className="text-gray-600 text-center mb-6 text-sm">
-            You already answered this survey. Set your password to submit your Graduate Portal account for Alumni Admin verification.
+            You already answered the survey assigned to your graduation year. Set your password to submit your Graduate Portal account for Alumni Admin verification.
           </p>
 
           <div className="bg-blue-50 rounded-lg p-4 mb-6 flex items-start space-x-3">
@@ -722,7 +716,10 @@ function SurveyVerification() {
         {surveyError && (
           <div className="mb-6 flex items-start space-x-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
             <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0" />
-            <p>{surveyError}</p>
+            <p>
+              {surveyError}{' '}
+              If you already completed the survey assigned to your graduation year, verify your identity below to create your Graduate Portal account.
+            </p>
           </div>
         )}
 
@@ -830,7 +827,7 @@ function SurveyVerification() {
 
           <button
             type="submit"
-            disabled={loading || loadingPrograms || loadingSurvey || Boolean(surveyError)}
+            disabled={loading || loadingPrograms || loadingSurvey}
             className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-semibold transition shadow-md hover:shadow-lg flex items-center justify-center space-x-2"
           >
             {loading || loadingSurvey ? (

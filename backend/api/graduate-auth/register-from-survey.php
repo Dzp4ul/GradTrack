@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/alumni_registry.php';
+require_once __DIR__ . '/../config/graduation_years.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -50,8 +51,11 @@ try {
     gradtrack_alumni_registry_ensure_schema($db);
     $db->beginTransaction();
 
-    $responseQuery = "SELECT sr.id, sr.survey_id, sr.graduate_id
+    $responseQuery = "SELECT sr.id, sr.survey_id, sr.graduate_id, g.year_graduated
                       FROM survey_responses sr
+                      JOIN graduates g
+                        ON g.id = sr.graduate_id
+                       AND g.archived_at IS NULL
                       JOIN survey_tokens st
                         ON st.survey_id = sr.survey_id
                        AND st.graduate_id = sr.graduate_id
@@ -74,6 +78,20 @@ try {
         $db->rollBack();
         http_response_code(403);
         echo json_encode(['success' => false, 'error' => 'Survey completion authorization is invalid or expired']);
+        exit;
+    }
+
+    $responseCoverage = gradtrack_get_survey_graduation_year_coverage($db, (int) $response['survey_id']);
+    if (
+        !$responseCoverage['configured']
+        || !gradtrack_graduation_year_is_allowed($response['year_graduated'] ?? null, $responseCoverage['years'])
+    ) {
+        $db->rollBack();
+        http_response_code(403);
+        echo json_encode([
+            'success' => false,
+            'error' => 'The completed survey does not apply to your graduation year',
+        ]);
         exit;
     }
 

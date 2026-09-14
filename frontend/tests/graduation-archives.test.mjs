@@ -5,6 +5,38 @@ import {
   extractOfficialListGraduationYear,
   resolveImportedGraduationYear,
 } from '../src/utils/graduateImport.ts';
+import { parseGraduateName } from '../src/utils/graduateNames.ts';
+
+assert.deepEqual(parseGraduateName('Manansala, John Paul U.'), {
+  firstName: 'John Paul',
+  middleName: 'U.',
+  lastName: 'Manansala',
+  nameExtension: '',
+});
+assert.deepEqual(parseGraduateName('Medico Kyla Mae J. '), {
+  firstName: 'Kyla Mae',
+  middleName: 'J.',
+  lastName: 'Medico',
+  nameExtension: '',
+});
+assert.deepEqual(parseGraduateName('Bernabe, Joseph Ian DG.'), {
+  firstName: 'Joseph Ian',
+  middleName: 'DG.',
+  lastName: 'Bernabe',
+  nameExtension: '',
+});
+assert.deepEqual(parseGraduateName('Cruz, Gabriel'), {
+  firstName: 'Gabriel',
+  middleName: '',
+  lastName: 'Cruz',
+  nameExtension: '',
+});
+assert.deepEqual(parseGraduateName('Dela Cruz, Maria Angelica'), {
+  firstName: 'Maria Angelica',
+  middleName: '',
+  lastName: 'Dela Cruz',
+  nameExtension: '',
+});
 
 assert.equal(normalizeGraduationYear(' 2027 '), '2027');
 assert.equal(normalizeGraduationYear('2027x'), null);

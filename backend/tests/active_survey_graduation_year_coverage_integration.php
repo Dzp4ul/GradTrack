@@ -13,6 +13,7 @@ $csrfTokens = [];
 $fixture = [
     'surveys' => [],
     'graduates' => [],
+    'accounts' => [],
     'admins' => [],
     'previous_active_ids' => [],
 ];
@@ -136,6 +137,11 @@ function coverage_cleanup(PDO $db): void
         foreach ($fixture['admins'] as $adminId) {
             $db->prepare('DELETE FROM audit_trail WHERE user_id = :id')->execute([':id' => $adminId]);
         }
+        foreach ($fixture['accounts'] as $accountId) {
+            $db->prepare('UPDATE survey_responses SET graduate_account_id = NULL WHERE graduate_account_id = :id')
+                ->execute([':id' => $accountId]);
+            $db->prepare('DELETE FROM graduate_accounts WHERE id = :id')->execute([':id' => $accountId]);
+        }
         foreach ($fixture['surveys'] as $surveyId) {
             $db->prepare('DELETE FROM surveys WHERE id = :id')->execute([':id' => $surveyId]);
         }
@@ -194,10 +200,33 @@ try {
     $surveyA = coverage_create_survey($db, 'Coverage A ' . $suffix, 'active', [2025, 2024, 2023, 2022, 2021]);
     $fixture['surveys'][] = $surveyA;
     $graduateByYear = [];
-    foreach (range(2020, 2026) as $year) {
+    foreach (range(2020, 2027) as $year) {
         $graduateByYear[$year] = coverage_create_graduate($db, (int) $program['id'], $year, $suffix);
         $fixture['graduates'][] = $graduateByYear[$year];
     }
+
+    $historicalSurvey = coverage_create_survey($db, 'Historical 2027-2030 ' . $suffix, 'inactive', [2027, 2028, 2029, 2030]);
+    $fixture['surveys'][] = $historicalSurvey;
+    $historicalResponseInsert = $db->prepare(
+        'INSERT INTO survey_responses (survey_id, graduate_id, responses, submitted_at)
+         VALUES (:survey_id, :graduate_id, :responses, NOW())'
+    );
+    $historicalResponseInsert->execute([
+        ':survey_id' => $historicalSurvey,
+        ':graduate_id' => $graduateByYear[2027],
+        ':responses' => json_encode(['coverage' => 2027]),
+    ]);
+    $historicalResponseId = (int) $db->lastInsertId();
+    $historicalToken = bin2hex(random_bytes(32));
+    $historicalTokenInsert = $db->prepare(
+        'INSERT INTO survey_tokens (survey_id, graduate_id, token, expires_at, submitted_at)
+         VALUES (:survey_id, :graduate_id, :token, DATE_SUB(NOW(), INTERVAL 1 DAY), NOW())'
+    );
+    $historicalTokenInsert->execute([
+        ':survey_id' => $historicalSurvey,
+        ':graduate_id' => $graduateByYear[2027],
+        ':token' => $historicalToken,
+    ]);
 
     $questionIdA = (int) $db->query('SELECT id FROM survey_questions WHERE survey_id = ' . $surveyA)->fetchColumn();
     $surveyQuestionPayload = [
@@ -238,6 +267,23 @@ try {
             ':responses' => json_encode(['coverage' => $year]),
         ]);
     }
+    $uncoveredResponseStmt = $db->prepare(
+        'SELECT id FROM survey_responses WHERE survey_id = :survey_id AND graduate_id = :graduate_id LIMIT 1'
+    );
+    $uncoveredResponseStmt->execute([
+        ':survey_id' => $surveyA,
+        ':graduate_id' => $graduateByYear[2020],
+    ]);
+    $uncoveredResponseId = (int) $uncoveredResponseStmt->fetchColumn();
+    $uncoveredToken = bin2hex(random_bytes(32));
+    $db->prepare(
+        'INSERT INTO survey_tokens (survey_id, graduate_id, token, expires_at, submitted_at)
+         VALUES (:survey_id, :graduate_id, :token, DATE_ADD(NOW(), INTERVAL 1 DAY), NOW())'
+    )->execute([
+        ':survey_id' => $surveyA,
+        ':graduate_id' => $graduateByYear[2020],
+        ':token' => $uncoveredToken,
+    ]);
 
     $prepared = gradtrack_prepare_survey_questions([[
         'question_text' => '11. Year Graduated',
@@ -312,6 +358,59 @@ try {
         'email' => (string) $db->query('SELECT email FROM graduates WHERE id = ' . (int) $graduateByYear[2026])->fetchColumn(),
     ]);
     coverage_assert($futureYearReject['status'] === 403 && ($futureYearReject['json']['code'] ?? '') === 'GRADUATION_YEAR_NOT_ELIGIBLE', 'A correct identity above the configured range is also denied');
+
+    $uncoveredRegistration = coverage_request('graduate-auth/register-from-survey.php', null, 'POST', [
+        'survey_response_id' => $uncoveredResponseId,
+        'graduate_id' => $graduateByYear[2020],
+        'survey_token' => $uncoveredToken,
+        'email' => 'coverage-uncovered-2020-' . $suffix . '@example.invalid',
+        'password' => 'Valid#Pass2020',
+        'confirm_password' => 'Valid#Pass2020',
+    ]);
+    coverage_assert(
+        $uncoveredRegistration['status'] === 403
+        && ($uncoveredRegistration['json']['error'] ?? '') === 'The completed survey does not apply to your graduation year',
+        'Account creation rejects a response from a survey period that does not cover the Registrar graduation year'
+    );
+
+    $historicalCompletion = coverage_request('surveys/verify.php', null, 'POST', $verifyPayload + [
+        'verification_method' => 'email',
+        'email' => (string) $db->query('SELECT email FROM graduates WHERE id = ' . (int) $graduateByYear[2027])->fetchColumn(),
+    ]);
+    $historicalCompletionData = $historicalCompletion['json']['data'] ?? [];
+    coverage_assert(
+        $historicalCompletion['status'] === 409
+        && !empty($historicalCompletionData['already_answered'])
+        && !empty($historicalCompletionData['can_create_account'])
+        && (int) ($historicalCompletionData['survey_id'] ?? 0) === $historicalSurvey
+        && (int) ($historicalCompletionData['survey_response_id'] ?? 0) === $historicalResponseId
+        && !empty($historicalCompletionData['survey_token'])
+        && $historicalCompletionData['survey_token'] !== $historicalToken,
+        'A 2027 graduate who completed the matching historical survey receives fresh registration authorization while 2021-2025 is active'
+    );
+
+    $historicalRegistration = coverage_request('graduate-auth/register-from-survey.php', null, 'POST', [
+        'survey_response_id' => $historicalResponseId,
+        'graduate_id' => $graduateByYear[2027],
+        'survey_token' => (string) ($historicalCompletionData['survey_token'] ?? ''),
+        'email' => 'coverage-registered-2027-' . $suffix . '@example.invalid',
+        'password' => 'Valid#Pass2027',
+        'confirm_password' => 'Valid#Pass2027',
+    ]);
+    $historicalAccountId = (int) ($historicalRegistration['json']['data']['account_id'] ?? 0);
+    if ($historicalAccountId > 0) $fixture['accounts'][] = $historicalAccountId;
+    $historicalAccountStmt = $db->prepare(
+        'SELECT source_survey_response_id, status FROM graduate_accounts WHERE id = :id LIMIT 1'
+    );
+    $historicalAccountStmt->execute([':id' => $historicalAccountId]);
+    $historicalAccount = $historicalAccountStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    coverage_assert(
+        $historicalRegistration['status'] === 201
+        && $historicalAccountId > 0
+        && (int) ($historicalAccount['source_survey_response_id'] ?? 0) === $historicalResponseId
+        && ($historicalAccount['status'] ?? '') === 'pending_verification',
+        'Historical survey completion authorization creates the correct pending Graduate Portal account'
+    );
 
     $verify2025 = coverage_request('surveys/verify.php', null, 'POST', $verifyPayload + [
         'verification_method' => 'email',

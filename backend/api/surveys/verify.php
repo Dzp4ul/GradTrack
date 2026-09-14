@@ -27,6 +27,84 @@ function survey_verification_graduate_profile(array $graduate): array
     ];
 }
 
+function survey_verification_find_completed_covered_response(
+    PDO $conn,
+    int $graduateId,
+    $graduationYear
+): ?array {
+    $stmt = $conn->prepare("SELECT sr.id, sr.survey_id, sr.graduate_account_id, sr.submitted_at,
+                                  s.title AS survey_title, s.status AS survey_status, s.archived_at AS survey_archived_at
+                           FROM survey_responses sr
+                           JOIN surveys s ON s.id = sr.survey_id
+                           WHERE sr.graduate_id = :graduate_id
+                             AND sr.submitted_at IS NOT NULL
+                           ORDER BY sr.submitted_at DESC, sr.id DESC");
+    $stmt->execute([':graduate_id' => $graduateId]);
+
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $response) {
+        $coverage = gradtrack_get_survey_graduation_year_coverage($conn, (int) $response['survey_id']);
+        if ($coverage['configured'] && gradtrack_graduation_year_is_allowed($graduationYear, $coverage['years'])) {
+            return $response;
+        }
+    }
+
+    return null;
+}
+
+function survey_verification_registration_token(PDO $conn, array $surveyResponse, int $graduateId): string
+{
+    $surveyId = (int) ($surveyResponse['survey_id'] ?? 0);
+    if ($surveyId <= 0) {
+        return '';
+    }
+
+    $tokenStmt = $conn->prepare("SELECT token
+                                 FROM survey_tokens
+                                 WHERE survey_id = :survey_id
+                                   AND graduate_id = :graduate_id
+                                   AND submitted_at IS NOT NULL
+                                   AND expires_at >= NOW()
+                                 ORDER BY submitted_at DESC, id DESC
+                                 LIMIT 1");
+    $tokenStmt->execute([
+        ':survey_id' => $surveyId,
+        ':graduate_id' => $graduateId,
+    ]);
+    $existingToken = trim((string) ($tokenStmt->fetchColumn() ?: ''));
+    if ($existingToken !== '') {
+        return $existingToken;
+    }
+
+    // A completed response remains valid for portal registration even after its
+    // survey becomes inactive. Fresh identity verification grants a short-lived
+    // token without reopening the historical survey for editing.
+    $token = bin2hex(random_bytes(32));
+    $tokenValues = [
+        ':survey_id' => $surveyId,
+        ':graduate_id' => $graduateId,
+        ':token' => $token,
+        ':submitted_at' => $surveyResponse['submitted_at'] ?? date('Y-m-d H:i:s'),
+    ];
+    $refreshStmt = $conn->prepare("UPDATE survey_tokens
+                                   SET token = :token,
+                                       expires_at = DATE_ADD(NOW(), INTERVAL 30 MINUTE),
+                                       submitted_at = :submitted_at
+                                   WHERE survey_id = :survey_id
+                                     AND graduate_id = :graduate_id
+                                   ORDER BY id DESC
+                                   LIMIT 1");
+    $refreshStmt->execute($tokenValues);
+
+    if ($refreshStmt->rowCount() === 0) {
+        $insertStmt = $conn->prepare("INSERT INTO survey_tokens
+            (survey_id, graduate_id, token, expires_at, submitted_at)
+            VALUES (:survey_id, :graduate_id, :token, DATE_ADD(NOW(), INTERVAL 30 MINUTE), :submitted_at)");
+        $insertStmt->execute($tokenValues);
+    }
+
+    return $token;
+}
+
 function survey_verification_send_already_answered(
     PDO $conn,
     array $graduate,
@@ -40,7 +118,10 @@ function survey_verification_send_already_answered(
     $accountStmt->execute([':graduate_id' => $graduateId]);
     $existingAccount = $accountStmt->fetch(PDO::FETCH_ASSOC);
     $hasAccount = (bool) $existingAccount;
-    $canCreateAccount = !$hasAccount && $surveyResponseId !== null && $surveyResponseId > 0;
+    $registrationToken = !$hasAccount && $surveyResponseId !== null && $surveyResponseId > 0
+        ? survey_verification_registration_token($conn, $surveyResponse ?? [], $graduateId)
+        : '';
+    $canCreateAccount = !$hasAccount && $surveyResponseId !== null && $surveyResponseId > 0 && $registrationToken !== '';
 
     http_response_code(409);
     echo json_encode([
@@ -57,6 +138,9 @@ function survey_verification_send_already_answered(
             "graduate_name" => survey_verification_graduate_name($graduate),
             "program" => $graduate['program_name'],
             "survey_response_id" => $surveyResponseId,
+            "survey_id" => isset($surveyResponse['survey_id']) ? (int) $surveyResponse['survey_id'] : null,
+            "survey_title" => $surveyResponse['survey_title'] ?? null,
+            "survey_token" => $canCreateAccount ? $registrationToken : null,
             "profile" => $graduateProfile
         ]
     ]);
@@ -154,6 +238,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $graduateProfile = survey_verification_graduate_profile($graduate);
 
+        // Portal onboarding follows the survey period assigned to the graduate's
+        // Registrar graduation year. A response to that period remains valid
+        // after another survey is activated.
+        $completedCoveredResponse = survey_verification_find_completed_covered_response(
+            $conn,
+            (int) $graduate['id'],
+            $graduate['year_graduated'] ?? null
+        );
+        if ($completedCoveredResponse !== null) {
+            survey_verification_send_already_answered(
+                $conn,
+                $graduate,
+                $graduateProfile,
+                $completedCoveredResponse
+            );
+        }
+
         // Eligibility is based on the Registrar's stored graduation year and the
         // active survey's configured Year Graduated options. Student-number
         // prefixes and client-provided values are never used for this decision.
@@ -226,11 +327,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
 
             // Step 4: Block if a response already exists for this graduate/survey
-            $responseCheckQuery = "SELECT id, graduate_account_id FROM survey_responses
-                                  WHERE survey_id = :survey_id
-                                  AND graduate_id = :graduate_id
-                                  ORDER BY submitted_at DESC, id DESC
-                                  LIMIT 1";
+            $responseCheckQuery = "SELECT sr.id, sr.survey_id, sr.graduate_account_id, sr.submitted_at,
+                                          s.title AS survey_title
+                                   FROM survey_responses sr
+                                   JOIN surveys s ON s.id = sr.survey_id
+                                   WHERE sr.survey_id = :survey_id
+                                     AND sr.graduate_id = :graduate_id
+                                   ORDER BY sr.submitted_at DESC, sr.id DESC
+                                   LIMIT 1";
             $responseCheckStmt = $conn->prepare($responseCheckQuery);
             $responseCheckStmt->bindParam(':survey_id', $surveyId);
             $responseCheckStmt->bindParam(':graduate_id', $graduate['id']);
@@ -252,11 +356,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $checkStmt->execute();
             
             if ($checkStmt->fetch()) {
-                $submittedResponseStmt = $conn->prepare("SELECT id, graduate_account_id FROM survey_responses
-                                                       WHERE survey_id = :survey_id
-                                                       AND graduate_id = :graduate_id
-                                                       ORDER BY submitted_at DESC, id DESC
-                                                       LIMIT 1");
+                $submittedResponseStmt = $conn->prepare("SELECT sr.id, sr.survey_id, sr.graduate_account_id, sr.submitted_at,
+                                                               s.title AS survey_title
+                                                        FROM survey_responses sr
+                                                        JOIN surveys s ON s.id = sr.survey_id
+                                                        WHERE sr.survey_id = :survey_id
+                                                          AND sr.graduate_id = :graduate_id
+                                                        ORDER BY sr.submitted_at DESC, sr.id DESC
+                                                        LIMIT 1");
                 $submittedResponseStmt->bindParam(':survey_id', $surveyId);
                 $submittedResponseStmt->bindParam(':graduate_id', $graduate['id']);
                 $submittedResponseStmt->execute();
@@ -316,6 +423,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     "graduate_id" => $graduate['id'],
                     "graduate_name" => survey_verification_graduate_name($graduate),
                     "program" => $graduate['program_name'],
+                    "survey_id" => (int) $surveyId,
                     "profile" => $graduateProfile
                 ]
             ]);
