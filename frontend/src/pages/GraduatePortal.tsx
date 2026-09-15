@@ -149,9 +149,7 @@ interface ForumComment {
 
 interface ForumFormState {
   id: number | null;
-  title: string;
   content: string;
-  category: string;
   media: ForumMedia[];
   remove_media: boolean;
 }
@@ -604,7 +602,7 @@ function getPostMedia(post?: ForumPost | null): ForumMedia[] {
       post_id: post.id,
       media_type: post.image_mime_type?.startsWith('video/') ? 'video' : 'image',
       file_path: post.image_path,
-      original_name: post.image_original_name || post.title,
+      original_name: post.image_original_name || post.title || 'Forum media',
       mime_type: post.image_mime_type || null,
       file_size_bytes: post.image_file_size_bytes ?? null,
       sort_order: 0,
@@ -933,9 +931,7 @@ export default function GraduatePortal() {
   const [forumActionKey, setForumActionKey] = useState('');
   const [forumForm, setForumForm] = useState<ForumFormState>({
     id: null,
-    title: '',
     content: '',
-    category: forumCategoryFallback[0],
     media: [],
     remove_media: false,
   });
@@ -1314,14 +1310,12 @@ export default function GraduatePortal() {
   const resetForumForm = useCallback(() => {
     setForumForm({
       id: null,
-      title: '',
       content: '',
-      category: forumCategories[0] || forumCategoryFallback[0],
       media: [],
       remove_media: false,
     });
     setForumMediaFiles([]);
-  }, [forumCategories]);
+  }, []);
 
   const resetJobForm = useCallback(() => {
     setMyJobForm(createDefaultJobForm(user));
@@ -2098,15 +2092,6 @@ export default function GraduatePortal() {
   }, [user?.email, user?.program_code, user?.program_name]);
 
   useEffect(() => {
-    if (!forumForm.category) {
-      setForumForm((current) => ({
-        ...current,
-        category: forumCategories[0] || forumCategoryFallback[0],
-      }));
-    }
-  }, [forumCategories, forumForm.category]);
-
-  useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (!profileMenuRef.current) return;
       if (!profileMenuRef.current.contains(event.target as Node)) {
@@ -2673,9 +2658,7 @@ export default function GraduatePortal() {
     if (post) {
       setForumForm({
         id: post.id,
-        title: post.title,
         content: post.content,
-        category: post.category,
         media: getPostMedia(post),
         remove_media: false,
       });
@@ -2791,12 +2774,10 @@ export default function GraduatePortal() {
       return;
     }
 
-    const title = forumForm.title.trim();
     const content = forumForm.content.trim();
-    const category = forumForm.category.trim();
 
-    if (!title || !content || !category) {
-      notify('warning', 'Title, content, and category are required.', 'Community Forum');
+    if (!content) {
+      notify('warning', 'Write something before publishing your post.', 'Community Forum');
       return;
     }
 
@@ -2806,7 +2787,7 @@ export default function GraduatePortal() {
       try {
         const moderationResponse = await authenticatedFetch(API_ENDPOINTS.FORUM_AI_MODERATE, {
           method: 'POST',
-          body: JSON.stringify({ title, content, category }),
+          body: JSON.stringify({ content }),
         });
 
         if (moderationResponse.is_appropriate === false) {
@@ -2833,9 +2814,7 @@ export default function GraduatePortal() {
 
     try {
       const formData = new FormData();
-      formData.append('title', title);
       formData.append('content', content);
-      formData.append('category', category);
       forumMediaFiles.forEach((file) => {
         formData.append('media[]', file);
       });
@@ -2873,7 +2852,7 @@ export default function GraduatePortal() {
       isOpen: true,
       type: 'confirm',
       title: 'Delete Forum Post',
-      message: `Delete "${post.title}" from the Community Forum?`,
+      message: `Delete "${previewText(post.title || post.content, 80)}" from the Community Forum?`,
       confirmText: 'Delete',
       cancelText: 'Cancel',
       onConfirm: async () => {
@@ -4952,7 +4931,7 @@ export default function GraduatePortal() {
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
                       <Avatar src={authenticatedUserProfileImageUrl} label={user?.full_name} size="lg" />
                       <button type="button" onClick={() => openForumComposer()} className="flex-1 rounded-full bg-[#f5f7fb] px-5 py-3 text-left text-sm text-slate-500 transition hover:bg-[#edf1f8]">
-                        Share a career tip, experience, or question with fellow graduates...
+                        Share something with the graduate community...
                       </button>
                       <div className="flex flex-wrap gap-2">
                         <button type="button" onClick={() => openForumComposer()} className="inline-flex items-center gap-2 rounded-full bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800">
@@ -5039,7 +5018,9 @@ export default function GraduatePortal() {
                               </button>
 
                               <div className="flex items-center gap-2">
-                                <span className="rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700">{post.category}</span>
+                                {post.category && (
+                                  <span className="rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700">{post.category}</span>
+                                )}
                                 {messagingAvailable && post.graduate_id !== currentGraduateId && (
                                   <button type="button" onClick={() => void createDirectChat(post.graduate_id)} className="rounded-full border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
                                     Message
@@ -5050,8 +5031,8 @@ export default function GraduatePortal() {
 
                             <div className="px-5 pb-5 sm:px-6">
                               <button type="button" onClick={() => void loadPostDetail(post.id)} className="w-full text-left">
-                                <h3 className="text-xl font-bold text-slate-900">{post.title}</h3>
-                                <p className="mt-3 whitespace-pre-line text-sm leading-7 text-slate-700">{previewText(post.content)}</p>
+                                {post.title && <h3 className="text-xl font-bold text-slate-900">{post.title}</h3>}
+                                <p className={`${post.title ? 'mt-3' : ''} whitespace-pre-line text-sm leading-7 text-slate-700`}>{previewText(post.content)}</p>
                               </button>
                               <ForumMediaGrid post={post} onOpen={(index) => openMediaViewer(post, index)} />
                             </div>
@@ -5068,7 +5049,7 @@ export default function GraduatePortal() {
                               </button>
 
                               {post.graduate_id !== currentGraduateId && (
-                                <button type="button" onClick={() => openReportModal({ target_type: 'post', target_id: post.id, label: post.title })} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700 transition hover:text-amber-700">
+                                <button type="button" onClick={() => openReportModal({ target_type: 'post', target_id: post.id, label: previewText(post.title || post.content, 80) })} className="inline-flex items-center gap-2 text-sm font-semibold text-slate-700 transition hover:text-amber-700">
                                   <Flag className="h-5 w-5 text-slate-500" />
                                   Report
                                 </button>
@@ -5529,31 +5510,28 @@ export default function GraduatePortal() {
           <form onSubmit={handleForumSubmit} className="max-h-[92vh] w-full max-w-2xl space-y-5 overflow-y-auto rounded-[32px] border border-slate-200 bg-white p-6 shadow-2xl">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-2xl font-bold text-slate-900">{forumForm.id ? 'Edit Forum Post' : 'Create Forum Post'}</h2>
-                <p className="text-sm text-slate-500">Posts are reviewed before they appear in the public Community Forum feed.</p>
+                <h2 className="text-2xl font-bold text-slate-900">{forumForm.id ? 'Edit post' : 'Create post'}</h2>
+                <p className="text-sm text-slate-500">Share an update with the graduate community.</p>
               </div>
               <button type="button" onClick={closeForumComposer} className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100" aria-label="Close post composer">
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            <Field label="Title" required>
-              <input value={forumForm.title} onChange={(event) => setForumForm((current) => ({ ...current, title: event.target.value }))} className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-500" />
-            </Field>
-
-            <Field label="Category" required>
-              <select value={forumForm.category} onChange={(event) => setForumForm((current) => ({ ...current, category: event.target.value }))} className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-500">
-                {forumCategories.map((category) => (
-                  <option key={category} value={category}>
-                    {category}
-                  </option>
-                ))}
-              </select>
-            </Field>
-
-            <Field label="Content" required>
-              <textarea value={forumForm.content} onChange={(event) => setForumForm((current) => ({ ...current, content: event.target.value }))} rows={8} className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-500" />
-            </Field>
+            <div className="flex items-start gap-3">
+              <Avatar src={authenticatedUserProfileImageUrl} label={user?.full_name} size="md" />
+              <textarea
+                value={forumForm.content}
+                onChange={(event) => setForumForm((current) => ({ ...current, content: event.target.value }))}
+                rows={7}
+                maxLength={20000}
+                required
+                autoFocus
+                aria-label="Post content"
+                placeholder="Share something with the graduate community..."
+                className="min-h-44 min-w-0 flex-1 resize-y rounded-2xl border border-slate-200 bg-slate-50 px-4 py-4 text-base leading-7 text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-4 focus:ring-blue-100"
+              />
+            </div>
 
             {forumMediaEnabled ? (
               <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
@@ -5609,9 +5587,9 @@ export default function GraduatePortal() {
             )}
 
             <div className="flex flex-wrap gap-3">
-              <button type="submit" disabled={forumSubmitting || aiModerating} className="inline-flex items-center gap-2 rounded-full bg-blue-700 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60">
+              <button type="submit" disabled={forumSubmitting || aiModerating || !forumForm.content.trim()} className="inline-flex items-center gap-2 rounded-full bg-blue-700 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-60">
                 {(forumSubmitting || aiModerating) && <Loader2 className="h-4 w-4 animate-spin" />}
-                {aiModerating ? 'Checking Post...' : forumForm.id ? 'Update Post' : 'Submit Post'}
+                {aiModerating ? 'Checking Post...' : forumForm.id ? 'Save changes' : 'Post'}
               </button>
               <button type="button" onClick={closeForumComposer} className="rounded-full border border-slate-200 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">
                 Cancel
@@ -5650,11 +5628,11 @@ export default function GraduatePortal() {
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <div className="flex flex-wrap items-center gap-2">
-                          <h3 className="text-lg font-bold text-slate-900">{post.title}</h3>
+                          {post.title && <h3 className="text-lg font-bold text-slate-900">{post.title}</h3>}
                           <span className={`rounded-full border px-3 py-1 text-[11px] font-semibold ${forumStatusClass(post.status)}`}>{formatForumStatus(post.status)}</span>
                         </div>
                         <p className="mt-1 text-xs text-slate-500">
-                          {post.category} - Updated {formatRelativeTime(post.updated_at)}
+                          {post.category ? `${post.category} - ` : ''}Updated {formatRelativeTime(post.updated_at)}
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2">
@@ -5757,7 +5735,7 @@ export default function GraduatePortal() {
                       <Avatar src={resolveAssetUrl(selectedPost.author_profile_image_path)} label={selectedPost.author_name} size="md" />
                       <div>
                         <p className="font-semibold text-slate-900 transition hover:text-blue-700">{selectedPost.author_name}</p>
-                        <p className="text-xs text-slate-500">{selectedPost.category}</p>
+                        {selectedPost.category && <p className="text-xs text-slate-500">{selectedPost.category}</p>}
                       </div>
                     </button>
 
@@ -5769,7 +5747,7 @@ export default function GraduatePortal() {
                               Message Author
                             </button>
                           )}
-                          <button type="button" onClick={() => openReportModal({ target_type: 'post', target_id: selectedPost.id, label: selectedPost.title })} className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-100">
+                          <button type="button" onClick={() => openReportModal({ target_type: 'post', target_id: selectedPost.id, label: previewText(selectedPost.title || selectedPost.content, 80) })} className="inline-flex items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 hover:bg-amber-100">
                             <Flag className="h-3.5 w-3.5" />
                             Report
                           </button>
@@ -6873,8 +6851,8 @@ function ProfilePostCard({
       </div>
 
       <button type="button" onClick={() => onOpenPost(post)} className="mt-4 block w-full text-left">
-        <h4 className="text-lg font-bold text-slate-950">{post.title}</h4>
-        <p className="mt-2 whitespace-pre-line text-sm leading-7 text-slate-700">{previewText(post.content, 360)}</p>
+        {post.title && <h4 className="text-lg font-bold text-slate-950">{post.title}</h4>}
+        <p className={`${post.title ? 'mt-2' : ''} whitespace-pre-line text-sm leading-7 text-slate-700`}>{previewText(post.content, 360)}</p>
       </button>
 
       <ForumMediaGrid post={post} compact onOpen={(index) => onOpenMedia(post, index)} />
@@ -7735,7 +7713,7 @@ function ForumMediaGrid({
           type="button"
           onClick={() => onOpen(index)}
           className={`group relative flex w-full items-center justify-center overflow-hidden bg-slate-950 text-left ${single ? '' : 'aspect-square'}`}
-          aria-label={`Open ${item.original_name || post.title}`}
+          aria-label={`Open ${item.original_name || post.title || 'forum media'}`}
         >
           {isVideoMedia(item) ? (
             <>
@@ -7757,7 +7735,7 @@ function ForumMediaGrid({
           ) : (
             <SafeImage
               src={resolveAssetUrl(item.file_path)}
-              alt={item.original_name || post.title}
+              alt={item.original_name || post.title || 'Forum media'}
               logContext="forum image preview"
               className={single
                 ? `gradtrack-media-image block h-auto w-auto max-w-full ${singleMediaMaxHeight} object-contain`
@@ -8039,7 +8017,7 @@ function ForumMediaViewer({
           ) : (
             <SafeImage
               src={resolveAssetUrl(current.file_path)}
-              alt={current.original_name || viewer.post.title}
+              alt={current.original_name || viewer.post.title || 'Forum media'}
               logContext="full forum image"
               className="gradtrack-media-image max-h-full max-w-full cursor-default select-none rounded-lg object-contain transition-transform duration-150"
               style={{ transform: `scale(${zoom})` }}
@@ -8061,8 +8039,8 @@ function ForumMediaViewer({
             <p className="mt-1 text-xs text-slate-500">{viewer.post.author_program_code || viewer.post.author_program_name || 'Graduate'} - {formatDateTime(viewer.post.created_at)}</p>
           </div>
           <div className="flex-1 overflow-y-auto px-5 py-5">
-            <h2 className="text-lg font-bold text-slate-900">{viewer.post.title}</h2>
-            <p className="mt-3 whitespace-pre-line text-sm leading-7 text-slate-700">{viewer.post.content}</p>
+            {viewer.post.title && <h2 className="text-lg font-bold text-slate-900">{viewer.post.title}</h2>}
+            <p className={`${viewer.post.title ? 'mt-3' : ''} whitespace-pre-line text-sm leading-7 text-slate-700`}>{viewer.post.content}</p>
             {isVideo && (
               <div className="mt-5 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
                 <p className="truncate text-sm font-semibold text-slate-800">{current.original_name || 'Forum video'}</p>

@@ -249,11 +249,11 @@ try {
         $content = gradtrack_forum_clean_text($data['content'] ?? '');
         $category = gradtrack_forum_clean_text($data['category'] ?? '');
 
-        if ($title === '' || $content === '' || $category === '') {
-            gradtrack_forum_posts_json_error(400, 'title, content, and category are required');
+        if ($content === '') {
+            gradtrack_forum_posts_json_error(400, 'Forum post content is required');
         }
 
-        if (!gradtrack_forum_valid_category($category)) {
+        if ($category !== '' && !gradtrack_forum_valid_category($category)) {
             gradtrack_forum_posts_json_error(400, 'Invalid forum category');
         }
 
@@ -320,7 +320,7 @@ try {
             gradtrack_forum_posts_json_error(400, 'id is required');
         }
 
-        $ownerStmt = $db->prepare('SELECT graduate_id FROM forum_posts WHERE id = :id LIMIT 1');
+        $ownerStmt = $db->prepare('SELECT graduate_id, title, category FROM forum_posts WHERE id = :id LIMIT 1');
         $ownerStmt->execute([':id' => $postId]);
         $owner = $ownerStmt->fetch(PDO::FETCH_ASSOC);
 
@@ -332,15 +332,21 @@ try {
             gradtrack_forum_posts_json_error(403, 'You can only edit your own forum posts');
         }
 
-        $title = gradtrack_forum_clean_text($data['title'] ?? '');
+        // Content-first posts omit title and category. Preserve those legacy
+        // values when an older post is edited through the simplified composer.
+        $title = array_key_exists('title', $data)
+            ? gradtrack_forum_clean_text($data['title'])
+            : gradtrack_forum_clean_text($owner['title'] ?? '');
         $content = gradtrack_forum_clean_text($data['content'] ?? '');
-        $category = gradtrack_forum_clean_text($data['category'] ?? '');
+        $category = array_key_exists('category', $data)
+            ? gradtrack_forum_clean_text($data['category'])
+            : gradtrack_forum_clean_text($owner['category'] ?? '');
 
-        if ($title === '' || $content === '' || $category === '') {
-            gradtrack_forum_posts_json_error(400, 'title, content, and category are required');
+        if ($content === '') {
+            gradtrack_forum_posts_json_error(400, 'Forum post content is required');
         }
 
-        if (!gradtrack_forum_valid_category($category)) {
+        if ($category !== '' && !gradtrack_forum_valid_category($category)) {
             gradtrack_forum_posts_json_error(400, 'Invalid forum category');
         }
 
