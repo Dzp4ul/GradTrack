@@ -4285,6 +4285,16 @@ export default function GraduatePortal() {
       return;
     }
 
+    const notification = coverFile
+      ? { title: 'Cover Photo', success: 'Cover photo updated successfully.', error: 'Unable to update cover photo' }
+      : removeCover
+        ? { title: 'Cover Photo', success: 'Cover photo removed successfully.', error: 'Unable to remove cover photo' }
+        : profileFile
+          ? { title: 'Profile Photo', success: 'Profile photo updated successfully.', error: 'Unable to update profile photo' }
+          : removeProfile
+            ? { title: 'Profile Photo', success: 'Profile photo removed successfully.', error: 'Unable to remove profile photo' }
+            : { title: 'My Profile', success: 'Profile updated successfully.', error: 'Unable to update profile' };
+
     const formData = new FormData();
     if (includeProfileFields) {
       formData.append('update_profile', '1');
@@ -4350,14 +4360,14 @@ export default function GraduatePortal() {
       if (coverImageInputRef.current) {
         coverImageInputRef.current.value = '';
       }
-      notify('success', 'Profile updated successfully.', 'My Profile');
+      notify('success', notification.success, notification.title);
     } catch (error) {
       setProfileImageFile(null);
       setCoverImageFile(null);
       setCoverRemoveRequested(false);
       setAuthenticatedProfileImagePreview(resolveAssetUrl(viewedProfileUser?.profile_image_path));
       setCoverImagePreview(resolveAssetUrl(viewedProfileUser?.cover_image_path));
-      notify('error', error instanceof Error ? error.message : 'Unable to update profile', 'My Profile');
+      notify('error', error instanceof Error ? error.message : notification.error, notification.title);
     } finally {
       setProfileSaving(false);
     }
