@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import {
   Search,
@@ -806,13 +807,18 @@ export default function GraduateParticipation() {
         )}
       </div>
 
-      {answerViewer.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
-          <div className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
+      {answerViewer.isOpen && createPortal(
+        <div className="fixed inset-0 z-[100] flex h-[100dvh] w-screen items-center justify-center bg-slate-950/50 px-4 py-6 backdrop-blur-[1px]">
+          <div
+            className="flex max-h-[90dvh] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="graduate-survey-answers-title"
+          >
             <div className="flex items-start justify-between gap-4 border-b px-5 py-4">
               <div>
                 <p className="text-xs font-semibold uppercase text-blue-700">Survey Answers</p>
-                <h2 className="mt-1 text-xl font-bold text-[#1b2a4a]">{viewedGraduateName}</h2>
+                <h2 id="graduate-survey-answers-title" className="mt-1 text-xl font-bold text-[#1b2a4a]">{viewedGraduateName}</h2>
                 <p className="mt-1 text-sm text-gray-500">
                   {answerViewer.row?.student_id || 'No student ID'} - {answerViewer.row?.program_code || '-'}
                 </p>
@@ -876,7 +882,8 @@ export default function GraduateParticipation() {
               )}
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       <MessageBox

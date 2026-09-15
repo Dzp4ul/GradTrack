@@ -1400,7 +1400,7 @@ export default function GradTrackGenAIAssistant() {
       )}
 
       {(!isOpen || isMinimized) && (
-        <div className="fixed bottom-5 right-5 z-[70]">
+        <div className="fixed bottom-24 right-5 z-[70]">
           <button
             type="button"
             onClick={openAssistant}
@@ -1434,7 +1434,7 @@ export default function GradTrackGenAIAssistant() {
         <button
           type="button"
           onClick={openAssistant}
-          className="fixed bottom-24 right-6 z-[70] inline-flex items-center gap-2 rounded-full bg-[#1b2a4a] px-3 py-2 text-xs font-semibold text-white shadow-lg"
+          className="fixed bottom-48 right-6 z-[70] inline-flex items-center gap-2 rounded-full bg-[#1b2a4a] px-3 py-2 text-xs font-semibold text-white shadow-lg"
         >
           <MessageSquarePlus className="h-4 w-4" />
           Continue chat
