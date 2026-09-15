@@ -203,7 +203,11 @@ try {
                     LEFT JOIN admin_users archiver ON archiver.id = g.archived_by
                     LEFT JOIN admin_users restorer ON restorer.id = g.restored_by
                     $whereClause
-                    ORDER BY g.created_at DESC
+                    ORDER BY g.year_graduated DESC,
+                             g.last_name ASC,
+                             g.first_name ASC,
+                             g.middle_name ASC,
+                             g.id ASC
                     LIMIT $limit OFFSET $offset
                 ";
                 $stmt = $db->prepare($sql);
