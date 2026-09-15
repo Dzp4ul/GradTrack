@@ -51,9 +51,7 @@ const superAdminNavItems: NavItem[] = [
   { to: '/admin/system-settings', icon: Settings2, label: 'System Settings' },
 ];
 
-const registrarNavItems: NavItem[] = [
-  { to: '/admin/graduates', icon: GraduationCap, label: 'Manage Graduates' },
-];
+const registrarNavItems: NavItem[] = [];
 
 const alumniAdminNavItems: NavItem[] = [
   { to: '/admin/alumni-registered-list', icon: Users, label: 'Alumni Verification' },
@@ -125,6 +123,7 @@ export default function AdminLayout() {
     [user?.email, user?.full_name, user?.username]
   );
   const userRoleLabel = user?.role ? roleLabels[user.role] || user.role : 'User';
+  const panelLabel = user?.role === 'registrar' ? 'Registrar Panel' : 'Admin Panel';
   const profileImageUrl = useMemo(() => {
     const path = user?.profile_image_path;
     if (!path) return '';
@@ -176,7 +175,7 @@ export default function AdminLayout() {
             <img src={systemLogoUrl} alt={systemShortName} className="h-9 w-9 object-contain" />
             <div className="hidden sm:block">
               <h1 className="text-base font-bold leading-tight text-gray-900">{systemShortName}</h1>
-              <p className="text-[11px] leading-tight text-gray-500">Admin Panel</p>
+              <p className="text-[11px] leading-tight text-gray-500">{panelLabel}</p>
             </div>
           </div>
 
@@ -267,19 +266,21 @@ export default function AdminLayout() {
             </div>
 
             {/* Mobile Menu Toggle */}
-            <button
-              type="button"
-              onClick={() => setMobileNavOpen(!mobileNavOpen)}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-full text-gray-500 transition hover:bg-gray-100 lg:hidden"
-              aria-label="Toggle mobile navigation"
-            >
-              {mobileNavOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-            </button>
+            {navItems.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setMobileNavOpen(!mobileNavOpen)}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full text-gray-500 transition hover:bg-gray-100 lg:hidden"
+                aria-label="Toggle mobile navigation"
+              >
+                {mobileNavOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+              </button>
+            )}
           </div>
         </div>
 
         {/* Mobile Navigation Menu */}
-        {mobileNavOpen && (
+        {navItems.length > 0 && mobileNavOpen && (
           <div className="border-t border-gray-200 lg:hidden">
             <div className="grid gap-1 px-4 py-3">
               {navItems.map((item) => (
@@ -305,22 +306,24 @@ export default function AdminLayout() {
 
       <div className="mx-auto max-w-screen-2xl px-4 pt-4 sm:px-6 sm:pt-6">
         {/* Mobile Tab Scroller */}
-        <div className="mb-5 flex gap-2 overflow-x-auto rounded-3xl border border-gray-200 bg-white p-2 lg:hidden">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.end}
-              className={({ isActive }) =>
-                `shrink-0 rounded-2xl px-4 py-2 text-sm font-medium transition ${
-                  isActive ? 'gt-bg-primary text-white' : 'bg-gray-100 text-gray-700'
-                }`
-              }
-            >
-              {item.label}
-            </NavLink>
-          ))}
-        </div>
+        {navItems.length > 0 && (
+          <div className="mb-5 flex gap-2 overflow-x-auto rounded-3xl border border-gray-200 bg-white p-2 lg:hidden">
+            {navItems.map((item) => (
+              <NavLink
+                key={item.to}
+                to={item.to}
+                end={item.end}
+                className={({ isActive }) =>
+                  `shrink-0 rounded-2xl px-4 py-2 text-sm font-medium transition ${
+                    isActive ? 'gt-bg-primary text-white' : 'bg-gray-100 text-gray-700'
+                  }`
+                }
+              >
+                {item.label}
+              </NavLink>
+            ))}
+          </div>
+        )}
 
         {/* Main content */}
         <main className="pb-8">

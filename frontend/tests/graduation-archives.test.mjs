@@ -85,8 +85,10 @@ assert.doesNotMatch(registrar, /PROGRAM_OPTIONS/);
 
 const adminLayout = await readFile(new URL('../src/pages/admin/AdminLayout.tsx', import.meta.url), 'utf8');
 const registrarNavigation = adminLayout.match(/const registrarNavItems:[\s\S]*?= \[([\s\S]*?)\];/)?.[1] ?? '';
-assert.match(registrarNavigation, /Manage Graduates/);
+assert.doesNotMatch(registrarNavigation, /Manage Graduates/);
 assert.doesNotMatch(registrarNavigation, /Dashboard/);
+assert.match(adminLayout, /user\?\.role === 'registrar' \? 'Registrar Panel' : 'Admin Panel'/);
+assert.match(adminLayout, /navItems\.length > 0 && \(\s*<button[\s\S]*aria-label="Toggle mobile navigation"/);
 
 const forum = await readFile(new URL('../src/pages/GraduatePortal.tsx', import.meta.url), 'utf8');
 assert.doesNotMatch(forum, /<option value="202[1-9]">/);
