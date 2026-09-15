@@ -6,6 +6,7 @@ require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/engagement_approval.php';
 require_once __DIR__ . '/../config/forum.php';
 require_once __DIR__ . '/../config/announcements.php';
+require_once __DIR__ . '/../config/graduation_years.php';
 
 function gradtrack_notifications_json_error(int $statusCode, string $message): void
 {
@@ -368,32 +369,71 @@ function gradtrack_notifications_add_graduate(PDO $db, array &$notifications, ar
     $accountId = (int) $user['account_id'];
     $graduateId = (int) $user['graduate_id'];
 
-    $surveyStmt = $db->prepare("SELECT s.id, s.title, s.updated_at, s.created_at
-                               FROM surveys s
-                               WHERE s.status = 'active'
-                                 AND s.archived_at IS NULL
-                                 AND NOT EXISTS (
-                                    SELECT 1
-                                    FROM survey_responses sr
-                                    WHERE sr.survey_id = s.id
-                                      AND sr.graduate_id = :graduate_id
-                                 )
-                               ORDER BY s.updated_at DESC, s.id DESC
-                               LIMIT 3");
-    $surveyStmt->execute([':graduate_id' => $graduateId]);
+    $surveyCoverage = gradtrack_get_active_survey_graduation_year_coverage($db);
+    if (
+        $surveyCoverage['survey'] !== null
+        && $surveyCoverage['configured']
+        && gradtrack_graduation_year_is_allowed($user['year_graduated'] ?? null, $surveyCoverage['years'])
+    ) {
+        // A submitted survey is the authorization used to create a Graduate
+        // Portal account. Do not prompt that account to repeat onboarding just
+        // because a different survey is currently active.
+        $completionStmt = $db->prepare("SELECT 1
+                                        FROM survey_responses sr
+                                        LEFT JOIN graduate_accounts ga ON ga.id = :account_id
+                                        WHERE sr.submitted_at IS NOT NULL
+                                          AND (
+                                              sr.graduate_id = :graduate_id
+                                              OR sr.graduate_account_id = :response_account_id
+                                              OR sr.id = ga.source_survey_response_id
+                                          )
+                                        LIMIT 1");
+        $completionStmt->execute([
+            ':account_id' => $accountId,
+            ':graduate_id' => $graduateId,
+            ':response_account_id' => $accountId,
+        ]);
 
-    foreach ($surveyStmt->fetchAll(PDO::FETCH_ASSOC) as $survey) {
-        $token = gradtrack_notifications_date_token($survey['updated_at'] ?: $survey['created_at']);
-        gradtrack_notifications_add(
-            $notifications,
-            'graduate-survey:' . $survey['id'] . ':' . $token,
-            'survey',
-            'Survey waiting for you',
-            'Please answer "' . $survey['title'] . '" when you have time.',
-            $survey['updated_at'] ?: $survey['created_at'],
-            '/survey-verify?survey_id=' . $survey['id'],
-            'high'
-        );
+        if (!$completionStmt->fetchColumn()) {
+            $surveyId = (int) $surveyCoverage['survey']['id'];
+            $surveyStmt = $db->prepare("SELECT s.id, s.title, s.updated_at, s.created_at
+                                       FROM surveys s
+                                       WHERE s.id = :survey_id
+                                         AND s.status = 'active'
+                                         AND s.archived_at IS NULL
+                                         AND NOT EXISTS (
+                                            SELECT 1
+                                            FROM survey_responses sr
+                                            WHERE sr.survey_id = s.id
+                                              AND sr.submitted_at IS NOT NULL
+                                              AND (
+                                                  sr.graduate_id = :graduate_id
+                                                  OR sr.graduate_account_id = :account_id
+                                              )
+                                         )
+                                       LIMIT 1");
+            $surveyStmt->execute([
+                ':survey_id' => $surveyId,
+                ':graduate_id' => $graduateId,
+                ':account_id' => $accountId,
+            ]);
+            $survey = $surveyStmt->fetch(PDO::FETCH_ASSOC);
+
+            if ($survey) {
+                $createdAt = $survey['updated_at'] ?: $survey['created_at'];
+                $token = gradtrack_notifications_date_token($createdAt);
+                gradtrack_notifications_add(
+                    $notifications,
+                    'graduate-survey:' . $survey['id'] . ':' . $token,
+                    'survey',
+                    'Survey waiting for you',
+                    'Please answer "' . $survey['title'] . '" when you have time.',
+                    $createdAt,
+                    '/survey-verify?survey_id=' . $survey['id'],
+                    'high'
+                );
+            }
+        }
     }
 
     if (gradtrack_forum_table_exists($db, 'forum_posts')) {

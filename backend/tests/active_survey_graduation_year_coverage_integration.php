@@ -412,6 +412,47 @@ try {
         'Historical survey completion authorization creates the correct pending Graduate Portal account'
     );
 
+    $db->prepare("UPDATE graduate_accounts
+                  SET status = 'active', alumni_verification_status = 'approved'
+                  WHERE id = :id")->execute([':id' => $historicalAccountId]);
+    $historicalGraduateSession = coverage_session([
+        'graduate_account_id' => $historicalAccountId,
+        'authenticated_at' => time(),
+    ]);
+    $outOfCoverageNotifications = coverage_request(
+        'notifications/index.php?audience=graduate',
+        $historicalGraduateSession
+    );
+    $outOfCoverageSurveyNotifications = array_values(array_filter(
+        $outOfCoverageNotifications['json']['data']['notifications'] ?? [],
+        static fn (array $notification): bool => ($notification['type'] ?? '') === 'survey'
+    ));
+    coverage_assert(
+        $outOfCoverageNotifications['status'] === 200 && $outOfCoverageSurveyNotifications === [],
+        'Graduate Portal does not show an active-survey notification outside the graduate year coverage'
+    );
+
+    $db->prepare('UPDATE survey_questions SET options = :options WHERE id = :id')->execute([
+        ':options' => json_encode(['2021', '2022', '2023', '2024', '2025', '2027']),
+        ':id' => $questionIdA,
+    ]);
+    $completedAccountNotifications = coverage_request(
+        'notifications/index.php?audience=graduate',
+        $historicalGraduateSession
+    );
+    $completedAccountSurveyNotifications = array_values(array_filter(
+        $completedAccountNotifications['json']['data']['notifications'] ?? [],
+        static fn (array $notification): bool => ($notification['type'] ?? '') === 'survey'
+    ));
+    coverage_assert(
+        $completedAccountNotifications['status'] === 200 && $completedAccountSurveyNotifications === [],
+        'Graduate Portal does not ask an account linked to a submitted survey to repeat onboarding'
+    );
+    $db->prepare('UPDATE survey_questions SET options = :options WHERE id = :id')->execute([
+        ':options' => json_encode(['2021', '2022', '2023', '2024', '2025']),
+        ':id' => $questionIdA,
+    ]);
+
     $verify2025 = coverage_request('surveys/verify.php', null, 'POST', $verifyPayload + [
         'verification_method' => 'email',
         'email' => (string) $db->query('SELECT email FROM graduates WHERE id = ' . (int) $graduateByYear[2025])->fetchColumn(),
