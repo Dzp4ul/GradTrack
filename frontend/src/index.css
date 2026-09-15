@@ -584,6 +584,17 @@ html.dark .recharts-pie-label-text {
   color: var(--text-primary);
 }
 
+html.dark .survey-table-filter-option:hover,
+html.dark .survey-table-filter-option:focus-visible {
+  background-color: var(--surface-hover) !important;
+  color: var(--text-primary) !important;
+}
+
+html.dark .survey-table-filter-option[aria-selected='true'] {
+  background-color: rgb(37 99 235 / 0.3) !important;
+  color: #dbeafe !important;
+}
+
 .survey-report-paper,
 .survey-chart-card {
   background-color: var(--surface);

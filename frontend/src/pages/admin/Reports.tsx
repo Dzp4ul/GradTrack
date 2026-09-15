@@ -6,7 +6,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
 } from 'recharts';
-import { Download, Users, Briefcase, Target, FileText, Sparkles, TrendingUp, CheckCircle2, BarChart3, Filter, RotateCcw } from 'lucide-react';
+import { Download, Users, Briefcase, Target, FileText, Sparkles, TrendingUp, CheckCircle2, BarChart3, Filter, RotateCcw, Check, ChevronDown } from 'lucide-react';
 import { API_ROOT } from '../../config/api';
 import { normalizeGraduationYears } from '../../utils/graduationYears';
 import { PROGRAM_COLORS } from '../../config/programColors';
@@ -2747,23 +2747,11 @@ export default function Reports() {
                             </div>
                             {surveyReportTables.length > 0 && (
                               <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-                                <label className="flex w-full items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 sm:w-auto">
-                                  <Filter className="h-4 w-4 flex-none text-[#1b2a4a]" />
-                                  <span className="whitespace-nowrap text-sm font-semibold text-gray-700">Table:</span>
-                                  <select
-                                    value={selectedSurveyTable}
-                                    onChange={(event) => handleSurveyTableChange(event.target.value)}
-                                    className="min-w-0 flex-1 bg-white text-sm font-medium text-[#1b2a4a] outline-none sm:w-[260px]"
-                                    aria-label="Filter survey analytics table"
-                                  >
-                                    <option value={ALL_SURVEY_TABLES_VALUE}>All tables ({surveyReportTables.length})</option>
-                                    {surveyReportTables.map((table, index) => (
-                                      <option key={`${table.number}-${index}`} value={index.toString()}>
-                                        Table {table.number} - {table.title}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </label>
+                                <SurveyTableFilter
+                                  tables={surveyReportTables}
+                                  value={selectedSurveyTable}
+                                  onChange={handleSurveyTableChange}
+                                />
 
                                 {surveyReportGraphCount > 0 && (
                                   <button
@@ -2807,6 +2795,188 @@ export default function Reports() {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function SurveyTableFilter({
+  tables,
+  value,
+  onChange,
+}: {
+  tables: SurveyReportTable[];
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const parsedTableIndex = Number(value);
+  const selectedOptionIndex = value !== ALL_SURVEY_TABLES_VALUE
+    && Number.isInteger(parsedTableIndex)
+    && parsedTableIndex >= 0
+    && parsedTableIndex < tables.length
+    ? parsedTableIndex + 1
+    : 0;
+  const selectedLabel = selectedOptionIndex === 0
+    ? `All tables (${tables.length})`
+    : `Table ${tables[selectedOptionIndex - 1].number} - ${tables[selectedOptionIndex - 1].title}`;
+  const optionCount = tables.length + 1;
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    const handlePointerDown = (event: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const handleFocusIn = (event: FocusEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('focusin', handleFocusIn);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('focusin', handleFocusIn);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+
+    const frame = window.requestAnimationFrame(() => {
+      optionRefs.current[selectedOptionIndex]?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [open, selectedOptionIndex]);
+
+  const closeAndFocusTrigger = () => {
+    setOpen(false);
+    window.requestAnimationFrame(() => triggerRef.current?.focus());
+  };
+
+  const selectOption = (nextValue: string) => {
+    onChange(nextValue);
+    closeAndFocusTrigger();
+  };
+
+  const focusOption = (index: number) => {
+    const wrappedIndex = (index + optionCount) % optionCount;
+    optionRefs.current[wrappedIndex]?.focus();
+  };
+
+  const handleOptionKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+    switch (event.key) {
+      case 'ArrowDown':
+        event.preventDefault();
+        focusOption(index + 1);
+        break;
+      case 'ArrowUp':
+        event.preventDefault();
+        focusOption(index - 1);
+        break;
+      case 'Home':
+        event.preventDefault();
+        focusOption(0);
+        break;
+      case 'End':
+        event.preventDefault();
+        focusOption(optionCount - 1);
+        break;
+      case 'Escape':
+        event.preventDefault();
+        closeAndFocusTrigger();
+        break;
+      default:
+        break;
+    }
+  };
+
+  return (
+    <div ref={wrapperRef} className="relative w-full sm:w-[360px]">
+      <button
+        ref={triggerRef}
+        type="button"
+        className="flex w-full min-w-0 items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-left text-[#1b2a4a] transition hover:border-gray-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+        aria-label="Filter survey analytics table"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-controls="survey-table-filter-options"
+        title={selectedLabel}
+        onClick={() => setOpen((current) => !current)}
+        onKeyDown={(event) => {
+          if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault();
+            setOpen(true);
+          } else if (event.key === 'Escape' && open) {
+            event.preventDefault();
+            setOpen(false);
+          }
+        }}
+      >
+        <Filter className="h-4 w-4 flex-none" aria-hidden="true" />
+        <span className="flex-none whitespace-nowrap text-sm font-semibold text-gray-700">Table:</span>
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">{selectedLabel}</span>
+        <ChevronDown
+          className={`h-4 w-4 flex-none text-gray-500 transition-transform ${open ? 'rotate-180' : ''}`}
+          aria-hidden="true"
+        />
+      </button>
+
+      {open && (
+        <div
+          id="survey-table-filter-options"
+          className="absolute right-0 z-40 mt-1 max-h-64 w-full max-w-[calc(100vw-2rem)] overflow-y-auto overscroll-contain rounded-lg border border-gray-200 bg-white py-1 shadow-xl sm:w-[36rem]"
+          role="listbox"
+          aria-label="Survey analytics tables"
+        >
+          <button
+            ref={(element) => { optionRefs.current[0] = element; }}
+            type="button"
+            role="option"
+            aria-selected={selectedOptionIndex === 0}
+            className={`survey-table-filter-option flex w-full items-start gap-2 px-3 py-2 text-left text-sm leading-5 transition-colors hover:bg-blue-50 focus-visible:bg-blue-50 focus-visible:outline-none ${
+              selectedOptionIndex === 0 ? 'bg-blue-50 font-semibold text-blue-900' : 'text-gray-700'
+            }`}
+            onClick={() => selectOption(ALL_SURVEY_TABLES_VALUE)}
+            onKeyDown={(event) => handleOptionKeyDown(event, 0)}
+          >
+            <span className="mt-0.5 h-4 w-4 flex-none">
+              {selectedOptionIndex === 0 && <Check className="h-4 w-4" aria-hidden="true" />}
+            </span>
+            <span>All tables ({tables.length})</span>
+          </button>
+
+          {tables.map((table, index) => {
+            const optionIndex = index + 1;
+            const isSelected = optionIndex === selectedOptionIndex;
+            return (
+              <button
+                key={`${table.number}-${index}`}
+                ref={(element) => { optionRefs.current[optionIndex] = element; }}
+                type="button"
+                role="option"
+                aria-selected={isSelected}
+                className={`survey-table-filter-option flex w-full items-start gap-2 px-3 py-2 text-left text-sm leading-5 transition-colors hover:bg-blue-50 focus-visible:bg-blue-50 focus-visible:outline-none ${
+                  isSelected ? 'bg-blue-50 font-semibold text-blue-900' : 'text-gray-700'
+                }`}
+                onClick={() => selectOption(index.toString())}
+                onKeyDown={(event) => handleOptionKeyDown(event, optionIndex)}
+              >
+                <span className="mt-0.5 h-4 w-4 flex-none">
+                  {isSelected && <Check className="h-4 w-4" aria-hidden="true" />}
+                </span>
+                <span>Table {table.number} - {table.title}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
