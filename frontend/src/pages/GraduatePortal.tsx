@@ -4270,7 +4270,9 @@ export default function GraduatePortal() {
       return;
     }
 
+    setProfileMenuOpen(false);
     setProfileEditSection(section);
+    setActiveTab('settings');
     navigate(`/graduate/portal?tab=settings&section=${section}`);
   };
 
@@ -4565,6 +4567,7 @@ export default function GraduatePortal() {
   const handleOpenProfileSettings = () => {
     setProfileMenuOpen(false);
     setProfileEditSection('basic');
+    setActiveTab('settings');
     navigate('/graduate/portal?tab=settings&section=basic');
   };
 
@@ -5475,6 +5478,7 @@ export default function GraduatePortal() {
                       forumActionKey={forumActionKey}
                       onEdit={openProfileSettings}
                       onChangeProfilePhoto={() => profileImageInputRef.current?.click()}
+                      onRemoveProfilePhoto={() => requestProfileImageRemoval('profile')}
                       onChangeCoverPhoto={() => coverImageInputRef.current?.click()}
                       onRemoveCoverPhoto={() => requestProfileImageRemoval('cover')}
                       onOpenProfileImage={(src, alt, kind) => setProfileImageViewer({ src, alt, kind })}
@@ -6149,6 +6153,7 @@ function ProfileWorkspace({
   forumActionKey,
   onEdit,
   onChangeProfilePhoto,
+  onRemoveProfilePhoto,
   onChangeCoverPhoto,
   onRemoveCoverPhoto,
   onOpenProfileImage,
@@ -6180,6 +6185,7 @@ function ProfileWorkspace({
   forumActionKey: string;
   onEdit: (section?: ProfileEditSection) => void;
   onChangeProfilePhoto: () => void;
+  onRemoveProfilePhoto: () => void;
   onChangeCoverPhoto: () => void;
   onRemoveCoverPhoto: () => void;
   onOpenProfileImage: (src: string, alt: string, kind: 'profile' | 'cover') => void;
@@ -6208,6 +6214,7 @@ function ProfileWorkspace({
         messagingAvailable={messagingAvailable}
         currentGraduateId={currentGraduateId}
         onChangeProfilePhoto={onChangeProfilePhoto}
+        onRemoveProfilePhoto={onRemoveProfilePhoto}
         onChangeCoverPhoto={onChangeCoverPhoto}
         onRemoveCoverPhoto={onRemoveCoverPhoto}
         onOpenImage={onOpenProfileImage}
@@ -6263,6 +6270,7 @@ function ProfileIdentityPanel({
   messagingAvailable,
   currentGraduateId,
   onChangeProfilePhoto,
+  onRemoveProfilePhoto,
   onChangeCoverPhoto,
   onRemoveCoverPhoto,
   onOpenImage,
@@ -6280,6 +6288,7 @@ function ProfileIdentityPanel({
   messagingAvailable: boolean;
   currentGraduateId: number;
   onChangeProfilePhoto: () => void;
+  onRemoveProfilePhoto: () => void;
   onChangeCoverPhoto: () => void;
   onRemoveCoverPhoto: () => void;
   onOpenImage: (src: string, alt: string, kind: 'profile' | 'cover') => void;
@@ -6296,6 +6305,30 @@ function ProfileIdentityPanel({
   const headline = [jobTitle || employmentStatus, company].filter(hasDisplayValue).join(' at ');
   const metaItems = [program, batch].filter(hasDisplayValue);
   const canMessage = messagingAvailable && !canEdit && !!user?.graduate_id && user.graduate_id !== currentGraduateId;
+  const [profilePhotoMenuOpen, setProfilePhotoMenuOpen] = useState(false);
+  const profilePhotoMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!profilePhotoMenuOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!profilePhotoMenuRef.current?.contains(event.target as Node)) {
+        setProfilePhotoMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setProfilePhotoMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [profilePhotoMenuOpen]);
 
   return (
     <section className="rounded-[28px] border border-slate-200 bg-white shadow-sm">
@@ -6341,8 +6374,19 @@ function ProfileIdentityPanel({
 
       <div className="relative px-4 pb-5 pt-[4.75rem] sm:px-6 sm:pb-6 lg:px-8">
         <div className="absolute -top-14 left-4 z-30 sm:-top-16 sm:left-6 lg:left-8">
-          <div className="relative rounded-full border-4 border-white bg-white shadow-lg">
-            {profileImageUrl ? (
+          <div ref={profilePhotoMenuRef} className="relative rounded-full border-4 border-white bg-white shadow-lg">
+            {canEdit ? (
+              <button
+                type="button"
+                onClick={() => setProfilePhotoMenuOpen((current) => !current)}
+                className="block rounded-full transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200"
+                aria-label="Open profile photo options"
+                aria-haspopup="menu"
+                aria-expanded={profilePhotoMenuOpen}
+              >
+                <Avatar src={profileImageUrl} label={fullName} size="xl" />
+              </button>
+            ) : profileImageUrl ? (
               <button
                 type="button"
                 onClick={() => onOpenImage(profileImageUrl, `${fullName} profile photo`, 'profile')}
@@ -6355,9 +6399,43 @@ function ProfileIdentityPanel({
               <Avatar src="" label={fullName} size="xl" />
             )}
             {canEdit && (
-              <button type="button" onClick={onChangeProfilePhoto} disabled={saving} className="absolute bottom-1 right-1 inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60" aria-label="Change profile photo" title="Change profile photo">
+              <button type="button" onClick={() => setProfilePhotoMenuOpen((current) => !current)} disabled={saving} className="absolute bottom-1 right-1 inline-flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-60" aria-label="Open profile photo options" title="Profile photo options" aria-haspopup="menu" aria-expanded={profilePhotoMenuOpen}>
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
               </button>
+            )}
+
+            {canEdit && profilePhotoMenuOpen && (
+              <div role="menu" aria-label="Profile photo options" className="absolute left-0 top-full z-50 mt-3 w-64 overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 shadow-xl">
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setProfilePhotoMenuOpen(false);
+                    onChangeProfilePhoto();
+                  }}
+                  disabled={saving}
+                  className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-bold text-slate-800 transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4 text-blue-700" />}
+                  {profileImageUrl ? 'Change Profile Photo' : 'Add Profile Photo'}
+                </button>
+
+                {profileImageUrl && (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      setProfilePhotoMenuOpen(false);
+                      onRemoveProfilePhoto();
+                    }}
+                    disabled={saving}
+                    className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-bold text-rose-700 transition hover:bg-rose-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                    Remove Profile Photo
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>
