@@ -1,4 +1,3 @@
-import { Link } from 'react-router-dom';
 import { Settings, ShieldCheck } from 'lucide-react';
 import { useSystemSettings } from '../contexts/SystemSettingsContext';
 
@@ -36,20 +35,6 @@ export default function MaintenancePage() {
           </p>
         )}
 
-        <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
-          <Link
-            to="/admin/signin"
-            className="inline-flex items-center justify-center rounded-lg bg-[#1b2a4a] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#263c66]"
-          >
-            Super Admin Sign In
-          </Link>
-          <Link
-            to="/"
-            className="inline-flex items-center justify-center rounded-lg border px-5 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-50"
-          >
-            Back to Home
-          </Link>
-        </div>
       </div>
     </div>
   );
