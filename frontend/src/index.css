@@ -393,7 +393,13 @@ html.dark .hover\:text-blue-800:hover {
   color: #93c5fd !important;
 }
 
+html.dark .text-emerald-950,
+html.dark .text-emerald-900,
+html.dark .text-emerald-800,
 html.dark .text-emerald-700,
+html.dark .text-green-950,
+html.dark .text-green-900,
+html.dark .text-green-800,
 html.dark .text-green-700,
 html.dark .text-green-600 {
   color: #6ee7b7 !important;

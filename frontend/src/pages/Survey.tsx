@@ -4,6 +4,7 @@ import { ShieldCheck, ChevronRight, ChevronLeft, ClipboardList, Save, Eye, EyeOf
 import MessageBox from '../components/MessageBox';
 import SearchableSelect from '../components/SearchableSelect';
 import FeatureUnavailable from '../components/FeatureUnavailable';
+import ThemeToggle from '../components/ThemeToggle';
 import { API_ENDPOINTS, API_ROOT } from '../config/api';
 import { useSystemSettings } from '../contexts/SystemSettingsContext';
 import { usePsgcAddress } from '../hooks/usePsgcAddress';
@@ -2120,12 +2121,14 @@ function Survey() {
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-3">
               <img src={resolveAssetUrl(getSetting('system_logo_path'), '/logo.png')} alt={getSetting('institution_name', 'Norzagaray College')} className="h-10 w-10 object-contain" />
-              <h1 className="text-lg font-bold text-white">{getSetting('system_short_name', 'GradTrack')} Survey</h1>
+              <h1 className="hidden text-lg font-bold text-white sm:block">{getSetting('system_short_name', 'GradTrack')} Survey</h1>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-5 sm:gap-6">
               <Link to="/" className="text-white hover:text-yellow-400 font-medium transition text-sm">
-              ← Back to Home
+                <span className="sm:hidden">← Home</span>
+                <span className="hidden sm:inline">← Back to Home</span>
               </Link>
+              <ThemeToggle compact />
             </div>
           </div>
         </div>
