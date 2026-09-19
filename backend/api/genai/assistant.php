@@ -345,13 +345,16 @@ function gradtrack_genai_authorized_role_context(
         ? gradtrack_genai_program_options($db, $allowedProgramCodes)
         : [];
     $role = (string)$admin['role'];
-    $scopeNote = match ($role) {
+    $scopeNotes = [
         'admin' => 'Institution-wide survey participation and tracer-study analytics, limited to the Admin pages and aggregate data tools.',
         'registrar' => 'Institution-wide non-archived graduate records available through Manage Graduates.',
         'alumni_admin' => 'Institution-wide alumni verification, registry, announcement, forum-moderation, and job-approval workflows.',
-        'dean_cs', 'dean_coed', 'dean_hm' => 'Active-survey participation is limited to the Dean role\'s assigned programs.',
-        default => 'Only the pages and aggregate tools authorized for this authenticated role.',
-    };
+        'dean_cs' => 'Active-survey participation is limited to the Dean role\'s assigned programs.',
+        'dean_coed' => 'Active-survey participation is limited to the Dean role\'s assigned programs.',
+        'dean_hm' => 'Active-survey participation is limited to the Dean role\'s assigned programs.',
+    ];
+    $scopeNote = $scopeNotes[$role]
+        ?? 'Only the pages and aggregate tools authorized for this authenticated role.';
 
     return [
         'role' => $role,
@@ -1144,6 +1147,10 @@ function gradtrack_genai_collect_dataset(
     $surveyId = $effectiveContext['survey_id'];
     $questions = getSurveyQuestions($db, $surveyId);
     $responses = getSurveyResponses($db, $surveyId, $effectiveContext['overview_filters']);
+    $programNamesByCode = [];
+    foreach (gradtrack_genai_program_options($db, $allowedProgramCodes) as $programOption) {
+        $programNamesByCode[(string)$programOption['code']] = (string)$programOption['name'];
+    }
     $seenResponses = [];
     $programs = [];
     $years = [];
@@ -1194,7 +1201,8 @@ function gradtrack_genai_collect_dataset(
 
         $total++;
         $programCode = $rowProgramCode !== '' ? $rowProgramCode : 'UNKNOWN';
-        $programName = trim((string)($details['degree_program'] ?? '')) ?: getProgramDisplayNameByCode($programCode);
+        $programName = trim((string)($details['degree_program'] ?? ''))
+            ?: ($programNamesByCode[$programCode] ?? $programCode);
         if ($programCode === 'UNKNOWN') {
             $programName = 'Program not specified';
         }
