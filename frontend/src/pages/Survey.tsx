@@ -668,6 +668,7 @@ function Survey() {
   const [showAccountConfirmPassword, setShowAccountConfirmPassword] = useState(false);
   const [accountSubmitting, setAccountSubmitting] = useState(false);
   const [surveySubmitting, setSurveySubmitting] = useState(false);
+  const [isReviewing, setIsReviewing] = useState(false);
   const surveySubmissionInFlightRef = useRef(false);
 
   useEffect(() => {
@@ -1366,8 +1367,8 @@ function Survey() {
     return true;
   };
 
-  const handleSubmit = async () => {
-    if (!activeSurvey || !token || !graduateId || surveySubmissionInFlightRef.current || submittedResponseId) return;
+  const validateAllSurveyResponses = () => {
+    if (!activeSurvey) return null;
 
     const addressQuestions = getPsgcAddressQuestions(activeSurvey.questions);
     const shouldSubmitPsgcAddress = hasPsgcAddressQuestions(addressQuestions);
@@ -1379,7 +1380,7 @@ function Survey() {
         message: 'Please wait until the address list has finished loading.',
         title: 'Address Loading',
       });
-      return;
+      return null;
     }
 
     if (shouldSubmitPsgcAddress && !psgcAddress.payload) {
@@ -1389,7 +1390,7 @@ function Survey() {
         message: 'Please complete the Philippine address section before submitting.',
         title: 'Required Address',
       });
-      return;
+      return null;
     }
 
     const responsePayload = shouldSubmitPsgcAddress
@@ -1411,6 +1412,7 @@ function Survey() {
     const submissionValidation = validateSurveyResponses(validationQuestions, responsePayload);
 
     if (!submissionValidation.isValid) {
+      setIsReviewing(false);
       setResponses(submissionValidation.responses);
       setValidationErrors(submissionValidation.errors);
       const firstQuestionId = submissionValidation.firstInvalidQuestionId;
@@ -1423,16 +1425,36 @@ function Survey() {
           : 'Please review the highlighted survey answers.',
       });
       focusInvalidQuestion(firstQuestionId);
-      return;
+      return null;
     }
 
     setResponses(submissionValidation.responses);
     setValidationErrors({});
 
-    const submissionResponses = sanitizeDraftResponses(
-      submissionValidation.responses,
-      activeSurvey.questions,
-    );
+    return {
+      responses: sanitizeDraftResponses(
+        submissionValidation.responses,
+        activeSurvey.questions,
+      ),
+      shouldSubmitPsgcAddress,
+    };
+  };
+
+  const handleReviewAnswers = () => {
+    const validatedSubmission = validateAllSurveyResponses();
+    if (!validatedSubmission) return;
+
+    setIsReviewing(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleSubmit = async () => {
+    if (!activeSurvey || !token || !graduateId || surveySubmissionInFlightRef.current || submittedResponseId) return;
+
+    const validatedSubmission = validateAllSurveyResponses();
+    if (!validatedSubmission) return;
+
+    const submissionResponses = validatedSubmission.responses;
 
     surveySubmissionInFlightRef.current = true;
     setSurveySubmitting(true);
@@ -1445,7 +1467,7 @@ function Survey() {
           graduate_id: graduateId,
           token: token,
           responses: submissionResponses,
-          psgc_address: shouldSubmitPsgcAddress ? psgcAddress.payload : null,
+          psgc_address: validatedSubmission.shouldSubmitPsgcAddress ? psgcAddress.payload : null,
         }),
       });
 
@@ -1475,6 +1497,7 @@ function Survey() {
           || Number(Object.keys(backendFieldErrors)[0])
           || undefined;
         if (Object.keys(backendFieldErrors).length > 0) {
+          setIsReviewing(false);
           setValidationErrors(backendFieldErrors);
           focusInvalidQuestion(firstBackendQuestionId);
         }
@@ -1646,34 +1669,39 @@ function Survey() {
   }
 
   // Progress Bar
-  const ProgressBar = () => (
-    <div className="w-full max-w-5xl mx-auto mb-6 overflow-x-auto pb-2 sm:mb-10">
-      <div className="flex min-w-max items-start justify-between gap-2 px-1 sm:min-w-0 sm:gap-0">
-        {allSections.map((section, i) => (
+  const ProgressBar = () => {
+    const progressSteps = [...allSections, 'Review'];
+    const activeStep = isReviewing ? allSections.length : currentSection;
+
+    return (
+      <div className="w-full max-w-5xl mx-auto mb-6 overflow-x-auto pb-2 sm:mb-10">
+        <div className="flex min-w-max items-start justify-between gap-2 px-1 sm:min-w-0 sm:gap-0">
+          {progressSteps.map((section, i) => (
           <div key={i} className="relative flex w-24 flex-col items-center sm:flex-1">
             <div
-              aria-current={i === currentSection ? 'step' : undefined}
+              aria-current={i === activeStep ? 'step' : undefined}
               className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm select-none z-10 ${
-                i < currentSection
+                i < activeStep
                   ? 'bg-green-500 text-white'
-                  : i === currentSection
+                  : i === activeStep
                   ? 'bg-blue-600 text-white ring-4 ring-blue-200'
                   : 'bg-gray-200 text-gray-500'
               }`}
             >
-              {i < currentSection ? '✓' : i + 1}
+              {i < activeStep ? '✓' : i + 1}
             </div>
-            <span className={`text-xs mt-2 font-medium text-center max-w-[100px] truncate ${i === currentSection ? 'text-yellow-400' : 'text-blue-200'}`} title={section}>
+            <span className={`text-xs mt-2 font-medium text-center max-w-[100px] truncate ${i === activeStep ? 'text-yellow-400' : 'text-blue-200'}`} title={section}>
               {section}
             </span>
-            {i < allSections.length - 1 && (
-              <div className={`absolute top-5 left-[55%] w-full h-0.5 ${i < currentSection ? 'bg-green-500' : 'bg-gray-200'}`} />
+            {i < progressSteps.length - 1 && (
+              <div className={`absolute top-5 left-[55%] w-full h-0.5 ${i < activeStep ? 'bg-green-500' : 'bg-gray-200'}`} />
             )}
           </div>
-        ))}
+          ))}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   // Render question based on type
   const renderQuestion = (question: Question) => {
@@ -1957,6 +1985,24 @@ function Survey() {
   const surveyAddressQuestionIds = getPsgcAddressQuestionIds(surveyAddressQuestions);
   const isCurrentAddressLoading = hasPsgcAddressQuestions(currentAddressQuestions) && psgcAddress.isLoading;
   const isSurveyAddressLoading = hasPsgcAddressQuestions(surveyAddressQuestions) && psgcAddress.isLoading;
+  const reviewResponses = hasPsgcAddressQuestions(surveyAddressQuestions)
+    ? mergePsgcAddressResponses(
+      removeDisabledResponses(responses, activeSurvey.questions),
+      surveyAddressQuestions,
+      psgcAddress.payload || psgcAddress.draftValue,
+      psgcAddress.provinceApplicable,
+    )
+    : removeDisabledResponses(responses, activeSurvey.questions);
+  const reviewSections = allSections
+    .map((section) => ({
+      section,
+      questions: (sectionQuestions[section] || []).filter(
+        (question) => !isHeaderQuestion(question)
+          && shouldShowQuestion(question, activeSurvey.questions, reviewResponses)
+          && !shouldDisableQuestion(question, activeSurvey.questions, reviewResponses)
+      ),
+    }))
+    .filter(({ questions }) => questions.length > 0);
 
   const clearAddressAutoFill = () => {
     setAutoFilledQuestionIds((prev) => {
@@ -2112,6 +2158,26 @@ function Survey() {
     </div>
   );
 
+  const renderReviewAnswer = (answer: SurveyAnswer) => {
+    const values = answerValues(answer).map((value) => value.trim()).filter(Boolean);
+
+    if (values.length === 0) {
+      return <span className="italic text-gray-500">No answer provided</span>;
+    }
+
+    if (values.length === 1) {
+      return <span className="whitespace-pre-wrap break-words">{values[0]}</span>;
+    }
+
+    return (
+      <ul className="list-disc space-y-1 pl-5">
+        {values.map((value, index) => (
+          <li key={`${value}-${index}`} className="whitespace-pre-wrap break-words">{value}</li>
+        ))}
+      </ul>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-cover bg-center bg-fixed relative" style={{ backgroundImage: `url(${pageBackground})` }}>
       <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80 pointer-events-none"></div>
@@ -2163,6 +2229,85 @@ function Survey() {
             )}
           </div>
 
+          {isReviewing ? (
+            <div className="space-y-6">
+              <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 sm:p-5">
+                <div className="flex items-start gap-3">
+                  <ClipboardList className="mt-0.5 h-6 w-6 flex-shrink-0 text-blue-700" />
+                  <div>
+                    <h3 className="text-xl font-bold text-blue-950">Review Your Answers</h3>
+                    <p className="mt-1 text-sm leading-relaxed text-gray-700">
+                      Please check every answer below. You can return to any section to make changes before your final submission.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {reviewSections.map(({ section, questions }) => (
+                <section key={section} className="overflow-hidden rounded-xl border border-gray-200 bg-white">
+                  <div className="flex flex-col gap-3 border-b border-blue-100 bg-blue-50 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+                    <h4 className="font-bold uppercase tracking-wide text-blue-900">{section}</h4>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCurrentSection(allSections.indexOf(section));
+                        setIsReviewing(false);
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                      }}
+                      className="self-start rounded-lg border border-blue-200 bg-white px-3 py-1.5 text-sm font-semibold text-blue-700 transition hover:bg-blue-100 sm:self-auto"
+                    >
+                      Edit this section
+                    </button>
+                  </div>
+                  <dl className="divide-y divide-gray-100">
+                    {questions.map((question) => {
+                      const questionNumber = activeSurvey.questions.findIndex((candidate) => candidate.id === question.id) + 1;
+
+                      return (
+                        <div key={question.id} className="grid gap-2 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:gap-6 sm:px-5">
+                          <dt className="text-sm font-semibold leading-relaxed text-gray-700">
+                            {questionNumber}. {question.question_text}
+                          </dt>
+                          <dd className="text-sm leading-relaxed text-gray-900">
+                            {renderReviewAnswer(question.id ? reviewResponses[question.id] : undefined)}
+                          </dd>
+                        </div>
+                      );
+                    })}
+                  </dl>
+                </section>
+              ))}
+
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                Once submitted, your survey answers can no longer be changed.
+              </div>
+
+              <div className="flex flex-col-reverse gap-3 border-t border-gray-100 pt-6 sm:flex-row sm:justify-between">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCurrentSection(Math.max(totalPages - 1, 0));
+                    setIsReviewing(false);
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                  disabled={surveySubmitting}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-gray-100 px-6 py-3 font-semibold text-gray-700 transition hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                >
+                  <ChevronLeft className="h-5 w-5" />
+                  Edit Answers
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSubmit}
+                  disabled={isSurveyAddressLoading || surveySubmitting}
+                  className="w-full rounded-lg bg-green-600 px-8 py-3 font-semibold text-white shadow-md transition hover:bg-green-700 hover:shadow-lg disabled:cursor-not-allowed disabled:bg-gray-400 sm:w-auto"
+                >
+                  {surveySubmitting ? 'Submitting...' : 'Confirm & Submit Survey'}
+                </button>
+              </div>
+            </div>
+          ) : (
+          <>
           <div className="space-y-8">
             {autoFilledCount > 0 && (
               <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
@@ -2530,18 +2675,17 @@ function Survey() {
               </button>
             ) : (
               <button
-                onClick={() => {
-                  if (validateCurrentSection()) {
-                    handleSubmit();
-                  }
-                }}
-                disabled={isSurveyAddressLoading || surveySubmitting}
-                className="w-full bg-green-600 hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-8 py-3 rounded-lg font-semibold transition shadow-md hover:shadow-lg sm:w-auto"
+                onClick={handleReviewAnswers}
+                disabled={isSurveyAddressLoading}
+                className="flex w-full items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-8 py-3 rounded-lg font-semibold transition shadow-md hover:shadow-lg sm:w-auto"
               >
-                {surveySubmitting ? 'Submitting...' : 'Submit Survey'}
+                <ClipboardList className="h-5 w-5" />
+                Review Answers
               </button>
             )}
           </div>
+          </>
+          )}
         </div>
       </div>
 
