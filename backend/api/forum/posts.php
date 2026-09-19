@@ -5,6 +5,7 @@ require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/forum.php';
 require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../config/system_settings.php';
+require_once __DIR__ . '/../config/realtime.php';
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 function gradtrack_forum_posts_request_data(): array
@@ -67,8 +68,11 @@ function gradtrack_forum_posts_detail_query(): string
     return "SELECT fp.id, fp.graduate_id, fp.title, fp.content, fp.category, fp.status,
                    fp.image_path, fp.image_original_name, fp.image_mime_type, fp.image_file_size_bytes,
                    fp.created_at, fp.updated_at,
-                   g.first_name, g.middle_name, g.last_name, g.year_graduated AS author_year_graduated,
-                   p.name AS author_program_name, p.code AS author_program_code,
+                   COALESCE(NULLIF(gp.first_name, ''), g.first_name) AS first_name,
+                   COALESCE(NULLIF(gp.middle_name, ''), g.middle_name) AS middle_name,
+                   COALESCE(NULLIF(gp.last_name, ''), g.last_name) AS last_name,
+                   COALESCE(gp.graduation_year, g.year_graduated) AS author_year_graduated,
+                   COALESCE(NULLIF(gp.program_course, ''), p.name) AS author_program_name, p.code AS author_program_code,
                    gpi.file_path AS author_profile_image_path,
                    (
                        SELECT COUNT(*)
@@ -97,6 +101,7 @@ function gradtrack_forum_posts_detail_query(): string
             FROM forum_posts fp
             JOIN graduates g ON g.id = fp.graduate_id
             LEFT JOIN graduate_accounts ga ON ga.graduate_id = g.id
+            LEFT JOIN graduate_profiles gp ON gp.graduate_account_id = ga.id
             LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
             LEFT JOIN programs p ON p.id = g.program_id";
 }
@@ -213,8 +218,8 @@ try {
                 fp.title LIKE :search_title
                 OR fp.content LIKE :search_content
                 OR fp.category LIKE :search_category
-                OR g.first_name LIKE :search_author_first
-                OR g.last_name LIKE :search_author_last
+                OR COALESCE(NULLIF(gp.first_name, ''), g.first_name) LIKE :search_author_first
+                OR COALESCE(NULLIF(gp.last_name, ''), g.last_name) LIKE :search_author_last
             )";
             $searchTerm = '%' . $search . '%';
             $params[':search_title'] = $searchTerm;
@@ -301,11 +306,26 @@ try {
             $postId
         );
 
+        $createdStmt = $db->prepare(gradtrack_forum_posts_detail_query() . ' WHERE fp.id = :id LIMIT 1');
+        $createdStmt->execute([
+            ':id' => $postId,
+            ':viewer_graduate_id' => (int) $user['graduate_id'],
+        ]);
+        $createdPost = $createdStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$createdPost) {
+            throw new RuntimeException('Created forum post could not be loaded');
+        }
+        $createdPost = gradtrack_forum_posts_attach_media($db, [$createdPost])[0];
+        gradtrack_realtime_publish('forum_post', 'created', $postId, [
+            'actor_graduate_id' => (int) $user['graduate_id'],
+        ]);
+
         echo json_encode([
             'success' => true,
             'message' => 'Forum post published successfully',
             'id' => $postId,
             'status' => 'approved',
+            'data' => $createdPost,
         ]);
         exit;
     }
@@ -417,9 +437,25 @@ try {
             $postId
         );
 
+        $updatedStmt = $db->prepare(gradtrack_forum_posts_detail_query() . ' WHERE fp.id = :id LIMIT 1');
+        $updatedStmt->execute([
+            ':id' => $postId,
+            ':viewer_graduate_id' => (int) $user['graduate_id'],
+        ]);
+        $updatedPost = $updatedStmt->fetch(PDO::FETCH_ASSOC);
+        if (!$updatedPost) {
+            throw new RuntimeException('Updated forum post could not be loaded');
+        }
+        $updatedPost = gradtrack_forum_posts_attach_media($db, [$updatedPost])[0];
+        gradtrack_realtime_publish('forum_post', 'updated', $postId, [
+            'actor_graduate_id' => (int) $user['graduate_id'],
+        ]);
+
         echo json_encode([
             'success' => true,
             'message' => 'Forum post updated successfully',
+            'id' => $postId,
+            'data' => $updatedPost,
         ]);
         exit;
     }
@@ -473,6 +509,10 @@ try {
             "Deleted forum post with record ID {$postId}.",
             $postId
         );
+
+        gradtrack_realtime_publish('forum_post', 'deleted', $postId, [
+            'actor_graduate_id' => (int) $user['graduate_id'],
+        ]);
 
         echo json_encode([
             'success' => true,

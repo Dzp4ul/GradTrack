@@ -6,6 +6,8 @@ require_once __DIR__ . '/../config/alumni_rating.php';
 require_once __DIR__ . '/../config/engagement_approval.php';
 require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../config/storage.php';
+require_once __DIR__ . '/../config/admin_auth.php';
+require_once __DIR__ . '/../config/realtime.php';
 
 function gradtrack_jobs_request_data(): array
 {
@@ -21,6 +23,74 @@ function gradtrack_jobs_request_data(): array
 
     $decoded = json_decode($raw, true);
     return is_array($decoded) ? $decoded : [];
+}
+
+function gradtrack_jobs_current_actor(PDO $db): ?array
+{
+    $graduate = gradtrack_current_graduate_user($db);
+    if ($graduate) {
+        return ['type' => 'graduate', 'id' => (int) $graduate['account_id'], 'user' => $graduate];
+    }
+
+    $admin = gradtrack_current_admin_user($db);
+    if ($admin && (string) ($admin['role'] ?? '') === 'alumni_admin') {
+        return ['type' => 'admin', 'id' => (int) $admin['id'], 'user' => $admin];
+    }
+
+    return null;
+}
+
+function gradtrack_jobs_require_actor(PDO $db): array
+{
+    $actor = gradtrack_jobs_current_actor($db);
+    if (!$actor) {
+        http_response_code(401);
+        echo json_encode(['success' => false, 'error' => 'Graduate or Alumni Admin authentication required']);
+        exit;
+    }
+    return $actor;
+}
+
+function gradtrack_jobs_select_sql(): string
+{
+    return "SELECT jp.id, jp.posted_by_account_id, jp.created_by_admin_id, jp.title, jp.company, jp.location,
+                   jp.salary_range, jp.job_type, jp.industry, jp.description, jp.qualifications,
+                   jp.required_skills, jp.course_program_fit, jp.application_deadline, jp.contact_email,
+                   jp.application_link, jp.application_method, jp.requirements_file_path,
+                   jp.requirements_file_name, jp.requirements_mime_type, jp.requirements_file_size_bytes,
+                   jp.requirements_uploaded_at, jp.is_active, jp.approval_status, jp.approval_reviewed_at,
+                   jp.approval_notes, jp.created_at, jp.updated_at,
+                   ga.id AS poster_account_id, ga.email AS poster_email, g.id AS poster_graduate_id,
+                   COALESCE(NULLIF(gp.first_name, ''), g.first_name) AS first_name,
+                   COALESCE(NULLIF(gp.middle_name, ''), g.middle_name) AS middle_name,
+                   COALESCE(NULLIF(gp.last_name, ''), g.last_name) AS last_name,
+                   COALESCE(
+                       NULLIF(TRIM(CONCAT_WS(' ', gp.first_name, gp.middle_name, gp.last_name)), ''),
+                       NULLIF(TRIM(CONCAT_WS(' ', g.first_name, g.middle_name, g.last_name)), ''),
+                       NULLIF(TRIM(admin.full_name), ''),
+                       'Alumni Admin'
+                   ) AS poster_full_name,
+                   COALESCE(NULLIF(gp.program_course, ''), p.name) AS poster_program_name,
+                   p.code AS poster_program_code, gpi.file_path AS poster_profile_image_path
+            FROM job_posts jp
+            LEFT JOIN graduate_accounts ga ON jp.posted_by_account_id = ga.id
+            LEFT JOIN graduates g ON ga.graduate_id = g.id
+            LEFT JOIN graduate_profiles gp ON gp.graduate_account_id = ga.id
+            LEFT JOIN programs p ON g.program_id = p.id
+            LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
+            LEFT JOIN admin_users admin ON admin.id = jp.created_by_admin_id";
+}
+
+function gradtrack_jobs_find(PDO $db, int $jobId, bool $canAccessPrivateFile = true): ?array
+{
+    $stmt = $db->prepare(gradtrack_jobs_select_sql() . ' WHERE jp.id = :id LIMIT 1');
+    $stmt->execute([':id' => $jobId]);
+    $job = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$job) {
+        return null;
+    }
+    gradtrack_jobs_normalize_row($job, $canAccessPrivateFile);
+    return $job;
 }
 
 function gradtrack_jobs_upload_base_dir(): string
@@ -244,14 +314,8 @@ function gradtrack_jobs_normalize_row(array &$row, bool $canAccessPrivateFile = 
     $row['id'] = isset($row['id']) ? (int) $row['id'] : 0;
     $row['is_active'] = isset($row['is_active']) ? (int) $row['is_active'] : 0;
 
-    if (isset($row['posted_by_account_id'])) {
-        $row['posted_by_account_id'] = (int) $row['posted_by_account_id'];
-    }
-    if (isset($row['poster_account_id'])) {
-        $row['poster_account_id'] = (int) $row['poster_account_id'];
-    }
-    if (isset($row['poster_graduate_id'])) {
-        $row['poster_graduate_id'] = (int) $row['poster_graduate_id'];
+    foreach (['posted_by_account_id', 'created_by_admin_id', 'poster_account_id', 'poster_graduate_id'] as $idKey) {
+        $row[$idKey] = isset($row[$idKey]) ? (int) $row[$idKey] : null;
     }
 
     $nameParts = [
@@ -284,6 +348,7 @@ function gradtrack_jobs_ensure_schema(PDO $db): void
         'course_program_fit' => "ALTER TABLE job_posts ADD course_program_fit VARCHAR(255) NULL AFTER required_skills",
         'contact_email' => "ALTER TABLE job_posts ADD contact_email VARCHAR(180) NULL AFTER application_deadline",
         'application_link' => "ALTER TABLE job_posts ADD application_link VARCHAR(255) NULL AFTER contact_email",
+        'created_by_admin_id' => "ALTER TABLE job_posts ADD created_by_admin_id INT NULL AFTER posted_by_account_id",
     ];
 
     foreach ($columns as $column => $alterSql) {
@@ -297,6 +362,33 @@ function gradtrack_jobs_ensure_schema(PDO $db): void
         if ((int) ($stmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0) === 0) {
             $db->exec($alterSql);
         }
+    }
+
+    $postedByStmt = $db->query("SELECT IS_NULLABLE FROM INFORMATION_SCHEMA.COLUMNS
+                                WHERE TABLE_SCHEMA = DATABASE()
+                                  AND TABLE_NAME = 'job_posts'
+                                  AND COLUMN_NAME = 'posted_by_account_id'
+                                LIMIT 1");
+    $postedByColumn = $postedByStmt ? $postedByStmt->fetch(PDO::FETCH_ASSOC) : false;
+    if ($postedByColumn && strtoupper((string) ($postedByColumn['IS_NULLABLE'] ?? 'NO')) !== 'YES') {
+        $db->exec('ALTER TABLE job_posts MODIFY posted_by_account_id INT NULL');
+    }
+
+    $adminIndexStmt = $db->query("SELECT COUNT(*) AS total FROM INFORMATION_SCHEMA.STATISTICS
+                                  WHERE TABLE_SCHEMA = DATABASE()
+                                    AND TABLE_NAME = 'job_posts'
+                                    AND INDEX_NAME = 'idx_job_posts_admin'");
+    if ((int) ($adminIndexStmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0) === 0) {
+        $db->exec('ALTER TABLE job_posts ADD INDEX idx_job_posts_admin (created_by_admin_id)');
+    }
+
+    $adminForeignKeyStmt = $db->query("SELECT COUNT(*) AS total FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
+                                       WHERE TABLE_SCHEMA = DATABASE()
+                                         AND TABLE_NAME = 'job_posts'
+                                         AND COLUMN_NAME = 'created_by_admin_id'
+                                         AND REFERENCED_TABLE_NAME = 'admin_users'");
+    if ((int) ($adminForeignKeyStmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0) === 0) {
+        $db->exec('ALTER TABLE job_posts ADD CONSTRAINT fk_job_posts_admin FOREIGN KEY (created_by_admin_id) REFERENCES admin_users(id) ON DELETE SET NULL');
     }
 }
 
@@ -351,21 +443,8 @@ try {
         $mineOnly = isset($_GET['mine']) && $_GET['mine'] === '1';
 
         if ($jobId > 0) {
-            $detailQuery = "SELECT jp.*, ga.id AS poster_account_id, ga.email AS poster_email,
-                                   g.id AS poster_graduate_id, g.first_name, g.middle_name, g.last_name,
-                                   TRIM(CONCAT_WS(' ', g.first_name, g.middle_name, g.last_name)) AS poster_full_name,
-                                   p.name AS poster_program_name, p.code AS poster_program_code,
-                                   gpi.file_path AS poster_profile_image_path
-                            FROM job_posts jp
-                            JOIN graduate_accounts ga ON jp.posted_by_account_id = ga.id
-                            JOIN graduates g ON ga.graduate_id = g.id
-                            LEFT JOIN programs p ON g.program_id = p.id
-                            LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
-                            WHERE jp.id = :id";
-            $detailStmt = $db->prepare($detailQuery);
-            $detailStmt->bindParam(':id', $jobId);
-            $detailStmt->execute();
-            $job = $detailStmt->fetch(PDO::FETCH_ASSOC);
+            $actor = gradtrack_jobs_current_actor($db);
+            $job = gradtrack_jobs_find($db, $jobId, $actor !== null);
 
             if (!$job) {
                 http_response_code(404);
@@ -373,15 +452,15 @@ try {
                 exit;
             }
 
-            $currentUser = gradtrack_current_graduate_user($db);
-            $isOwner = $currentUser && (int) $job['posted_by_account_id'] === (int) $currentUser['account_id'];
-            if (($job['approval_status'] ?? 'approved') !== 'approved' && !$isOwner) {
+            $isOwner = $actor && (
+                ($actor['type'] === 'graduate' && (int) ($job['posted_by_account_id'] ?? 0) === (int) $actor['id'])
+                || ($actor['type'] === 'admin' && (int) ($job['created_by_admin_id'] ?? 0) === (int) $actor['id'])
+            );
+            if ((($job['approval_status'] ?? 'approved') !== 'approved' || (int) ($job['is_active'] ?? 0) !== 1) && !$isOwner) {
                 http_response_code(404);
                 echo json_encode(['success' => false, 'error' => 'Job not found']);
                 exit;
             }
-
-            gradtrack_jobs_normalize_row($job, $currentUser !== null);
 
             echo json_encode(['success' => true, 'data' => $job]);
             exit;
@@ -393,29 +472,13 @@ try {
         $industry = isset($_GET['industry']) ? trim((string) $_GET['industry']) : '';
         $activeOnly = !isset($_GET['include_inactive']) || $_GET['include_inactive'] !== '1';
 
-        $currentUser = gradtrack_current_graduate_user($db);
+        $actor = gradtrack_jobs_current_actor($db);
         if ($mineOnly) {
-            $currentUser = gradtrack_require_graduate_auth($db);
+            $actor = gradtrack_jobs_require_actor($db);
             $activeOnly = false;
         }
 
-        $sql = "SELECT jp.id, jp.posted_by_account_id, jp.title, jp.company, jp.location, jp.salary_range, jp.job_type, jp.industry,
-                       jp.description, jp.required_skills, jp.course_program_fit,
-                       jp.application_deadline, jp.contact_email, jp.application_link, jp.application_method,
-                       jp.requirements_file_path, jp.requirements_file_name, jp.requirements_mime_type,
-                       jp.requirements_file_size_bytes, jp.requirements_uploaded_at,
-                       jp.is_active, jp.approval_status, jp.approval_reviewed_at, jp.approval_notes, jp.created_at,
-                       ga.id AS poster_account_id, ga.email AS poster_email,
-                       g.id AS poster_graduate_id, g.first_name, g.middle_name, g.last_name,
-                       TRIM(CONCAT_WS(' ', g.first_name, g.middle_name, g.last_name)) AS poster_full_name,
-                       p.name AS poster_program_name, p.code AS poster_program_code,
-                       gpi.file_path AS poster_profile_image_path
-                FROM job_posts jp
-                JOIN graduate_accounts ga ON jp.posted_by_account_id = ga.id
-                JOIN graduates g ON ga.graduate_id = g.id
-                LEFT JOIN programs p ON g.program_id = p.id
-                LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
-                WHERE 1=1";
+        $sql = gradtrack_jobs_select_sql() . ' WHERE 1=1';
 
         $params = [];
 
@@ -427,9 +490,14 @@ try {
             $sql .= " AND jp.approval_status = 'approved'";
         }
 
-        if ($mineOnly && $currentUser) {
-            $sql .= ' AND jp.posted_by_account_id = :mine_account_id';
-            $params[':mine_account_id'] = $currentUser['account_id'];
+        if ($mineOnly && $actor) {
+            if ($actor['type'] === 'admin') {
+                $sql .= ' AND jp.created_by_admin_id = :mine_admin_id';
+                $params[':mine_admin_id'] = $actor['id'];
+            } else {
+                $sql .= ' AND jp.posted_by_account_id = :mine_account_id';
+                $params[':mine_account_id'] = $actor['id'];
+            }
         }
 
         if ($search !== '') {
@@ -442,8 +510,8 @@ try {
                 OR jp.course_program_fit LIKE :search6
                 OR jp.contact_email LIKE :search7
                 OR jp.application_link LIKE :search8
-                OR g.first_name LIKE :search9
-                OR g.last_name LIKE :search10
+                OR COALESCE(NULLIF(gp.first_name, ''), g.first_name) LIKE :search9
+                OR COALESCE(NULLIF(gp.last_name, ''), g.last_name) LIKE :search10
                 OR p.code LIKE :search11
                 OR p.name LIKE :search12
                 OR ga.email LIKE :search13
@@ -485,7 +553,7 @@ try {
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         foreach ($rows as &$row) {
-            gradtrack_jobs_normalize_row($row, $currentUser !== null);
+            gradtrack_jobs_normalize_row($row, $actor !== null);
         }
 
         echo json_encode(['success' => true, 'data' => $rows]);
@@ -493,8 +561,11 @@ try {
     }
 
     if ($method === 'POST') {
-        $user = gradtrack_require_graduate_auth($db);
-        gradtrack_require_feature_access($db, $user, 'job_posting');
+        $actor = gradtrack_jobs_require_actor($db);
+        $user = $actor['user'];
+        if ($actor['type'] === 'graduate') {
+            gradtrack_require_feature_access($db, $user, 'job_posting');
+        }
         $data = gradtrack_jobs_request_data();
 
         $title = isset($data['title']) ? trim((string) $data['title']) : '';
@@ -518,6 +589,9 @@ try {
         $contactEmail = gradtrack_jobs_str_or_null($data, 'contact_email');
         $applicationLink = gradtrack_jobs_normalize_application_link(gradtrack_jobs_str_or_null($data, 'application_link'));
         $applicationMethod = gradtrack_jobs_str_or_null($data, 'application_method');
+        $isActive = isset($data['is_active'])
+            ? (int) ((string) $data['is_active'] === '1' || (string) $data['is_active'] === 'true')
+            : 1;
         gradtrack_jobs_validate_contact_email($contactEmail);
         gradtrack_jobs_require_application_contact($contactEmail, $applicationLink, $applicationMethod);
 
@@ -527,30 +601,36 @@ try {
         }
 
         $insertQuery = "INSERT INTO job_posts
-                        (posted_by_account_id, title, company, location, salary_range, job_type, industry, description, qualifications, required_skills, course_program_fit, application_deadline, contact_email, application_link, application_method, approval_status)
+                        (posted_by_account_id, created_by_admin_id, title, company, location, salary_range, job_type, industry, description, qualifications, required_skills, course_program_fit, application_deadline, contact_email, application_link, application_method, is_active, approval_status, approval_reviewed_by, approval_reviewed_at)
                         VALUES
-                        (:posted_by_account_id, :title, :company, :location, :salary_range, :job_type, :industry, :description, :qualifications, :required_skills, :course_program_fit, :application_deadline, :contact_email, :application_link, :application_method, 'pending')";
+                        (:posted_by_account_id, :created_by_admin_id, :title, :company, :location, :salary_range, :job_type, :industry, :description, :qualifications, :required_skills, :course_program_fit, :application_deadline, :contact_email, :application_link, :application_method, :is_active, :approval_status, :approval_reviewed_by, :approval_reviewed_at)";
 
         $newRequirementsReference = null;
         $db->beginTransaction();
         try {
             $stmt = $db->prepare($insertQuery);
-            $stmt->bindParam(':posted_by_account_id', $user['account_id']);
-            $stmt->bindParam(':title', $title);
-            $stmt->bindParam(':company', $company);
-            $stmt->bindParam(':location', $location);
-            $stmt->bindParam(':salary_range', $salaryRange);
-            $stmt->bindParam(':job_type', $jobType);
-            $stmt->bindParam(':industry', $industry);
-            $stmt->bindParam(':description', $description);
-            $stmt->bindParam(':qualifications', $qualifications);
-            $stmt->bindParam(':required_skills', $requiredSkills);
-            $stmt->bindParam(':course_program_fit', $courseProgramFit);
-            $stmt->bindParam(':application_deadline', $applicationDeadline);
-            $stmt->bindParam(':contact_email', $contactEmail);
-            $stmt->bindParam(':application_link', $applicationLink);
-            $stmt->bindParam(':application_method', $applicationMethod);
-            $stmt->execute();
+            $stmt->execute([
+                ':posted_by_account_id' => $actor['type'] === 'graduate' ? $actor['id'] : null,
+                ':created_by_admin_id' => $actor['type'] === 'admin' ? $actor['id'] : null,
+                ':title' => $title,
+                ':company' => $company,
+                ':location' => $location,
+                ':salary_range' => $salaryRange,
+                ':job_type' => $jobType,
+                ':industry' => $industry,
+                ':description' => $description,
+                ':qualifications' => $qualifications,
+                ':required_skills' => $requiredSkills,
+                ':course_program_fit' => $courseProgramFit,
+                ':application_deadline' => $applicationDeadline,
+                ':contact_email' => $contactEmail,
+                ':application_link' => $applicationLink,
+                ':application_method' => $applicationMethod,
+                ':is_active' => $isActive,
+                ':approval_status' => $actor['type'] === 'admin' ? 'approved' : 'pending',
+                ':approval_reviewed_by' => $actor['type'] === 'admin' ? $actor['id'] : null,
+                ':approval_reviewed_at' => $actor['type'] === 'admin' ? date('Y-m-d H:i:s') : null,
+            ]);
 
             $newJobId = (int) $db->lastInsertId();
             if (isset($_FILES['requirements_file'])) {
@@ -586,30 +666,55 @@ try {
             throw $e;
         }
 
-        // Audit Trail: call logAuditTrail() after a job posting is successfully added.
-        logAuditTrail(
-            $user['graduate_id'],
-            gradtrack_audit_graduate_name($user),
-            'graduate',
-            $user['program_code'] ?? null,
-            'Create',
-            'Job Posting',
-            "Created job posting with record ID {$newJobId}.",
-            $newJobId
-        );
+        if ($actor['type'] === 'graduate') {
+            logAuditTrail(
+                $user['graduate_id'],
+                gradtrack_audit_graduate_name($user),
+                'graduate',
+                $user['program_code'] ?? null,
+                'Create',
+                'Job Posting',
+                "Created job posting with record ID {$newJobId}.",
+                $newJobId
+            );
+        } else {
+            $auditUser = gradtrack_admin_audit_context($user);
+            logAuditTrail(
+                $auditUser['user_id'],
+                $auditUser['user_name'],
+                $auditUser['user_role'],
+                $auditUser['department'],
+                'Create',
+                'Job Posting',
+                "Created Alumni Admin job posting with record ID {$newJobId}.",
+                $newJobId
+            );
+        }
+
+        $createdJob = gradtrack_jobs_find($db, $newJobId, true);
+        gradtrack_realtime_publish('job', $actor['type'] === 'admin' && $isActive === 1 ? 'created' : 'updated', $newJobId, [
+            'actor_type' => $actor['type'],
+            'actor_id' => (int) $actor['id'],
+        ]);
 
         echo json_encode([
             'success' => true,
-            'message' => 'Job post submitted for approval',
+            'message' => $actor['type'] === 'admin'
+                ? ($isActive === 1 ? 'Job post published successfully' : 'Job post saved as inactive')
+                : 'Job post submitted for approval',
             'id' => $newJobId,
-            'approval_status' => 'pending'
+            'approval_status' => $actor['type'] === 'admin' ? 'approved' : 'pending',
+            'data' => $createdJob,
         ]);
         exit;
     }
 
     if ($method === 'PUT') {
-        $user = gradtrack_require_graduate_auth($db);
-        gradtrack_require_feature_access($db, $user, 'job_posting');
+        $actor = gradtrack_jobs_require_actor($db);
+        $user = $actor['user'];
+        if ($actor['type'] === 'graduate') {
+            gradtrack_require_feature_access($db, $user, 'job_posting');
+        }
         $data = gradtrack_jobs_request_data();
 
         $jobId = isset($data['id']) ? (int) $data['id'] : 0;
@@ -619,7 +724,7 @@ try {
             exit;
         }
 
-        $ownerStmt = $db->prepare('SELECT posted_by_account_id, requirements_file_path,
+        $ownerStmt = $db->prepare('SELECT posted_by_account_id, created_by_admin_id, requirements_file_path,
                                          requirements_file_name, requirements_mime_type,
                                          requirements_file_size_bytes, requirements_uploaded_at
                                   FROM job_posts WHERE id = :id');
@@ -633,9 +738,11 @@ try {
             exit;
         }
 
-        if ((int) $owner['posted_by_account_id'] !== $user['account_id']) {
+        $isOwner = ($actor['type'] === 'graduate' && (int) ($owner['posted_by_account_id'] ?? 0) === (int) $actor['id'])
+            || ($actor['type'] === 'admin' && (int) ($owner['created_by_admin_id'] ?? 0) === (int) $actor['id']);
+        if (!$isOwner) {
             http_response_code(403);
-            echo json_encode(['success' => false, 'error' => 'Only the poster can update this job']);
+            echo json_encode(['success' => false, 'error' => 'Only the job owner can update this job']);
             exit;
         }
 
@@ -687,9 +794,9 @@ try {
                             application_link = :application_link,
                             application_method = :application_method,
                             is_active = :is_active,
-                            approval_status = 'pending',
-                            approval_reviewed_by = NULL,
-                            approval_reviewed_at = NULL,
+                            approval_status = :approval_status,
+                            approval_reviewed_by = :approval_reviewed_by,
+                            approval_reviewed_at = :approval_reviewed_at,
                             approval_notes = NULL
                         WHERE id = :id";
 
@@ -717,6 +824,12 @@ try {
             $updateStmt->bindParam(':application_link', $applicationLink);
             $updateStmt->bindParam(':application_method', $applicationMethod);
             $updateStmt->bindParam(':is_active', $isActive);
+            $approvalStatus = $actor['type'] === 'admin' ? 'approved' : 'pending';
+            $approvalReviewedBy = $actor['type'] === 'admin' ? (int) $actor['id'] : null;
+            $approvalReviewedAt = $actor['type'] === 'admin' ? date('Y-m-d H:i:s') : null;
+            $updateStmt->bindParam(':approval_status', $approvalStatus);
+            $updateStmt->bindParam(':approval_reviewed_by', $approvalReviewedBy);
+            $updateStmt->bindParam(':approval_reviewed_at', $approvalReviewedAt);
             $updateStmt->execute();
 
             if (isset($_FILES['requirements_file'])) {
@@ -771,24 +884,51 @@ try {
             gradtrack_jobs_remove_requirements_file($jobId, $oldRequirementsReference);
         }
 
-        // Audit Trail: call logAuditTrail() after a job posting is successfully updated.
-        logAuditTrail(
-            $user['graduate_id'],
-            gradtrack_audit_graduate_name($user),
-            'graduate',
-            $user['program_code'] ?? null,
-            'Update',
-            'Job Posting',
-            "Updated job posting with record ID {$jobId}.",
-            $jobId
-        );
+        if ($actor['type'] === 'graduate') {
+            logAuditTrail(
+                $user['graduate_id'],
+                gradtrack_audit_graduate_name($user),
+                'graduate',
+                $user['program_code'] ?? null,
+                'Update',
+                'Job Posting',
+                "Updated job posting with record ID {$jobId}.",
+                $jobId
+            );
+        } else {
+            $auditUser = gradtrack_admin_audit_context($user);
+            logAuditTrail(
+                $auditUser['user_id'],
+                $auditUser['user_name'],
+                $auditUser['user_role'],
+                $auditUser['department'],
+                'Update',
+                'Job Posting',
+                "Updated Alumni Admin job posting with record ID {$jobId}.",
+                $jobId
+            );
+        }
 
-        echo json_encode(['success' => true, 'message' => 'Job post submitted for approval', 'approval_status' => 'pending']);
+        $updatedJob = gradtrack_jobs_find($db, $jobId, true);
+        gradtrack_realtime_publish('job', 'updated', $jobId, [
+            'actor_type' => $actor['type'],
+            'actor_id' => (int) $actor['id'],
+        ]);
+
+        echo json_encode([
+            'success' => true,
+            'message' => $actor['type'] === 'admin'
+                ? ($isActive === 1 ? 'Job post published successfully' : 'Job post archived successfully')
+                : 'Job post submitted for approval',
+            'approval_status' => $actor['type'] === 'admin' ? 'approved' : 'pending',
+            'data' => $updatedJob,
+        ]);
         exit;
     }
 
     if ($method === 'DELETE') {
-        $user = gradtrack_require_graduate_auth($db);
+        $actor = gradtrack_jobs_require_actor($db);
+        $user = $actor['user'];
         $data = gradtrack_jobs_request_data();
 
         $jobId = isset($_GET['id']) ? (int) $_GET['id'] : (isset($data['id']) ? (int) $data['id'] : 0);
@@ -798,7 +938,7 @@ try {
             exit;
         }
 
-        $ownerStmt = $db->prepare('SELECT posted_by_account_id, title, company, requirements_file_path
+        $ownerStmt = $db->prepare('SELECT posted_by_account_id, created_by_admin_id, title, company, requirements_file_path
                                   FROM job_posts WHERE id = :id');
         $ownerStmt->bindParam(':id', $jobId);
         $ownerStmt->execute();
@@ -810,9 +950,11 @@ try {
             exit;
         }
 
-        if ((int) $owner['posted_by_account_id'] !== $user['account_id']) {
+        $isOwner = ($actor['type'] === 'graduate' && (int) ($owner['posted_by_account_id'] ?? 0) === (int) $actor['id'])
+            || ($actor['type'] === 'admin' && (int) ($owner['created_by_admin_id'] ?? 0) === (int) $actor['id']);
+        if (!$isOwner) {
             http_response_code(403);
-            echo json_encode(['success' => false, 'error' => 'Only the poster can delete this job']);
+            echo json_encode(['success' => false, 'error' => 'Only the job owner can delete this job']);
             exit;
         }
 
@@ -828,7 +970,7 @@ try {
             $deleteStmt->execute();
 
             $db->commit();
-        } catch (Exception $e) {
+        } catch (Throwable $e) {
             if ($db->inTransaction()) {
                 $db->rollBack();
             }
@@ -840,17 +982,35 @@ try {
         gradtrack_jobs_remove_requirements_file($jobId, $deletedRequirementsReference);
         gradtrack_jobs_cleanup_job_dir($jobId);
 
-        // Audit Trail: call logAuditTrail() after a job posting is successfully deleted.
-        logAuditTrail(
-            $user['graduate_id'],
-            gradtrack_audit_graduate_name($user),
-            'graduate',
-            $user['program_code'] ?? null,
-            'Delete',
-            'Job Posting',
-            "Deleted job posting with record ID {$jobId}.",
-            $jobId
-        );
+        if ($actor['type'] === 'graduate') {
+            logAuditTrail(
+                $user['graduate_id'],
+                gradtrack_audit_graduate_name($user),
+                'graduate',
+                $user['program_code'] ?? null,
+                'Delete',
+                'Job Posting',
+                "Deleted job posting with record ID {$jobId}.",
+                $jobId
+            );
+        } else {
+            $auditUser = gradtrack_admin_audit_context($user);
+            logAuditTrail(
+                $auditUser['user_id'],
+                $auditUser['user_name'],
+                $auditUser['user_role'],
+                $auditUser['department'],
+                'Delete',
+                'Job Posting',
+                "Deleted Alumni Admin job posting with record ID {$jobId}.",
+                $jobId
+            );
+        }
+
+        gradtrack_realtime_publish('job', 'deleted', $jobId, [
+            'actor_type' => $actor['type'],
+            'actor_id' => (int) $actor['id'],
+        ]);
 
         echo json_encode(['success' => true, 'message' => 'Job post deleted successfully']);
         exit;
@@ -858,7 +1018,7 @@ try {
 
     http_response_code(405);
     echo json_encode(['success' => false, 'error' => 'Method not allowed']);
-} catch (Exception $e) {
+} catch (Throwable $e) {
     http_response_code(500);
     echo json_encode(['success' => false, 'error' => gradtrack_public_exception_message($e, 'Unable to process job posts right now.', 'Job posts API')]);
 }

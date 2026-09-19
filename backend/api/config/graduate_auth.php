@@ -232,11 +232,19 @@ if (!function_exists('gradtrack_current_graduate_user')) {
         $query = "SELECT ga.id AS account_id, ga.email, ga.status, ga.last_login_at,
                          ga.alumni_verification_status, ga.alumni_verification_reason,
                          ga.alumni_verification_reviewed_at, ga.alumni_verification_submitted_at,
-                         g.id AS graduate_id, g.student_id, g.first_name, g.middle_name, g.last_name,
-                         g.phone, g.year_graduated, g.address,
-                         p.id AS program_id, p.name AS program_name, p.code AS program_code
+                         g.id AS graduate_id, g.student_id,
+                         COALESCE(NULLIF(gp.first_name, ''), g.first_name) AS first_name,
+                         COALESCE(NULLIF(gp.middle_name, ''), g.middle_name) AS middle_name,
+                         COALESCE(NULLIF(gp.last_name, ''), g.last_name) AS last_name,
+                         COALESCE(NULLIF(gp.phone_number, ''), g.phone) AS phone,
+                         COALESCE(gp.graduation_year, g.year_graduated) AS year_graduated,
+                         COALESCE(NULLIF(gp.current_location, ''), g.address) AS address,
+                         p.id AS program_id,
+                         COALESCE(NULLIF(gp.program_course, ''), p.name) AS program_name,
+                         p.code AS program_code
                   FROM graduate_accounts ga
                   JOIN graduates g ON ga.graduate_id = g.id
+                  LEFT JOIN graduate_profiles gp ON gp.graduate_account_id = ga.id
                   LEFT JOIN programs p ON g.program_id = p.id
                   WHERE ga.id = :account_id
                     AND g.archived_at IS NULL";
@@ -277,7 +285,11 @@ if (!function_exists('gradtrack_current_graduate_user')) {
             'alumni_verification_status' => $user['alumni_verification_status'],
             'alumni_verification_submitted_at' => $user['alumni_verification_submitted_at'],
             'alumni_verification_reviewed_at' => $user['alumni_verification_reviewed_at'],
-            'full_name' => trim(($user['first_name'] ?? '') . ' ' . ($user['last_name'] ?? '')),
+            'full_name' => trim(implode(' ', array_filter([
+                $user['first_name'] ?? '',
+                $user['middle_name'] ?? '',
+                $user['last_name'] ?? '',
+            ], static fn ($part): bool => trim((string) $part) !== ''))),
             'first_name' => $user['first_name'],
             'middle_name' => $user['middle_name'],
             'last_name' => $user['last_name'],

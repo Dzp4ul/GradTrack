@@ -460,12 +460,13 @@ if (!function_exists('gradtrack_chat_validate_direct_recipient')) {
         }
 
         $stmt = $db->prepare("SELECT g.id AS graduate_id,
-                                     TRIM(CONCAT(COALESCE(g.first_name, ''), ' ', COALESCE(g.last_name, ''))) AS full_name,
+                                     COALESCE(NULLIF(TRIM(CONCAT_WS(' ', profile.first_name, profile.middle_name, profile.last_name)), ''), TRIM(CONCAT_WS(' ', g.first_name, g.middle_name, g.last_name))) AS full_name,
                                      p.code AS program_code,
-                                     g.year_graduated,
+                                     COALESCE(profile.graduation_year, g.year_graduated) AS year_graduated,
                                      gpi.file_path AS profile_image_path
                               FROM graduate_accounts account
                               JOIN graduates g ON g.id = account.graduate_id
+                              LEFT JOIN graduate_profiles profile ON profile.graduate_account_id = account.id
                               LEFT JOIN programs p ON p.id = g.program_id
                               LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = account.id
                               WHERE g.id = :graduate_id
@@ -605,19 +606,20 @@ if (!function_exists('gradtrack_chat_participants')) {
     function gradtrack_chat_participants(PDO $db, int $roomId): array
     {
         $stmt = $db->prepare("SELECT g.id AS graduate_id,
-                                     TRIM(CONCAT(COALESCE(g.first_name, ''), ' ', COALESCE(g.last_name, ''))) AS full_name,
+                                     COALESCE(NULLIF(TRIM(CONCAT_WS(' ', profile.first_name, profile.middle_name, profile.last_name)), ''), TRIM(CONCAT_WS(' ', g.first_name, g.middle_name, g.last_name))) AS full_name,
                                      p.code AS program_code,
-                                     g.year_graduated,
+                                     COALESCE(profile.graduation_year, g.year_graduated) AS year_graduated,
                                      gpi.file_path AS profile_image_path,
-                                     gp.last_active_at,
+                                     presence.last_active_at,
                                      room.created_by
                               FROM forum_chat_members fcm
                               JOIN forum_chat_rooms room ON room.id = fcm.room_id
                               JOIN graduates g ON g.id = fcm.graduate_id
                               LEFT JOIN graduate_accounts ga ON ga.graduate_id = g.id
+                              LEFT JOIN graduate_profiles profile ON profile.graduate_account_id = ga.id
                               LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
                               LEFT JOIN programs p ON p.id = g.program_id
-                              LEFT JOIN graduate_presence gp ON gp.graduate_id = g.id
+                              LEFT JOIN graduate_presence presence ON presence.graduate_id = g.id
                               WHERE fcm.room_id = :room_id
                               ORDER BY g.first_name ASC, g.last_name ASC");
         $stmt->execute([':room_id' => $roomId]);

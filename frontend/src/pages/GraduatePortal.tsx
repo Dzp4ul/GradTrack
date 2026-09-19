@@ -201,6 +201,7 @@ function mergeKnownPresenceIntoRoom(
 interface JobPost {
   id: number;
   posted_by_account_id?: number;
+  created_by_admin_id?: number;
   title: string;
   company: string;
   location?: string | null;
@@ -275,6 +276,28 @@ interface ProfileFormState {
   current_password: string;
   password: string;
   confirm_password: string;
+}
+
+interface RealtimeMutationEnvelope {
+  event_id: string;
+  occurred_at?: string;
+}
+
+interface RealtimeProfileSummary {
+  graduate_id: number;
+  first_name?: string | null;
+  middle_name?: string | null;
+  last_name?: string | null;
+  full_name: string;
+  program_name?: string | null;
+  program_code?: string | null;
+  year_graduated?: number | null;
+  job_title?: string | null;
+  company_name?: string | null;
+  professional_status?: string | null;
+  profile_image_path?: string | null;
+  cover_image_path?: string | null;
+  updated_at?: string | null;
 }
 
 type ProfileEditSection = 'basic' | 'employment' | 'education' | 'photo' | 'cover' | 'security';
@@ -743,6 +766,32 @@ function forumStatusClass(status: ForumStatus) {
   return 'border-amber-200 bg-amber-50 text-amber-700';
 }
 
+function sortForumPosts(postList: ForumPost[]) {
+  return [...postList].sort((left, right) => {
+    const timeDifference = (parseDate(right.created_at)?.getTime() || 0) - (parseDate(left.created_at)?.getTime() || 0);
+    return timeDifference !== 0 ? timeDifference : right.id - left.id;
+  });
+}
+
+function upsertForumPost(postList: ForumPost[], incoming: ForumPost) {
+  const existing = postList.find((post) => post.id === incoming.id);
+  const merged = existing
+    ? { ...incoming, is_liked: existing.is_liked }
+    : incoming;
+  return sortForumPosts([...postList.filter((post) => post.id !== incoming.id), merged]);
+}
+
+function sortJobPosts(jobList: JobPost[]) {
+  return [...jobList].sort((left, right) => {
+    const timeDifference = (parseDate(right.created_at)?.getTime() || 0) - (parseDate(left.created_at)?.getTime() || 0);
+    return timeDifference !== 0 ? timeDifference : right.id - left.id;
+  });
+}
+
+function upsertJobPost(jobList: JobPost[], incoming: JobPost) {
+  return sortJobPosts([...jobList.filter((job) => job.id !== incoming.id), incoming]);
+}
+
 function formatForumStatus(status: ForumStatus) {
   return status === 'hidden' ? 'HIDDEN' : 'PUBLISHED';
 }
@@ -779,7 +828,7 @@ function getJobPosterName(job: JobPost) {
 }
 
 function getJobPosterProgram(job: JobPost) {
-  return job.poster_program_code || job.poster_program_name || 'Graduate';
+  return job.poster_program_code || job.poster_program_name || (job.created_by_admin_id ? 'Alumni Administration' : 'Graduate');
 }
 
 function getJobProgramFit(job: JobPost) {
@@ -1053,6 +1102,14 @@ export default function GraduatePortal() {
   const markVisibleMessagesAsReadRef = useRef<(roomId?: number, messages?: ChatMessage[]) => Promise<void>>(async () => undefined);
   const lastMarkedReadIdByRoomRef = useRef<Map<number, number>>(new Map());
   const seenRealtimeMessageIdsRef = useRef<Set<number>>(new Set());
+  const seenPortalEventIdsRef = useRef<Set<string>>(new Set());
+  const reactionRealtimeSequenceRef = useRef<Map<number, number>>(new Map());
+  const commentRealtimeSequenceRef = useRef<Map<number, number>>(new Map());
+  const profileRealtimeVersionsRef = useRef<Map<number, { profileTime: number; eventTime: number }>>(new Map());
+  const profileFormDirtyRef = useRef(false);
+  const profileSavingRef = useRef(false);
+  const activeTabRef = useRef<PortalTab>(activeTab);
+  const profileTargetGraduateIdRef = useRef(0);
   const bootStartedRef = useRef(false);
   const routePostTargetRef = useRef('');
   const routeJobTargetRef = useRef('');
@@ -2047,6 +2104,38 @@ export default function GraduatePortal() {
   }, [viewedProfileRecord, viewedProfileUser]);
 
   useEffect(() => {
+    activeTabRef.current = activeTab;
+    profileSavingRef.current = profileSaving;
+    profileTargetGraduateIdRef.current = profileTargetGraduateId;
+  }, [activeTab, profileSaving, profileTargetGraduateId]);
+
+  useEffect(() => {
+    const graduateId = Number(profileTargetGraduateId || 0);
+    const profileTime = parseDate(viewedProfileRecord?.updated_at)?.getTime() || 0;
+    if (!graduateId || !profileTime) return;
+    const previous = profileRealtimeVersionsRef.current.get(graduateId);
+    if (!previous || profileTime > previous.profileTime) {
+      profileRealtimeVersionsRef.current.set(graduateId, { profileTime, eventTime: 0 });
+    }
+  }, [profileTargetGraduateId, viewedProfileRecord?.updated_at]);
+
+  useEffect(() => {
+    const savedForm = createProfileForm(viewedProfileRecord, viewedProfileUser);
+    const editableKeys: Array<keyof ProfileFormState> = [
+      'first_name', 'middle_name', 'last_name', 'email', 'phone_number', 'birthday',
+      'civil_status', 'sex_gender', 'program_course', 'graduation_year', 'current_location',
+      'job_title', 'company_name', 'employment_location', 'professional_status', 'start_date',
+      'current_password', 'password', 'confirm_password',
+    ];
+    profileFormDirtyRef.current = activeTab === 'settings' && (
+      editableKeys.some((key) => profileForm[key] !== savedForm[key])
+      || profileImageFile !== null
+      || coverImageFile !== null
+      || coverRemoveRequested
+    );
+  }, [activeTab, coverImageFile, coverRemoveRequested, profileForm, profileImageFile, viewedProfileRecord, viewedProfileUser]);
+
+  useEffect(() => {
     if (!isViewingOwnProfile) {
       if (!profileImageFile) {
         setAuthenticatedProfileImagePreview('');
@@ -2111,7 +2200,9 @@ export default function GraduatePortal() {
     temporaryChatRecipientRef.current = temporaryChatRecipient;
   }, [temporaryChatRecipient]);
 
-  const chatRealtimeEnabled = messagingAvailable;
+  // The existing singleton messaging connection also carries authenticated,
+  // non-message portal events. Messaging listeners and event names stay intact.
+  const chatRealtimeEnabled = currentGraduateId > 0;
   const chatSurfaceOpen = messagingAvailable;
   const floatingConversationSurfaceOpen = messagingAvailable
     && activeTab === 'community_forum'
@@ -2226,7 +2317,7 @@ export default function GraduatePortal() {
           }
         });
       }
-      if (isReconnect) {
+      if (isReconnect && messagingAvailable) {
         if (import.meta.env.DEV) console.info('[Realtime] Reconnected; synchronizing conversations and missed messages.');
         void loadChats();
       }
@@ -2510,7 +2601,363 @@ export default function GraduatePortal() {
       chatTypingRoomIdRef.current = null;
       chatTypingLastEmittedAtRef.current = 0;
     };
-  }, [applyMessageDelivery, applyMessageRead, applyPresenceStatus, applyPresenceStatuses, chatRealtimeEnabled, currentGraduateId, loadChats, loadConversationInfo, upsertConversation]);
+  }, [applyMessageDelivery, applyMessageRead, applyPresenceStatus, applyPresenceStatuses, chatRealtimeEnabled, currentGraduateId, loadChats, loadConversationInfo, messagingAvailable, upsertConversation]);
+
+  useEffect(() => {
+    if (!currentGraduateId) return undefined;
+
+    const socket = getRealtimeChatSocket();
+    const rememberEvent = (eventName: string, payload: RealtimeMutationEnvelope) => {
+      const key = `${eventName}:${payload.event_id || ''}`;
+      if (!payload.event_id || seenPortalEventIdsRef.current.has(key)) return false;
+      if (seenPortalEventIdsRef.current.size >= 2000) seenPortalEventIdsRef.current.clear();
+      seenPortalEventIdsRef.current.add(key);
+      return true;
+    };
+
+    const updateCommentCount = (postId: number, commentCount: number) => {
+      const updatePost = (post: ForumPost) => post.id === postId
+        ? { ...post, comment_count: commentCount }
+        : post;
+      setForumPosts((current) => current.map(updatePost));
+      setMyForumPosts((current) => current.map(updatePost));
+      setProfileForumPosts((current) => current.map(updatePost));
+      setSelectedPost((current) => current?.id === postId ? updatePost(current) : current);
+      setMediaViewer((current) => current?.post.id === postId
+        ? { ...current, post: updatePost(current.post) }
+        : current);
+    };
+
+    const handlePostCreated = (payload: RealtimeMutationEnvelope & { post?: ForumPost }) => {
+      if (!rememberEvent('community:post-created', payload) || !payload.post) return;
+      const post = payload.post;
+      setForumPosts((current) => upsertForumPost(current, post));
+      if (post.graduate_id === currentGraduateId) {
+        setMyForumPosts((current) => upsertForumPost(current, post));
+      }
+      if (post.graduate_id === profileTargetGraduateIdRef.current) {
+        setProfileForumPosts((current) => upsertForumPost(current, post));
+      }
+    };
+
+    const handlePostUpdated = (payload: RealtimeMutationEnvelope & { post?: ForumPost }) => {
+      if (!rememberEvent('community:post-updated', payload) || !payload.post) return;
+      const post = payload.post;
+      setForumPosts((current) => upsertForumPost(current, post));
+      setMyForumPosts((current) => post.graduate_id === currentGraduateId
+        ? upsertForumPost(current, post)
+        : current.filter((item) => item.id !== post.id));
+      setProfileForumPosts((current) => post.graduate_id === profileTargetGraduateIdRef.current
+        ? upsertForumPost(current, post)
+        : current.filter((item) => item.id !== post.id));
+      setSelectedPost((current) => current?.id === post.id
+        ? { ...post, is_liked: current.is_liked }
+        : current);
+      setMediaViewer((current) => current?.post.id === post.id
+        ? { ...current, post: { ...post, is_liked: current.post.is_liked } }
+        : current);
+    };
+
+    const handlePostDeleted = (payload: RealtimeMutationEnvelope & { post_id?: number }) => {
+      if (!rememberEvent('community:post-deleted', payload)) return;
+      const postId = Number(payload.post_id || 0);
+      if (!postId) return;
+      setForumPosts((current) => current.filter((post) => post.id !== postId));
+      setMyForumPosts((current) => current.filter((post) => post.id !== postId));
+      setProfileForumPosts((current) => current.filter((post) => post.id !== postId));
+      if (selectedPost?.id === postId) {
+        setSelectedPostOpen(false);
+        setPostComments([]);
+      }
+      setSelectedPost((current) => current?.id === postId ? null : current);
+      setMediaViewer((current) => current?.post.id === postId ? null : current);
+    };
+
+    const handleCommentCount = (payload: RealtimeMutationEnvelope & { post_id?: number; comment_count?: number }) => {
+      if (!rememberEvent('community:comment-count', payload)) return;
+      const postId = Number(payload.post_id || 0);
+      if (postId) {
+        commentRealtimeSequenceRef.current.set(
+          postId,
+          (commentRealtimeSequenceRef.current.get(postId) || 0) + 1,
+        );
+        updateCommentCount(postId, Math.max(0, Number(payload.comment_count || 0)));
+      }
+    };
+
+    const handleCommentCreated = (payload: RealtimeMutationEnvelope & { post_id?: number; comment?: ForumComment; comment_count?: number }) => {
+      if (!rememberEvent('community:comment-created', payload) || !payload.comment) return;
+      const comment = payload.comment;
+      const appendUnique = (current: ForumComment[]) => current.some((item) => item.id === comment.id)
+        ? current
+        : [...current, comment];
+      setPostComments((current) => selectedPost?.id === comment.post_id ? appendUnique(current) : current);
+      setMediaViewerComments((current) => mediaViewer?.post.id === comment.post_id ? appendUnique(current) : current);
+      updateCommentCount(comment.post_id, Math.max(0, Number(payload.comment_count || 0)));
+    };
+
+    const handleCommentDeleted = (payload: RealtimeMutationEnvelope & { post_id?: number; comment_id?: number; comment_count?: number }) => {
+      if (!rememberEvent('community:comment-deleted', payload)) return;
+      const postId = Number(payload.post_id || 0);
+      const commentId = Number(payload.comment_id || 0);
+      if (!postId || !commentId) return;
+      setPostComments((current) => current.filter((comment) => comment.id !== commentId));
+      setMediaViewerComments((current) => current.filter((comment) => comment.id !== commentId));
+      updateCommentCount(postId, Math.max(0, Number(payload.comment_count || 0)));
+    };
+
+    const handleReactionUpdated = (payload: RealtimeMutationEnvelope & {
+      post_id?: number;
+      actor_graduate_id?: number | null;
+      actor_liked?: boolean | null;
+      like_count?: number;
+    }) => {
+      if (!rememberEvent('community:reaction-updated', payload)) return;
+      const postId = Number(payload.post_id || 0);
+      if (!postId) return;
+      reactionRealtimeSequenceRef.current.set(
+        postId,
+        (reactionRealtimeSequenceRef.current.get(postId) || 0) + 1,
+      );
+      const updatePost = (post: ForumPost) => post.id === postId
+        ? {
+            ...post,
+            like_count: Math.max(0, Number(payload.like_count || 0)),
+            is_liked: Number(payload.actor_graduate_id || 0) === currentGraduateId
+              ? Boolean(payload.actor_liked)
+              : post.is_liked,
+          }
+        : post;
+      setForumPosts((current) => current.map(updatePost));
+      setMyForumPosts((current) => current.map(updatePost));
+      setProfileForumPosts((current) => current.map(updatePost));
+      setSelectedPost((current) => current?.id === postId ? updatePost(current) : current);
+      setMediaViewer((current) => current?.post.id === postId
+        ? { ...current, post: updatePost(current.post) }
+        : current);
+    };
+
+    const handleJobUpsert = (eventName: 'jobs:created' | 'jobs:updated') => (
+      payload: RealtimeMutationEnvelope & { job?: JobPost },
+    ) => {
+      if (!rememberEvent(eventName, payload) || !payload.job) return;
+      const job = payload.job;
+      setJobs((current) => upsertJobPost(current, job));
+      setSelectedJob((current) => current?.id === job.id ? job : current);
+      if (job.poster_graduate_id === currentGraduateId) {
+        setMyPostedJobs((current) => upsertJobPost(current, job));
+      }
+      if (eventName === 'jobs:created') {
+        window.dispatchEvent(new CustomEvent('gradtrack:notifications-updated', { detail: { audience: 'graduate' } }));
+      }
+    };
+
+    const handleJobCreated = handleJobUpsert('jobs:created');
+    const handleJobUpdated = handleJobUpsert('jobs:updated');
+    const handleJobRemoved = (payload: RealtimeMutationEnvelope & { job_id?: number }) => {
+      if (!rememberEvent('jobs:removed', payload)) return;
+      const jobId = Number(payload.job_id || 0);
+      if (!jobId) return;
+      setJobs((current) => current.filter((job) => job.id !== jobId));
+      setSelectedJob((current) => current?.id === jobId ? null : current);
+    };
+
+    const handleAnnouncementMutation = (eventName: string) => (payload: RealtimeMutationEnvelope & Record<string, unknown>) => {
+      if (!rememberEvent(eventName, payload)) return;
+      window.dispatchEvent(new CustomEvent('gradtrack:announcement-realtime', { detail: { ...payload, event_name: eventName } }));
+      window.dispatchEvent(new CustomEvent('gradtrack:notifications-updated', { detail: { audience: 'graduate' } }));
+    };
+    const handleAnnouncementCreated = handleAnnouncementMutation('announcements:created');
+    const handleAnnouncementUpdated = handleAnnouncementMutation('announcements:updated');
+    const handleAnnouncementRemoved = handleAnnouncementMutation('announcements:removed');
+
+    const handleProfileUpdated = (payload: RealtimeMutationEnvelope & { profile?: RealtimeProfileSummary }) => {
+      if (!rememberEvent('profile:updated', payload) || !payload.profile) return;
+      const profile = payload.profile;
+      const graduateId = Number(profile.graduate_id || 0);
+      if (!graduateId) return;
+      const incomingVersion = {
+        profileTime: parseDate(profile.updated_at)?.getTime() || 0,
+        eventTime: parseDate(payload.occurred_at)?.getTime() || 0,
+      };
+      const previousVersion = profileRealtimeVersionsRef.current.get(graduateId);
+      if (
+        previousVersion
+        && (
+          incomingVersion.profileTime < previousVersion.profileTime
+          || (
+            incomingVersion.profileTime === previousVersion.profileTime
+            && incomingVersion.eventTime <= previousVersion.eventTime
+          )
+        )
+      ) return;
+      profileRealtimeVersionsRef.current.set(graduateId, incomingVersion);
+      const patchPost = (post: ForumPost): ForumPost => post.graduate_id === graduateId
+        ? {
+            ...post,
+            author_name: profile.full_name,
+            author_program_name: profile.program_name,
+            author_program_code: profile.program_code,
+            author_year_graduated: profile.year_graduated,
+            author_profile_image_path: profile.profile_image_path,
+          }
+        : post;
+      const patchComment = (comment: ForumComment): ForumComment => comment.graduate_id === graduateId
+        ? {
+            ...comment,
+            commenter_name: profile.full_name,
+            commenter_program_name: profile.program_name,
+            commenter_program_code: profile.program_code,
+            commenter_profile_image_path: profile.profile_image_path,
+          }
+        : comment;
+      const patchJob = (job: JobPost): JobPost => job.poster_graduate_id === graduateId
+        ? {
+            ...job,
+            first_name: profile.first_name,
+            middle_name: profile.middle_name,
+            last_name: profile.last_name,
+            poster_full_name: profile.full_name,
+            poster_program_name: profile.program_name,
+            poster_program_code: profile.program_code,
+            poster_profile_image_path: profile.profile_image_path,
+          }
+        : job;
+
+      setForumPosts((current) => current.map(patchPost));
+      setMyForumPosts((current) => current.map(patchPost));
+      setProfileForumPosts((current) => current.map(patchPost));
+      setSelectedPost((current) => current ? patchPost(current) : current);
+      setMediaViewer((current) => current ? { ...current, post: patchPost(current.post) } : current);
+      setPostComments((current) => current.map(patchComment));
+      setMediaViewerComments((current) => current.map(patchComment));
+      setJobs((current) => current.map(patchJob));
+      setMyPostedJobs((current) => current.map(patchJob));
+      setSelectedJob((current) => current ? patchJob(current) : current);
+      setDirectory((current) => current.map((participant) => participant.graduate_id === graduateId
+        ? {
+            ...participant,
+            full_name: profile.full_name,
+            program_name: profile.program_name,
+            program_code: profile.program_code,
+            year_graduated: profile.year_graduated,
+            profile_image_path: profile.profile_image_path,
+          }
+        : participant));
+      setRooms((current) => current.map((room) => ({
+        ...room,
+        participants: room.participants.map((participant) => participant.graduate_id === graduateId
+          ? {
+              ...participant,
+              full_name: profile.full_name,
+              program_name: profile.program_name,
+              program_code: profile.program_code,
+              year_graduated: profile.year_graduated,
+              profile_image_path: profile.profile_image_path,
+            }
+          : participant),
+      })));
+
+      const protectDirtySettings = activeTabRef.current === 'settings' && profileFormDirtyRef.current;
+      if (graduateId === currentGraduateId && !profileSavingRef.current && !protectDirtySettings) void checkAuth();
+      if (
+        graduateId === profileTargetGraduateIdRef.current
+        && !profileSavingRef.current
+        && !protectDirtySettings
+      ) {
+        void loadGraduateProfile().catch(() => undefined);
+      }
+    };
+
+    socket.on('community:post-created', handlePostCreated);
+    socket.on('community:post-updated', handlePostUpdated);
+    socket.on('community:post-deleted', handlePostDeleted);
+    socket.on('community:comment-count', handleCommentCount);
+    socket.on('community:comment-created', handleCommentCreated);
+    socket.on('community:comment-deleted', handleCommentDeleted);
+    socket.on('community:reaction-updated', handleReactionUpdated);
+    socket.on('jobs:created', handleJobCreated);
+    socket.on('jobs:updated', handleJobUpdated);
+    socket.on('jobs:removed', handleJobRemoved);
+    socket.on('announcements:created', handleAnnouncementCreated);
+    socket.on('announcements:updated', handleAnnouncementUpdated);
+    socket.on('announcements:removed', handleAnnouncementRemoved);
+    socket.on('profile:updated', handleProfileUpdated);
+
+    return () => {
+      socket.off('community:post-created', handlePostCreated);
+      socket.off('community:post-updated', handlePostUpdated);
+      socket.off('community:post-deleted', handlePostDeleted);
+      socket.off('community:comment-count', handleCommentCount);
+      socket.off('community:comment-created', handleCommentCreated);
+      socket.off('community:comment-deleted', handleCommentDeleted);
+      socket.off('community:reaction-updated', handleReactionUpdated);
+      socket.off('jobs:created', handleJobCreated);
+      socket.off('jobs:updated', handleJobUpdated);
+      socket.off('jobs:removed', handleJobRemoved);
+      socket.off('announcements:created', handleAnnouncementCreated);
+      socket.off('announcements:updated', handleAnnouncementUpdated);
+      socket.off('announcements:removed', handleAnnouncementRemoved);
+      socket.off('profile:updated', handleProfileUpdated);
+    };
+  }, [checkAuth, currentGraduateId, loadGraduateProfile, mediaViewer?.post.id, selectedPost?.id]);
+
+  useEffect(() => {
+    if (!currentGraduateId) return undefined;
+    const postIds = Array.from(new Set([
+      Number(selectedPost?.id || 0),
+      Number(mediaViewer?.post.id || 0),
+    ].filter((postId) => postId > 0)));
+    if (postIds.length === 0) return undefined;
+
+    const socket = getRealtimeChatSocket();
+    const joinThreads = () => postIds.forEach((postId) => {
+      void emitWithAck(socket, 'community:thread:join', { post_id: postId });
+    });
+    socket.on('connect', joinThreads);
+    if (socket.connected) joinThreads();
+
+    return () => {
+      socket.off('connect', joinThreads);
+      if (socket.connected) {
+        postIds.forEach((postId) => socket.emit('community:thread:leave', { post_id: postId }));
+      }
+    };
+  }, [currentGraduateId, mediaViewer?.post.id, selectedPost?.id]);
+
+  useEffect(() => {
+    if (!currentGraduateId) return undefined;
+    const socket = getRealtimeChatSocket();
+    let disconnectedSinceLastConnect = false;
+
+    const handleDisconnect = () => {
+      disconnectedSinceLastConnect = true;
+    };
+    const handleReconnect = () => {
+      if (!disconnectedSinceLastConnect) return;
+      disconnectedSinceLastConnect = false;
+      const tasks: Array<Promise<unknown>> = [];
+      if (communityAvailable) tasks.push(loadForumFeed(), loadMyForumPosts());
+      if (jobsAvailable) tasks.push(loadJobs(), loadMyJobs());
+      if (
+        profileTargetGraduateIdRef.current > 0
+        && !profileSavingRef.current
+        && !(activeTabRef.current === 'settings' && profileFormDirtyRef.current)
+      ) {
+        tasks.push(loadGraduateProfile());
+      }
+      void Promise.allSettled(tasks);
+      window.dispatchEvent(new CustomEvent('gradtrack:portal-reconnected'));
+      window.dispatchEvent(new CustomEvent('gradtrack:notifications-updated', { detail: { audience: 'graduate' } }));
+    };
+
+    socket.on('disconnect', handleDisconnect);
+    socket.on('connect', handleReconnect);
+    return () => {
+      socket.off('disconnect', handleDisconnect);
+      socket.off('connect', handleReconnect);
+    };
+  }, [communityAvailable, currentGraduateId, jobsAvailable, loadForumFeed, loadGraduateProfile, loadJobs, loadMyForumPosts, loadMyJobs]);
 
   const sharedPresenceTargetKey = useMemo(() => {
     const ids = new Set<number>();
@@ -2822,24 +3269,33 @@ export default function GraduatePortal() {
         formData.append('remove_media', '1');
       }
 
+      let savedPost: ForumPost | null = null;
       if (forumForm.id) {
         formData.append('id', String(forumForm.id));
         formData.append('_method', 'PUT');
-        await authenticatedFetch(API_ENDPOINTS.FORUM.POSTS, {
+        const response = await authenticatedFetch(API_ENDPOINTS.FORUM.POSTS, {
           method: 'POST',
           body: formData,
         });
+        savedPost = (response.data as ForumPost | undefined) || null;
         notify('success', 'Forum post updated and remains published.', 'Community Forum');
       } else {
-        await authenticatedFetch(API_ENDPOINTS.FORUM.POSTS, {
+        const response = await authenticatedFetch(API_ENDPOINTS.FORUM.POSTS, {
           method: 'POST',
           body: formData,
         });
+        savedPost = (response.data as ForumPost | undefined) || null;
         notify('success', 'Forum post published and visible in the feed.', 'Community Forum');
       }
 
       closeForumComposer();
-      await Promise.all([loadForumFeed(), loadMyForumPosts(), loadProfileForumPosts()]);
+      if (savedPost) {
+        setForumPosts((current) => upsertForumPost(current, savedPost as ForumPost));
+        setMyForumPosts((current) => upsertForumPost(current, savedPost as ForumPost));
+        if (savedPost.graduate_id === profileTargetGraduateId) {
+          setProfileForumPosts((current) => upsertForumPost(current, savedPost as ForumPost));
+        }
+      }
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to save forum post', 'Community Forum');
     } finally {
@@ -2871,7 +3327,9 @@ export default function GraduatePortal() {
           }
 
           notify('success', 'Forum post deleted successfully.', 'Community Forum');
-          await Promise.all([loadForumFeed(), loadMyForumPosts(), loadProfileForumPosts()]);
+          setForumPosts((current) => current.filter((item) => item.id !== post.id));
+          setMyForumPosts((current) => current.filter((item) => item.id !== post.id));
+          setProfileForumPosts((current) => current.filter((item) => item.id !== post.id));
         } catch (error) {
           notify('error', error instanceof Error ? error.message : 'Unable to delete forum post', 'Community Forum');
         } finally {
@@ -2888,6 +3346,7 @@ export default function GraduatePortal() {
     }
 
     setForumActionKey(`like-${postId}`);
+    const realtimeSequenceAtStart = reactionRealtimeSequenceRef.current.get(postId) || 0;
 
     try {
       const response = await authenticatedFetch(API_ENDPOINTS.FORUM.LIKES, {
@@ -2897,19 +3356,30 @@ export default function GraduatePortal() {
 
       const liked = !!response.liked;
       const likeCount = Number(response.like_count || 0);
+      const preserveNewerRealtimeCount = (reactionRealtimeSequenceRef.current.get(postId) || 0) !== realtimeSequenceAtStart;
+      const updateReaction = (post: ForumPost) => post.id === postId
+        ? {
+            ...post,
+            is_liked: liked,
+            like_count: preserveNewerRealtimeCount ? post.like_count : likeCount,
+          }
+        : post;
 
       setForumPosts((current) =>
-        current.map((post) => (post.id === postId ? { ...post, is_liked: liked, like_count: likeCount } : post)),
+        current.map(updateReaction),
       );
       setMyForumPosts((current) =>
-        current.map((post) => (post.id === postId ? { ...post, is_liked: liked, like_count: likeCount } : post)),
+        current.map(updateReaction),
       );
       setProfileForumPosts((current) =>
-        current.map((post) => (post.id === postId ? { ...post, is_liked: liked, like_count: likeCount } : post)),
+        current.map(updateReaction),
       );
       setSelectedPost((current) =>
-        current && current.id === postId ? { ...current, is_liked: liked, like_count: likeCount } : current,
+        current && current.id === postId ? updateReaction(current) : current,
       );
+      setMediaViewer((current) => current?.post.id === postId
+        ? { ...current, post: updateReaction(current.post) }
+        : current);
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to update reaction', 'Community Forum');
     } finally {
@@ -2945,6 +3415,7 @@ export default function GraduatePortal() {
     }
 
     setCommentSubmitting(true);
+    const commentSequenceAtStart = commentRealtimeSequenceRef.current.get(selectedPost.id) || 0;
 
     try {
       const response = await authenticatedFetch(API_ENDPOINTS.FORUM.COMMENTS, {
@@ -2968,9 +3439,10 @@ export default function GraduatePortal() {
       if (mediaViewer?.post.id === selectedPost.id) {
         setMediaViewerComments(addCreatedComment);
       }
-      applyForumCommentCount(selectedPost.id, commentCount);
+      if ((commentRealtimeSequenceRef.current.get(selectedPost.id) || 0) === commentSequenceAtStart) {
+        applyForumCommentCount(selectedPost.id, commentCount);
+      }
       setNewPostCommentId(createdComment.id);
-      void Promise.all([loadForumFeed(), loadMyForumPosts(), loadProfileForumPosts()]).catch(() => undefined);
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to post comment', 'Community Forum');
     } finally {
@@ -2990,12 +3462,14 @@ export default function GraduatePortal() {
     }
 
     setMediaViewerCommentSubmitting(true);
+    const postId = mediaViewer.post.id;
+    const commentSequenceAtStart = commentRealtimeSequenceRef.current.get(postId) || 0;
 
     try {
       const response = await authenticatedFetch(API_ENDPOINTS.FORUM.COMMENTS, {
         method: 'POST',
         body: JSON.stringify({
-          post_id: mediaViewer.post.id,
+          post_id: postId,
           comment,
         }),
       });
@@ -3010,12 +3484,13 @@ export default function GraduatePortal() {
       const commentCount = Number(response.comment_count || mediaViewerComments.length + 1);
       setMediaViewerCommentDraft('');
       setMediaViewerComments(addCreatedComment);
-      if (selectedPost?.id === mediaViewer.post.id) {
+      if (selectedPost?.id === postId) {
         setPostComments(addCreatedComment);
       }
-      applyForumCommentCount(mediaViewer.post.id, commentCount);
+      if ((commentRealtimeSequenceRef.current.get(postId) || 0) === commentSequenceAtStart) {
+        applyForumCommentCount(postId, commentCount);
+      }
       setNewMediaViewerCommentId(createdComment.id);
-      void Promise.all([loadForumFeed(), loadMyForumPosts(), loadProfileForumPosts()]).catch(() => undefined);
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to post comment', 'Community Forum');
     } finally {
@@ -3032,6 +3507,7 @@ export default function GraduatePortal() {
       confirmText: 'Delete',
       cancelText: 'Cancel',
       onConfirm: async () => {
+        const commentSequenceAtStart = commentRealtimeSequenceRef.current.get(comment.post_id) || 0;
         try {
           const response = await authenticatedFetch(API_ENDPOINTS.FORUM.COMMENTS, {
             method: 'DELETE',
@@ -3045,8 +3521,9 @@ export default function GraduatePortal() {
           setNewPostCommentId((current) => (current === comment.id ? null : current));
           setNewMediaViewerCommentId((current) => (current === comment.id ? null : current));
           const fallbackCount = Math.max(0, Number(selectedPost?.comment_count || mediaViewer?.post.comment_count || 1) - 1);
-          applyForumCommentCount(postId, Number(response.data?.comment_count ?? fallbackCount));
-          void Promise.all([loadForumFeed(), loadMyForumPosts(), loadProfileForumPosts()]).catch(() => undefined);
+          if ((commentRealtimeSequenceRef.current.get(postId) || 0) === commentSequenceAtStart) {
+            applyForumCommentCount(postId, Number(response.data?.comment_count ?? fallbackCount));
+          }
           notify('success', 'Comment deleted successfully.', 'Community Forum');
         } catch (error) {
           notify('error', error instanceof Error ? error.message : 'Unable to delete comment', 'Community Forum');
@@ -4187,14 +4664,21 @@ export default function GraduatePortal() {
         formData.append('_method', 'PUT');
       }
 
-      await authenticatedFetch(API_ENDPOINTS.JOBS.POSTS, {
+      const response = await authenticatedFetch(API_ENDPOINTS.JOBS.POSTS, {
         method: 'POST',
         body: formData,
       });
+      const savedJob = response.data as JobPost | undefined;
 
       notify('success', 'Job post submitted for approval.', 'Job Posting');
       closeJobForm();
-      await Promise.all([loadJobs(), loadMyJobs(), loadRatingSummary()]);
+      if (savedJob) {
+        setMyPostedJobs((current) => upsertJobPost(current, savedJob));
+        setJobs((current) => savedJob.approval_status === 'approved' && savedJob.is_active
+          ? upsertJobPost(current, savedJob)
+          : current.filter((job) => job.id !== savedJob.id));
+      }
+      await loadRatingSummary();
     } catch (error) {
       notify('error', error instanceof Error ? error.message : 'Unable to save job post', 'Job Posting');
     } finally {
@@ -4222,7 +4706,8 @@ export default function GraduatePortal() {
           }
 
           notify('success', 'Job post deleted successfully.', 'Job Posting');
-          await Promise.all([loadJobs(), loadMyJobs()]);
+          setJobs((current) => current.filter((item) => item.id !== job.id));
+          setMyPostedJobs((current) => current.filter((item) => item.id !== job.id));
         } catch (error) {
           notify('error', error instanceof Error ? error.message : 'Unable to delete job post', 'Job Posting');
         }

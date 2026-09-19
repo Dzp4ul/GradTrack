@@ -4,6 +4,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/graduate_profile.php';
 require_once __DIR__ . '/../config/storage.php';
+require_once __DIR__ . '/../config/realtime.php';
 
 function gradtrack_profile_upload_root(): string
 {
@@ -1090,6 +1091,16 @@ try {
 
         $currentUser = gradtrack_current_graduate_user($db);
         $currentSurveyProfile = $currentUser ? gradtrack_profile_survey_data($db, $currentUser) : null;
+        $publicProfileChanged = $updateProfile
+            || $removeProfile
+            || $removeCover
+            || (!$removeProfile && isset($_FILES['profile_image']) && (int) ($_FILES['profile_image']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE)
+            || (!$removeCover && isset($_FILES['cover_image']) && (int) ($_FILES['cover_image']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_NO_FILE);
+        if ($publicProfileChanged) {
+            gradtrack_realtime_publish('profile', 'updated', $graduateId, [
+                'actor_graduate_id' => $graduateId,
+            ]);
+        }
         echo json_encode([
             'success' => true,
             'message' => 'Profile updated successfully',

@@ -14,12 +14,13 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 
 $database = new Database();
 $db = $database->getConnection();
-$isAuthenticated = gradtrack_current_admin_user($db) !== null
-    || gradtrack_current_graduate_user($db) !== null;
+$adminUser = gradtrack_current_admin_user($db);
+$graduateUser = gradtrack_current_graduate_user($db);
+$isAuthenticated = $adminUser !== null || $graduateUser !== null;
 
 // Graduate media is private to authenticated GradTrack portal sessions. The
-// endpoint intentionally accepts only the two media namespaces rendered by
-// the Graduate Portal; chat attachments keep their record-level endpoint.
+// endpoint accepts only media namespaces rendered by authenticated portal
+// surfaces; chat attachments keep their record-level endpoint.
 if (!$isAuthenticated) {
     http_response_code(401);
     echo json_encode(['success' => false, 'error' => 'Authentication required']);
@@ -35,15 +36,84 @@ $isForumMedia = preg_match(
     '#^media/community-forum/posts/[1-9][0-9]*/(?:images|videos)/[a-f0-9-]+\.(?:jpe?g|png|webp|gif|mp4|webm|ogv|mov)$#D',
     $reference
 ) === 1;
+$announcementMatches = [];
+$isAnnouncementMedia = preg_match(
+    '#^media/announcements/([1-9][0-9]*)/(?:cover|gallery)/[a-f0-9-]+\.(?:jpe?g|png|webp|gif)$#D',
+    $reference,
+    $announcementMatches
+) === 1;
+$jobMatches = [];
+$isJobRequirementsFile = preg_match(
+    '#^private/job-support/job-posts/([1-9][0-9]*)/requirements/[a-f0-9-]+\.(?:pdf|docx|png|jpe?g)$#D',
+    $reference,
+    $jobMatches
+) === 1;
 
-if (!$isProfileMedia && !$isForumMedia) {
+$authorizedAnnouncementMedia = false;
+if ($isAnnouncementMedia) {
+    $announcementStmt = $db->prepare("SELECT a.id
+        FROM announcements a
+        WHERE a.id = :id
+          AND a.status = 'published'
+          AND (
+              a.cover_image_path = :cover_reference
+              OR EXISTS (
+                  SELECT 1 FROM announcement_images image
+                  WHERE image.announcement_id = a.id AND image.file_path = :gallery_reference
+              )
+          )
+        LIMIT 1");
+    $announcementStmt->execute([
+        ':id' => (int) $announcementMatches[1],
+        ':cover_reference' => $reference,
+        ':gallery_reference' => $reference,
+    ]);
+    $authorizedAnnouncementMedia = (bool) $announcementStmt->fetchColumn();
+}
+
+$authorizedJobRequirementsFile = false;
+$downloadName = null;
+$downloadMimeType = null;
+if ($isJobRequirementsFile) {
+    $jobStmt = $db->prepare("SELECT requirements_file_name, requirements_mime_type
+        FROM job_posts
+        WHERE id = :id
+          AND requirements_file_path = :reference
+          AND (
+              (is_active = 1 AND approval_status = 'approved')
+              OR (:admin_id > 0 AND created_by_admin_id = :owner_admin_id)
+          )
+        LIMIT 1");
+    $adminId = ($adminUser && (string) ($adminUser['role'] ?? '') === 'alumni_admin')
+        ? (int) $adminUser['id']
+        : 0;
+    $jobStmt->execute([
+        ':id' => (int) $jobMatches[1],
+        ':reference' => $reference,
+        ':admin_id' => $adminId,
+        ':owner_admin_id' => $adminId,
+    ]);
+    $jobFile = $jobStmt->fetch(PDO::FETCH_ASSOC);
+    if ($jobFile) {
+        $authorizedJobRequirementsFile = true;
+        $downloadName = $jobFile['requirements_file_name'] ?? null;
+        $downloadMimeType = $jobFile['requirements_mime_type'] ?? null;
+    }
+}
+
+if (!$isProfileMedia && !$isForumMedia && !$authorizedAnnouncementMedia && !$authorizedJobRequirementsFile) {
     http_response_code(404);
     echo json_encode(['success' => false, 'error' => 'Media not found']);
     exit;
 }
 
 try {
-    $url = gradtrack_storage_presigned_url($reference, null, null, false);
+    $url = gradtrack_storage_presigned_url(
+        $reference,
+        $downloadName,
+        $downloadMimeType,
+        $authorizedJobRequirementsFile
+    );
     header('Cache-Control: private, max-age=300');
     header('Location: ' . $url, true, 302);
     exit;

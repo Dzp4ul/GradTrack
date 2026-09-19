@@ -31,6 +31,7 @@ import UserManagement from './pages/admin/UserManagement';
 import EngagementApprovals from './pages/admin/EngagementApprovals';
 import ForumModeration from './pages/admin/ForumModeration';
 import Announcements from './pages/admin/Announcements';
+import JobPostings from './pages/admin/JobPostings';
 import AlumniRegisteredList from './pages/admin/AlumniRegisteredList';
 import AuditTrail from './pages/admin/AuditTrail.jsx';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -203,6 +204,14 @@ function App() {
             <Route
               path="approvals"
               element={<Navigate to="/admin/forum-moderation" replace />}
+            />
+            <Route
+              path="job-postings"
+              element={
+                <ProtectedRoute allowedRoles={ALUMNI_ADMIN_ROLES}>
+                  <JobPostings />
+                </ProtectedRoute>
+              }
             />
             <Route
               path="job-approvals"

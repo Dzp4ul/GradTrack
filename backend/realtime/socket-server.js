@@ -172,6 +172,17 @@ const pingTimeout = Math.max(5000, Number(process.env.REALTIME_PING_TIMEOUT_MS |
 const authTimeoutMs = Math.max(5000, Number(process.env.REALTIME_AUTH_TIMEOUT_MS || 12000));
 const sessionCookieName = String(process.env.SESSION_COOKIE_NAME || process.env.PHP_SESSION_COOKIE_NAME || 'GRADTRACKSESSID').trim() || 'GRADTRACKSESSID';
 const storageDriver = String(process.env.STORAGE_DRIVER || process.env.APP_STORAGE_DRIVER || 'local').trim().toLowerCase();
+const configuredPublishSecret = String(process.env.REALTIME_PUBLISH_SECRET || '').trim();
+const realtimePublishSecret = configuredPublishSecret || (isProduction ? '' : 'gradtrack-local-realtime-publish');
+if (
+  realtimePublishSecret.length < 32
+  || (isProduction && /(?:replace-with|change-me|gradtrack-local)/i.test(realtimePublishSecret))
+) {
+  throw new Error('REALTIME_PUBLISH_SECRET must contain at least 32 characters');
+}
+const realtimePublishMaxAgeSeconds = Math.max(15, Number(process.env.REALTIME_PUBLISH_MAX_AGE_SECONDS || 60));
+const processedMutationEvents = new Map();
+const mutationPublicationQueues = new Map();
 
 function mediaAccessReference(reference) {
   const value = String(reference || '').trim();
@@ -201,6 +212,14 @@ function userRoom(graduateId) {
 
 function presenceRoom(graduateId) {
   return `presence:graduate:${graduateId}`;
+}
+
+function graduatePortalRoom() {
+  return 'audience:graduate-portal';
+}
+
+function communityThreadRoom(postId) {
+  return `community:post:${postId}`;
 }
 
 function isAllowedOrigin(origin) {
@@ -425,6 +444,12 @@ async function verifySchema() {
   await pool.query('SELECT graduate_id, last_active_at FROM graduate_presence WHERE 1 = 0');
   await pool.query('SELECT direct_pair_key, group_image_path, group_image_updated_at FROM forum_chat_rooms WHERE 1 = 0');
   await pool.query('SELECT blocker_id, blocked_id FROM forum_chat_blocks WHERE 1 = 0');
+  await pool.query('SELECT id, graduate_id, status FROM forum_posts WHERE 1 = 0');
+  await pool.query('SELECT id, post_id, graduate_id, status FROM forum_comments WHERE 1 = 0');
+  await pool.query('SELECT id, post_id, graduate_id FROM forum_post_likes WHERE 1 = 0');
+  await pool.query('SELECT id, status, published_at FROM announcements WHERE 1 = 0');
+  await pool.query('SELECT id, posted_by_account_id, created_by_admin_id, is_active, approval_status FROM job_posts WHERE 1 = 0');
+  await pool.query('SELECT graduate_account_id, first_name, last_name, updated_at FROM graduate_profiles WHERE 1 = 0');
 }
 
 async function verifyDatabaseTimezone() {
@@ -598,10 +623,13 @@ async function fetchMessage(messageId) {
   const [rows] = await pool.query(
     `SELECT fcm.id, fcm.room_id, fcm.graduate_id, fcm.message, fcm.message_type, fcm.client_message_id,
             fcm.delivered_at, fcm.read_at, fcm.created_at, fcm.updated_at,
-            g.first_name, g.last_name, p.code AS sender_program_code, gpi.file_path AS sender_profile_image_path
+            COALESCE(NULLIF(profile.first_name, ''), g.first_name) AS first_name,
+            COALESCE(NULLIF(profile.last_name, ''), g.last_name) AS last_name,
+            p.code AS sender_program_code, gpi.file_path AS sender_profile_image_path
        FROM forum_chat_messages fcm
        JOIN graduates g ON g.id = fcm.graduate_id
        LEFT JOIN graduate_accounts ga ON ga.graduate_id = g.id
+       LEFT JOIN graduate_profiles profile ON profile.graduate_account_id = ga.id
        LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
        LEFT JOIN programs p ON p.id = g.program_id
       WHERE fcm.id = ?
@@ -685,17 +713,18 @@ async function getConversationForViewer(roomId, viewerGraduateId) {
   const room = rows[0];
   const [participants] = await pool.query(
     `SELECT g.id AS graduate_id,
-            TRIM(CONCAT(COALESCE(g.first_name, ''), ' ', COALESCE(g.last_name, ''))) AS full_name,
+            COALESCE(NULLIF(TRIM(CONCAT_WS(' ', profile.first_name, profile.middle_name, profile.last_name)), ''), TRIM(CONCAT_WS(' ', g.first_name, g.middle_name, g.last_name))) AS full_name,
             p.code AS program_code,
-            g.year_graduated,
+            COALESCE(profile.graduation_year, g.year_graduated) AS year_graduated,
             gpi.file_path AS profile_image_path,
-            gp.last_active_at
+            presence.last_active_at
        FROM forum_chat_members fcm
        JOIN graduates g ON g.id = fcm.graduate_id
        LEFT JOIN graduate_accounts ga ON ga.graduate_id = g.id
+       LEFT JOIN graduate_profiles profile ON profile.graduate_account_id = ga.id
        LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
        LEFT JOIN programs p ON p.id = g.program_id
-       LEFT JOIN graduate_presence gp ON gp.graduate_id = g.id
+       LEFT JOIN graduate_presence presence ON presence.graduate_id = g.id
       WHERE fcm.room_id = ?
       ORDER BY g.first_name ASC, g.last_name ASC`,
     [roomId],
@@ -1042,10 +1071,423 @@ async function markRead(roomId, graduateId, upToMessageId) {
   }));
 }
 
-const server = http.createServer((request, response) => {
+function normalizeForumPost(row, media = []) {
+  if (!row) return null;
+  return {
+    ...row,
+    id: Number(row.id),
+    graduate_id: Number(row.graduate_id),
+    author_year_graduated: row.author_year_graduated === null ? null : Number(row.author_year_graduated),
+    image_file_size_bytes: row.image_file_size_bytes === null ? null : Number(row.image_file_size_bytes),
+    comment_count: Number(row.comment_count || 0),
+    like_count: Number(row.like_count || 0),
+    report_count: 0,
+    is_liked: false,
+    author_profile_image_path: mediaAccessReference(row.author_profile_image_path),
+    media,
+    media_count: media.length,
+  };
+}
+
+async function loadPublishedForumPost(postId) {
+  const [rows] = await pool.query(
+    `SELECT fp.id, fp.graduate_id, fp.title, fp.content, fp.category, fp.status,
+            fp.image_path, fp.image_original_name, fp.image_mime_type, fp.image_file_size_bytes,
+            fp.created_at, fp.updated_at,
+            COALESCE(NULLIF(profile.first_name, ''), g.first_name) AS first_name,
+            COALESCE(NULLIF(profile.last_name, ''), g.last_name) AS last_name,
+            COALESCE(profile.graduation_year, g.year_graduated) AS author_year_graduated,
+            COALESCE(NULLIF(profile.program_course, ''), p.name) AS author_program_name,
+            p.code AS author_program_code,
+            gpi.file_path AS author_profile_image_path,
+            (SELECT COUNT(*) FROM forum_comments fc WHERE fc.post_id = fp.id AND fc.status = 'approved') AS comment_count,
+            (SELECT COUNT(*) FROM forum_post_likes fpl WHERE fpl.post_id = fp.id) AS like_count
+       FROM forum_posts fp
+       JOIN graduates g ON g.id = fp.graduate_id
+       LEFT JOIN graduate_accounts ga ON ga.graduate_id = g.id
+       LEFT JOIN graduate_profiles profile ON profile.graduate_account_id = ga.id
+       LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
+       LEFT JOIN programs p ON p.id = g.program_id
+      WHERE fp.id = ? AND fp.status = 'approved'
+      LIMIT 1`,
+    [postId],
+  );
+  if (!rows.length) return null;
+
+  const [mediaRows] = await pool.query(
+    `SELECT id, post_id, media_type, file_path, original_name, mime_type, file_size_bytes, sort_order, created_at
+       FROM forum_post_media
+      WHERE post_id = ?
+      ORDER BY sort_order ASC, id ASC`,
+    [postId],
+  );
+  const media = mediaRows.map((row) => ({
+    ...row,
+    id: Number(row.id),
+    post_id: Number(row.post_id),
+    file_size_bytes: row.file_size_bytes === null ? null : Number(row.file_size_bytes),
+    sort_order: Number(row.sort_order || 0),
+    file_path: mediaAccessReference(row.file_path),
+  }));
+  const post = normalizeForumPost(rows[0], media);
+  post.author_name = `${String(post.first_name || '').trim()} ${String(post.last_name || '').trim()}`.trim() || 'Graduate';
+  return post;
+}
+
+async function loadApprovedComment(commentId) {
+  const [rows] = await pool.query(
+    `SELECT fc.id, fc.post_id, fc.graduate_id, fc.comment, fc.created_at,
+            COALESCE(NULLIF(profile.first_name, ''), g.first_name) AS first_name,
+            COALESCE(NULLIF(profile.last_name, ''), g.last_name) AS last_name,
+            COALESCE(NULLIF(profile.program_course, ''), p.name) AS commenter_program_name,
+            p.code AS commenter_program_code,
+            gpi.file_path AS commenter_profile_image_path
+       FROM forum_comments fc
+       JOIN forum_posts fp ON fp.id = fc.post_id AND fp.status = 'approved'
+       JOIN graduates g ON g.id = fc.graduate_id
+       LEFT JOIN graduate_accounts ga ON ga.graduate_id = g.id
+       LEFT JOIN graduate_profiles profile ON profile.graduate_account_id = ga.id
+       LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
+       LEFT JOIN programs p ON p.id = g.program_id
+      WHERE fc.id = ? AND fc.status = 'approved'
+      LIMIT 1`,
+    [commentId],
+  );
+  if (!rows.length) return null;
+  const row = rows[0];
+  return {
+    ...row,
+    id: Number(row.id),
+    post_id: Number(row.post_id),
+    graduate_id: Number(row.graduate_id),
+    commenter_name: `${String(row.first_name || '').trim()} ${String(row.last_name || '').trim()}`.trim() || 'Graduate',
+    commenter_profile_image_path: mediaAccessReference(row.commenter_profile_image_path),
+  };
+}
+
+async function loadForumCommentCount(postId) {
+  const [rows] = await pool.query(
+    "SELECT COUNT(*) AS total FROM forum_comments WHERE post_id = ? AND status = 'approved'",
+    [postId],
+  );
+  return Number(rows[0]?.total || 0);
+}
+
+function normalizeAnnouncement(row, images = []) {
+  if (!row) return null;
+  return {
+    ...row,
+    id: Number(row.id),
+    cover_image_path: mediaAccessReference(row.cover_image_path),
+    author_profile_image_path: mediaAccessReference(row.author_profile_image_path),
+    author_type: row.graduate_id ? 'graduate' : 'admin',
+    images,
+  };
+}
+
+const announcementSelectSql = `SELECT a.id, a.graduate_id, a.title, a.summary, a.content, a.category, a.event_date,
+       a.cover_image_path, a.status, a.published_at, a.created_at, a.updated_at,
+       COALESCE(NULLIF(TRIM(CONCAT_WS(' ', profile.first_name, profile.middle_name, profile.last_name)), ''),
+                NULLIF(TRIM(CONCAT_WS(' ', g.first_name, g.middle_name, g.last_name)), ''),
+                NULLIF(TRIM(au.full_name), ''), NULLIF(TRIM(au.username), ''), 'GradTrack') AS author_name,
+       COALESCE(NULLIF(profile.program_course, ''), p.name) AS author_program_name,
+       p.code AS author_program_code, gpi.file_path AS author_profile_image_path
+  FROM announcements a
+  LEFT JOIN graduates g ON g.id = a.graduate_id
+  LEFT JOIN graduate_accounts ga ON ga.graduate_id = g.id
+  LEFT JOIN graduate_profiles profile ON profile.graduate_account_id = ga.id
+  LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
+  LEFT JOIN programs p ON p.id = g.program_id
+  LEFT JOIN admin_users au ON au.id = a.created_by_admin_id`;
+
+async function loadPublishedAnnouncement(announcementId) {
+  const [rows] = await pool.query(
+    `${announcementSelectSql} WHERE a.id = ? AND a.status = 'published' LIMIT 1`,
+    [announcementId],
+  );
+  if (!rows.length) return null;
+  const [imageRows] = await pool.query(
+    `SELECT id, announcement_id, file_path, original_name, mime_type, file_size_bytes, sort_order, created_at
+       FROM announcement_images WHERE announcement_id = ? ORDER BY sort_order ASC, id ASC`,
+    [announcementId],
+  );
+  const images = imageRows.map((row) => ({
+    ...row,
+    id: Number(row.id),
+    announcement_id: Number(row.announcement_id),
+    file_size_bytes: Number(row.file_size_bytes || 0),
+    sort_order: Number(row.sort_order || 0),
+    file_path: mediaAccessReference(row.file_path),
+  }));
+  return normalizeAnnouncement(rows[0], images);
+}
+
+async function loadAnnouncementSnapshot() {
+  const [countRows] = await pool.query(
+    "SELECT category, COUNT(*) AS total FROM announcements WHERE status = 'published' GROUP BY category ORDER BY total DESC, category ASC",
+  );
+  const [totalRows] = await pool.query("SELECT COUNT(*) AS total FROM announcements WHERE status = 'published'");
+  const [recentRows] = await pool.query(
+    `${announcementSelectSql} WHERE a.status = 'published' ORDER BY COALESCE(a.published_at, a.created_at) DESC, a.id DESC LIMIT 5`,
+  );
+  return {
+    category_counts: countRows.map((row) => ({ category: String(row.category), count: Number(row.total || 0) })),
+    total: Number(totalRows[0]?.total || 0),
+    recent: recentRows.map((row) => normalizeAnnouncement(row)),
+  };
+}
+
+async function loadVisibleJob(jobId) {
+  const [rows] = await pool.query(
+    `SELECT jp.id, jp.posted_by_account_id, jp.created_by_admin_id, jp.title, jp.company, jp.location,
+            jp.salary_range, jp.job_type, jp.industry, jp.description, jp.qualifications, jp.required_skills,
+            jp.course_program_fit, jp.application_deadline, jp.contact_email, jp.application_link,
+            jp.application_method, jp.requirements_file_path, jp.requirements_file_name,
+            jp.requirements_mime_type, jp.requirements_file_size_bytes, jp.is_active, jp.approval_status,
+            jp.approval_reviewed_at, jp.approval_notes, jp.created_at, jp.updated_at,
+            ga.id AS poster_account_id, ga.email AS poster_email, g.id AS poster_graduate_id,
+            COALESCE(NULLIF(profile.first_name, ''), g.first_name) AS first_name,
+            COALESCE(NULLIF(profile.middle_name, ''), g.middle_name) AS middle_name,
+            COALESCE(NULLIF(profile.last_name, ''), g.last_name) AS last_name,
+            COALESCE(NULLIF(TRIM(CONCAT_WS(' ', profile.first_name, profile.middle_name, profile.last_name)), ''),
+                     NULLIF(TRIM(CONCAT_WS(' ', g.first_name, g.middle_name, g.last_name)), ''),
+                     NULLIF(TRIM(admin.full_name), ''), 'Alumni Admin') AS poster_full_name,
+            COALESCE(NULLIF(profile.program_course, ''), p.name) AS poster_program_name,
+            p.code AS poster_program_code, gpi.file_path AS poster_profile_image_path
+       FROM job_posts jp
+       LEFT JOIN graduate_accounts ga ON jp.posted_by_account_id = ga.id
+       LEFT JOIN graduates g ON ga.graduate_id = g.id
+       LEFT JOIN graduate_profiles profile ON profile.graduate_account_id = ga.id
+       LEFT JOIN programs p ON g.program_id = p.id
+       LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
+       LEFT JOIN admin_users admin ON admin.id = jp.created_by_admin_id
+      WHERE jp.id = ? AND jp.is_active = 1 AND jp.approval_status = 'approved'
+      LIMIT 1`,
+    [jobId],
+  );
+  if (!rows.length) return null;
+  const row = rows[0];
+  return {
+    ...row,
+    id: Number(row.id),
+    posted_by_account_id: row.posted_by_account_id === null ? undefined : Number(row.posted_by_account_id),
+    created_by_admin_id: row.created_by_admin_id === null ? undefined : Number(row.created_by_admin_id),
+    poster_account_id: row.poster_account_id === null ? undefined : Number(row.poster_account_id),
+    poster_graduate_id: row.poster_graduate_id === null ? undefined : Number(row.poster_graduate_id),
+    is_active: Number(row.is_active || 0),
+    requirements_file_size_bytes: row.requirements_file_size_bytes === null ? null : Number(row.requirements_file_size_bytes),
+    requirements_file_path: mediaAccessReference(row.requirements_file_path),
+    poster_profile_image_path: mediaAccessReference(row.poster_profile_image_path),
+  };
+}
+
+async function loadPublicProfile(graduateId) {
+  const [rows] = await pool.query(
+    `SELECT g.id AS graduate_id,
+            COALESCE(NULLIF(profile.first_name, ''), g.first_name) AS first_name,
+            COALESCE(NULLIF(profile.middle_name, ''), g.middle_name) AS middle_name,
+            COALESCE(NULLIF(profile.last_name, ''), g.last_name) AS last_name,
+            COALESCE(NULLIF(profile.program_course, ''), p.name) AS program_name,
+            p.code AS program_code,
+            COALESCE(profile.graduation_year, g.year_graduated) AS year_graduated,
+            profile.job_title, profile.company_name, profile.professional_status,
+            gpi.file_path AS profile_image_path, gci.file_path AS cover_image_path,
+            profile.updated_at
+       FROM graduates g
+       JOIN graduate_accounts ga ON ga.graduate_id = g.id AND ga.status = 'active'
+       LEFT JOIN graduate_profiles profile ON profile.graduate_account_id = ga.id
+       LEFT JOIN programs p ON p.id = g.program_id
+       LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
+       LEFT JOIN graduate_cover_images gci ON gci.graduate_account_id = ga.id
+      WHERE g.id = ? AND g.status = 'active'
+      LIMIT 1`,
+    [graduateId],
+  );
+  if (!rows.length) return null;
+  const row = rows[0];
+  const fullName = [row.first_name, row.middle_name, row.last_name]
+    .map((part) => String(part || '').trim())
+    .filter(Boolean)
+    .join(' ');
+  return {
+    ...row,
+    graduate_id: Number(row.graduate_id),
+    year_graduated: row.year_graduated === null ? null : Number(row.year_graduated),
+    full_name: fullName || 'Graduate',
+    profile_image_path: mediaAccessReference(row.profile_image_path),
+    cover_image_path: mediaAccessReference(row.cover_image_path),
+  };
+}
+
+async function publishPersistedMutation(mutation) {
+  const eventId = String(mutation.event_id || '');
+  const entity = String(mutation.entity || '');
+  const action = String(mutation.action || '');
+  const entityId = Number(mutation.entity_id || 0);
+  const context = mutation.context && typeof mutation.context === 'object' ? mutation.context : {};
+  if (!eventId || !entity || !action || !entityId) throw new Error('Invalid realtime mutation payload');
+
+  const common = { event_id: eventId, entity_id: entityId, occurred_at: mutation.occurred_at || new Date().toISOString() };
+  if (entity === 'forum_post') {
+    const post = action === 'deleted' ? null : await loadPublishedForumPost(entityId);
+    if (!post) {
+      io.to(graduatePortalRoom()).emit('community:post-deleted', { ...common, post_id: entityId });
+      return;
+    }
+    io.to(graduatePortalRoom()).emit(action === 'created' ? 'community:post-created' : 'community:post-updated', { ...common, post });
+    return;
+  }
+
+  if (entity === 'forum_comment') {
+    const comment = action === 'deleted' ? null : await loadApprovedComment(entityId);
+    const postId = Number(comment?.post_id || context.post_id || 0);
+    if (!postId) throw new Error('Forum comment post is unavailable');
+    const commentCount = await loadForumCommentCount(postId);
+    io.to(graduatePortalRoom()).emit('community:comment-count', { ...common, post_id: postId, comment_count: commentCount });
+    if (comment) {
+      io.to(communityThreadRoom(postId)).emit('community:comment-created', { ...common, post_id: postId, comment, comment_count: commentCount });
+    } else {
+      io.to(communityThreadRoom(postId)).emit('community:comment-deleted', { ...common, post_id: postId, comment_id: entityId, comment_count: commentCount });
+    }
+    return;
+  }
+
+  if (entity === 'forum_reaction') {
+    const actorGraduateId = Number(context.actor_graduate_id || 0);
+    const [countRows] = await pool.query('SELECT COUNT(*) AS total FROM forum_post_likes WHERE post_id = ?', [entityId]);
+    const [actorRows] = actorGraduateId > 0
+      ? await pool.query('SELECT id FROM forum_post_likes WHERE post_id = ? AND graduate_id = ? LIMIT 1', [entityId, actorGraduateId])
+      : [[]];
+    io.to(graduatePortalRoom()).emit('community:reaction-updated', {
+      ...common,
+      post_id: entityId,
+      actor_graduate_id: actorGraduateId || null,
+      actor_liked: actorGraduateId > 0 ? actorRows.length > 0 : null,
+      like_count: Number(countRows[0]?.total || 0),
+    });
+    return;
+  }
+
+  if (entity === 'announcement') {
+    const [announcement, snapshot] = await Promise.all([
+      action === 'deleted' ? Promise.resolve(null) : loadPublishedAnnouncement(entityId),
+      loadAnnouncementSnapshot(),
+    ]);
+    if (!announcement) {
+      io.to(graduatePortalRoom()).emit('announcements:removed', { ...common, announcement_id: entityId, ...snapshot });
+      return;
+    }
+    io.to(graduatePortalRoom()).emit(action === 'created' ? 'announcements:created' : 'announcements:updated', {
+      ...common,
+      announcement,
+      ...snapshot,
+    });
+    return;
+  }
+
+  if (entity === 'job') {
+    const job = action === 'deleted' ? null : await loadVisibleJob(entityId);
+    if (!job) {
+      io.to(graduatePortalRoom()).emit('jobs:removed', { ...common, job_id: entityId });
+      return;
+    }
+    io.to(graduatePortalRoom()).emit(action === 'created' || action === 'published' ? 'jobs:created' : 'jobs:updated', { ...common, job });
+    return;
+  }
+
+  if (entity === 'profile') {
+    const profile = await loadPublicProfile(entityId);
+    if (profile) io.to(graduatePortalRoom()).emit('profile:updated', { ...common, profile });
+    return;
+  }
+
+  throw new Error('Unsupported realtime mutation entity');
+}
+
+function mutationPublicationKey(mutation) {
+  const entity = String(mutation?.entity || 'unknown');
+  const entityId = Number(mutation?.entity_id || 0);
+  if (entity === 'forum_comment') {
+    return `forum_comment:post:${Number(mutation?.context?.post_id || entityId)}`;
+  }
+  if (entity === 'announcement') return 'announcement:published-feed';
+  return `${entity}:${entityId}`;
+}
+
+async function enqueuePersistedMutation(mutation) {
+  const queueKey = mutationPublicationKey(mutation);
+  const previous = mutationPublicationQueues.get(queueKey) || Promise.resolve();
+  const current = previous.catch(() => undefined).then(() => publishPersistedMutation(mutation));
+  mutationPublicationQueues.set(queueKey, current);
+  try {
+    await current;
+  } finally {
+    if (mutationPublicationQueues.get(queueKey) === current) {
+      mutationPublicationQueues.delete(queueKey);
+    }
+  }
+}
+
+function validPublishSignature(timestamp, signature, rawBody) {
+  const timestampNumber = Number(timestamp || 0);
+  if (!Number.isInteger(timestampNumber) || Math.abs(Math.floor(Date.now() / 1000) - timestampNumber) > realtimePublishMaxAgeSeconds) {
+    return false;
+  }
+  const expected = crypto.createHmac('sha256', realtimePublishSecret).update(`${timestamp}.${rawBody}`).digest('hex');
+  const receivedBuffer = Buffer.from(String(signature || ''), 'utf8');
+  const expectedBuffer = Buffer.from(expected, 'utf8');
+  return receivedBuffer.length === expectedBuffer.length && crypto.timingSafeEqual(receivedBuffer, expectedBuffer);
+}
+
+async function readPublishBody(request) {
+  const chunks = [];
+  let totalBytes = 0;
+  for await (const chunk of request) {
+    totalBytes += chunk.length;
+    if (totalBytes > 32768) throw new Error('Realtime publish payload is too large');
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+const server = http.createServer(async (request, response) => {
   if (request.url === '/health') {
     response.writeHead(200, { 'Content-Type': 'application/json' });
     response.end(JSON.stringify({ ok: true, service: 'gradtrack-realtime' }));
+    return;
+  }
+
+  if (request.method === 'POST' && request.url === '/internal/publish') {
+    try {
+      const rawBody = await readPublishBody(request);
+      if (!validPublishSignature(request.headers['x-gradtrack-timestamp'], request.headers['x-gradtrack-signature'], rawBody)) {
+        response.writeHead(401, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ ok: false, error: 'Unauthorized' }));
+        return;
+      }
+      const mutation = JSON.parse(rawBody);
+      const eventId = String(mutation?.event_id || '');
+      if (!eventId) throw new Error('event_id is required');
+      if (!processedMutationEvents.has(eventId)) {
+        processedMutationEvents.set(eventId, Date.now());
+        try {
+          await enqueuePersistedMutation(mutation);
+        } catch (error) {
+          processedMutationEvents.delete(eventId);
+          throw error;
+        }
+      }
+      const expiry = Date.now() - 10 * 60 * 1000;
+      for (const [seenEventId, seenAt] of processedMutationEvents) {
+        if (seenAt < expiry) processedMutationEvents.delete(seenEventId);
+      }
+      response.writeHead(202, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ ok: true, event_id: eventId }));
+    } catch (error) {
+      console.error('[Realtime] Persisted mutation publication failed:', error);
+      response.writeHead(400, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ ok: false, error: 'Unable to publish mutation' }));
+    }
     return;
   }
 
@@ -1096,12 +1538,32 @@ io.on('connection', (socket) => {
   socket.data.typingRecipientIds = [];
   socket.data.joinRequestNumber = 0;
   socket.join(userRoom(graduateId));
+  socket.join(graduatePortalRoom());
   console.log(`[Realtime] Connected: ${socket.id}`);
   console.log(`[Realtime] Authenticated user: ${graduateId}`);
   console.log(`[Realtime] Joined user room: ${userRoom(graduateId)}`);
 
   // Register all event handlers before non-critical presence/sidebar queries.
   // A freshly connected client can join and send without waiting for that work.
+  socket.on('community:thread:join', async (payload, ack) => {
+    try {
+      const postId = Number(payload?.post_id || 0);
+      if (!postId) throw new Error('post_id is required');
+      const [rows] = await pool.query("SELECT id FROM forum_posts WHERE id = ? AND status = 'approved' LIMIT 1", [postId]);
+      if (!rows.length) throw new Error('Forum post not found');
+      await socket.join(communityThreadRoom(postId));
+      ack?.({ success: true, post_id: postId });
+    } catch (error) {
+      ack?.({ success: false, error: error.message || 'Unable to join forum thread' });
+    }
+  });
+
+  socket.on('community:thread:leave', async (payload, ack) => {
+    const postId = Number(payload?.post_id || 0);
+    if (postId) await socket.leave(communityThreadRoom(postId));
+    ack?.({ success: true, post_id: postId || null });
+  });
+
   socket.on('conversation:join', async (payload, ack) => {
     try {
       const roomId = Number(payload?.room_id || payload?.conversation_id || 0);

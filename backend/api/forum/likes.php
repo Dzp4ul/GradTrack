@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/forum.php';
+require_once __DIR__ . '/../config/realtime.php';
 
 function gradtrack_forum_likes_request_data(): array
 {
@@ -84,6 +85,9 @@ try {
     $countStmt = $db->prepare('SELECT COUNT(*) AS total FROM forum_post_likes WHERE post_id = :post_id');
     $countStmt->execute([':post_id' => $postId]);
     $likeCount = (int) ($countStmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0);
+    gradtrack_realtime_publish('forum_reaction', 'updated', $postId, [
+        'actor_graduate_id' => (int) $user['graduate_id'],
+    ]);
 
     echo json_encode([
         'success' => true,

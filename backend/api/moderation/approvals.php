@@ -4,6 +4,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/engagement_approval.php';
 require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../config/admin_auth.php';
+require_once __DIR__ . '/../config/realtime.php';
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 use PHPMailer\PHPMailer\Exception as MailException;
@@ -369,6 +370,10 @@ try {
             ':reviewed_by' => $reviewer['id'],
             ':notes' => $notes !== '' ? $notes : null,
             ':id' => $itemId,
+        ]);
+        gradtrack_realtime_publish('job', $approvalStatus === 'approved' ? 'published' : 'updated', $itemId, [
+            'actor_type' => 'admin',
+            'actor_id' => (int) $reviewer['id'],
         ]);
 
         $emailNotification = [

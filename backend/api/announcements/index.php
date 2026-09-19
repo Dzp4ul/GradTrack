@@ -5,6 +5,7 @@ require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../config/announcements.php';
 require_once __DIR__ . '/../config/admin_auth.php';
+require_once __DIR__ . '/../config/realtime.php';
 
 function gradtrack_announcements_json_error(int $statusCode, string $message): void
 {
@@ -161,14 +162,17 @@ function gradtrack_announcements_select_sql(): string
                    a.category, a.event_date, a.cover_image_path, a.cover_image_original_name,
                    a.cover_image_mime_type, a.cover_image_file_size_bytes, a.status,
                    a.published_at, a.created_at, a.updated_at,
-                   COALESCE(NULLIF(TRIM(CONCAT_WS(' ', g.first_name, g.middle_name, g.last_name)), ''),
+                   COALESCE(NULLIF(TRIM(CONCAT_WS(' ', gp.first_name, gp.middle_name, gp.last_name)), ''),
+                            NULLIF(TRIM(CONCAT_WS(' ', g.first_name, g.middle_name, g.last_name)), ''),
                             NULLIF(TRIM(au.full_name), ''), NULLIF(TRIM(au.username), ''), 'GradTrack') AS author_name,
-                   p.name AS author_program_name, p.code AS author_program_code,
+                   COALESCE(NULLIF(gp.program_course, ''), p.name) AS author_program_name,
+                   p.code AS author_program_code,
                    gpi.file_path AS author_profile_image_path,
                    CASE WHEN a.graduate_id = :viewer_graduate_id THEN 1 ELSE 0 END AS is_owner
             FROM announcements a
             LEFT JOIN graduates g ON g.id = a.graduate_id
             LEFT JOIN graduate_accounts ga ON ga.graduate_id = g.id
+            LEFT JOIN graduate_profiles gp ON gp.graduate_account_id = ga.id
             LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
             LEFT JOIN programs p ON p.id = g.program_id
             LEFT JOIN admin_users au ON au.id = a.created_by_admin_id";
@@ -223,6 +227,22 @@ function gradtrack_announcements_normalize_rows(PDO $db, array $rows, bool $incl
         }
         return $normalized;
     }, $rows);
+}
+
+function gradtrack_announcements_find(PDO $db, int $announcementId, int $viewerGraduateId = 0): ?array
+{
+    $stmt = $db->prepare(gradtrack_announcements_select_sql() . ' WHERE a.id = :id LIMIT 1');
+    $stmt->execute([
+        ':id' => $announcementId,
+        ':viewer_graduate_id' => $viewerGraduateId,
+    ]);
+    $row = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$row) {
+        return null;
+    }
+    $announcement = gradtrack_announcements_normalize_row($row);
+    $announcement['images'] = gradtrack_announcements_images($db, $announcementId);
+    return $announcement;
 }
 
 function gradtrack_announcements_insert_gallery_images(PDO $db, int $announcementId, array $files, int $startOrder = 0): array
@@ -471,8 +491,18 @@ try {
         }
 
         gradtrack_announcements_log($actor, 'Create', $announcementId, ['category' => $payload['category'], 'status' => $payload['status']]);
+        $createdAnnouncement = gradtrack_announcements_find($db, $announcementId, $viewerGraduateId);
+        gradtrack_realtime_publish('announcement', 'created', $announcementId, [
+            'actor_type' => $actor['type'],
+            'actor_id' => (int) $actor['id'],
+        ]);
         http_response_code(201);
-        echo json_encode(['success' => true, 'message' => 'Announcement posted successfully', 'id' => $announcementId]);
+        echo json_encode([
+            'success' => true,
+            'message' => 'Announcement posted successfully',
+            'id' => $announcementId,
+            'data' => $createdAnnouncement,
+        ]);
         exit;
     }
 
@@ -577,7 +607,20 @@ try {
         }
 
         gradtrack_announcements_log($actor, 'Update', $announcementId, ['category' => $payload['category'], 'status' => $payload['status']]);
-        echo json_encode(['success' => true, 'message' => 'Announcement updated successfully', 'id' => $announcementId]);
+        $updatedAnnouncement = gradtrack_announcements_find($db, $announcementId, $viewerGraduateId);
+        $publishAction = ($existing['status'] ?? '') !== 'published' && $payload['status'] === 'published'
+            ? 'created'
+            : 'updated';
+        gradtrack_realtime_publish('announcement', $publishAction, $announcementId, [
+            'actor_type' => $actor['type'],
+            'actor_id' => (int) $actor['id'],
+        ]);
+        echo json_encode([
+            'success' => true,
+            'message' => 'Announcement updated successfully',
+            'id' => $announcementId,
+            'data' => $updatedAnnouncement,
+        ]);
         exit;
     }
 
@@ -609,6 +652,10 @@ try {
             gradtrack_storage_delete_quietly($deleteReference);
         }
         gradtrack_announcements_log($actor, 'Delete', $announcementId);
+        gradtrack_realtime_publish('announcement', 'deleted', $announcementId, [
+            'actor_type' => $actor['type'],
+            'actor_id' => (int) $actor['id'],
+        ]);
         echo json_encode(['success' => true, 'message' => 'Announcement deleted successfully']);
         exit;
     }

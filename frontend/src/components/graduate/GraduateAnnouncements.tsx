@@ -28,6 +28,15 @@ interface Pagination {
   last_page: number;
 }
 
+interface AnnouncementRealtimePayload {
+  event_name: 'announcements:created' | 'announcements:updated' | 'announcements:removed';
+  announcement?: Announcement;
+  announcement_id?: number;
+  category_counts?: CategoryCount[];
+  recent?: Announcement[];
+  total?: number;
+}
+
 const categories = [
   { value: 'general', label: 'General Announcement' },
   { value: 'alumni_event', label: 'Alumni Event' },
@@ -244,6 +253,86 @@ export default function GraduateAnnouncements({ announcementId, publicMode = fal
     if (announcementId) void loadDetail(announcementId);
     else void loadList();
   }, [announcementId, loadDetail, loadList]);
+
+  useEffect(() => {
+    if (publicMode) return undefined;
+
+    const handleRealtimeAnnouncement = (event: Event) => {
+      const payload = (event as CustomEvent<AnnouncementRealtimePayload>).detail;
+      if (!payload?.event_name) return;
+      const incoming = payload.announcement;
+      const removedId = Number(payload.announcement_id || incoming?.id || 0);
+
+      if (Array.isArray(payload.category_counts)) setCategoryCounts(payload.category_counts);
+      if (Array.isArray(payload.recent)) setRecent(payload.recent);
+
+      const matchesFilters = (item: Announcement) => {
+        if (category !== 'all' && item.category !== category) return false;
+        const query = committedSearch.trim().toLowerCase();
+        if (!query) return true;
+        return [item.title, item.summary, item.content]
+          .join(' ')
+          .toLowerCase()
+          .includes(query);
+      };
+
+      if (announcementId) {
+        if (payload.event_name === 'announcements:removed' && removedId === announcementId) {
+          setAnnouncement(null);
+          setError('This announcement is no longer available.');
+        } else if (incoming?.id === announcementId) {
+          setAnnouncement(incoming);
+          setError('');
+        }
+        return;
+      }
+
+      setAnnouncements((current) => {
+        if (payload.event_name === 'announcements:removed') {
+          return current.filter((item) => item.id !== removedId);
+        }
+        if (!incoming) return current;
+
+        const existsOnPage = current.some((item) => item.id === incoming.id);
+        if (!matchesFilters(incoming)) {
+          return current.filter((item) => item.id !== incoming.id);
+        }
+        if (!existsOnPage && page !== 1) return current;
+
+        return [...current.filter((item) => item.id !== incoming.id), incoming]
+          .sort((left, right) => {
+            const leftDate = parseDate(left.published_at || left.created_at)?.getTime() || 0;
+            const rightDate = parseDate(right.published_at || right.created_at)?.getTime() || 0;
+            return rightDate !== leftDate ? rightDate - leftDate : right.id - left.id;
+          })
+          .slice(0, pagination.per_page);
+      });
+
+      if (typeof payload.total === 'number' && !committedSearch.trim()) {
+        const filteredTotal = category === 'all'
+          ? payload.total
+          : Number(payload.category_counts?.find((item) => item.category === category)?.count || 0);
+        setPagination((current) => ({
+          ...current,
+          total: filteredTotal,
+          last_page: Math.max(1, Math.ceil(filteredTotal / current.per_page)),
+        }));
+      }
+    };
+
+    window.addEventListener('gradtrack:announcement-realtime', handleRealtimeAnnouncement);
+    return () => window.removeEventListener('gradtrack:announcement-realtime', handleRealtimeAnnouncement);
+  }, [announcementId, category, committedSearch, page, pagination.per_page, publicMode]);
+
+  useEffect(() => {
+    if (publicMode) return undefined;
+    const handleReconnect = () => {
+      if (announcementId) void loadDetail(announcementId);
+      else void loadList();
+    };
+    window.addEventListener('gradtrack:portal-reconnected', handleReconnect);
+    return () => window.removeEventListener('gradtrack:portal-reconnected', handleReconnect);
+  }, [announcementId, loadDetail, loadList, publicMode]);
 
   useEffect(() => {
     if (announcementId) return;

@@ -617,7 +617,8 @@ CREATE TABLE `forum_chat_message_attachments` (
 
 CREATE TABLE `job_posts` (
     `id` INT NOT NULL AUTO_INCREMENT,
-    `posted_by_account_id` INT NOT NULL,
+    `posted_by_account_id` INT DEFAULT NULL,
+    `created_by_admin_id` INT DEFAULT NULL,
     `title` VARCHAR(200) NOT NULL,
     `company` VARCHAR(150) NOT NULL,
     `location` VARCHAR(150) DEFAULT NULL,
@@ -641,6 +642,7 @@ CREATE TABLE `job_posts` (
     `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     KEY `idx_job_posts_account` (`posted_by_account_id`),
+    KEY `idx_job_posts_admin` (`created_by_admin_id`),
     KEY `idx_job_posts_active` (`is_active`),
     KEY `idx_job_posts_deadline` (`application_deadline`),
     KEY `idx_job_posts_approval_status` (`approval_status`),
@@ -1019,6 +1021,11 @@ ALTER TABLE `job_posts`
     ADD CONSTRAINT `fk_job_posts_account`
     FOREIGN KEY (`posted_by_account_id`) REFERENCES `graduate_accounts` (`id`)
     ON DELETE CASCADE;
+
+ALTER TABLE `job_posts`
+    ADD CONSTRAINT `fk_job_posts_admin`
+    FOREIGN KEY (`created_by_admin_id`) REFERENCES `admin_users` (`id`)
+    ON DELETE SET NULL;
 
 ALTER TABLE `job_posts`
     ADD CONSTRAINT `fk_job_posts_approval_reviewed_by`

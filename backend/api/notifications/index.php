@@ -99,12 +99,15 @@ function gradtrack_notifications_add_announcements(PDO $db, array &$notification
         $stmt = $db->query("SELECT a.id, a.title, a.summary, a.content, a.category,
                                   a.published_at, a.created_at,
                                   COALESCE(
+                                      NULLIF(TRIM(CONCAT_WS(' ', gp.first_name, gp.middle_name, gp.last_name)), ''),
                                       NULLIF(TRIM(CONCAT_WS(' ', g.first_name, g.middle_name, g.last_name)), ''),
                                       NULLIF(TRIM(au.full_name), ''),
                                       'GradTrack'
                                   ) AS author_name
                            FROM announcements a
                            LEFT JOIN graduates g ON g.id = a.graduate_id
+                           LEFT JOIN graduate_accounts ga ON ga.graduate_id = g.id
+                           LEFT JOIN graduate_profiles gp ON gp.graduate_account_id = ga.id
                            LEFT JOIN admin_users au ON au.id = a.created_by_admin_id
                            WHERE a.status = 'published'
                            ORDER BY COALESCE(a.published_at, a.created_at) DESC, a.id DESC
@@ -524,7 +527,7 @@ function gradtrack_notifications_add_graduate(PDO $db, array &$notifications, ar
                                         FROM job_posts
                                         WHERE approval_status = 'approved'
                                           AND COALESCE(is_active, 1) = 1
-                                          AND posted_by_account_id <> :account_id
+                                          AND (posted_by_account_id IS NULL OR posted_by_account_id <> :account_id)
                                         ORDER BY COALESCE(approval_reviewed_at, created_at) DESC, id DESC
                                         LIMIT 10");
     $approvedJobFeedStmt->execute([':account_id' => $accountId]);

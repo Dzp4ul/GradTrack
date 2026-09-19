@@ -30,7 +30,11 @@ try {
     }
 
     $stmt = $db->prepare("SELECT g.id AS graduate_id,
-                                 TRIM(CONCAT(COALESCE(g.first_name, ''), ' ', COALESCE(g.last_name, ''))) AS full_name,
+                                 COALESCE(
+                                     NULLIF(TRIM(CONCAT_WS(' ', profile.first_name, profile.middle_name, profile.last_name)), ''),
+                                     NULLIF(TRIM(CONCAT_WS(' ', g.first_name, g.middle_name, g.last_name)), ''),
+                                     'Graduate'
+                                 ) AS full_name,
                                  p.code AS program_code,
                                  p.name AS program_name,
                                  COALESCE(NULLIF(profile.program_course, ''), p.code, p.name) AS program_course,

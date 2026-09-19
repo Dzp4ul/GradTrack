@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/forum.php';
+require_once __DIR__ . '/../config/realtime.php';
 
 function gradtrack_forum_comments_request_data(): array
 {
@@ -45,12 +46,16 @@ function gradtrack_forum_comments_post_access(PDO $db, int $postId, ?array $grad
 function gradtrack_forum_comment_by_id(PDO $db, int $commentId): ?array
 {
     $stmt = $db->prepare("SELECT fc.id, fc.post_id, fc.graduate_id, fc.comment, fc.status, fc.created_at,
-                                 g.first_name, g.middle_name, g.last_name,
+                                 COALESCE(NULLIF(gp.first_name, ''), g.first_name) AS first_name,
+                                 COALESCE(NULLIF(gp.middle_name, ''), g.middle_name) AS middle_name,
+                                 COALESCE(NULLIF(gp.last_name, ''), g.last_name) AS last_name,
                                  gpi.file_path AS commenter_profile_image_path,
-                                 p.name AS commenter_program_name, p.code AS commenter_program_code
+                                 COALESCE(NULLIF(gp.program_course, ''), p.name) AS commenter_program_name,
+                                 p.code AS commenter_program_code
                           FROM forum_comments fc
                           JOIN graduates g ON g.id = fc.graduate_id
                           LEFT JOIN graduate_accounts ga ON ga.graduate_id = g.id
+                          LEFT JOIN graduate_profiles gp ON gp.graduate_account_id = ga.id
                           LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
                           LEFT JOIN programs p ON p.id = g.program_id
                           WHERE fc.id = :id
@@ -96,12 +101,16 @@ try {
 
         $visibilityClause = $moderator !== null ? '' : " AND fc.status = 'approved'";
         $stmt = $db->prepare("SELECT fc.id, fc.post_id, fc.graduate_id, fc.comment, fc.status, fc.created_at,
-                                     g.first_name, g.middle_name, g.last_name,
+                                     COALESCE(NULLIF(gp.first_name, ''), g.first_name) AS first_name,
+                                     COALESCE(NULLIF(gp.middle_name, ''), g.middle_name) AS middle_name,
+                                     COALESCE(NULLIF(gp.last_name, ''), g.last_name) AS last_name,
                                      gpi.file_path AS commenter_profile_image_path,
-                                     p.name AS commenter_program_name, p.code AS commenter_program_code
+                                     COALESCE(NULLIF(gp.program_course, ''), p.name) AS commenter_program_name,
+                                     p.code AS commenter_program_code
                               FROM forum_comments fc
                               JOIN graduates g ON g.id = fc.graduate_id
                               LEFT JOIN graduate_accounts ga ON ga.graduate_id = g.id
+                              LEFT JOIN graduate_profiles gp ON gp.graduate_account_id = ga.id
                               LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
                               LEFT JOIN programs p ON p.id = g.program_id
                               WHERE fc.post_id = :post_id
@@ -157,13 +166,18 @@ try {
         if (!$createdComment) {
             throw new RuntimeException('Created comment could not be loaded');
         }
+        $commentCount = gradtrack_forum_comment_count($db, $postId);
+        gradtrack_realtime_publish('forum_comment', 'created', $commentId, [
+            'post_id' => $postId,
+            'actor_graduate_id' => (int) $user['graduate_id'],
+        ]);
 
         echo json_encode([
             'success' => true,
             'message' => 'Comment added successfully',
             'id' => $commentId,
             'data' => $createdComment,
-            'comment_count' => gradtrack_forum_comment_count($db, $postId),
+            'comment_count' => $commentCount,
         ]);
         exit;
     }
@@ -209,13 +223,20 @@ try {
             );
         }
 
+        $postId = (int) $comment['post_id'];
+        $commentCount = gradtrack_forum_comment_count($db, $postId);
+        gradtrack_realtime_publish('forum_comment', 'deleted', $commentId, [
+            'post_id' => $postId,
+            'actor_graduate_id' => (int) ($graduateUser['graduate_id'] ?? 0),
+        ]);
+
         echo json_encode([
             'success' => true,
             'message' => 'Comment deleted successfully',
             'data' => [
                 'id' => $commentId,
-                'post_id' => (int) $comment['post_id'],
-                'comment_count' => gradtrack_forum_comment_count($db, (int) $comment['post_id']),
+                'post_id' => $postId,
+                'comment_count' => $commentCount,
             ],
         ]);
         exit;
