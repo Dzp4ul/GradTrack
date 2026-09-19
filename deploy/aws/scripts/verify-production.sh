@@ -27,7 +27,7 @@ done < <(
 )
 
 [[ "${APP_ENV:-}" == "production" || "${APP_ENV:-}" == "prod" ]] || fail "APP_ENV must be production"
-for variable in DB_HOST DB_NAME DB_USER DB_PASSWORD DB_SSL_CA STORAGE_DRIVER AWS_REGION S3_BUCKET FRONTEND_URL CORS_ALLOWED_ORIGINS GRADTRACK_API_BASE_URL REALTIME_HOST MAIL_HOST MAIL_PORT MAIL_USERNAME MAIL_PASSWORD MAIL_FROM_ADDRESS GROQ_API_KEY; do
+for variable in DB_HOST DB_NAME DB_USER DB_PASSWORD DB_SSL_CA STORAGE_DRIVER AWS_REGION S3_BUCKET FRONTEND_URL CORS_ALLOWED_ORIGINS GRADTRACK_API_BASE_URL REALTIME_HOST REALTIME_PUBLISH_SECRET MAIL_HOST MAIL_PORT MAIL_USERNAME MAIL_PASSWORD MAIL_FROM_ADDRESS GROQ_API_KEY; do
     [[ -n "${!variable:-}" ]] || fail "$variable is required"
     [[ "${!variable}" != *"replace-with"* && "${!variable}" != *"change-me"* && "${!variable}" != *"your-domain"* ]] || fail "$variable still contains a placeholder"
 done
@@ -42,11 +42,25 @@ done
 [[ "$FRONTEND_URL" == https://* ]] || fail "FRONTEND_URL must use HTTPS"
 [[ "$CORS_ALLOWED_ORIGINS" != *"*"* ]] || fail "wildcard CORS is forbidden"
 [[ -r "$DB_SSL_CA" ]] || fail "DB_SSL_CA is not readable"
+[[ ${#REALTIME_PUBLISH_SECRET} -ge 32 ]] || fail "REALTIME_PUBLISH_SECRET must contain at least 32 characters"
+[[ ! "$REALTIME_PUBLISH_SECRET" =~ replace-with|change-me|gradtrack-local ]] || fail "REALTIME_PUBLISH_SECRET still contains a placeholder"
+realtime_port="${REALTIME_PORT:-3001}"
+[[ "$realtime_port" =~ ^[0-9]+$ && "$realtime_port" -ge 1 && "$realtime_port" -le 65535 ]] || fail "REALTIME_PORT must be a valid TCP port"
 pass "production environment policy"
 
 for command_name in php node aws nginx systemctl curl; do require_command "$command_name"; done
 [[ "$(systemctl show -p User --value gradtrack-realtime.service)" == "gradtrack" ]] || fail "realtime service must run as the dedicated gradtrack user"
-pass "restricted realtime service account"
+systemctl is-active --quiet gradtrack-realtime.service || fail "realtime service is not active"
+realtime_health_payload=""
+for attempt in $(seq 1 15); do
+    if realtime_health_payload="$(curl -fsS --max-time 3 "http://127.0.0.1:${realtime_port}/health" 2>/dev/null)"; then
+        break
+    fi
+    sleep 1
+done
+php -r '$payload = json_decode($argv[1], true); exit(is_array($payload) && ($payload["ok"] ?? false) === true && ($payload["service"] ?? "") === "gradtrack-realtime" ? 0 : 1);' "$realtime_health_payload" \
+    || fail "realtime loopback health check failed"
+pass "restricted realtime service account and loopback health"
 realtime_auth_payload="$(curl -sS --max-time 5 -H 'Accept: application/json' "$REALTIME_AUTH_CHECK_URL")" \
     || fail "private realtime authentication endpoint is unavailable"
 php -r '$payload = json_decode($argv[1], true); exit(is_array($payload) && array_key_exists("authenticated", $payload) ? 0 : 1);' "$realtime_auth_payload" \
