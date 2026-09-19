@@ -60,9 +60,61 @@ $restricted = gradtrack_genai_resolve_data_tool('How many system user accounts a
 genai_tool_test_assert($restricted === null, 'Alumni Admin cannot select Super Admin user statistics tool');
 
 $deanAllowed = gradtrack_genai_resolve_data_tool('How many BSCS graduates?', 'dean_cs');
-genai_tool_test_assert(($deanAllowed['tool'] ?? null) === 'graduate_program_counts', 'CCS Dean can request BSCS graduate aggregate');
+genai_tool_test_assert(($deanAllowed['tool'] ?? null) === 'survey_participation', 'CCS Dean graduate count uses the program-scoped active-survey aggregate exposed by the Dean page');
 $deanRestricted = gradtrack_genai_resolve_data_tool('How many BSHM graduates?', 'dean_cs');
-genai_tool_test_assert($deanRestricted === null, 'CCS Dean cannot select BSHM aggregate tool');
+genai_tool_test_assert($deanRestricted === null, 'CCS Dean cannot select a BSHM aggregate');
+$currentSurvey = gradtrack_genai_resolve_data_tool('What is the current survey?', 'admin');
+genai_tool_test_assert(
+    ($currentSurvey['tool'] ?? null) === 'survey_participation' && ($currentSurvey['metric'] ?? null) === 'current_survey',
+    'Admin current-survey question selects the active survey data source'
+);
+genai_tool_test_assert(
+    gradtrack_genai_resolve_data_tool('What is the current survey?', 'alumni_admin') === null,
+    'Alumni Admin cannot retrieve an active survey that its pages do not expose'
+);
+
+$adminList = gradtrack_genai_resolve_data_tool('Show graduates who have not answered the survey.', 'admin');
+genai_tool_test_assert(
+    ($adminList['tool'] ?? null) === 'survey_participation_list' && ($adminList['metric'] ?? null) === 'not_answered',
+    'Admin natural-language list request selects the unanswered participation list'
+);
+$registrarList = gradtrack_genai_resolve_data_tool('List BSCS graduates.', 'registrar');
+genai_tool_test_assert(
+    ($registrarList['tool'] ?? null) === 'graduate_record_list' && ($registrarList['program_code'] ?? null) === 'BSCS',
+    'Registrar list request selects non-archived BSCS graduate records'
+);
+$alumniList = gradtrack_genai_resolve_data_tool('Ipakita ang pending alumni verification requests.', 'alumni_admin');
+genai_tool_test_assert(
+    ($alumniList['tool'] ?? null) === 'alumni_verification_list' && ($alumniList['metric'] ?? null) === 'pending',
+    'Alumni Admin Filipino list request selects pending verification records'
+);
+$deanList = gradtrack_genai_resolve_data_tool('Who has not answered the survey?', 'dean_cs');
+genai_tool_test_assert(
+    ($deanList['tool'] ?? null) === 'survey_participation_list' && ($deanList['metric'] ?? null) === 'not_answered',
+    'Dean list request selects the role-scoped unanswered participation list'
+);
+$deanListContraction = gradtrack_genai_resolve_data_tool("Who hasn't answered the survey?", 'dean_cs');
+genai_tool_test_assert(
+    ($deanListContraction['tool'] ?? null) === 'survey_participation_list',
+    'natural contraction in a list request is understood'
+);
+genai_tool_test_assert(
+    gradtrack_genai_resolve_data_tool('List BSHM graduates.', 'dean_cs') === null,
+    'CCS Dean cannot select a list for an unassigned program'
+);
+
+$listFallback = gradtrack_genai_tool_fallback_answer(
+    ['tool' => 'graduate_record_list', 'metric' => 'summary', 'language' => 'english'],
+    [
+        'records' => [['name' => 'Example, Graduate', 'program' => 'BSCS', 'year_graduated' => 2026]],
+        'total_matching' => 1,
+        'returned' => 1,
+    ]
+);
+genai_tool_test_assert(
+    str_contains($listFallback, 'Showing 1 of 1') && str_contains($listFallback, 'Example, Graduate'),
+    'record-list fallback renders only verified server rows and totals'
+);
 
 $fallback = gradtrack_genai_tool_fallback_answer($verification, [
     'approved' => 17,

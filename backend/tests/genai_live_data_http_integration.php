@@ -173,9 +173,10 @@ try {
     $offTopicAnswer = (string) ($offTopicQuestion['json']['data']['assistant']['answer'] ?? '');
     genai_live_assert(
         $offTopicQuestion['status'] === 200
-        && stripos($offTopicAnswer, 'only help with GradTrack-related') !== false
+        && preg_match('/\b(outside GradTrack|hindi tungkol sa GradTrack)\b/iu', $offTopicAnswer) === 1
+        && stripos($offTopicAnswer, 'I can only help with GradTrack-related') === false
         && !empty($offTopicQuestion['json']['data']['dataUsed']['model']),
-        'a genuinely unrelated question is rejected only after Groq semantic scope analysis'
+        'a genuinely unrelated question receives a useful role-aware refusal after semantic scope analysis'
     );
 
     $history = genai_live_request($endpoint, $sessionId, 'GET', [], '?resource=messages&conversation_id=' . $conversationId);

@@ -142,7 +142,10 @@ const formatConversationDate = (value: string) => parseServerDate(value).toLocal
   minute: '2-digit',
 });
 
-const currentModuleForRoute = (route: string) => {
+const currentModuleForRoute = (route: string, role?: string) => {
+  if (route === '/admin/graduates' || route.startsWith('/admin/graduates/')) {
+    return role === 'registrar' ? 'Manage Graduates' : 'Graduate Survey Participation';
+  }
   const modules: Array<[string, string]> = [
     ['/admin/alumni-registered-list', 'Alumni Verification'],
     ['/admin/announcements', 'Announcements'],
@@ -154,7 +157,6 @@ const currentModuleForRoute = (route: string) => {
     ['/admin/backup-database', 'Backup Database'],
     ['/admin/system-settings', 'System Settings'],
     ['/admin/survey-status', 'Survey Participation'],
-    ['/admin/graduates', 'Graduate Participation'],
     ['/admin/surveys', 'Survey Management'],
     ['/admin/reports', 'Reports & Analytics'],
     ['/admin', 'Dashboard'],
@@ -311,7 +313,7 @@ export default function GradTrackGenAIAssistant() {
   const loadingTimersRef = useRef<number[]>([]);
 
   const isAdminPath = location.pathname.startsWith('/admin');
-  const currentModule = useMemo(() => currentModuleForRoute(location.pathname), [location.pathname]);
+  const currentModule = useMemo(() => currentModuleForRoute(location.pathname, user?.role), [location.pathname, user?.role]);
   const shouldShow = Boolean(assistantConfig) && isAdminPath;
   const reportContextStorageKey = useMemo(
     () => `${REPORT_CONTEXT_STORAGE_KEY_PREFIX}_${user?.id ?? 'anonymous'}`,

@@ -1,20 +1,71 @@
 <?php
 require_once __DIR__ . '/graduate_auth.php';
 require_once __DIR__ . '/alumni_registry.php';
+require_once __DIR__ . '/graduation_years.php';
 
 if (!function_exists('gradtrack_genai_data_tool_catalog')) {
     function gradtrack_genai_data_tool_catalog(): array
     {
         return [
-            'alumni_verification_summary' => ['roles' => ['alumni_admin'], 'feature' => 'Alumni Verification'],
-            'alumni_registry_summary' => ['roles' => ['alumni_admin'], 'feature' => 'Registered Alumni'],
-            'survey_participation' => ['roles' => ['admin', 'dean_cs', 'dean_coed', 'dean_hm'], 'feature' => 'Survey Participation'],
-            'graduate_program_counts' => ['roles' => ['admin', 'registrar', 'dean_cs', 'dean_coed', 'dean_hm'], 'feature' => 'Graduate Records'],
-            'job_approval_summary' => ['roles' => ['alumni_admin'], 'feature' => 'Job Approval'],
-            'forum_moderation_summary' => ['roles' => ['alumni_admin'], 'feature' => 'Forum Moderation'],
-            'announcement_summary' => ['roles' => ['alumni_admin'], 'feature' => 'Announcements'],
-            'system_user_summary' => ['roles' => ['super_admin'], 'feature' => 'User Management'],
-            'system_dashboard_statistics' => ['roles' => ['super_admin'], 'feature' => 'System Statistics'],
+            'alumni_verification_summary' => [
+                'roles' => ['alumni_admin'],
+                'feature' => 'Alumni Verification',
+                'description' => 'Approved, pending, and rejected Graduate Portal verification accounts.',
+                'metrics' => ['summary', 'approved', 'pending', 'rejected'],
+            ],
+            'alumni_verification_list' => [
+                'roles' => ['alumni_admin'],
+                'feature' => 'Alumni Verification',
+                'description' => 'A limited list of alumni verification accounts by pending, approved, or rejected status.',
+                'metrics' => ['summary', 'pending', 'approved', 'rejected'],
+            ],
+            'alumni_registry_summary' => [
+                'roles' => ['alumni_admin'],
+                'feature' => 'Registered Alumni',
+                'description' => 'Official alumni totals, survey-completion status, and counts by program.',
+                'metrics' => ['summary', 'total', 'answered', 'not_answered', 'by_program', 'program'],
+            ],
+            'alumni_registry_list' => [
+                'roles' => ['alumni_admin'],
+                'feature' => 'Registered Alumni',
+                'description' => 'A limited list of non-archived official alumni registry records, optionally for one program.',
+                'metrics' => ['summary', 'verified', 'registered', 'unclaimed', 'inactive'],
+            ],
+            'survey_participation' => [
+                'roles' => ['admin', 'dean_cs', 'dean_coed', 'dean_hm'],
+                'feature' => 'Survey Participation',
+                'description' => 'The active survey and its eligible graduate, answered, not-answered, and response-rate totals. Dean results are restricted to assigned programs.',
+                'metrics' => ['summary', 'current_survey', 'total', 'answered', 'not_answered', 'response_rate'],
+            ],
+            'survey_participation_list' => [
+                'roles' => ['admin', 'dean_cs', 'dean_coed', 'dean_hm'],
+                'feature' => 'Survey Participation',
+                'description' => 'A limited list of graduates covered by the active survey, optionally filtered to answered or not answered. Dean rows are restricted to assigned programs.',
+                'metrics' => ['summary', 'answered', 'not_answered'],
+            ],
+            'report_analytics' => [
+                'roles' => ['admin'],
+                'feature' => 'Reports & Analytics',
+                'description' => 'Submitted tracer-study response analytics, including employment, salary, alignment, program, and graduation-year results.',
+                'metrics' => ['summary', 'employed', 'unemployed', 'employment_rate', 'alignment_rate'],
+            ],
+            'graduate_program_counts' => [
+                'roles' => ['admin', 'registrar'],
+                'feature' => 'Graduate Records',
+                'description' => 'Non-archived graduate-record totals overall or by program.',
+                'metrics' => ['total', 'by_program', 'program'],
+            ],
+            'graduate_record_list' => [
+                'roles' => ['registrar'],
+                'feature' => 'Manage Graduates',
+                'description' => 'A limited list of non-archived graduate records, optionally for one program.',
+                'metrics' => ['summary'],
+            ],
+            'job_approval_summary' => ['roles' => ['alumni_admin'], 'feature' => 'Job Approval', 'description' => 'Pending, approved, and declined alumni job-post totals.', 'metrics' => ['summary', 'pending', 'approved', 'declined']],
+            'forum_moderation_summary' => ['roles' => ['alumni_admin'], 'feature' => 'Forum Moderation', 'description' => 'Pending, resolved, and dismissed forum-report totals.', 'metrics' => ['summary', 'pending', 'resolved', 'dismissed']],
+            'announcement_summary' => ['roles' => ['alumni_admin'], 'feature' => 'Announcements', 'description' => 'Draft, published, and archived administrator-announcement totals.', 'metrics' => ['summary', 'draft', 'published', 'archived']],
+            'system_user_summary' => ['roles' => ['super_admin'], 'feature' => 'User Management', 'description' => 'Active and inactive administrator-account totals.', 'metrics' => ['summary', 'active', 'inactive']],
+            'system_dashboard_statistics' => ['roles' => ['super_admin'], 'feature' => 'System Statistics', 'description' => 'High-level authorized table totals for the Super Admin.', 'metrics' => ['summary', 'admin_users', 'graduates', 'alumni_accounts', 'surveys', 'submitted_survey_responses']],
         ];
     }
 }
@@ -35,13 +86,37 @@ if (!function_exists('gradtrack_genai_normalize_question')) {
     }
 }
 
+if (!function_exists('gradtrack_genai_detect_language')) {
+    function gradtrack_genai_detect_language(string $message): string
+    {
+        $text = gradtrack_genai_normalize_question($message);
+        preg_match_all('/\b(paano|papaano|saan|nasaan|ilan|ano|alin|sino|kailan|bakit|pwede|maaari|gusto|ko|mo|namin|amin|akin|yung|iyong|ang|mga|para|mula|dito|doon|makikita|sagutan|sasagutan|sumagot|hindi|wala|mayroon|meron|nakabinbin|aprubado|tinanggihan|burahin|tanggalin)\b/ui', $text, $filipinoMatches);
+        preg_match_all('/\b(how|what|where|which|who|when|why|can|could|please|show|find|view|open|create|edit|delete|survey|graduates?|alumni|responses?|records?|page|button|current|available)\b/i', $text, $englishMatches);
+        $filipinoCount = count($filipinoMatches[0] ?? []);
+        $englishCount = count($englishMatches[0] ?? []);
+
+        if ($filipinoCount === 0) return 'english';
+        return $englishCount > 0 ? 'taglish' : 'filipino';
+    }
+}
+
 if (!function_exists('gradtrack_genai_question_requests_data')) {
     function gradtrack_genai_question_requests_data(string $message): bool
     {
         $text = gradtrack_genai_normalize_question($message);
         return preg_match('/\b(how\s+many|number\s+of|count|total|summary|statistics?|status|rate|percentage|percent|compare|comparison|versus|vs|most|least|pending|approved|rejected|declined|answered|unanswered|responded|completed|waiting|active|inactive|published|draft|resolved|dismissed)\b/i', $text) === 1
             || preg_match('/\b(ilan|bilang|gaano\s+karami|nakatapos|sumagot|hindi\s+(?:pa\s+)?sumagot|wala\s+pang\s+sagot|nakabinbin|hinihintay|aprubado|tinanggihan|pinakamarami)\b/ui', $text) === 1
-            || preg_match('/\b(?:graduates?|alumni)\s+(?:per|by)\s+(?:program|course|batch|year)\b/i', $text) === 1;
+            || preg_match('/\b(?:graduates?|alumni)\s+(?:per|by)\s+(?:program|course|batch|year)\b/i', $text) === 1
+            || preg_match('/\b(?:what|which|ano|alin)\b.{0,30}\b(?:current|active|kasalukuyan)\b.{0,20}\bsurvey\b/ui', $text) === 1;
+    }
+}
+
+if (!function_exists('gradtrack_genai_question_requests_list')) {
+    function gradtrack_genai_question_requests_list(string $message): bool
+    {
+        $text = gradtrack_genai_normalize_question($message);
+        return preg_match('/\b(list|show(?:\s+me)?|display|give\s+me|which\s+(?:graduates?|alumni)|who\s+(?:has|have|is|are|hasn\'?t|haven\'?t|didn\'?t))\b/i', $text) === 1
+            || preg_match('/\b(ilista|ipakita|sino|anu-ano|ano-anong)\b/ui', $text) === 1;
     }
 }
 
@@ -49,6 +124,7 @@ if (!function_exists('gradtrack_genai_requested_metric')) {
     function gradtrack_genai_requested_metric(string $message): string
     {
         $text = gradtrack_genai_normalize_question($message);
+        if (preg_match('/\b(?:current|active|kasalukuyan)\b.{0,20}\bsurvey\b|\bsurvey\b.{0,20}\b(?:current|active|kasalukuyan)\b/ui', $text) === 1) return 'current_survey';
         if (preg_match('/\b(which|what)\s+program\b|\bprogram\b.{0,30}\b(most|highest|largest)\b|\b(most|highest|largest)\b.{0,30}\bprogram\b|\bpinakamarami\b/ui', $text) === 1) return 'by_program';
         $statusFamilies = 0;
         foreach ([
@@ -66,6 +142,8 @@ if (!function_exists('gradtrack_genai_requested_metric')) {
         if (preg_match('/\b(approved|verified|aprubado)\b/ui', $text) === 1) return 'approved';
         if (preg_match('/\b(inactive|deactivated|disabled)\b/i', $text) === 1) return 'inactive';
         if (preg_match('/\b(active|enabled)\b/i', $text) === 1) return 'active';
+        if (preg_match('/\b(unclaimed)\b/i', $text) === 1) return 'unclaimed';
+        if (preg_match('/\b(registered)\b/i', $text) === 1) return 'registered';
         if (preg_match('/\b(published)\b/i', $text) === 1) return 'published';
         if (preg_match('/\b(draft)\b/i', $text) === 1) return 'draft';
         if (preg_match('/\b(resolved)\b/i', $text) === 1) return 'resolved';
@@ -97,6 +175,7 @@ if (!function_exists('gradtrack_genai_resolve_data_tool')) {
         $metric = gradtrack_genai_requested_metric($message);
         $programCode = gradtrack_genai_requested_program_code($message);
         $requestsData = gradtrack_genai_question_requests_data($message);
+        $requestsList = gradtrack_genai_question_requests_list($message);
         $tool = null;
 
         $mentionsProgram = $programCode !== null
@@ -110,8 +189,37 @@ if (!function_exists('gradtrack_genai_resolve_data_tool')) {
         $mentionsAnnouncements = preg_match('/\b(announcement|announcements)\b/i', $text) === 1;
         $mentionsUsers = preg_match('/\b(system\s+users?|admin(?:istrator)?\s+accounts?|user\s+accounts?|users?\s+by\s+role)\b/i', $text) === 1;
         $mentionsSystem = preg_match('/\b(overall\s+system|system\s+(?:summary|statistics|status)|dashboard\s+statistics)\b/i', $text) === 1;
+        $mentionsGraduates = preg_match('/\b(graduates?|graduate\s+records?|alumni\s+records?)\b/i', $text) === 1;
+        $mentionsEmploymentAnalytics = preg_match('/\b(employed|unemployed|employment(?:\s+rate|\s+status)?|salary|income|job[-\s]?align(?:ed|ment)|alignment\s+rate)\b/i', $text) === 1;
+        $route = strtolower(trim((string) ($pageContext['route'] ?? '')));
+        $onParticipationPage = strpos($route, '/admin/survey-status') === 0
+            || ($role === 'admin' && strpos($route, '/admin/graduates') === 0);
 
-        if ($requestsData && ($mentionsVerification
+        if ($metric === 'current_survey') {
+            $tool = in_array($role, ['admin', 'dean_cs', 'dean_coed', 'dean_hm'], true)
+                ? 'survey_participation'
+                : null;
+        } elseif ($requestsList && in_array($role, ['admin', 'dean_cs', 'dean_coed', 'dean_hm'], true)
+            && !$mentionsEmploymentAnalytics
+            && ($mentionsSurvey || $mentionsGraduates || $mentionsProgram)) {
+            $tool = 'survey_participation_list';
+        } elseif ($requestsList && $role === 'registrar'
+            && !$mentionsSurvey
+            && !$mentionsEmploymentAnalytics
+            && ($mentionsGraduates || $mentionsProgram)) {
+            $tool = 'graduate_record_list';
+            $metric = 'summary';
+        } elseif ($requestsList && $role === 'alumni_admin' && !$mentionsEmploymentAnalytics && $mentionsVerification) {
+            $tool = 'alumni_verification_list';
+        } elseif ($requestsList && $role === 'alumni_admin' && !$mentionsEmploymentAnalytics
+            && ($mentionsRegistry || preg_match('/\balumni\b/i', $text) === 1)) {
+            $tool = 'alumni_registry_list';
+        } elseif ($requestsData && $mentionsEmploymentAnalytics) {
+            $tool = $role === 'admin' ? 'report_analytics' : null;
+        } elseif ($requestsData && $onParticipationPage && ($mentionsSurvey || $mentionsGraduates || $mentionsProgram)) {
+            $tool = 'survey_participation';
+            if ($metric === 'summary' && ($mentionsGraduates || $mentionsProgram) && !$mentionsSurvey) $metric = 'total';
+        } elseif ($requestsData && ($mentionsVerification
             || ($role === 'alumni_admin' && $mentionsRegistry && in_array($metric, ['approved', 'pending', 'rejected'], true)))) {
             $tool = 'alumni_verification_summary';
         } elseif ($requestsData && $mentionsRegistry) {
@@ -132,8 +240,22 @@ if (!function_exists('gradtrack_genai_resolve_data_tool')) {
             && preg_match('/\b(graduates?|alumni\s+accounts?|surveys?|survey\s+responses?)\b/i', $text) === 1) {
             $tool = 'system_dashboard_statistics';
         } elseif ($requestsData && $mentionsProgram) {
-            $tool = $role === 'alumni_admin' ? 'alumni_registry_summary' : 'graduate_program_counts';
-            $metric = $programCode !== null ? 'program' : 'by_program';
+            if ($role === 'alumni_admin') {
+                $tool = 'alumni_registry_summary';
+                $metric = $programCode !== null ? 'program' : 'by_program';
+            } elseif (str_starts_with($role, 'dean_')) {
+                $tool = 'survey_participation';
+                $metric = 'total';
+            } else {
+                $tool = 'graduate_program_counts';
+                $metric = $programCode !== null ? 'program' : 'by_program';
+            }
+        } elseif ($requestsData && $mentionsGraduates && in_array($role, ['admin', 'registrar'], true)) {
+            $tool = 'graduate_program_counts';
+            $metric = 'total';
+        } elseif ($requestsData && $mentionsGraduates && str_starts_with($role, 'dean_')) {
+            $tool = 'survey_participation';
+            $metric = 'total';
         }
 
         $isShortFollowUp = preg_match('/^(?:and\s+|what\s+about\s+|how\s+about\s+|also\s+|at\s+|paano\s+naman\s+|ilan\s+(?:ang\s+|yung\s+|naman\s+)?)?(?:the\s+)?(?:approved|pending|rejected|declined|answered|unanswered|not\s+answered|active|inactive|published|draft|resolved|dismissed)(?:\s+(?:ones?|accounts?|requests?|alumni|users?|posts?))?\??$/ui', $text) === 1;
@@ -142,7 +264,6 @@ if (!function_exists('gradtrack_genai_resolve_data_tool')) {
         }
 
         if ($tool === null && $requestsData) {
-            $route = strtolower(trim((string) ($pageContext['route'] ?? '')));
             if ($role === 'alumni_admin' && strpos($route, '/admin/alumni-registered-list') === 0) {
                 $tool = in_array($metric, ['answered', 'not_answered'], true)
                     ? 'alumni_registry_summary'
@@ -166,6 +287,8 @@ if (!function_exists('gradtrack_genai_resolve_data_tool')) {
         if ($tool === 'job_approval_summary' && $metric === 'rejected') {
             $metric = 'declined';
         }
+        if ($tool === 'alumni_registry_list' && $metric === 'approved') $metric = 'verified';
+        if ($tool === 'alumni_registry_list' && !in_array($metric, ['summary', 'verified', 'registered', 'unclaimed', 'inactive'], true)) $metric = 'summary';
         if ($tool === 'alumni_registry_summary' && $mentionsRegistry && !$mentionsSurvey && $metric === 'summary') {
             $metric = 'total';
         }
@@ -177,7 +300,7 @@ if (!function_exists('gradtrack_genai_resolve_data_tool')) {
             elseif (preg_match('/\badmin(?:istrator)?\s+(?:users?|accounts?)\b/i', $text) === 1) $metric = 'admin_users';
         }
 
-        if ($tool === 'graduate_program_counts' && $programCode !== null) {
+        if ($programCode !== null) {
             $roleScopes = [
                 'dean_cs' => ['BSCS', 'ACT'],
                 'dean_coed' => ['BSED', 'BEED'],
@@ -193,6 +316,7 @@ if (!function_exists('gradtrack_genai_resolve_data_tool')) {
             'metric' => $metric,
             'program_code' => $programCode,
             'feature' => gradtrack_genai_data_tool_catalog()[$tool]['feature'],
+            'language' => gradtrack_genai_detect_language($message),
         ];
     }
 }
@@ -203,6 +327,208 @@ if (!function_exists('gradtrack_genai_collect_aggregate_tool_data')) {
         $tool = (string) ($resolution['tool'] ?? '');
         if (!gradtrack_genai_data_tool_is_allowed($tool, $role)) {
             throw new RuntimeException('The requested data tool is not authorized for this role.');
+        }
+
+        if ($tool === 'survey_participation_list') {
+            $coverage = gradtrack_get_active_survey_graduation_year_coverage($db);
+            if ($coverage['survey'] === null || !$coverage['configured']) {
+                return [
+                    'feature' => 'survey_participation_list',
+                    'available' => false,
+                    'reason' => $coverage['survey'] === null
+                        ? 'No active survey is available.'
+                        : 'Graduation-year coverage is not configured for the active survey.',
+                    'records' => [],
+                    'total_matching' => 0,
+                    'returned' => 0,
+                    'source' => 'active Survey Participation row scope',
+                ];
+            }
+            $params = [':list_survey_id' => (int)$coverage['survey']['id']];
+            $where = ['g.archived_at IS NULL'];
+            gradtrack_append_graduation_year_coverage_filter(
+                $where,
+                $params,
+                'g.year_graduated',
+                $coverage['years'],
+                'genai_list_year'
+            );
+            if (is_array($allowedProgramCodes)) {
+                $programPlaceholders = [];
+                foreach ($allowedProgramCodes as $index => $code) {
+                    $placeholder = ':list_allowed_program_' . $index;
+                    $programPlaceholders[] = $placeholder;
+                    $params[$placeholder] = $code;
+                }
+                $where[] = empty($programPlaceholders) ? '1 = 0' : 'p.code IN (' . implode(', ', $programPlaceholders) . ')';
+            }
+            $programCode = strtoupper((string)($resolution['program_code'] ?? ''));
+            if ($programCode !== '') {
+                $where[] = 'p.code = :list_program_code';
+                $params[':list_program_code'] = $programCode;
+            }
+            $baseSql = "SELECT g.id, g.first_name, g.middle_name, g.last_name,
+                               g.year_graduated, p.code AS program_code,
+                               COUNT(DISTINCT sr.id) AS response_count
+                        FROM graduates g
+                        LEFT JOIN programs p ON p.id = g.program_id
+                        LEFT JOIN survey_responses sr
+                          ON sr.graduate_id = g.id
+                         AND sr.survey_id = :list_survey_id
+                         AND sr.submitted_at IS NOT NULL
+                        WHERE " . implode(' AND ', $where) . "
+                        GROUP BY g.id, g.first_name, g.middle_name, g.last_name, g.year_graduated, p.code";
+            $metric = (string)($resolution['metric'] ?? 'summary');
+            $rowFilter = $metric === 'answered'
+                ? 'response_count > 0'
+                : ($metric === 'not_answered' ? 'response_count = 0' : '1 = 1');
+            $countStmt = $db->prepare("SELECT COUNT(*) FROM ({$baseSql}) scoped_rows WHERE {$rowFilter}");
+            $countStmt->execute($params);
+            $total = (int)$countStmt->fetchColumn();
+            $listStmt = $db->prepare("SELECT * FROM ({$baseSql}) scoped_rows
+                                      WHERE {$rowFilter}
+                                      ORDER BY last_name ASC, first_name ASC
+                                      LIMIT 10");
+            $listStmt->execute($params);
+            $records = array_map(static function (array $row): array {
+                $middle = trim((string)($row['middle_name'] ?? ''));
+                $name = trim((string)$row['last_name'] . ', ' . (string)$row['first_name'] . ($middle !== '' ? ' ' . mb_substr($middle, 0, 1) . '.' : ''));
+                return [
+                    'name' => $name,
+                    'program' => (string)($row['program_code'] ?? ''),
+                    'year_graduated' => $row['year_graduated'] !== null ? (int)$row['year_graduated'] : null,
+                    'status' => (int)$row['response_count'] > 0 ? 'Answered' : 'Not Answered',
+                ];
+            }, $listStmt->fetchAll(PDO::FETCH_ASSOC));
+            return [
+                'feature' => 'survey_participation_list',
+                'available' => true,
+                'selected_survey' => [
+                    'id' => (int)$coverage['survey']['id'],
+                    'title' => (string)$coverage['survey']['title'],
+                    'status' => (string)$coverage['survey']['status'],
+                ],
+                'filter' => $metric,
+                'records' => $records,
+                'total_matching' => $total,
+                'returned' => count($records),
+                'allowed_program_codes' => $allowedProgramCodes,
+                'source' => 'active Survey Participation row scope; first 10 alphabetically',
+            ];
+        }
+
+        if ($tool === 'graduate_record_list') {
+            $params = [];
+            $where = ['g.archived_at IS NULL'];
+            $programCode = strtoupper((string)($resolution['program_code'] ?? ''));
+            if ($programCode !== '') {
+                $where[] = 'p.code = :graduate_list_program';
+                $params[':graduate_list_program'] = $programCode;
+            }
+            $whereSql = implode(' AND ', $where);
+            $countStmt = $db->prepare("SELECT COUNT(*) FROM graduates g LEFT JOIN programs p ON p.id = g.program_id WHERE {$whereSql}");
+            $countStmt->execute($params);
+            $total = (int)$countStmt->fetchColumn();
+            $stmt = $db->prepare("SELECT g.first_name, g.middle_name, g.last_name, g.year_graduated, p.code AS program_code
+                                  FROM graduates g
+                                  LEFT JOIN programs p ON p.id = g.program_id
+                                  WHERE {$whereSql}
+                                  ORDER BY g.last_name ASC, g.first_name ASC
+                                  LIMIT 10");
+            $stmt->execute($params);
+            $records = array_map(static function (array $row): array {
+                $middle = trim((string)($row['middle_name'] ?? ''));
+                return [
+                    'name' => trim((string)$row['last_name'] . ', ' . (string)$row['first_name'] . ($middle !== '' ? ' ' . mb_substr($middle, 0, 1) . '.' : '')),
+                    'program' => (string)($row['program_code'] ?? ''),
+                    'year_graduated' => $row['year_graduated'] !== null ? (int)$row['year_graduated'] : null,
+                ];
+            }, $stmt->fetchAll(PDO::FETCH_ASSOC));
+            return [
+                'feature' => 'graduate_record_list',
+                'records' => $records,
+                'total_matching' => $total,
+                'returned' => count($records),
+                'source' => 'non-archived Manage Graduates records; first 10 alphabetically',
+            ];
+        }
+
+        if ($tool === 'alumni_verification_list') {
+            gradtrack_ensure_graduate_account_verification_schema($db);
+            $metric = (string)($resolution['metric'] ?? 'summary');
+            $statusSql = match ($metric) {
+                'pending' => "(ga.status = 'pending_verification' OR ga.alumni_verification_status = 'pending')",
+                'approved' => "(ga.status = 'active' AND ga.alumni_verification_status = 'approved')",
+                'rejected' => "(ga.status = 'rejected' OR ga.alumni_verification_status = 'rejected')",
+                default => '1 = 1',
+            };
+            $fromSql = "FROM graduate_accounts ga
+                        JOIN graduates g ON g.id = ga.graduate_id AND g.archived_at IS NULL
+                        LEFT JOIN programs p ON p.id = g.program_id
+                        WHERE {$statusSql}";
+            $total = (int)$db->query("SELECT COUNT(*) {$fromSql}")->fetchColumn();
+            $rows = $db->query("SELECT g.first_name, g.middle_name, g.last_name, p.code AS program_code,
+                                       ga.alumni_verification_status, ga.status AS account_status
+                                {$fromSql}
+                                ORDER BY COALESCE(ga.alumni_verification_submitted_at, ga.created_at) DESC, ga.id DESC
+                                LIMIT 10")->fetchAll(PDO::FETCH_ASSOC);
+            $records = array_map(static function (array $row): array {
+                $middle = trim((string)($row['middle_name'] ?? ''));
+                return [
+                    'name' => trim((string)$row['last_name'] . ', ' . (string)$row['first_name'] . ($middle !== '' ? ' ' . mb_substr($middle, 0, 1) . '.' : '')),
+                    'program' => (string)($row['program_code'] ?? ''),
+                    'verification_status' => (string)($row['alumni_verification_status'] ?? $row['account_status'] ?? ''),
+                ];
+            }, $rows);
+            return [
+                'feature' => 'alumni_verification_list',
+                'filter' => $metric,
+                'records' => $records,
+                'total_matching' => $total,
+                'returned' => count($records),
+                'source' => 'Alumni Verification account queue; first 10 most recent',
+            ];
+        }
+
+        if ($tool === 'alumni_registry_list') {
+            gradtrack_alumni_registry_ensure_schema($db);
+            $params = [];
+            $where = ['ra.archived_at IS NULL'];
+            $programCode = strtoupper((string)($resolution['program_code'] ?? ''));
+            if ($programCode !== '') {
+                $where[] = 'ra.course_code = :registry_list_program';
+                $params[':registry_list_program'] = $programCode;
+            }
+            $metric = (string)($resolution['metric'] ?? 'summary');
+            $statusMap = ['verified' => 'Verified', 'registered' => 'Registered', 'unclaimed' => 'Unclaimed', 'inactive' => 'Inactive'];
+            if (isset($statusMap[$metric])) {
+                $where[] = 'ra.registration_status = :registry_list_status';
+                $params[':registry_list_status'] = $statusMap[$metric];
+            }
+            $whereSql = implode(' AND ', $where);
+            $countStmt = $db->prepare("SELECT COUNT(*) FROM registered_alumni ra WHERE {$whereSql}");
+            $countStmt->execute($params);
+            $total = (int)$countStmt->fetchColumn();
+            $stmt = $db->prepare("SELECT ra.full_name, ra.course_code, ra.batch_year, ra.registration_status
+                                  FROM registered_alumni ra
+                                  WHERE {$whereSql}
+                                  ORDER BY ra.full_name ASC
+                                  LIMIT 10");
+            $stmt->execute($params);
+            $records = array_map(static fn (array $row): array => [
+                'name' => (string)$row['full_name'],
+                'program' => (string)$row['course_code'],
+                'batch_year' => (int)$row['batch_year'],
+                'registration_status' => (string)$row['registration_status'],
+            ], $stmt->fetchAll(PDO::FETCH_ASSOC));
+            return [
+                'feature' => 'alumni_registry_list',
+                'filter' => $metric,
+                'records' => $records,
+                'total_matching' => $total,
+                'returned' => count($records),
+                'source' => 'non-archived official alumni registry; first 10 alphabetically',
+            ];
         }
 
         if (in_array($tool, ['alumni_verification_summary', 'alumni_registry_summary'], true)) {
@@ -247,7 +573,6 @@ if (!function_exists('gradtrack_genai_collect_aggregate_tool_data')) {
                                   FROM programs p
                                   LEFT JOIN graduates g ON g.program_id = p.id
                                       AND g.archived_at IS NULL
-                                      AND (g.status = 'active' OR g.status IS NULL)
                                   WHERE 1 = 1 {$scope}
                                   GROUP BY p.id, p.code, p.name
                                   ORDER BY total DESC, p.code ASC");
@@ -337,7 +662,54 @@ if (!function_exists('gradtrack_genai_tool_fallback_answer')) {
     {
         $tool = (string) ($resolution['tool'] ?? '');
         $metric = (string) ($resolution['metric'] ?? 'summary');
+        $language = (string) ($resolution['language'] ?? 'english');
+        $filipino = in_array($language, ['filipino', 'taglish'], true);
+        if (in_array($tool, ['survey_participation_list', 'graduate_record_list', 'alumni_verification_list', 'alumni_registry_list'], true)) {
+            if (array_key_exists('available', $data) && !$data['available']) {
+                return $filipino
+                    ? 'Hindi available ang listahang iyon: ' . (string)($data['reason'] ?? 'walang available na data')
+                    : 'That list is unavailable: ' . (string)($data['reason'] ?? 'no data is available');
+            }
+            $records = is_array($data['records'] ?? null) ? $data['records'] : [];
+            $total = (int)($data['total_matching'] ?? 0);
+            if (empty($records)) {
+                return $filipino
+                    ? 'Walang matching records sa GradTrack data na available sa role mo.'
+                    : 'No matching records were found in the GradTrack data available to your role.';
+            }
+            $items = [];
+            foreach ($records as $index => $record) {
+                $status = (string)($record['status'] ?? $record['verification_status'] ?? $record['registration_status'] ?? '');
+                if ($filipino) {
+                    $status = match (strtolower($status)) {
+                        'answered' => 'Sumagot',
+                        'not answered' => 'Hindi Pa Sumagot',
+                        'approved' => 'Aprubado',
+                        'rejected' => 'Tinanggihan',
+                        default => $status,
+                    };
+                }
+                $details = array_values(array_filter([
+                    (string)($record['program'] ?? ''),
+                    isset($record['year_graduated']) ? ($filipino ? 'Taong ' : 'Class of ') . $record['year_graduated'] : '',
+                    isset($record['batch_year']) ? 'Batch ' . $record['batch_year'] : '',
+                    $status,
+                ], static fn (string $value): bool => $value !== ''));
+                $items[] = ($index + 1) . '. ' . (string)($record['name'] ?? 'Unnamed record')
+                    . (!empty($details) ? ' — ' . implode(', ', $details) : '');
+            }
+            $heading = $filipino
+                ? 'Ipinapakita ang ' . count($records) . ' sa ' . $total . ' tugmang record:'
+                : 'Showing ' . count($records) . ' of ' . $total . ' matching record(s):';
+            return $heading . "\n" . implode("\n", $items);
+        }
         if ($tool === 'alumni_verification_summary') {
+            if ($filipino) {
+                if ($metric === 'approved') return 'May ' . $data['approved'] . ' approved alumni accounts sa kasalukuyan.';
+                if ($metric === 'pending') return 'May ' . $data['pending'] . ' pending alumni verification requests sa kasalukuyan.';
+                if ($metric === 'rejected') return 'May ' . $data['rejected'] . ' rejected alumni verification requests sa kasalukuyan.';
+                return 'Sa kasalukuyan, may ' . $data['approved'] . ' approved, ' . $data['pending'] . ' pending, at ' . $data['rejected'] . ' rejected alumni verification requests.';
+            }
             if ($metric === 'approved') return 'There are currently ' . $data['approved'] . ' approved alumni accounts.';
             if ($metric === 'pending') return 'There are currently ' . $data['pending'] . ' pending alumni verification requests.';
             if ($metric === 'rejected') return 'There are currently ' . $data['rejected'] . ' rejected alumni verification requests.';
@@ -347,6 +719,7 @@ if (!function_exists('gradtrack_genai_tool_fallback_answer')) {
             $program = (string) ($resolution['program_code'] ?? '');
             if ($metric === 'program' && $program !== '') {
                 $count = (int) ($data['course_totals'][$program] ?? 0);
+                if ($filipino) return 'May ' . $count . ' registered ' . $program . ' alumni records sa kasalukuyan.';
                 return 'There are currently ' . $count . ' registered ' . $program . ' alumni records.';
             }
             if ($metric === 'by_program') {
@@ -355,7 +728,14 @@ if (!function_exists('gradtrack_genai_tool_fallback_answer')) {
                 $highest = !empty($data['course_totals']) ? max($data['course_totals']) : 0;
                 $leaders = [];
                 foreach ($data['course_totals'] as $code => $count) if ($count === $highest) $leaders[] = $code;
+                if ($filipino) return implode(' at ', $leaders) . ' ang may pinakamaraming registered alumni sa kasalukuyan: ' . $highest . '. Breakdown: ' . implode(', ', $parts) . '.';
                 return implode(' and ', $leaders) . ' currently ' . (count($leaders) === 1 ? 'has' : 'have') . ' the most registered alumni with ' . $highest . '. Breakdown: ' . implode(', ', $parts) . '.';
+            }
+            if ($filipino) {
+                if ($metric === 'total') return 'May ' . $data['all_alumni'] . ' registered alumni records sa kasalukuyan.';
+                if ($metric === 'answered') return $data['done_answering'] . ' alumni ang nakatapos ng survey mula sa ' . $data['all_alumni'] . ' registered alumni.';
+                if ($metric === 'not_answered') return $data['not_answered'] . ' alumni ang hindi pa sumasagot mula sa ' . $data['all_alumni'] . ' registered alumni.';
+                return $data['done_answering'] . ' alumni ang nakatapos ng survey at ' . $data['not_answered'] . ' ang hindi pa sumasagot, mula sa ' . $data['all_alumni'] . ' registered alumni.';
             }
             if ($metric === 'total') return 'There are currently ' . $data['all_alumni'] . ' registered alumni records.';
             if ($metric === 'answered') return $data['done_answering'] . ' alumni have completed the survey out of ' . $data['all_alumni'] . ' registered alumni.';
@@ -365,18 +745,28 @@ if (!function_exists('gradtrack_genai_tool_fallback_answer')) {
         if ($tool === 'graduate_program_counts') {
             $program = (string) ($resolution['program_code'] ?? '');
             if ($program !== '') {
-                foreach ($data['programs'] as $row) if ($row['code'] === $program) return 'There are ' . $row['count'] . ' active ' . $program . ' graduate records in your authorized scope.';
-                return 'I could not find ' . $program . ' in the graduate data available to your account.';
+                foreach ($data['programs'] as $row) if ($row['code'] === $program) return $filipino
+                    ? 'May ' . $row['count'] . ' non-archived ' . $program . ' graduate records sa saklaw ng account mo.'
+                    : 'There are ' . $row['count'] . ' non-archived ' . $program . ' graduate records in your authorized scope.';
+                return $filipino
+                    ? 'Hindi ko makita ang ' . $program . ' sa graduate data na available sa account mo.'
+                    : 'I could not find ' . $program . ' in the graduate data available to your account.';
             }
+            if ($metric === 'total') return $filipino
+                ? 'May ' . $data['total'] . ' non-archived graduate records sa saklaw ng account mo.'
+                : 'There are ' . $data['total'] . ' non-archived graduate records in your authorized scope.';
             $parts = [];
             foreach ($data['programs'] as $row) $parts[] = $row['code'] . ': ' . $row['count'];
+            if ($filipino) return 'Mga non-archived graduate ayon sa program sa saklaw mo: ' . implode(', ', $parts) . '.';
             return 'Active graduates by program in your authorized scope: ' . implode(', ', $parts) . '.';
         }
         if (in_array($tool, ['job_approval_summary', 'forum_moderation_summary', 'announcement_summary'], true)) {
             $statuses = $data['statuses'];
+            if ($filipino && isset($statuses[$metric])) return 'May ' . $statuses[$metric] . ' ' . $metric . ' ' . strtolower(str_replace('_', ' ', $data['feature'])) . ' record(s) sa kasalukuyan.';
             if (isset($statuses[$metric])) return 'There are currently ' . $statuses[$metric] . ' ' . $metric . ' ' . strtolower(str_replace('_', ' ', $data['feature'])) . ' record(s).';
             $parts = [];
             foreach ($statuses as $status => $count) $parts[] = $status . ': ' . $count;
+            if ($filipino) return 'Status ng ' . strtolower(str_replace('_', ' ', $data['feature'])) . ': ' . implode(', ', $parts) . '.';
             return ucfirst(str_replace('_', ' ', $data['feature'])) . ' status: ' . implode(', ', $parts) . '.';
         }
         if ($tool === 'system_user_summary') {
@@ -391,7 +781,9 @@ if (!function_exists('gradtrack_genai_tool_fallback_answer')) {
             }
             return 'GradTrack currently has ' . $data['admin_users'] . ' administrator accounts, ' . $data['graduates'] . ' graduate records, ' . $data['alumni_accounts'] . ' alumni accounts, ' . $data['surveys'] . ' surveys, and ' . $data['submitted_survey_responses'] . ' submitted survey responses.';
         }
-        return "I couldn't find that information in the GradTrack data available to your account.";
+        return $filipino
+            ? 'Hindi ko makita ang impormasyong iyon sa GradTrack data na available sa account mo.'
+            : "I couldn't find that information in the GradTrack data available to your account.";
     }
 }
 
@@ -399,6 +791,10 @@ if (!function_exists('gradtrack_genai_tool_source_metrics')) {
     function gradtrack_genai_tool_source_metrics(array $resolution, array $data): array
     {
         $tool = (string) $resolution['tool'];
+        if (in_array($tool, ['survey_participation_list', 'graduate_record_list', 'alumni_verification_list', 'alumni_registry_list'], true)) return [
+            ['label' => 'Matching records', 'value' => (string)($data['total_matching'] ?? 0)],
+            ['label' => 'Records shown', 'value' => (string)($data['returned'] ?? 0)],
+        ];
         if ($tool === 'alumni_verification_summary') return [
             ['label' => 'Approved', 'value' => (string) $data['approved']],
             ['label' => 'Pending', 'value' => (string) $data['pending']],
