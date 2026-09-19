@@ -1627,31 +1627,40 @@ export default function GraduatePortal() {
     async (roomId = selectedRoomIdRef.current || 0, messages = roomMessagesRef.current) => {
       if (!roomId || messages.length === 0) return;
 
-      const newestIncoming = [...messages].reverse().find((message) => !message.is_mine && message.id > 0);
-      if (!newestIncoming) return;
+      // The read cursor represents how far the user has viewed in the room, not
+      // only the newest unread message. Deleted tombstones are still valid
+      // positions in the persisted conversation history.
+      const newestVisible = [...messages].reverse().find((message) => message.id > 0);
+      if (!newestVisible) return;
 
       const previousMarkedId = lastMarkedReadIdByRoomRef.current.get(roomId) || 0;
-      if (previousMarkedId >= newestIncoming.id) return;
-      lastMarkedReadIdByRoomRef.current.set(roomId, newestIncoming.id);
+      if (previousMarkedId >= newestVisible.id) return;
+      lastMarkedReadIdByRoomRef.current.set(roomId, newestVisible.id);
 
       try {
         const socket = chatSocketRef.current;
+        let markedThroughSocket = false;
         if (socket?.connected) {
-          const response = await emitWithAck(socket, 'message:read', {
-            room_id: roomId,
-            up_to_message_id: newestIncoming.id,
-          });
-
-          if (!response.success) {
-            throw new Error(response.error || 'Unable to mark messages as read');
+          try {
+            const response = await emitWithAck(socket, 'message:read', {
+              room_id: roomId,
+              up_to_message_id: newestVisible.id,
+            });
+            markedThroughSocket = response.success;
+          } catch {
+            markedThroughSocket = false;
           }
-        } else {
+        }
+
+        // The REST read operation is idempotent and keeps unread state usable
+        // while the realtime service is reconnecting or running an older build.
+        if (!markedThroughSocket) {
           await authenticatedFetch(API_ENDPOINTS.FORUM.CHAT_MESSAGES, {
             method: 'POST',
             body: JSON.stringify({
               action: 'read',
               room_id: roomId,
-              up_to_message_id: newestIncoming.id,
+              up_to_message_id: newestVisible.id,
             }),
           });
         }
@@ -1660,7 +1669,7 @@ export default function GraduatePortal() {
         setRoomMessages((current) => {
           if (selectedRoomIdRef.current !== roomId) return current;
           const next = current.map((message) => (
-            !message.is_mine && message.id > 0 && message.id <= newestIncoming.id
+            !message.is_mine && message.id > 0 && message.id <= newestVisible.id
               ? { ...message, read_at: message.read_at || localReadAt }
               : message
           ));
@@ -1669,7 +1678,7 @@ export default function GraduatePortal() {
         });
         setRooms((current) => current.map((room) => (room.id === roomId ? { ...room, unread_count: 0 } : room)));
       } catch {
-        if (lastMarkedReadIdByRoomRef.current.get(roomId) === newestIncoming.id) {
+        if (lastMarkedReadIdByRoomRef.current.get(roomId) === newestVisible.id) {
           if (previousMarkedId > 0) {
             lastMarkedReadIdByRoomRef.current.set(roomId, previousMarkedId);
           } else {
@@ -2278,6 +2287,10 @@ export default function GraduatePortal() {
   useEffect(() => {
     roomMessagesRef.current = roomMessages;
   }, [roomMessages]);
+
+  useEffect(() => {
+    lastMarkedReadIdByRoomRef.current.clear();
+  }, [currentGraduateId]);
 
   useEffect(() => {
     if (!currentGraduateId || !chatRealtimeEnabled) {
@@ -3039,7 +3052,7 @@ export default function GraduatePortal() {
   useEffect(() => {
     if (!chatConversationSurfaceOpen || !chatNearBottomRef.current) return;
     void markVisibleMessagesAsRead();
-  }, [chatConversationSurfaceOpen, markVisibleMessagesAsRead, roomMessages]);
+  }, [chatConnectionStatus, chatConversationSurfaceOpen, markVisibleMessagesAsRead, roomMessages]);
 
   useEffect(() => {
     chatSelectedAttachmentRef.current = chatSelectedAttachment;

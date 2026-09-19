@@ -977,6 +977,28 @@ async function main() {
       'message history returns a sanitized tombstone without deleted text or attachments',
     );
 
+    const unreadClearedAfterDeletedBoundary = waitForEvent(
+      groupSockets[0],
+      'unread-count:updated',
+      (payload) => Number(payload?.rooms?.[temporaryGroupRoomId] || 0) === 0,
+    );
+    const readThroughDeletedMessage = await emitWithAck(groupSockets[0], 'message:read', {
+      room_id: temporaryGroupRoomId,
+      up_to_message_id: Number(temporaryMessage.id),
+    });
+    await unreadClearedAfterDeletedBoundary;
+    const [[readCursorAfterDelete]] = await pool.query(
+      `SELECT last_read_message_id
+         FROM forum_chat_members
+        WHERE room_id = ? AND graduate_id = ?`,
+      [temporaryGroupRoomId, groupCandidateRows[0].graduate_id],
+    );
+    assert(
+      readThroughDeletedMessage.success === true
+        && Number(readCursorAfterDelete.last_read_message_id) >= Number(temporaryMessage.id),
+      'opening a group chat clears unread notifications when its newest visible item is a deleted-message tombstone',
+    );
+
     let removalEventsForOtherUser = 0;
     const countOtherUserRemoval = (payload) => {
       if (Number(payload?.room_id) === temporaryGroupRoomId) removalEventsForOtherUser += 1;

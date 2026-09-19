@@ -1010,7 +1010,6 @@ async function markRead(roomId, graduateId, upToMessageId) {
          FROM forum_chat_messages
         WHERE id = ?
           AND room_id = ?
-          AND deleted_at IS NULL
         LIMIT 1`,
       [upToMessageId, roomId],
     );
