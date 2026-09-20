@@ -4374,14 +4374,17 @@ export default function GraduatePortal() {
   const confirmBlockToggle = () => {
     if (!conversationInfo?.block) return;
     const shouldUnblock = conversationInfo.block.blocked_by_me;
+    const recipientName = activeRoom && !activeRoom.is_group
+      ? getRoomOtherParticipants(activeRoom, currentGraduateId)[0]?.full_name || 'this graduate'
+      : 'this graduate';
     setMsgBox({
       isOpen: true,
       type: 'confirm',
-      title: shouldUnblock ? 'Unblock Graduate' : 'Block Graduate',
+      title: shouldUnblock ? `Unblock ${recipientName}?` : `Block ${recipientName}?`,
       message: shouldUnblock
-        ? 'Unblock this graduate and allow direct messages again?'
-        : 'Block this graduate? Neither participant will be able to send direct messages until you unblock them.',
-      confirmText: shouldUnblock ? 'Unblock' : 'Block',
+        ? `Unblock ${recipientName} and allow direct messages again?`
+        : `${recipientName} will not be able to message you directly, and you will not be able to message them. You may still see and reply to each other's messages in group chats you are both in.`,
+      confirmText: shouldUnblock ? `Unblock ${recipientName}` : `Block ${recipientName}`,
       cancelText: 'Cancel',
       onConfirm: () => changeBlockState(shouldUnblock ? 'unblock' : 'block'),
     });

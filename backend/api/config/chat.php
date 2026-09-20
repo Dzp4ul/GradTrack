@@ -587,6 +587,30 @@ if (!function_exists('gradtrack_chat_direct_block_state')) {
     }
 }
 
+if (!function_exists('gradtrack_chat_group_blocked_member_ids')) {
+    function gradtrack_chat_group_blocked_member_ids(PDO $db, int $roomId, int $graduateId): array
+    {
+        $room = gradtrack_chat_require_room_member($db, $roomId, $graduateId);
+        if (empty($room['is_group'])) {
+            return [];
+        }
+
+        $stmt = $db->prepare("SELECT chat_block.blocked_id
+                              FROM forum_chat_blocks chat_block
+                              JOIN forum_chat_members blocked_member
+                                ON blocked_member.room_id = :room_id
+                               AND blocked_member.graduate_id = chat_block.blocked_id
+                              WHERE chat_block.blocker_id = :graduate_id
+                              ORDER BY blocked_member.id ASC");
+        $stmt->execute([
+            ':room_id' => $roomId,
+            ':graduate_id' => $graduateId,
+        ]);
+
+        return array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+    }
+}
+
 if (!function_exists('gradtrack_chat_assert_message_allowed')) {
     function gradtrack_chat_assert_message_allowed(PDO $db, int $roomId, int $graduateId): void
     {

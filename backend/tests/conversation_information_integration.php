@@ -91,6 +91,21 @@ try {
     $nextCreatorId = current(array_values(array_filter($groupMembers, static fn (int $id): bool => $id !== $groupCreatorId)));
 
     $db->beginTransaction();
+    $groupBlockStmt = $db->prepare('INSERT IGNORE INTO forum_chat_blocks (blocker_id, blocked_id) VALUES (:blocker_id, :blocked_id)');
+    $groupBlockStmt->execute([':blocker_id' => $groupCreatorId, ':blocked_id' => $nextCreatorId]);
+    $blockedGroupMemberIds = gradtrack_chat_group_blocked_member_ids($db, $groupRoomId, $groupCreatorId);
+    conversation_info_test_assert(
+        in_array((int) $nextCreatorId, $blockedGroupMemberIds, true),
+        'a group member sees the members they blocked in the shared group'
+    );
+    conversation_info_test_assert(
+        gradtrack_chat_group_blocked_member_ids($db, $groupRoomId, (int) $nextCreatorId) === [],
+        'the group notice does not reveal that another member blocked the viewer'
+    );
+    $db->rollBack();
+    conversation_info_test_assert(!$db->inTransaction(), 'group block-notice test changes were rolled back');
+
+    $db->beginTransaction();
     $ownerStmt = $db->prepare('UPDATE forum_chat_rooms SET created_by = :created_by WHERE id = :room_id');
     $ownerStmt->execute([':created_by' => $nextCreatorId, ':room_id' => $groupRoomId]);
     $leaveStmt = $db->prepare('DELETE FROM forum_chat_members WHERE room_id = :room_id AND graduate_id = :graduate_id');

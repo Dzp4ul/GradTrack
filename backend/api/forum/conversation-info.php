@@ -38,6 +38,24 @@ function gradtrack_conversation_info_room(PDO $db, int $roomId, int $graduateId)
     return $room;
 }
 
+function gradtrack_conversation_info_group_blocked_members(PDO $db, array $room, int $graduateId): array
+{
+    if (empty($room['is_group'])) {
+        return [];
+    }
+
+    $blockedIds = gradtrack_chat_group_blocked_member_ids($db, (int) $room['id'], $graduateId);
+    if (count($blockedIds) === 0) {
+        return [];
+    }
+
+    $blockedLookup = array_fill_keys($blockedIds, true);
+    return array_values(array_filter(
+        (array) ($room['participants'] ?? []),
+        static fn (array $participant): bool => isset($blockedLookup[(int) ($participant['graduate_id'] ?? 0)])
+    ));
+}
+
 function gradtrack_conversation_info_attachments(PDO $db, int $roomId, int $graduateId): array
 {
     $stmt = $db->prepare("SELECT a.id, a.room_id, a.message_id, a.original_name, a.stored_name,
@@ -446,6 +464,7 @@ try {
         $room = gradtrack_conversation_info_room($db, $roomId, $currentGraduateId);
         $attachments = gradtrack_conversation_info_attachments($db, $roomId, $currentGraduateId);
         $block = !empty($room['is_group']) ? null : gradtrack_chat_direct_block_state($db, $roomId, $currentGraduateId);
+        $groupBlockedMembers = gradtrack_conversation_info_group_blocked_members($db, $room, $currentGraduateId);
 
         echo json_encode([
             'success' => true,
@@ -454,6 +473,7 @@ try {
                 'photos' => $attachments['photos'],
                 'files' => $attachments['files'],
                 'block' => $block,
+                'group_blocked_members' => $groupBlockedMembers,
                 'permissions' => [
                     'can_change_group_photo' => !empty($room['is_group']),
                     'can_leave_group' => !empty($room['is_group']) && (int) $room['participant_count'] > 1,

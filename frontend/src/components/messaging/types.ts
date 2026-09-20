@@ -48,6 +48,7 @@ export interface ConversationInformation {
   room: MessagingRoom;
   photos: MessageAttachment[];
   files: MessageAttachment[];
+  group_blocked_members: MessagingParticipant[];
   block: {
     blocked: boolean;
     blocked_by_me: boolean;

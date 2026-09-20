@@ -325,14 +325,12 @@ function ConversationList({
   const query = search.trim().toLowerCase();
   const filteredRooms = useMemo(() => {
     if (!query) return rooms;
-    return rooms.filter((room) => {
-      const haystack = [
-        getRoomLabel(room, currentGraduate.graduate_id),
-        room.last_message,
-        ...room.participants.map((participant) => participant.full_name),
-      ].join(' ').toLowerCase();
-      return haystack.includes(query);
-    });
+    const queryParts = query.split(/\s+/).filter(Boolean);
+    return rooms.filter((room) => getOtherParticipants(room, currentGraduate.graduate_id)
+      .some((participant) => {
+        const participantName = participant.full_name.toLowerCase();
+        return queryParts.every((part) => participantName.includes(part));
+      }));
   }, [currentGraduate.graduate_id, query, rooms]);
 
   return (
@@ -352,9 +350,9 @@ function ConversationList({
             <input
               value={search}
               onChange={(event) => onSearchChange(event.target.value)}
-              placeholder="Search conversations"
+              placeholder="Search people"
               className="h-11 w-full rounded-lg border border-slate-200 bg-white px-10 text-sm outline-none transition focus:border-blue-500"
-              aria-label="Search conversations"
+              aria-label="Search people in your conversations"
             />
           </label>
           <button
@@ -383,7 +381,7 @@ function ConversationList({
           </div>
         ) : filteredRooms.length === 0 ? (
           <div className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-8 text-center text-sm text-slate-500">
-            {rooms.length === 0 ? 'No conversations yet.' : 'No conversations match your search.'}
+            {rooms.length === 0 ? 'No conversations yet.' : 'No people in your conversations match this search.'}
           </div>
         ) : (
           <div className="space-y-2">
@@ -484,6 +482,50 @@ function ChatHeader({
         </div>
       )}
     </header>
+  );
+}
+
+function GroupBlockedMemberNotice({
+  members,
+  resolveAssetUrl,
+}: {
+  members: MessagingParticipant[];
+  resolveAssetUrl: (path?: string | null) => string;
+}) {
+  if (members.length === 0) return null;
+
+  const firstMember = members[0];
+  const title = members.length === 1
+    ? `${firstMember.full_name} is in this group`
+    : `${members.length} people you blocked are in this group`;
+  const description = members.length === 1
+    ? `You blocked ${firstMember.full_name}, but you can still see and reply to each other's messages in this group. Direct messages remain blocked.`
+    : 'You can still see and reply to these members in this group. Direct messages with them remain blocked.';
+
+  return (
+    <div className="border-b border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-900/70 dark:bg-amber-950/40" role="status">
+      <div className="mx-auto flex max-w-3xl items-center gap-3">
+        <div className="flex shrink-0 -space-x-3" aria-hidden="true">
+          {members.slice(0, 3).map((member) => (
+            <span key={member.graduate_id} className="rounded-full border-2 border-amber-50 dark:border-amber-950">
+              <Avatar src={member.profile_image_path} label={member.full_name} size="sm" resolveAssetUrl={resolveAssetUrl} />
+            </span>
+          ))}
+          {members.length > 3 && (
+            <span className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-amber-50 bg-amber-200 text-xs font-bold text-amber-900 dark:border-amber-950 dark:bg-amber-900 dark:text-amber-100">
+              +{members.length - 3}
+            </span>
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="flex items-center gap-2 text-sm font-bold text-amber-950 dark:text-amber-100">
+            <Ban className="h-4 w-4 shrink-0" />
+            <span className="truncate">{title}</span>
+          </p>
+          <p className="mt-0.5 text-xs leading-5 text-amber-900 dark:text-amber-200">{description}</p>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -1358,6 +1400,7 @@ function ConversationInfoPanel({
   const recipient = getRecipient(room, currentGraduateId);
   const label = room ? getRoomLabel(room, currentGraduateId) : 'Conversation information';
   const avatar = room ? getRoomAvatar(room, currentGraduateId) : null;
+  const blockedMemberIds = new Set((info?.group_blocked_members || []).map((member) => member.graduate_id));
 
   return (
     <aside className="absolute inset-0 z-20 flex min-h-0 flex-col border-l border-slate-200 bg-white shadow-xl xl:static xl:z-auto xl:shadow-none" aria-label="Conversation information">
@@ -1400,6 +1443,7 @@ function ConversationInfoPanel({
                   <div className="mt-2 max-h-64 space-y-1 overflow-y-auto pr-1">
                     {room.participants.map((member) => {
                       const isAdmin = member.role === 'admin' || member.graduate_id === room.created_by;
+                      const isBlocked = blockedMemberIds.has(member.graduate_id);
                       return (
                         <button key={member.graduate_id} type="button" onClick={() => onOpenProfile?.(member.graduate_id)} className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800">
                           <span className="relative shrink-0">
@@ -1410,7 +1454,10 @@ function ConversationInfoPanel({
                             <span className="block truncate text-sm font-bold text-slate-900 dark:text-slate-100">{member.full_name}</span>
                             <span className="block truncate text-xs text-slate-500 dark:text-slate-400">{member.program_code || 'Graduate'}{member.year_graduated ? ` • Batch ${member.year_graduated}` : ''}</span>
                           </span>
-                          {isAdmin && <span className="rounded-full bg-blue-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-blue-700 dark:bg-blue-950 dark:text-blue-300">Admin</span>}
+                          <span className="flex shrink-0 flex-col items-end gap-1">
+                            {isAdmin && <span className="rounded-full bg-blue-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-blue-700 dark:bg-blue-950 dark:text-blue-300">Admin</span>}
+                            {isBlocked && <span className="rounded-full bg-rose-50 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-rose-700 dark:bg-rose-950 dark:text-rose-300">Blocked</span>}
+                          </span>
                         </button>
                       );
                     })}
@@ -1593,6 +1640,12 @@ export default function RealtimeMessagingWorkspace({
               {connectionStatus === 'reconnecting' ? 'Reconnecting...' : 'Realtime unavailable. Messages will sync automatically.'}
             </div>
           )}
+          {activeRoom?.is_group && (
+            <GroupBlockedMemberNotice
+              members={conversationInfo?.group_blocked_members || []}
+              resolveAssetUrl={resolveAssetUrl}
+            />
+          )}
           <MessageList
             room={activeRoom}
             temporaryRecipient={temporaryRecipient}
@@ -1667,4 +1720,5 @@ export {
   PresenceText,
   TypingIndicator,
   ConversationProfileIntro,
+  GroupBlockedMemberNotice,
 };
