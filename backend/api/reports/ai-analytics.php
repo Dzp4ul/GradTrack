@@ -4,10 +4,16 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/survey_response_analytics.php';
 require_once __DIR__ . '/../config/admin_auth.php';
 require_once __DIR__ . '/../config/graduation_years.php';
+require_once __DIR__ . '/../config/dean_program_scope.php';
 
 $database = new Database();
 $db = $database->getConnection();
-$authUser = gradtrack_require_admin_auth($db, ['admin'], 'Only Admin accounts can access AI analytics');
+$authUser = gradtrack_require_admin_auth(
+    $db,
+    array_merge(['admin'], gradtrack_dean_roles()),
+    'Only authorized report accounts can access AI analytics'
+);
+$deanScope = gradtrack_dean_program_scope($db, $authUser);
 
 function getSelectedSurveyId(PDO $db): ?int
 {
@@ -84,7 +90,7 @@ function parseEmploymentAnswer($answer): ?bool
     return null;
 }
 
-function getOverviewData(PDO $db, ?int $surveyId): array
+function getOverviewData(PDO $db, ?int $surveyId, array $analyticsOptions = []): array
 {
     if ($surveyId === null) {
         return [
@@ -105,9 +111,10 @@ function getOverviewData(PDO $db, ?int $surveyId): array
     }
 
     $coverage = gradtrack_get_survey_graduation_year_coverage($db, $surveyId);
-    $options = $coverage['configured']
-        ? ['allowed_graduation_years' => $coverage['years']]
-        : [];
+    $options = $analyticsOptions;
+    if ($coverage['configured']) {
+        $options['allowed_graduation_years'] = $coverage['years'];
+    }
     if (!$coverage['configured']
         && ($coverage['survey']['status'] ?? '') === 'active'
         && empty($coverage['survey']['archived_at'])) {
@@ -176,6 +183,54 @@ function normalizeReportType(string $type): string
     return in_array($type, $allowed, true) ? $type : 'overview';
 }
 
+function normalizeDescriptiveAlignmentCategories(string $type, $reportData)
+{
+    if (!is_array($reportData)) {
+        return $reportData;
+    }
+
+    $removePartialCategory = static function (array $row, bool $notAlignedIsExplicit = false): array {
+        if ($notAlignedIsExplicit) {
+            $row['not_aligned'] = (int)($row['not_aligned'] ?? 0) + (int)($row['partially_aligned'] ?? 0);
+        }
+        unset(
+            $row['partially_aligned'],
+            $row['explicit_not_aligned'],
+            $row['total_partially_aligned'],
+            $row['total_explicit_not_aligned']
+        );
+        return $row;
+    };
+
+    if ($type === 'overview') {
+        if (isset($reportData['overview']) && is_array($reportData['overview'])) {
+            $reportData['overview'] = $removePartialCategory($reportData['overview']);
+        } else {
+            $reportData = $removePartialCategory($reportData);
+        }
+
+        if (isset($reportData['by_program']) && is_array($reportData['by_program'])) {
+            $reportData['by_program'] = array_map(static function ($row) use ($removePartialCategory) {
+                return is_array($row) ? $removePartialCategory($row) : $row;
+            }, $reportData['by_program']);
+        }
+        if (isset($reportData['by_batch_trends']) && is_array($reportData['by_batch_trends'])) {
+            $reportData['by_batch_trends'] = array_map(static function ($row) use ($removePartialCategory) {
+                return is_array($row) ? $removePartialCategory($row, true) : $row;
+            }, $reportData['by_batch_trends']);
+        }
+        return $reportData;
+    }
+
+    if ($type === 'by_program') {
+        return array_map(static function ($row) use ($removePartialCategory) {
+            return is_array($row) ? $removePartialCategory($row) : $row;
+        }, $reportData);
+    }
+
+    return $reportData;
+}
+
 function formatAnalyticsValue($value): string
 {
     if ($value === null || $value === '') {
@@ -211,6 +266,12 @@ function analyticsIntValue(array $data, string $key): int
     return is_numeric($value) ? (int)$value : 0;
 }
 
+function analyticsNumericValue(array $data, string $key): float
+{
+    $value = $data[$key] ?? 0;
+    return is_numeric($value) ? (float)$value : 0.0;
+}
+
 function analyticsLabelValue(array $data, array $keys, string $fallback): string
 {
     foreach ($keys as $key) {
@@ -238,10 +299,33 @@ function buildProgramCountParts(array $programRows): array
         $employed = analyticsIntValue($row, 'employed');
         $notEmployed = max($employmentTotal - $employed, 0);
         $aligned = analyticsIntValue($row, 'aligned');
-        $partiallyAligned = analyticsIntValue($row, 'partially_aligned');
         $notAligned = analyticsIntValue($row, 'not_aligned');
 
-        $parts[] = "{$label} - total {$total}, employed {$employed}, not employed {$notEmployed}, aligned {$aligned}, partially aligned {$partiallyAligned}, not aligned {$notAligned}";
+        $parts[] = "{$label} - total {$total}, employed {$employed}, not employed {$notEmployed}, aligned {$aligned}, not aligned {$notAligned}";
+    }
+
+    return $parts;
+}
+
+function buildBatchTrendCountParts(array $batchRows): array
+{
+    $parts = [];
+    foreach ($batchRows as $index => $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        $year = analyticsLabelValue($row, ['year_graduated'], 'Batch ' . ((int)$index + 1));
+        $employmentTotal = analyticsIntValue($row, 'employment_total');
+        $employed = analyticsIntValue($row, 'employed');
+        $unemployed = analyticsIntValue($row, 'unemployed');
+        $alignmentTotal = analyticsIntValue($row, 'alignment_total');
+        $aligned = analyticsIntValue($row, 'aligned');
+        $notAligned = analyticsIntValue($row, 'not_aligned');
+        $parts[] = "batch {$year} - employment classified {$employmentTotal}, employed {$employed}, unemployed {$unemployed}, employment rate "
+            . formatAnalyticsRate($row['employment_rate'] ?? null)
+            . ", alignment classified {$alignmentTotal}, aligned {$aligned}, not aligned {$notAligned}, alignment rate "
+            . formatAnalyticsRate($row['alignment_rate'] ?? null);
     }
 
     return $parts;
@@ -269,8 +353,12 @@ function buildObservedDataSummary(string $type, $reportData): string
         $local = analyticsIntValue($overview, 'total_employed_local');
         $abroad = analyticsIntValue($overview, 'total_employed_abroad');
         $aligned = analyticsIntValue($overview, 'total_aligned');
+        $notAligned = analyticsIntValue($overview, 'total_not_aligned');
         $alignmentKnown = analyticsIntValue($overview, 'total_alignment_known');
         $unknown = max($total - ($employmentKnown > 0 ? $employmentKnown : ($employed + $unemployed)), 0);
+        $batchRows = isset($reportData['by_batch_trends']) && is_array($reportData['by_batch_trends'])
+            ? $reportData['by_batch_trends']
+            : [];
 
         $summary = 'Observed data counts: '
             . "total graduate responses {$total}; "
@@ -282,12 +370,19 @@ function buildObservedDataSummary(string $type, $reportData): string
             . "employed local {$local}; "
             . "employed abroad {$abroad}; "
             . "aligned {$aligned}; "
+            . "not aligned {$notAligned}; "
+            . "alignment classified {$alignmentKnown}; "
             . 'employment rate ' . formatAnalyticsRate($overview['employment_rate'] ?? null) . '; '
             . 'alignment rate ' . formatAnalyticsRate($overview['alignment_rate'] ?? null) . '.';
 
         $programParts = buildProgramCountParts($programRows);
         if ($programParts !== []) {
             $summary .= "\n\nProgram counts in the same dataset: " . implode('; ', $programParts) . '.';
+        }
+
+        $batchParts = buildBatchTrendCountParts($batchRows);
+        if ($batchParts !== []) {
+            $summary .= "\n\nBatch chart counts in the same dataset: " . implode('; ', $batchParts) . '.';
         }
 
         return $summary;
@@ -433,6 +528,29 @@ function pickAnalyticsRowByValue(array $rows, string $key, bool $highest = true)
     return $picked;
 }
 
+function pickAnalyticsRowByNumericValue(array $rows, string $key, bool $highest = true): ?array
+{
+    $picked = null;
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        if ($picked === null) {
+            $picked = $row;
+            continue;
+        }
+
+        $currentValue = analyticsNumericValue($row, $key);
+        $pickedValue = analyticsNumericValue($picked, $key);
+        if (($highest && $currentValue > $pickedValue) || (!$highest && $currentValue < $pickedValue)) {
+            $picked = $row;
+        }
+    }
+
+    return $picked;
+}
+
 function buildProgramNarrative(array $programRows): string
 {
     $parts = buildProgramCountParts($programRows);
@@ -458,13 +576,22 @@ function buildAnalyticsSummary(string $type, $reportData): string
         $local = analyticsIntValue($overview, 'total_employed_local');
         $abroad = analyticsIntValue($overview, 'total_employed_abroad');
         $aligned = analyticsIntValue($overview, 'total_aligned');
+        $notAligned = analyticsIntValue($overview, 'total_not_aligned');
+        $alignmentKnown = analyticsIntValue($overview, 'total_alignment_known');
         $unknown = max($total - ($employmentKnown > 0 ? $employmentKnown : ($employed + $unemployed)), 0);
         $programRows = isset($reportData['by_program']) && is_array($reportData['by_program'])
             ? $reportData['by_program']
             : [];
+        $batchRows = isset($reportData['by_batch_trends']) && is_array($reportData['by_batch_trends'])
+            ? $reportData['by_batch_trends']
+            : [];
         $programNarrative = buildProgramNarrative($programRows);
         $programParagraph = $programNarrative !== ''
-            ? "\n\nAt the program level, the same dataset is distributed as follows: {$programNarrative} These program counts add context to the overview by showing where the employed, not-employed, aligned, partially aligned, and not-aligned graduates are concentrated."
+            ? "\n\nAt the program level, the same dataset is distributed as follows: {$programNarrative} These program counts add context to the overview by showing where the employed, not-employed, aligned, and not-aligned graduates are concentrated."
+            : '';
+        $batchParts = buildBatchTrendCountParts($batchRows);
+        $batchParagraph = $batchParts !== []
+            ? "\n\nThe batch charts contain these exact cohort results: " . implode('; ', $batchParts) . '.'
             : '';
 
         return "The selected overview is based on {$total} graduate responses and {$surveyResponses} survey responses. Employment status is classified for {$employmentKnown} graduates, while {$unknown} record remains without a classified employment status. Within the classified records, {$employed} graduates are employed and {$unemployed} are unemployed, producing an employment rate of "
@@ -473,9 +600,11 @@ function buildAnalyticsSummary(string $type, $reportData): string
             . analyticsPercent($local, $employed)
             . ' of employed graduates, while abroad employment represents '
             . analyticsPercent($abroad, $employed)
-            . ". Course alignment is recorded for {$aligned} of {$alignmentKnown} employed graduates with valid applicable answers, giving an alignment rate of "
+            . ". Course alignment is classified for {$alignmentKnown} applicable responses: {$aligned} aligned and {$notAligned} not aligned. Aligned work represents "
+            . analyticsPercent($aligned, $alignmentKnown)
+            . ' of classified alignment responses, giving an alignment rate of '
             . formatAnalyticsRate($overview['alignment_rate'] ?? null)
-            . " among valid applicable alignment responses.{$programParagraph}";
+            . " among valid applicable alignment responses.{$programParagraph}{$batchParagraph}";
     }
 
     if ($type === 'by_program') {
@@ -488,13 +617,11 @@ function buildAnalyticsSummary(string $type, $reportData): string
         $total = 0;
         $employed = 0;
         $aligned = 0;
-        $partiallyAligned = 0;
         $notAligned = 0;
         foreach ($rows as $row) {
             $total += analyticsIntValue($row, 'total_graduates');
             $employed += analyticsIntValue($row, 'employed');
             $aligned += analyticsIntValue($row, 'aligned');
-            $partiallyAligned += analyticsIntValue($row, 'partially_aligned');
             $notAligned += analyticsIntValue($row, 'not_aligned');
         }
         $notEmployed = max($total - $employed, 0);
@@ -502,7 +629,7 @@ function buildAnalyticsSummary(string $type, $reportData): string
         $topLabel = $topEmployed ? analyticsLabelValue($topEmployed, ['code', 'name'], 'the leading program') : 'the leading program';
         $topCount = $topEmployed ? analyticsIntValue($topEmployed, 'employed') : 0;
 
-        return "The program dataset includes {$programCount} programs with {$total} graduates. Across these programs, {$employed} graduates are employed and {$notEmployed} are not employed, while course alignment counts include {$aligned} aligned, {$partiallyAligned} partially aligned, and {$notAligned} not aligned graduates.\n\nBy employed count, {$topLabel} is the largest contributor with {$topCount} employed graduates. The program rows form a comparative distribution: each program contributes a different share of the total graduate population, employment count, and course-alignment count in the selected filters.";
+        return "The program dataset includes {$programCount} programs with {$total} graduates. Across these programs, {$employed} graduates are employed and {$notEmployed} are not employed, while course alignment counts include {$aligned} aligned and {$notAligned} not aligned graduates.\n\nBy employed count, {$topLabel} is the largest contributor with {$topCount} employed graduates. The program rows form a comparative distribution: each program contributes a different share of the total graduate population, employment count, and course-alignment count in the selected filters.";
     }
 
     if ($type === 'by_year') {
@@ -589,11 +716,15 @@ function buildAnalyticsConclusion(string $type, $reportData): string
         $local = analyticsIntValue($overview, 'total_employed_local');
         $abroad = analyticsIntValue($overview, 'total_employed_abroad');
         $aligned = analyticsIntValue($overview, 'total_aligned');
+        $notAligned = analyticsIntValue($overview, 'total_not_aligned');
         $alignmentKnown = analyticsIntValue($overview, 'total_alignment_known');
         $employmentRate = formatAnalyticsRate($overview['employment_rate'] ?? null);
         $alignmentRate = formatAnalyticsRate($overview['alignment_rate'] ?? null);
         $employmentKnown = analyticsIntValue($overview, 'total_employment_known');
         $unemployed = analyticsIntValue($overview, 'total_unemployed');
+        $batchRows = isset($reportData['by_batch_trends']) && is_array($reportData['by_batch_trends'])
+            ? analyticsRows($reportData, 'by_batch_trends')
+            : [];
 
         $locationPattern = 'no classified employment location';
         if ($local > $abroad) {
@@ -604,7 +735,24 @@ function buildAnalyticsConclusion(string $type, $reportData): string
             $locationPattern = 'local and abroad employment have equal counts';
         }
 
-        return "Overall, the selected overview describes a mostly classified employment dataset: {$employmentKnown} graduates have a known employment status, with {$employed} employed and {$unemployed} unemployed. The employment rate is {$employmentRate}, based on valid employment-status responses.\n\nWithin the employed group, {$locationPattern}. The local count is {$local}, the abroad count is {$abroad}, and {$aligned} of {$alignmentKnown} respondents with valid applicable alignment answers are classified as aligned. The alignment rate is {$alignmentRate}.";
+        $batchConclusion = '';
+        if ($batchRows !== []) {
+            $topEmploymentBatch = pickAnalyticsRowByNumericValue($batchRows, 'employment_rate', true);
+            $topAlignmentBatch = pickAnalyticsRowByNumericValue($batchRows, 'alignment_rate', true);
+            $topEmploymentLabel = $topEmploymentBatch
+                ? analyticsLabelValue($topEmploymentBatch, ['year_graduated'], 'the leading employment batch')
+                : 'the leading employment batch';
+            $topAlignmentLabel = $topAlignmentBatch
+                ? analyticsLabelValue($topAlignmentBatch, ['year_graduated'], 'the leading alignment batch')
+                : 'the leading alignment batch';
+            $batchConclusion = "\n\nAcross the displayed batch rows, batch {$topEmploymentLabel} has the highest employment rate at "
+                . formatAnalyticsRate($topEmploymentBatch['employment_rate'] ?? null)
+                . ", while batch {$topAlignmentLabel} has the highest alignment rate at "
+                . formatAnalyticsRate($topAlignmentBatch['alignment_rate'] ?? null)
+                . '. These comparisons use the valid classified responses inside each batch.';
+        }
+
+        return "Overall, the selected overview contains {$employmentKnown} graduates with a known employment status: {$employed} employed and {$unemployed} unemployed. The employment rate is {$employmentRate}, based on valid employment-status responses.\n\nWithin the employed group, {$locationPattern}. The local count is {$local} and the abroad count is {$abroad}. Alignment classifications contain {$aligned} aligned and {$notAligned} not-aligned responses out of {$alignmentKnown} applicable classified responses. The alignment rate is {$alignmentRate}.{$batchConclusion}";
     }
 
     if ($type === 'by_program') {
@@ -701,7 +849,7 @@ function buildAnalyticsConclusion(string $type, $reportData): string
 function buildTypeSpecificPrompt(string $type, string $year, string $department, string $dataContext): string
 {
     $filterContext = "Filters applied - Year: {$year}, Department: {$department}.";
-    $descriptionRules = "Only analyze the data that is present. Include exact counts and percentages for the important metrics, categories, and rows in the provided data. Do not give recommendations, suggestions, action items, interventions, advice, strategies, next steps, or improvement ideas. Do not predict future outcomes. Keep the wording observational, clear, and evidence-based.";
+    $descriptionRules = "Only analyze the data that is present. Include exact counts and percentages for the important metrics, categories, and rows in the provided data. Use only the binary job-alignment categories Aligned and Not Aligned; do not mention or create a partially aligned category. Do not give recommendations, suggestions, action items, interventions, advice, strategies, next steps, or improvement ideas. Do not predict future outcomes. Keep the wording observational, clear, and evidence-based.";
 
     if ($type === 'by_program') {
         $focus = 'Compare the listed programs using their exact totals, employed counts, not-employed counts, alignment counts, and visible differences between programs.';
@@ -712,7 +860,7 @@ function buildTypeSpecificPrompt(string $type, string $year, string $department,
     } elseif ($type === 'salary_distribution') {
         $focus = 'Analyze every salary bracket and its exact count, including zero-count brackets, and describe where the responses are concentrated.';
     } else {
-        $focus = 'Analyze the overview metrics, including total responses, employed, unemployed, local employment, abroad employment, aligned graduates, employment rate, alignment rate, and program-level context when provided.';
+        $focus = 'Describe every visible overview element: report scope and batch selection when supplied; total responses; known and unknown employment status; employed and unemployed counts and rate; local and abroad counts and shares; aligned and not-aligned counts and rate; and every batch-trend row with its exact employment and binary alignment counts and rates. Compare batches when more than one row is supplied. Do not omit zero-count visible categories.';
     }
 
     return "Generate a complete descriptive analytics write-up for this graduate outcomes dataset. {$filterContext} {$descriptionRules} {$focus} Return plain text only in exactly this section format: [DESCRIPTIVE_ANALYSIS] then 4 to 6 clear paragraphs, [SUMMARY] then 3 to 4 detailed analytical paragraphs, and [CONCLUSION] then 2 to 3 well-developed paragraphs that synthesize what the selected data indicates without giving advice. Do not use markdown, bullets, numbered lists, or JSON. Data: {$dataContext}";
@@ -845,8 +993,21 @@ function buildFallbackAnalysis(string $observedDataSummary, string $analyticsSum
 
 try {
     $reportType = normalizeReportType((string)($_GET['type'] ?? 'overview'));
-    $selectedYear = (string)($_GET['year'] ?? 'all');
-    $selectedDepartment = strtoupper((string)($_GET['department'] ?? 'all'));
+    $selectedYearValue = trim((string)($_GET['year'] ?? 'all'));
+    if ($selectedYearValue === '' || strtolower($selectedYearValue) === 'all') {
+        $selectedYear = 'all';
+    } else {
+        $normalizedSelectedYear = gradtrack_normalize_graduation_year($selectedYearValue);
+        if ($normalizedSelectedYear === null) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Graduation year must be a valid four-digit year.']);
+            exit;
+        }
+        $selectedYear = (string)$normalizedSelectedYear;
+    }
+    $selectedDepartment = $deanScope !== null
+        ? (string)$deanScope['department_code']
+        : strtoupper((string)($_GET['department'] ?? 'all'));
     $selectedSurveyId = getSelectedSurveyId($db);
 
     if ($selectedSurveyId !== null) {
@@ -862,6 +1023,16 @@ try {
             ]);
             exit;
         }
+        if ($selectedYear !== 'all'
+            && $selectedCoverage['configured']
+            && !in_array((int)$selectedYear, $selectedCoverage['years'], true)) {
+            http_response_code(422);
+            echo json_encode([
+                'success' => false,
+                'error' => 'The selected graduation year is not included in this survey.',
+            ]);
+            exit;
+        }
     }
 
     $requestBody = json_decode((string)file_get_contents('php://input'), true);
@@ -871,13 +1042,22 @@ try {
 
     $overview = null;
     if ($reportType === 'overview' && ($reportData === null || $reportData === [])) {
-        $overview = getOverviewData($db, $selectedSurveyId);
+        $fallbackAnalyticsOptions = [];
+        if ($deanScope !== null) {
+            $fallbackAnalyticsOptions['program_codes'] = $deanScope['program_codes'];
+        }
+        if ($selectedYear !== 'all') {
+            $fallbackAnalyticsOptions['graduation_year'] = (int)$selectedYear;
+        }
+        $overview = getOverviewData($db, $selectedSurveyId, $fallbackAnalyticsOptions);
         $reportData = $overview;
     }
 
     if ($reportData === null) {
         $reportData = [];
     }
+
+    $reportData = normalizeDescriptiveAlignmentCategories($reportType, $reportData);
 
     $observedDataSummary = buildObservedDataSummary($reportType, $reportData);
     $analyticsSummary = buildAnalyticsSummary($reportType, $reportData);
@@ -961,24 +1141,30 @@ try {
         }
 
         if (is_string($aiContent) && trim($aiContent) !== '') {
-            $aiSections = parseAiAnalyticsSections($aiContent);
-            if ($aiSections !== null) {
-                $aiAnalysis = cleanAiSectionText(
-                    $aiSections['descriptive_analysis'] ?? '',
-                    $aiAnalysis
-                );
-                $analyticsSummary = cleanAiSectionText(
-                    $aiSections['summary'] ?? '',
-                    $analyticsSummary
-                );
-                $analyticsConclusion = cleanAiSectionText(
-                    $aiSections['conclusion'] ?? '',
-                    $analyticsConclusion
-                );
+            if (preg_match('/partially[\s-]+aligned/i', $aiContent) === 1) {
+                // Keep the deterministic binary fallback if the model invents an
+                // alignment category that is not presented in these reports.
+                $aiError = 'AI response contained an unsupported alignment category.';
             } else {
-                $cleanedAiContent = removeAdvisorySentences(normalizeToParagraphs($aiContent));
-                if ($cleanedAiContent !== '') {
-                    $aiAnalysis = $observedDataSummary . "\n\n" . $cleanedAiContent;
+                $aiSections = parseAiAnalyticsSections($aiContent);
+                if ($aiSections !== null) {
+                    $aiAnalysis = cleanAiSectionText(
+                        $aiSections['descriptive_analysis'] ?? '',
+                        $aiAnalysis
+                    );
+                    $analyticsSummary = cleanAiSectionText(
+                        $aiSections['summary'] ?? '',
+                        $analyticsSummary
+                    );
+                    $analyticsConclusion = cleanAiSectionText(
+                        $aiSections['conclusion'] ?? '',
+                        $analyticsConclusion
+                    );
+                } else {
+                    $cleanedAiContent = removeAdvisorySentences(normalizeToParagraphs($aiContent));
+                    if ($cleanedAiContent !== '') {
+                        $aiAnalysis = $observedDataSummary . "\n\n" . $cleanedAiContent;
+                    }
                 }
             }
         } elseif ($aiError === null) {

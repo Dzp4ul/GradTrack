@@ -4,7 +4,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend, LineChart, Line,
+  PieChart, Pie, Cell, Legend,
 } from 'recharts';
 import { Download, Users, Briefcase, Target, FileText, Sparkles, TrendingUp, CheckCircle2, BarChart3, Filter, RotateCcw, Check, ChevronDown } from 'lucide-react';
 import { API_ROOT } from '../../config/api';
@@ -85,8 +85,6 @@ interface YearReport {
 interface BatchTrendReport {
   year_graduated: number;
   total_graduates: number;
-  survey_responses: number;
-  retrieval_rate: number | null;
   employment_total: number;
   employed: number;
   unemployed: number;
@@ -333,6 +331,175 @@ const appendOverviewFilterParams = (params: URLSearchParams, filters?: OverviewF
   }
 };
 
+const analyticsCount = (value: unknown): number => {
+  const count = Number(value);
+  return Number.isFinite(count) ? count : 0;
+};
+
+const analyticsPercentage = (part: number, whole: number): string => (
+  whole > 0 ? `${((part / whole) * 100).toFixed(1)}%` : 'not available'
+);
+
+const emptyLocalAnalytics = (): AiAnalyticsCacheEntry => ({
+  analysis: 'No report data is available for the selected filters.',
+  summary: 'The current selection does not contain enough classified responses to calculate descriptive totals or percentages.',
+  conclusion: 'A descriptive conclusion cannot be formed until report data is available for this selection.',
+});
+
+const buildLocalDescriptiveAnalytics = (reportType: string, reportData: unknown): AiAnalyticsCacheEntry => {
+  if (reportType === 'overview') {
+    const payload = reportData && typeof reportData === 'object'
+      ? reportData as {
+          overview?: Overview;
+          by_batch_trends?: BatchTrendReport[];
+          scope?: string;
+          selected_batch?: string;
+        }
+      : {};
+    const data = payload.overview ?? (reportData as Overview | null);
+    if (!data) return emptyLocalAnalytics();
+
+    const total = analyticsCount(data.total_graduates);
+    const employed = analyticsCount(data.total_employed);
+    const employmentKnown = analyticsCount(data.total_employment_known)
+      || employed + analyticsCount(data.total_unemployed);
+    const unemployed = analyticsCount(data.total_unemployed)
+      || Math.max(employmentKnown - employed, 0);
+    const employmentUnknown = analyticsCount(data.total_employment_unknown)
+      || Math.max(total - employmentKnown, 0);
+    const local = analyticsCount(data.total_employed_local);
+    const abroad = analyticsCount(data.total_employed_abroad);
+    const locationKnown = local + abroad;
+    const aligned = analyticsCount(data.total_aligned);
+    const notAligned = data.total_not_aligned === undefined
+      ? analyticsCount(data.total_explicit_not_aligned) + analyticsCount(data.total_partially_aligned)
+      : analyticsCount(data.total_not_aligned);
+    const alignmentKnown = analyticsCount(data.total_alignment_known);
+    const batchRows = Array.isArray(payload.by_batch_trends)
+      ? payload.by_batch_trends.slice().sort((a, b) => Number(a.year_graduated) - Number(b.year_graduated))
+      : [];
+    const scopeText = payload.scope ? ` The authenticated report scope is ${payload.scope}.` : '';
+    const batchSelectionText = payload.selected_batch
+      ? ` The active batch selection is ${payload.selected_batch}.`
+      : '';
+    const batchDetails = batchRows.map((row) => {
+      const batchEmploymentKnown = analyticsCount(row.employment_total);
+      const batchAlignmentKnown = analyticsCount(row.alignment_total);
+      const batchNotAligned = analyticsCount(row.not_aligned) + analyticsCount(row.partially_aligned);
+      return `Batch ${row.year_graduated} records ${analyticsCount(row.employed)} employed and ${analyticsCount(row.unemployed)} unemployed graduates among ${batchEmploymentKnown} classified employment responses, for an employment rate of ${formatNullableRate(row.employment_rate)}. Its job-alignment distribution contains ${analyticsCount(row.aligned)} aligned and ${batchNotAligned} not-aligned graduates among ${batchAlignmentKnown} classified alignment responses, with an alignment rate of ${formatNullableRate(row.alignment_rate)}.`;
+    }).join('\n\n');
+    const leadingEmploymentBatch = batchRows.length > 0
+      ? batchRows.reduce((highest, row) => (
+          analyticsCount(row.employment_rate) > analyticsCount(highest.employment_rate) ? row : highest
+        ))
+      : null;
+    const leadingAlignmentBatch = batchRows.length > 0
+      ? batchRows.reduce((highest, row) => (
+          analyticsCount(row.alignment_rate) > analyticsCount(highest.alignment_rate) ? row : highest
+        ))
+      : null;
+    const batchSummary = batchRows.length === 0
+      ? 'No batch-trend rows are available for the current filters.'
+      : batchRows.length === 1
+        ? `The batch charts contain one cohort, ${batchRows[0].year_graduated}, so their employment and alignment counts match the single selected cohort described above.`
+        : `Across the displayed cohorts, batch ${leadingEmploymentBatch?.year_graduated} has the highest employment rate at ${formatNullableRate(leadingEmploymentBatch?.employment_rate)}, while batch ${leadingAlignmentBatch?.year_graduated} has the highest alignment rate at ${formatNullableRate(leadingAlignmentBatch?.alignment_rate)}.`;
+
+    return {
+      analysis: `The selected overview contains ${total} graduate responses.${scopeText}${batchSelectionText} Employment status is classified for ${employmentKnown} responses, while ${employmentUnknown} ${employmentUnknown === 1 ? 'response remains' : 'responses remain'} unclassified. Of the classified responses, ${employed} are employed and ${unemployed} are unemployed, producing an employment rate of ${formatNullableRate(data.employment_rate)}.\n\nThe work-location chart classifies ${locationKnown} employed graduates: ${local} are working locally and ${abroad} are working abroad. Local employment represents ${analyticsPercentage(local, locationKnown)} of classified work locations, and employment abroad represents ${analyticsPercentage(abroad, locationKnown)}.\n\nThe job-alignment chart contains ${alignmentKnown} applicable classified responses: ${aligned} aligned and ${notAligned} not aligned. Aligned work represents ${analyticsPercentage(aligned, alignmentKnown)} of classified alignment responses, and the reported alignment rate is ${formatNullableRate(data.alignment_rate)}.${batchDetails ? `\n\n${batchDetails}` : ''}`,
+      summary: `Employment is the status of ${analyticsPercentage(employed, employmentKnown)} of graduates with a classified employment response, while unemployment accounts for ${analyticsPercentage(unemployed, employmentKnown)}. The exact counts are ${employed} employed and ${unemployed} unemployed.\n\nLocal and abroad employment are distributed as ${local} and ${abroad}, respectively. Alignment responses are distributed as ${aligned} aligned and ${notAligned} not aligned.\n\n${batchSummary}`,
+      conclusion: `Overall, the overview shows an employment rate of ${formatNullableRate(data.employment_rate)} and an alignment rate of ${formatNullableRate(data.alignment_rate)} within their respective valid-response denominators. The employment, location, and alignment percentages therefore describe different classified subsets and are not calculated from one common denominator.\n\n${batchRows.length > 0 ? `The batch charts account for ${batchRows.length} displayed ${batchRows.length === 1 ? 'cohort' : 'cohorts'} and preserve the same employment and alignment categories shown in the overview totals. ${batchSummary}` : batchSummary}`,
+    };
+  }
+
+  if (reportType === 'by_program') {
+    const rows = Array.isArray(reportData) ? reportData as ProgramReport[] : [];
+    if (rows.length === 0) return emptyLocalAnalytics();
+
+    const total = rows.reduce((sum, row) => sum + analyticsCount(row.total_graduates), 0);
+    const employed = rows.reduce((sum, row) => sum + analyticsCount(row.employed), 0);
+    const employmentKnown = rows.reduce(
+      (sum, row) => sum + analyticsCount(row.employment_total ?? row.total_graduates),
+      0,
+    );
+    const aligned = rows.reduce((sum, row) => sum + analyticsCount(row.aligned), 0);
+    const leading = rows.reduce((highest, row) => (
+      analyticsCount(row.employed) > analyticsCount(highest.employed) ? row : highest
+    ));
+
+    return {
+      analysis: `The program report compares ${rows.length} programs containing ${total} graduate responses. Across the listed programs, ${employed} graduates are employed and ${Math.max(employmentKnown - employed, 0)} are not employed among responses with a classified employment status.`,
+      summary: `${leading.code || leading.name} has the highest employed count at ${analyticsCount(leading.employed)}. Across all displayed programs, ${aligned} graduates are classified as working in jobs aligned with their course.`,
+      conclusion: `Employed graduates represent ${analyticsPercentage(employed, employmentKnown)} of classified employment responses in the displayed programs. The program rows provide the comparison of graduate volume, employment, and alignment within the selected scope.`,
+    };
+  }
+
+  if (reportType === 'by_year') {
+    const rows = Array.isArray(reportData) ? reportData as YearReport[] : [];
+    if (rows.length === 0) return emptyLocalAnalytics();
+
+    const total = rows.reduce((sum, row) => sum + analyticsCount(row.total_graduates), 0);
+    const employed = rows.reduce((sum, row) => sum + analyticsCount(row.employed), 0);
+    const employmentKnown = rows.reduce(
+      (sum, row) => sum + analyticsCount(row.employment_total ?? row.total_graduates),
+      0,
+    );
+    const aligned = rows.reduce((sum, row) => sum + analyticsCount(row.aligned), 0);
+    const leading = rows.reduce((highest, row) => (
+      analyticsCount(row.employed) > analyticsCount(highest.employed) ? row : highest
+    ));
+
+    return {
+      analysis: `The yearly report covers ${rows.length} graduation ${rows.length === 1 ? 'year' : 'years'} and ${total} graduate responses. It records ${employed} employed and ${Math.max(employmentKnown - employed, 0)} not-employed graduates among classified employment responses.`,
+      summary: `Batch ${leading.year_graduated} has the highest displayed employed count at ${analyticsCount(leading.employed)}. The selected cohorts contain ${aligned} graduates classified as working in course-aligned jobs.`,
+      conclusion: `Employment accounts for ${analyticsPercentage(employed, employmentKnown)} of classified responses across the displayed cohorts. The year rows show how graduate responses, employment, and alignment are distributed within the selected batch filter.`,
+    };
+  }
+
+  if (reportType === 'employment_status') {
+    const payload = reportData && typeof reportData === 'object'
+      ? reportData as { statuses?: StatusData[] }
+      : {};
+    const rows = Array.isArray(payload.statuses) ? payload.statuses : [];
+    if (rows.length === 0) return emptyLocalAnalytics();
+
+    const countFor = (label: string) => analyticsCount(
+      rows.find((row) => row.employment_status === label)?.count,
+    );
+    const local = countFor('Employed (Local)');
+    const abroad = countFor('Employed (Abroad)');
+    const unemployed = countFor('Unemployed');
+    const employed = local + abroad;
+    const total = employed + unemployed;
+
+    return {
+      analysis: `The employment-status distribution contains ${total} classified responses: ${local} locally employed, ${abroad} employed abroad, and ${unemployed} unemployed.`,
+      summary: `The combined employed count is ${employed}, representing ${analyticsPercentage(employed, total)} of the classified responses. Local employment represents ${analyticsPercentage(local, total)}, while abroad employment represents ${analyticsPercentage(abroad, total)}.`,
+      conclusion: `Unemployment accounts for ${analyticsPercentage(unemployed, total)} of the displayed employment-status distribution. The local and abroad counts together describe the employed portion of the selected graduate responses.`,
+    };
+  }
+
+  if (reportType === 'salary_distribution') {
+    const payload = reportData && typeof reportData === 'object'
+      ? reportData as { salary_buckets?: SalaryData[] }
+      : {};
+    const rows = Array.isArray(payload.salary_buckets) ? payload.salary_buckets : [];
+    if (rows.length === 0) return emptyLocalAnalytics();
+
+    const total = rows.reduce((sum, row) => sum + analyticsCount(row.count), 0);
+    const leading = rows.reduce((highest, row) => (
+      analyticsCount(row.count) > analyticsCount(highest.count) ? row : highest
+    ));
+
+    return {
+      analysis: `The salary distribution contains ${total} classified responses across ${rows.length} salary brackets.`,
+      summary: `${leading.salary_range} is the largest displayed salary bracket with ${analyticsCount(leading.count)} graduates, representing ${analyticsPercentage(analyticsCount(leading.count), total)} of classified salary responses.`,
+      conclusion: 'The displayed counts describe the concentration of reported salary ranges for the current filters. The result is based on grouped salary categories rather than individual salary values.',
+    };
+  }
+
+  return emptyLocalAnalytics();
+};
+
 export default function Reports() {
   const { user } = useAuth();
   const isDean = DEAN_ROLES.includes(user?.role ?? '');
@@ -369,7 +536,7 @@ export default function Reports() {
   const [aiAnalysis, setAiAnalysis] = useState<string>('');
   const [aiSummary, setAiSummary] = useState<string>('');
   const [aiConclusion, setAiConclusion] = useState<string>('');
-  const [aiLoading, setAiLoading] = useState(false);
+  const [aiLoading, setAiLoading] = useState(true);
   const [surveyItems, setSurveyItems] = useState<SurveySummary[]>([]);
   const [surveyItemsLoaded, setSurveyItemsLoaded] = useState(false);
   const [surveyLoading, setSurveyLoading] = useState(false);
@@ -384,6 +551,7 @@ export default function Reports() {
   const [selectedSurveyTable, setSelectedSurveyTable] = useState(ALL_SURVEY_TABLES_VALUE);
   const reportCacheRef = useRef<Record<string, unknown>>({});
   const aiCacheRef = useRef<Record<string, AiAnalyticsCacheEntry>>({});
+  const aiRequestCacheRef = useRef<Record<string, Promise<AiAnalyticsCacheEntry>>>({});
   const surveyAnalyticsCacheRef = useRef<Record<string, SurveyAnalyticsData>>({});
   const activeReportLoadKeyRef = useRef<string | null>(null);
   const surveyAnalyticsRequestKeyRef = useRef<string | null>(null);
@@ -406,9 +574,11 @@ export default function Reports() {
   );
 
   const getAiCacheKey = (reportType: string, year: string, department: string) => {
-    const reportYear = reportType === 'overview' ? 'all' : year;
-    const reportDepartment = reportType === 'overview' ? 'all' : department;
-    return ['ai', getReportCacheKey(reportType, reportYear, reportDepartment, overviewFilters)].join('|');
+    const reportYear = reportType === 'overview' && !isDean ? 'all' : year;
+    const reportDepartment = isDean
+      ? reportScope?.department_code || 'dean_scope'
+      : reportType === 'overview' ? 'all' : department;
+    return ['ai-v3', getReportCacheKey(reportType, reportYear, reportDepartment, overviewFilters)].join('|');
   };
 
   const getSurveyAnalyticsCacheKey = (surveyId: number, surveyDepartment: string, year: string) => (
@@ -1086,6 +1256,9 @@ export default function Reports() {
       {
         overview,
         by_program: overviewProgramData,
+        by_batch_trends: overviewBatchTrends,
+        scope: reportScope?.display_name || '',
+        selected_batch: selectedYear === 'all' ? 'All Batches' : selectedYear,
         visible_cards: [
           'Total Graduate Responses',
           'Employed (Total)',
@@ -1094,10 +1267,19 @@ export default function Reports() {
           'Aligned',
         ],
       },
-      'all',
+      isDean ? selectedYear : 'all',
       'all',
     );
-  }, [tab, overview, overviewProgramData]);
+  }, [
+    tab,
+    overview,
+    overviewProgramData,
+    overviewBatchTrends,
+    isDean,
+    selectedYear,
+    reportScope?.department_code,
+    reportScope?.display_name,
+  ]);
 
   const fetchAIAnalytics = (
     reportType: string,
@@ -1105,14 +1287,6 @@ export default function Reports() {
     year: string = selectedYear,
     department: string = selectedDepartment,
   ) => {
-    if (isDean) {
-      setAiLoading(false);
-      setAiAnalysis('');
-      setAiSummary('');
-      setAiConclusion('');
-      return;
-    }
-
     if (!selectedSurveyId) {
       setAiLoading(false);
       setAiAnalysis('Select a survey to generate AI-powered analytics.');
@@ -1122,10 +1296,20 @@ export default function Reports() {
     }
 
     const params = new URLSearchParams({ type: reportType });
-    const effectiveDepartment = reportType === 'overview' ? 'all' : department;
+    const reportYear = reportType === 'overview' && !isDean ? 'all' : year;
+    const effectiveDepartment = isDean
+      ? reportScope?.department_code || 'dean_scope'
+      : reportType === 'overview' ? 'all' : department;
     const requestId = ++aiRequestSeqRef.current;
-    const aiCacheKey = getAiCacheKey(reportType, year, effectiveDepartment);
+    const aiCacheKey = getAiCacheKey(reportType, reportYear, effectiveDepartment);
     const cachedAi = aiCacheRef.current[aiCacheKey];
+    const localAnalytics = buildLocalDescriptiveAnalytics(reportType, reportData);
+
+    const applyLocalAnalytics = () => {
+      setAiAnalysis(localAnalytics.analysis);
+      setAiSummary(localAnalytics.summary);
+      setAiConclusion(localAnalytics.conclusion);
+    };
 
     if (cachedAi) {
       setAiAnalysis(cachedAi.analysis);
@@ -1136,61 +1320,70 @@ export default function Reports() {
     }
 
     setAiLoading(true);
-    if (year !== 'all') {
-      params.set('year', year);
+    if (reportYear !== 'all') {
+      params.set('year', reportYear);
     }
     if (effectiveDepartment !== 'all') {
       params.set('department', effectiveDepartment);
     }
     params.set('survey_id', selectedSurveyId.toString());
 
-    fetch(`${API_BASE}/reports/ai-analytics.php?${params.toString()}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
-      body: JSON.stringify({
-        report_data: reportData,
-        selected_survey_id: selectedSurveyId,
-        selected_year: year,
-        selected_department: effectiveDepartment,
-      }),
-    })
-      .then((r) => r.json())
-      .then((res) => {
-        if (res.success && res.data && (res.data.ai_analysis || res.data.ai_summary || res.data.ai_conclusion)) {
-          const nextAi = {
-            analysis: String(res.data.ai_analysis || ''),
-            summary: String(res.data.ai_summary || ''),
-            conclusion: String(res.data.ai_conclusion || ''),
-          };
-          aiCacheRef.current[aiCacheKey] = nextAi;
-
-          if (requestId !== aiRequestSeqRef.current) {
-            return;
-          }
-
-          setAiAnalysis(nextAi.analysis);
-          setAiSummary(nextAi.summary);
-          setAiConclusion(nextAi.conclusion);
-        } else {
-          if (requestId !== aiRequestSeqRef.current) {
-            return;
-          }
-
-          setAiAnalysis('AI analysis temporarily unavailable.');
-          setAiSummary('');
-          setAiConclusion('');
-        }
+    let analyticsRequest = aiRequestCacheRef.current[aiCacheKey];
+    if (!analyticsRequest) {
+      analyticsRequest = fetch(`${API_BASE}/reports/ai-analytics.php?${params.toString()}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify({
+          report_data: reportData,
+          selected_survey_id: selectedSurveyId,
+          selected_year: reportYear,
+          selected_department: effectiveDepartment,
+        }),
       })
-      .catch(() => {
+        .then(async (response) => {
+          const result = await response.json().catch(() => null);
+          if (!response.ok || !result?.success) {
+            throw new Error(result?.error || `Analytics request failed with status ${response.status}.`);
+          }
+          if (!result.data || !(result.data.ai_analysis || result.data.ai_summary || result.data.ai_conclusion)) {
+            throw new Error('The analytics response did not contain descriptive content.');
+          }
+
+          return {
+            analysis: String(result.data.ai_analysis || ''),
+            summary: String(result.data.ai_summary || ''),
+            conclusion: String(result.data.ai_conclusion || ''),
+          };
+        });
+      aiRequestCacheRef.current[aiCacheKey] = analyticsRequest;
+      const clearRequest = () => {
+        if (aiRequestCacheRef.current[aiCacheKey] === analyticsRequest) {
+          delete aiRequestCacheRef.current[aiCacheKey];
+        }
+      };
+      analyticsRequest.then(clearRequest, clearRequest);
+    }
+
+    analyticsRequest
+      .then((nextAi) => {
+        aiCacheRef.current[aiCacheKey] = nextAi;
         if (requestId !== aiRequestSeqRef.current) {
           return;
         }
-        setAiAnalysis('AI analysis temporarily unavailable.');
-        setAiSummary('');
-        setAiConclusion('');
+
+        setAiAnalysis(nextAi.analysis);
+        setAiSummary(nextAi.summary);
+        setAiConclusion(nextAi.conclusion);
+      })
+      .catch((error) => {
+        if (requestId !== aiRequestSeqRef.current) {
+          return;
+        }
+        console.warn('Using local descriptive analytics fallback:', error);
+        applyLocalAnalytics();
       })
       .finally(() => {
         if (requestId === aiRequestSeqRef.current) {
@@ -2001,10 +2194,6 @@ export default function Reports() {
   ] as const;
 
   const renderAiAnalyticsSection = () => {
-    if (isDean) {
-      return null;
-    }
-
     return (
       <div className="rounded-xl border-2 border-purple-200 bg-gradient-to-br from-purple-50 via-blue-50 to-slate-50 p-6 shadow-lg dark:border-purple-400/30 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800">
       <div className="flex items-start gap-4">
@@ -2065,9 +2254,6 @@ export default function Reports() {
     ?? Math.max((overview?.total_employment_known ?? 0) - (overview?.total_employed ?? 0), 0);
   const overviewNotAligned = overview?.total_not_aligned
     ?? Math.max((overview?.total_alignment_known ?? 0) - (overview?.total_aligned ?? 0), 0);
-  const overviewPartiallyAligned = overview?.total_partially_aligned ?? 0;
-  const overviewExplicitNotAligned = overview?.total_explicit_not_aligned
-    ?? Math.max(overviewNotAligned - overviewPartiallyAligned, 0);
   const overviewPrograms = overviewProgramData;
   const overviewActiveFilterChips = getOverviewActiveFilterChips();
   const overviewHasRecords = (overview?.total_graduates ?? 0) > 0;
@@ -2468,11 +2654,7 @@ export default function Reports() {
                           <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
                               <Pie 
-                                data={isDean ? [
-                                  { name: 'Aligned', value: overview.total_aligned },
-                                  { name: 'Partially Aligned', value: overviewPartiallyAligned },
-                                  { name: 'Not Aligned', value: overviewExplicitNotAligned },
-                                ] : [
+                                data={[
                                   { name: 'Aligned', value: overview.total_aligned },
                                   { name: 'Not Aligned', value: overviewNotAligned },
                                 ]} 
@@ -2483,7 +2665,6 @@ export default function Reports() {
                                 label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
                               >
                                 <Cell fill="#f59e0b" />
-                                {isDean && <Cell fill="#facc15" />}
                                 <Cell fill="#94a3b8" />
                               </Pie>
                               <Tooltip />
@@ -2498,15 +2679,9 @@ export default function Reports() {
                           <div className="w-3 h-3 rounded-full bg-orange-500" />
                           <span className="text-xs text-gray-600">Aligned: {overview.total_aligned}</span>
                         </div>
-                        {isDean && (
-                          <div className="flex items-center gap-2">
-                            <div className="h-3 w-3 rounded-full bg-yellow-400" />
-                            <span className="text-xs text-gray-600">Partially: {overviewPartiallyAligned}</span>
-                          </div>
-                        )}
                         <div className="flex items-center gap-2">
                           <div className="w-3 h-3 rounded-full bg-slate-400" />
-                          <span className="text-xs text-gray-600">Not Aligned: {isDean ? overviewExplicitNotAligned : overviewNotAligned}</span>
+                          <span className="text-xs text-gray-600">Not Aligned: {overviewNotAligned}</span>
                         </div>
                       </div>
                     </div>
@@ -3440,7 +3615,7 @@ function StatCard({ icon: Icon, label, value, sub, color }: {
   );
 }
 
-type BatchTrendTooltipMode = 'employment' | 'alignment' | 'retrieval';
+type BatchTrendTooltipMode = 'employment' | 'alignment';
 
 function formatBatchTrendRate(value: number | null | undefined): string {
   const rate = Number(value);
@@ -3472,16 +3647,8 @@ function BatchTrendTooltip({ active, payload, mode }: {
       {mode === 'alignment' && (
         <>
           <p className="text-orange-600">Aligned: {row.aligned}</p>
-          <p className="text-yellow-600">Partially Aligned: {row.partially_aligned}</p>
           <p className="text-slate-600">Not Aligned: {row.not_aligned}</p>
           <p className="mt-1 text-gray-600">Alignment Rate: {formatBatchTrendRate(row.alignment_rate)}</p>
-        </>
-      )}
-      {mode === 'retrieval' && (
-        <>
-          <p className="text-gray-700">Total Graduates: {row.total_graduates}</p>
-          <p className="text-blue-700">Survey Responses: {row.survey_responses}</p>
-          <p className="mt-1 text-gray-600">Retrieval Rate: {formatBatchTrendRate(row.retrieval_rate)}</p>
         </>
       )}
     </div>
@@ -3491,6 +3658,10 @@ function BatchTrendTooltip({ active, payload, mode }: {
 function DeanBatchTrendCharts({ data }: { data: BatchTrendReport[] }) {
   const chartData = data
     .filter((row) => Number.isFinite(Number(row.year_graduated)))
+    .map((row) => ({
+      ...row,
+      not_aligned: Number(row.not_aligned || 0) + Number(row.partially_aligned || 0),
+    }))
     .slice()
     .sort((a, b) => Number(a.year_graduated) - Number(b.year_graduated));
   const hasGraduateData = chartData.some((row) => Number(row.total_graduates) > 0);
@@ -3511,7 +3682,7 @@ function DeanBatchTrendCharts({ data }: { data: BatchTrendReport[] }) {
   };
 
   return (
-    <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+    <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
       <div className="min-w-0 rounded-xl border p-5">
         <h3 className="mb-4 text-sm font-semibold text-[#1b2a4a]">Employment Trend by Batch</h3>
         <div className="h-72 min-w-0">
@@ -3547,7 +3718,6 @@ function DeanBatchTrendCharts({ data }: { data: BatchTrendReport[] }) {
                 <Tooltip content={<BatchTrendTooltip mode="alignment" />} cursor={{ fill: '#f8fafc' }} />
                 <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
                 <Bar dataKey="aligned" name="Aligned" stackId="alignment" fill="#f59e0b" />
-                <Bar dataKey="partially_aligned" name="Partially Aligned" stackId="alignment" fill="#facc15" />
                 <Bar dataKey="not_aligned" name="Not Aligned" stackId="alignment" fill="#94a3b8" />
               </BarChart>
             </ResponsiveContainer>
@@ -3559,44 +3729,6 @@ function DeanBatchTrendCharts({ data }: { data: BatchTrendReport[] }) {
         </div>
       </div>
 
-      <div className="min-w-0 rounded-xl border p-5">
-        <h3 className="mb-4 text-sm font-semibold text-[#1b2a4a]">Tracer Survey Retrieval Rate by Batch</h3>
-        <div className="h-72 min-w-0">
-          {hasGraduateData ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData} margin={{ top: 8, right: 16, bottom: 28, left: 14 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="year_graduated" label={batchAxisLabel} minTickGap={12} />
-                <YAxis
-                  domain={[0, 100]}
-                  tickFormatter={(value: number) => value + '%'}
-                  label={{
-                    value: 'Retrieval Rate (%)',
-                    angle: -90,
-                    position: 'insideLeft',
-                    style: { fill: '#64748b', fontSize: 11 },
-                  }}
-                  width={52}
-                />
-                <Tooltip content={<BatchTrendTooltip mode="retrieval" />} />
-                <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
-                <Line
-                  type="monotone"
-                  dataKey="retrieval_rate"
-                  name="Retrieval Rate"
-                  stroke="#2563eb"
-                  strokeWidth={3}
-                  dot={{ r: 4, fill: '#2563eb' }}
-                  activeDot={{ r: 6 }}
-                  connectNulls={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          ) : (
-            <OverviewChartEmptyState message="No graduate data is available for the selected batch." />
-          )}
-        </div>
-      </div>
     </div>
   );
 }
