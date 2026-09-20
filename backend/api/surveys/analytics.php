@@ -5,10 +5,16 @@ require_once __DIR__ . '/../config/survey_response_analytics.php';
 require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/admin_auth.php';
 require_once __DIR__ . '/../config/graduation_years.php';
+require_once __DIR__ . '/../config/dean_program_scope.php';
 
 $database = new Database();
 $db = $database->getConnection();
-$authUser = gradtrack_require_admin_auth($db, ['admin'], 'Only Admin accounts can view survey analytics');
+$authUser = gradtrack_require_admin_auth(
+    $db,
+    array_merge(['admin'], gradtrack_dean_roles()),
+    'Only authorized report accounts can view survey analytics'
+);
+$deanScope = gradtrack_dean_program_scope($db, $authUser);
 $method = $_SERVER['REQUEST_METHOD'];
 gradtrack_ensure_archive_schema($db, 'graduates');
 gradtrack_ensure_archive_schema($db, 'surveys', true);
@@ -22,7 +28,7 @@ try {
 
     $surveyId = $_GET['survey_id'] ?? null;
 
-    if (!$surveyId) {
+    if (!is_scalar($surveyId) || !ctype_digit((string)$surveyId) || (int)$surveyId <= 0) {
         http_response_code(400);
         echo json_encode(["success" => false, "error" => "survey_id is required"]);
         exit;
@@ -54,6 +60,26 @@ try {
         exit;
     }
 
+    if ($deanScope !== null) {
+        $analyticsOptions['program_codes'] = $deanScope['program_codes'];
+    }
+
+    $selectedGraduationYear = null;
+    if (isset($_GET['graduation_year']) && trim((string)$_GET['graduation_year']) !== '') {
+        $selectedGraduationYear = gradtrack_normalize_graduation_year($_GET['graduation_year']);
+        if ($selectedGraduationYear === null) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Graduation year must be a valid four-digit year.']);
+            exit;
+        }
+        if ($coverage['configured'] && !in_array($selectedGraduationYear, $coverage['years'], true)) {
+            http_response_code(422);
+            echo json_encode(['success' => false, 'error' => 'The selected graduation year is not included in this survey.']);
+            exit;
+        }
+        $analyticsOptions['graduation_year'] = $selectedGraduationYear;
+    }
+
     // Current analytics intentionally exclude detached, inactive, and archived graduates.
     // The shared loader also selects one deterministic response per graduate.
     $responses = gradtrack_analytics_fetch_valid_responses($db, (int)$surveyId, $analyticsOptions);
@@ -71,8 +97,10 @@ try {
         'survey_id' => $surveyId,
         'survey_title' => $survey['title'],
         'total_responses' => $totalResponses,
-        'response_rate' => calculateResponseRate($db, $surveyId, $totalResponses, $coverage['configured'] ? $coverage['years'] : null),
+        'response_rate' => calculateResponseRate($db, (int)$surveyId, $totalResponses, $analyticsOptions),
         'completion_rate' => calculateCompletionRate($responses, $questions),
+        'selected_graduation_year' => $selectedGraduationYear,
+        'scope' => $deanScope,
         'questions_analytics' => []
     ];
 
@@ -141,10 +169,23 @@ try {
         $analytics['employment_insights'] = $employmentAnalytics;
     }
 
-    $programFilters = getSelectedProgramFilters();
+    $programFilters = $deanScope !== null
+        ? $deanScope['program_codes']
+        : getSelectedProgramFilters();
     $analytics['selected_program'] = !empty($programFilters) ? $programFilters[0] : null;
     $analytics['selected_programs'] = $programFilters;
-    $analytics['report_tables'] = buildSurveyReportTables($db, (int)$surveyId, $responses, $questions, $questionResponseKeys, $programFilters);
+    $tableYears = $selectedGraduationYear !== null
+        ? [$selectedGraduationYear]
+        : ($deanScope !== null && $coverage['configured'] ? $coverage['years'] : null);
+    $analytics['report_tables'] = buildSurveyReportTables(
+        $db,
+        (int)$surveyId,
+        $responses,
+        $questions,
+        $questionResponseKeys,
+        $programFilters,
+        $tableYears
+    );
 
     echo json_encode(["success" => true, "data" => $analytics]);
 
@@ -160,30 +201,43 @@ function isDisplayOnlyQuestion($question) {
     return $questionType === 'header' || strpos($questionText, 'professional examination(s) passed') === 0;
 }
 
-function calculateResponseRate($db, $surveyId, $validResponseCount = null, ?array $allowedYears = null) {
+function calculateResponseRate($db, $surveyId, $validResponseCount = null, array $options = []) {
     // Get total graduates
-    $where = ["g.status = 'active'", 'g.archived_at IS NULL'];
-    $params = [];
-    if (is_array($allowedYears)) {
-        gradtrack_append_graduation_year_coverage_filter(
-            $where,
-            $params,
-            'g.year_graduated',
-            $allowedYears,
-            'survey_analytics_coverage_year'
-        );
+    $where = [gradtrack_analytics_active_graduate_condition('g')];
+    $bindings = [];
+    gradtrack_analytics_append_program_filters(
+        $where,
+        $bindings,
+        $options,
+        'g',
+        'p',
+        'survey_analytics_rate'
+    );
+    gradtrack_analytics_append_graduation_year_coverage(
+        $where,
+        $bindings,
+        $options,
+        'g',
+        'survey_analytics_rate_coverage'
+    );
+    $graduationYear = (int)($options['graduation_year'] ?? 0);
+    if ($graduationYear > 0) {
+        $where[] = 'g.year_graduated = :survey_analytics_rate_year';
+        $bindings[':survey_analytics_rate_year'] = ['value' => $graduationYear, 'type' => PDO::PARAM_INT];
     }
-    $stmt = $db->prepare('SELECT COUNT(*) AS total FROM graduates g WHERE ' . implode(' AND ', $where));
-    $stmt->execute($params);
+    $stmt = $db->prepare(
+        'SELECT COUNT(*) AS total
+         FROM graduates g
+         LEFT JOIN programs p ON p.id = g.program_id
+         WHERE ' . implode(' AND ', $where)
+    );
+    gradtrack_analytics_bind_values($stmt, $bindings);
+    $stmt->execute();
     $totalGraduates = (int)$stmt->fetch(PDO::FETCH_ASSOC)['total'];
     
     $totalResponses = $validResponseCount !== null
         ? (int)$validResponseCount
-        : count(gradtrack_analytics_fetch_valid_responses(
-            $db,
-            (int)$surveyId,
-            is_array($allowedYears) ? ['allowed_graduation_years' => $allowedYears] : []
-        ));
+        : count(gradtrack_analytics_fetch_valid_responses($db, (int)$surveyId, $options));
     
     if ($totalGraduates === 0) return null;
     return round(($totalResponses / $totalGraduates) * 100, 2);
@@ -530,7 +584,15 @@ function getSelectedProgramFilters() {
     return !empty($programs) ? $programs : null;
 }
 
-function buildSurveyReportTables($db, $surveyId, $responses, $questions, $questionResponseKeys, $programFilters = null) {
+function buildSurveyReportTables(
+    $db,
+    $surveyId,
+    $responses,
+    $questions,
+    $questionResponseKeys,
+    $programFilters = null,
+    ?array $allowedYears = null
+) {
     $programs = (!empty($programFilters) && is_array($programFilters)) ? $programFilters : ['BSCS', 'ACT'];
     $questionIds = [
         'program' => findSurveyQuestionId($questions, ['degree program']),
@@ -570,7 +632,7 @@ function buildSurveyReportTables($db, $surveyId, $responses, $questions, $questi
 
     $records = buildSurveyReportRecords($responses, $questions, $questionResponseKeys, $questionIds);
     $programTotals = countRecordsByProgram($records, $programs);
-    $graduateTotals = getGraduateTotalsByProgramYear($db, $programs);
+    $graduateTotals = getGraduateTotalsByProgramYear($db, $programs, $allowedYears);
     $years = getSurveyReportYears($records, $graduateTotals, $programs);
     $programPhrase = reportProgramPhrase($programs);
     $employedFilter = function ($record) use ($questionIds) {
@@ -630,10 +692,22 @@ function buildSurveyReportTables($db, $surveyId, $responses, $questions, $questi
     if (count($programs) === 1) {
         $tables[] = buildReasonRelationTable((string)$nextTableNumber, 'Reasons for Staying, Accepting, and Changing the First Job of the ' . $programs[0] . ' Graduates', $programs[0], $records, $questionIds);
         $nextTableNumber++;
-    } else {
+    } elseif ($programs === ['BSCS', 'ACT']) {
         $tables[] = buildReasonRelationTable('14a', 'Reasons for Staying, Accepting, and Changing the First Job of the BSCS Graduates', 'BSCS', $records, $questionIds);
         $tables[] = buildReasonRelationTable('14b', 'Relatedness of the Staying, Accepting, and Changing the First Job of the ACT Graduates', 'ACT', $records, $questionIds);
         $nextTableNumber = 15;
+    } else {
+        foreach ($programs as $programIndex => $program) {
+            $suffix = chr(ord('a') + $programIndex);
+            $tables[] = buildReasonRelationTable(
+                (string)$nextTableNumber . $suffix,
+                'Reasons for Staying, Accepting, and Changing the First Job of the ' . $program . ' Graduates',
+                $program,
+                $records,
+                $questionIds
+            );
+        }
+        $nextTableNumber++;
     }
     $tables[] = buildProgramDistributionTable((string)$nextTableNumber, 'Length of Stay in the First Job', 'Duration with the First Job', $questionIds['stay_length'], getDurationCategories(true), $records, $programs, $programTotals);
     $nextTableNumber++;
@@ -906,22 +980,33 @@ function getRecordYesNo($record, $questionId) {
     return null;
 }
 
-function getGraduateTotalsByProgramYear($db, $programs) {
+function getGraduateTotalsByProgramYear($db, $programs, ?array $allowedYears = null) {
     $totals = [];
     foreach ($programs as $program) {
         $totals[$program] = [];
     }
 
     $placeholders = implode(',', array_fill(0, count($programs), '?'));
+    $params = array_values($programs);
+    $yearClause = '';
+    if (is_array($allowedYears)) {
+        $normalizedYears = array_values(array_filter(array_unique(array_map('intval', $allowedYears))));
+        if ($normalizedYears === []) {
+            return $totals;
+        }
+        $yearPlaceholders = implode(',', array_fill(0, count($normalizedYears), '?'));
+        $yearClause = " AND g.year_graduated IN ($yearPlaceholders)";
+        $params = array_merge($params, $normalizedYears);
+    }
     $stmt = $db->prepare("
         SELECT p.code, g.year_graduated, COUNT(*) AS total
         FROM graduates g
         LEFT JOIN programs p ON p.id = g.program_id
-        WHERE p.code IN ($placeholders) AND g.status = 'active' AND g.archived_at IS NULL
+        WHERE p.code IN ($placeholders) AND g.status = 'active' AND g.archived_at IS NULL{$yearClause}
         GROUP BY p.code, g.year_graduated
         ORDER BY g.year_graduated
     ");
-    $stmt->execute($programs);
+    $stmt->execute($params);
 
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $program = strtoupper((string)$row['code']);

@@ -4,12 +4,13 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend,
+  PieChart, Pie, Cell, Legend, LineChart, Line,
 } from 'recharts';
 import { Download, Users, Briefcase, Target, FileText, Sparkles, TrendingUp, CheckCircle2, BarChart3, Filter, RotateCcw, Check, ChevronDown } from 'lucide-react';
 import { API_ROOT } from '../../config/api';
 import { normalizeGraduationYears } from '../../utils/graduationYears';
 import { PROGRAM_COLORS } from '../../config/programColors';
+import { useAuth } from '../../contexts/AuthContext';
 
 const API_BASE = API_ROOT;
 
@@ -22,6 +23,8 @@ interface Overview {
   total_employed_local: number;
   total_employed_abroad: number;
   total_aligned: number;
+  total_partially_aligned?: number;
+  total_explicit_not_aligned?: number;
   total_not_aligned?: number;
   total_alignment_known?: number;
   total_survey_responses: number;
@@ -79,6 +82,22 @@ interface YearReport {
   avg_salary: number;
 }
 
+interface BatchTrendReport {
+  year_graduated: number;
+  total_graduates: number;
+  survey_responses: number;
+  retrieval_rate: number | null;
+  employment_total: number;
+  employed: number;
+  unemployed: number;
+  employment_rate: number | null;
+  alignment_total: number;
+  aligned: number;
+  partially_aligned: number;
+  not_aligned: number;
+  alignment_rate: number | null;
+}
+
 interface StatusData {
   employment_status: string;
   count: number;
@@ -133,6 +152,23 @@ interface SurveyAnalyticsData {
   questions_analytics: SurveyQuestionAnalytics[];
   employment_insights?: SurveyEmploymentInsights;
   report_tables?: SurveyReportTable[];
+  selected_graduation_year?: number | null;
+  scope?: ReportScope | null;
+}
+
+interface ReportScope {
+  restricted: boolean;
+  department_code?: string;
+  department_name?: string;
+  display_name: string;
+  program_codes: string[] | null;
+  programs: OverviewFilterProgram[];
+}
+
+interface ReportContextData {
+  scope: ReportScope;
+  surveys: SurveySummary[];
+  filter_options?: OverviewFilterOptions;
 }
 
 interface AiAnalyticsCacheEntry {
@@ -185,6 +221,7 @@ interface SurveyReportChart {
 
 const COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
 const SURVEY_CHART_COLORS = ['#1d4ed8', '#16a34a', '#f59e0b', '#dc2626', '#7c3aed', '#0891b2', '#ea580c', '#475569'];
+const DEAN_ROLES = ['dean_cs', 'dean_coed', 'dean_hm'];
 const REPORT_TABS = ['overview', 'program', 'year', 'employment', 'salary', 'surveys'] as const;
 type ReportTab = typeof REPORT_TABS[number];
 const DEFAULT_OVERVIEW_FILTERS: OverviewFilters = {
@@ -297,6 +334,8 @@ const appendOverviewFilterParams = (params: URLSearchParams, filters?: OverviewF
 };
 
 export default function Reports() {
+  const { user } = useAuth();
+  const isDean = DEAN_ROLES.includes(user?.role ?? '');
   const initialParams = new URLSearchParams(window.location.search);
   const initialTabParam = initialParams.get('tab') as ReportTab | null;
   const initialSurveyParam = initialParams.get('survey_id');
@@ -310,6 +349,7 @@ export default function Reports() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [programData, setProgramData] = useState<ProgramReport[]>([]);
   const [overviewProgramData, setOverviewProgramData] = useState<ProgramReport[]>([]);
+  const [overviewBatchTrends, setOverviewBatchTrends] = useState<BatchTrendReport[]>([]);
   const [yearData, setYearData] = useState<YearReport[]>([]);
   const [statusData, setStatusData] = useState<StatusData[]>([]);
   const [salaryData, setSalaryData] = useState<SalaryData[]>([]);
@@ -337,6 +377,9 @@ export default function Reports() {
   const [noSurveySelectionExplicit, setNoSurveySelectionExplicit] = useState(initialNoSurveySelection);
   const [surveyAnalytics, setSurveyAnalytics] = useState<SurveyAnalyticsData | null>(null);
   const [surveyAnalyticsLoading, setSurveyAnalyticsLoading] = useState(false);
+  const [reportScope, setReportScope] = useState<ReportScope | null>(null);
+  const [reportError, setReportError] = useState('');
+  const [surveyAnalyticsError, setSurveyAnalyticsError] = useState('');
   const [showSurveyGraphs, setShowSurveyGraphs] = useState(false);
   const [selectedSurveyTable, setSelectedSurveyTable] = useState(ALL_SURVEY_TABLES_VALUE);
   const reportCacheRef = useRef<Record<string, unknown>>({});
@@ -347,6 +390,7 @@ export default function Reports() {
   const reportRequestSeqRef = useRef(0);
   const overviewRequestSeqRef = useRef(0);
   const aiRequestSeqRef = useRef(0);
+  const selectedSurvey = surveyItems.find((survey) => Number(survey.id) === selectedSurveyId);
 
   const getReportCacheKey = (
     type: string,
@@ -367,8 +411,8 @@ export default function Reports() {
     return ['ai', getReportCacheKey(reportType, reportYear, reportDepartment, overviewFilters)].join('|');
   };
 
-  const getSurveyAnalyticsCacheKey = (surveyId: number, surveyDepartment: string) => (
-    [surveyId, surveyDepartment].join('|')
+  const getSurveyAnalyticsCacheKey = (surveyId: number, surveyDepartment: string, year: string) => (
+    [surveyId, surveyDepartment, year].join('|')
   );
 
   const applyReportDataByType = (type: string, data: unknown) => {
@@ -491,6 +535,7 @@ export default function Reports() {
     const cacheKey = getReportCacheKey(type, reportYear, reportDepartment, activeFilters);
     const cachedData = reportCacheRef.current[cacheKey];
     activeReportLoadKeyRef.current = cacheKey;
+    setReportError('');
 
     if (cachedData !== undefined) {
       applyReportDataByType(type, cachedData);
@@ -520,9 +565,15 @@ export default function Reports() {
           if (type !== 'overview') {
             fetchAIAnalytics(type, buildAiPayload(type, res.data), reportYear, reportDepartment);
           }
+        } else if (requestId === reportRequestSeqRef.current && activeReportLoadKeyRef.current === cacheKey) {
+          setReportError(res.error || 'Unable to load report data. Please try again.');
         }
       })
-      .catch(() => {})
+      .catch(() => {
+        if (requestId === reportRequestSeqRef.current && activeReportLoadKeyRef.current === cacheKey) {
+          setReportError('Unable to load report data. Please try again.');
+        }
+      })
       .finally(() => {
         if (requestId === reportRequestSeqRef.current && activeReportLoadKeyRef.current === cacheKey) {
           setLoading(false);
@@ -530,9 +581,75 @@ export default function Reports() {
       });
   };
 
+  const applySurveyItems = (
+    surveys: SurveySummary[],
+    loadAnalytics: boolean,
+  ) => {
+    setSurveyItems(surveys);
+
+    if (surveys.length === 0) {
+      setSelectedSurveyId(null);
+      setSurveyAnalytics(null);
+      localStorage.removeItem(SELECTED_SURVEY_STORAGE_KEY);
+      return;
+    }
+
+    const currentSurveyToPreserve = hasInitialSurveyParam || surveyItemsLoaded ? selectedSurveyId : null;
+    const surveyIdToLoad = noSurveySelectionExplicit ? null : getDefaultSurveyId(surveys, currentSurveyToPreserve);
+    setSelectedSurveyId(surveyIdToLoad);
+    if (surveyIdToLoad) {
+      setNoSurveySelectionExplicit(false);
+      localStorage.setItem(SELECTED_SURVEY_STORAGE_KEY, surveyIdToLoad.toString());
+    } else {
+      setNoSurveySelectionExplicit(true);
+      localStorage.setItem(SELECTED_SURVEY_STORAGE_KEY, NO_SURVEY_SELECTION_VALUE);
+    }
+    if (loadAnalytics && surveyIdToLoad) {
+      fetchSurveyAnalytics(surveyIdToLoad, selectedSurveyDepartment, selectedYear);
+    } else if (loadAnalytics) {
+      setSurveyAnalytics(null);
+    }
+  };
+
   const fetchSurveyItems = (loadAnalytics: boolean = false) => {
     if (loadAnalytics) {
       setSurveyLoading(true);
+    }
+
+    if (isDean) {
+      const params = new URLSearchParams({ type: 'report_context' });
+      if (selectedSurveyId) {
+        params.set('survey_id', selectedSurveyId.toString());
+      }
+
+      fetch(`${API_BASE}/reports/index.php?${params.toString()}`, { credentials: 'include' })
+        .then((response) => response.json())
+        .then((result) => {
+          if (!result.success || !result.data) {
+            throw new Error(result.error || 'Unable to load report context.');
+          }
+
+          const context = result.data as ReportContextData;
+          setReportScope(context.scope);
+          if (context.filter_options) {
+            setOverviewFilterOptions(context.filter_options);
+            setAvailableYears(normalizeGraduationYears(context.filter_options.years || []));
+          }
+          applySurveyItems((context.surveys || []).map(normalizeSurveySummary), loadAnalytics);
+        })
+        .catch(() => {
+          setSurveyItems([]);
+          setSelectedSurveyId(null);
+          setSurveyAnalytics(null);
+          setReportError('Unable to load report data. Please try again.');
+        })
+        .finally(() => {
+          setSurveyItemsLoaded(true);
+          if (loadAnalytics) {
+            setSurveyLoading(false);
+          }
+        });
+      return;
     }
 
     Promise.all([
@@ -545,30 +662,7 @@ export default function Reports() {
             ...(activeResult.data || []),
             ...(archivedResult.success ? archivedResult.data || [] : []),
           ].map(normalizeSurveySummary);
-          setSurveyItems(surveys);
-
-          if (surveys.length === 0) {
-            setSelectedSurveyId(null);
-            setSurveyAnalytics(null);
-            localStorage.removeItem(SELECTED_SURVEY_STORAGE_KEY);
-            return;
-          }
-
-          const currentSurveyToPreserve = hasInitialSurveyParam || surveyItemsLoaded ? selectedSurveyId : null;
-          const surveyIdToLoad = noSurveySelectionExplicit ? null : getDefaultSurveyId(surveys, currentSurveyToPreserve);
-          setSelectedSurveyId(surveyIdToLoad);
-          if (surveyIdToLoad) {
-            setNoSurveySelectionExplicit(false);
-            localStorage.setItem(SELECTED_SURVEY_STORAGE_KEY, surveyIdToLoad.toString());
-          } else {
-            setNoSurveySelectionExplicit(true);
-            localStorage.setItem(SELECTED_SURVEY_STORAGE_KEY, NO_SURVEY_SELECTION_VALUE);
-          }
-          if (loadAnalytics && surveyIdToLoad) {
-            fetchSurveyAnalytics(surveyIdToLoad, selectedSurveyDepartment);
-          } else if (loadAnalytics) {
-            setSurveyAnalytics(null);
-          }
+          applySurveyItems(surveys, loadAnalytics);
         } else {
           setSurveyItems([]);
           setSelectedSurveyId(null);
@@ -596,8 +690,12 @@ export default function Reports() {
     getSurveyDepartmentOption(departmentValue).programCodes.join(',')
   );
 
-  const fetchSurveyAnalytics = (surveyId: number, surveyDepartment: string = selectedSurveyDepartment) => {
-    const cacheKey = getSurveyAnalyticsCacheKey(surveyId, surveyDepartment);
+  const fetchSurveyAnalytics = (
+    surveyId: number,
+    surveyDepartment: string = selectedSurveyDepartment,
+    graduationYear: string = selectedYear,
+  ) => {
+    const cacheKey = getSurveyAnalyticsCacheKey(surveyId, surveyDepartment, isDean ? graduationYear : 'all');
     const cachedAnalytics = surveyAnalyticsCacheRef.current[cacheKey];
 
     surveyAnalyticsRequestKeyRef.current = cacheKey;
@@ -609,8 +707,15 @@ export default function Reports() {
     }
 
     setSurveyAnalyticsLoading(true);
+    setSurveyAnalyticsError('');
     const params = new URLSearchParams({ survey_id: surveyId.toString() });
-    params.set('program', getSurveyProgramFilterParam(surveyDepartment));
+    if (isDean) {
+      if (graduationYear !== 'all') {
+        params.set('graduation_year', graduationYear);
+      }
+    } else {
+      params.set('program', getSurveyProgramFilterParam(surveyDepartment));
+    }
 
     fetch(`${API_BASE}/surveys/analytics.php?${params.toString()}`, { credentials: 'include' })
       .then((r) => r.json())
@@ -623,12 +728,14 @@ export default function Reports() {
         } else {
           if (surveyAnalyticsRequestKeyRef.current === cacheKey) {
             setSurveyAnalytics(null);
+            setSurveyAnalyticsError(res.error || 'Unable to load survey analytics. Please try again.');
           }
         }
       })
       .catch(() => {
         if (surveyAnalyticsRequestKeyRef.current === cacheKey) {
           setSurveyAnalytics(null);
+          setSurveyAnalyticsError('Unable to load survey analytics. Please try again.');
         }
       })
       .finally(() => {
@@ -651,13 +758,13 @@ export default function Reports() {
     localStorage.setItem(SELECTED_SURVEY_STORAGE_KEY, surveyId.toString());
 
     if (tab === 'surveys') {
-      fetchSurveyAnalytics(surveyId, selectedSurveyDepartment);
+      fetchSurveyAnalytics(surveyId, selectedSurveyDepartment, selectedYear);
     }
   };
 
   useEffect(() => {
     fetchSurveyItems();
-  }, []);
+  }, [isDean]);
 
   const fetchOverviewFilterOptions = () => {
     fetch(buildReportUrl('overview_filter_options', 'all', 'all'), { credentials: 'include' })
@@ -676,6 +783,9 @@ export default function Reports() {
             years,
             programs,
           });
+          if (isDean) {
+            setAvailableYears(years);
+          }
           if (programs.length > 0) {
             setAvailableDepartments(
               programs
@@ -708,6 +818,29 @@ export default function Reports() {
     return data;
   };
 
+  const fetchOverviewBatchTrendData = async (filters: OverviewFilters): Promise<BatchTrendReport[]> => {
+    const cacheKey = getReportCacheKey('by_batch_trends', 'all', 'all', filters);
+    const cachedData = reportCacheRef.current[cacheKey];
+
+    if (cachedData !== undefined) {
+      return cachedData as BatchTrendReport[];
+    }
+
+    const response = await fetch(buildReportUrl('by_batch_trends', 'all', 'all', undefined, filters), {
+      credentials: 'include',
+    });
+    const result = await response.json();
+    if (!response.ok || !result.success || !Array.isArray(result.data)) {
+      throw new Error(result.error || 'Failed to load batch trend analytics.');
+    }
+
+    const data = (result.data as BatchTrendReport[]).slice().sort(
+      (a, b) => Number(a.year_graduated) - Number(b.year_graduated),
+    );
+    reportCacheRef.current[cacheKey] = data;
+    return data;
+  };
+
   const fetchOverviewReports = async (filters: OverviewFilters = overviewFilters) => {
     if (!surveyItemsLoaded) {
       setLoading(true);
@@ -716,21 +849,33 @@ export default function Reports() {
 
     const overviewCacheKey = getReportCacheKey('overview', 'all', 'all', filters);
     const overviewProgramCacheKey = getReportCacheKey('by_program', 'all', 'all', filters);
+    const overviewBatchTrendCacheKey = getReportCacheKey('by_batch_trends', 'all', 'all', filters);
     const overviewBundleCacheKey = getOverviewBundleCacheKey(filters);
     const cachedOverview = reportCacheRef.current[overviewCacheKey] as Overview | undefined;
     const cachedOverviewPrograms = reportCacheRef.current[overviewProgramCacheKey] as ProgramReport[] | undefined;
+    const cachedOverviewBatchTrends = reportCacheRef.current[overviewBatchTrendCacheKey] as BatchTrendReport[] | undefined;
+    const hasCachedSecondaryData = isDean
+      ? cachedOverviewBatchTrends !== undefined
+      : cachedOverviewPrograms !== undefined;
 
     activeReportLoadKeyRef.current = overviewBundleCacheKey;
 
-    if (cachedOverview !== undefined && cachedOverviewPrograms !== undefined) {
+    if (cachedOverview !== undefined && hasCachedSecondaryData) {
       setOverview(cachedOverview);
-      setOverviewProgramData(cachedOverviewPrograms);
+      if (isDean) {
+        setOverviewBatchTrends(cachedOverviewBatchTrends ?? []);
+        setOverviewProgramData([]);
+      } else {
+        setOverviewProgramData(cachedOverviewPrograms ?? []);
+        setOverviewBatchTrends([]);
+      }
       setOverviewFilterError('');
       setLoading(false);
       return;
     }
 
     setLoading(true);
+    setReportError('');
     setOverviewFilterError('');
     const requestId = ++overviewRequestSeqRef.current;
 
@@ -751,9 +896,9 @@ export default function Reports() {
         return overviewResult.data as Overview;
       };
 
-      const [overviewData, programDataForOverview] = await Promise.all([
+      const [overviewData, secondaryOverviewData] = await Promise.all([
         fetchOverviewData(),
-        fetchOverviewProgramData(filters),
+        isDean ? fetchOverviewBatchTrendData(filters) : fetchOverviewProgramData(filters),
       ]);
 
       if (requestId !== overviewRequestSeqRef.current || activeReportLoadKeyRef.current !== overviewBundleCacheKey) {
@@ -761,7 +906,13 @@ export default function Reports() {
       }
 
       setOverview(overviewData);
-      setOverviewProgramData(programDataForOverview);
+      if (isDean) {
+        setOverviewBatchTrends(secondaryOverviewData as BatchTrendReport[]);
+        setOverviewProgramData([]);
+      } else {
+        setOverviewProgramData(secondaryOverviewData as ProgramReport[]);
+        setOverviewBatchTrends([]);
+      }
     } catch (error) {
       if (requestId !== overviewRequestSeqRef.current || activeReportLoadKeyRef.current !== overviewBundleCacheKey) {
         return;
@@ -769,6 +920,7 @@ export default function Reports() {
 
       setOverview(null);
       setOverviewProgramData([]);
+      setOverviewBatchTrends([]);
       setOverviewFilterError(error instanceof Error ? error.message : 'Failed to load overview report.');
     } finally {
       if (requestId === overviewRequestSeqRef.current && activeReportLoadKeyRef.current === overviewBundleCacheKey) {
@@ -790,7 +942,7 @@ export default function Reports() {
     fetch(buildReportUrl('by_year', 'all', 'all'), { credentials: 'include' })
       .then((r) => r.json())
       .then((res) => {
-        if (res.success && res.data) {
+        if (!isDean && res.success && res.data) {
           const years = normalizeGraduationYears(res.data.map((y: YearReport) => y.year_graduated));
           setAvailableYears(years);
         }
@@ -813,6 +965,19 @@ export default function Reports() {
       ? current
       : { ...current, graduationYear: 'all' });
   }, [overviewFilterOptions.years]);
+
+  useEffect(() => {
+    if (!isDean) {
+      return;
+    }
+
+    setOverviewFilterDraft((current) => (
+      current.graduationYear === selectedYear ? current : { ...current, graduationYear: selectedYear }
+    ));
+    setOverviewFilters((current) => (
+      current.graduationYear === selectedYear ? current : { ...current, graduationYear: selectedYear }
+    ));
+  }, [isDean, selectedYear]);
 
   useEffect(() => {
     if (!surveyItemsLoaded) {
@@ -841,14 +1006,14 @@ export default function Reports() {
 
   useEffect(() => {
     if (tab === 'surveys' && selectedSurveyId) {
-      fetchSurveyAnalytics(selectedSurveyId, selectedSurveyDepartment);
+      fetchSurveyAnalytics(selectedSurveyId, selectedSurveyDepartment, selectedYear);
     }
-  }, [tab, selectedSurveyDepartment, selectedSurveyId]);
+  }, [tab, selectedSurveyDepartment, selectedSurveyId, isDean, selectedYear]);
 
   useEffect(() => {
     setShowSurveyGraphs(false);
     setSelectedSurveyTable(ALL_SURVEY_TABLES_VALUE);
-  }, [selectedSurveyId, selectedSurveyDepartment]);
+  }, [selectedSurveyId, selectedSurveyDepartment, isDean, selectedYear]);
 
   useEffect(() => {
     if (selectedSurveyTable === ALL_SURVEY_TABLES_VALUE) {
@@ -894,7 +1059,10 @@ export default function Reports() {
   };
 
   const handleResetOverviewFilters = () => {
-    const resetFilters = { ...DEFAULT_OVERVIEW_FILTERS };
+    const resetFilters = {
+      ...DEFAULT_OVERVIEW_FILTERS,
+      graduationYear: isDean ? selectedYear : DEFAULT_OVERVIEW_FILTERS.graduationYear,
+    };
     setOverviewFilterDraft(resetFilters);
     setOverviewFilterError('');
 
@@ -937,6 +1105,14 @@ export default function Reports() {
     year: string = selectedYear,
     department: string = selectedDepartment,
   ) => {
+    if (isDean) {
+      setAiLoading(false);
+      setAiAnalysis('');
+      setAiSummary('');
+      setAiConclusion('');
+      return;
+    }
+
     if (!selectedSurveyId) {
       setAiLoading(false);
       setAiAnalysis('Select a survey to generate AI-powered analytics.');
@@ -1024,6 +1200,16 @@ export default function Reports() {
   };
 
   const getSelectedSurveyDepartmentLabel = () => getSurveyDepartmentOption(selectedSurveyDepartment).label;
+  const getReportScopeLabel = () => (
+    isDean && reportScope?.display_name
+      ? reportScope.display_name
+      : getSelectedSurveyDepartmentLabel()
+  );
+  const getBatchLabel = () => (
+    !isDean && tab === 'surveys'
+      ? 'All Batches'
+      : selectedYear === 'all' ? 'All Batches' : selectedYear
+  );
 
   const handleSurveyExcelExport = async () => {
     if (!surveyAnalytics) {
@@ -1035,7 +1221,13 @@ export default function Reports() {
     workbook.creator = 'GradTrack';
     workbook.created = generatedAt;
 
-    addSurveyExportSummarySheet(workbook, surveyAnalytics, getSelectedSurveyDepartmentLabel(), generatedAt);
+    addSurveyExportSummarySheet(
+      workbook,
+      surveyAnalytics,
+      getReportScopeLabel(),
+      getBatchLabel(),
+      generatedAt,
+    );
 
     if (surveyAnalytics.report_tables && surveyAnalytics.report_tables.length > 0) {
       surveyAnalytics.report_tables.forEach((table, index) => {
@@ -1046,7 +1238,7 @@ export default function Reports() {
     }
 
     const fileDate = generatedAt.toISOString().slice(0, 10);
-    const programSuffix = `_${toFileSafePart(selectedSurveyDepartment)}`;
+    const programSuffix = `_${toFileSafePart(isDean ? reportScope?.department_code || 'dean_scope' : selectedSurveyDepartment)}`;
     const buffer = await workbook.xlsx.writeBuffer();
     const blob = new Blob([buffer], {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -1070,7 +1262,7 @@ export default function Reports() {
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
     const marginLeft = 36;
-    const departmentLabel = getSelectedSurveyDepartmentLabel();
+    const departmentLabel = getReportScopeLabel();
 
     const drawSurveyPdfHeader = (title: string, subtitle?: string) => {
       pdf.setFillColor(27, 42, 74);
@@ -1092,10 +1284,11 @@ export default function Reports() {
     pdf.setFont('helvetica', 'normal');
     pdf.setFontSize(9);
     pdf.text(`Generated: ${generatedAt.toLocaleString()}`, marginLeft, 106);
-    pdf.text(`Department: ${departmentLabel}`, marginLeft, 120);
+    pdf.text(`${isDean ? 'Program Scope' : 'Department'}: ${departmentLabel}`, marginLeft, 120);
+    pdf.text(`Batch: ${getBatchLabel()}`, marginLeft, 134);
 
     autoTable(pdf, {
-      startY: 146,
+      startY: 158,
       head: [['Metric', 'Value']],
       body: [
         ['Total Responses', surveyAnalytics.total_responses],
@@ -1184,13 +1377,13 @@ export default function Reports() {
     }
 
     const fileDate = generatedAt.toISOString().slice(0, 10);
-    const programSuffix = `_${toFileSafePart(selectedSurveyDepartment)}`;
+    const programSuffix = `_${toFileSafePart(isDean ? reportScope?.department_code || 'dean_scope' : selectedSurveyDepartment)}`;
     pdf.save(`gradtrack_survey_analytics${programSuffix}_${fileDate}.pdf`);
   };
 
   const getOverviewProgramFilterLabel = (programId: string = overviewFilters.programId) => {
     if (programId === 'all') {
-      return 'All Courses';
+      return isDean && reportScope?.display_name ? reportScope.display_name : 'All Courses';
     }
 
     const program = overviewFilterOptions.programs.find((item) => item.id.toString() === programId);
@@ -1217,8 +1410,8 @@ export default function Reports() {
     return [
       overviewFilters.employmentStatus !== 'all' ? `Employability Status: ${labels.employmentStatus}` : null,
       overviewFilters.programAlignment !== 'all' ? `Program Alignment: ${labels.programAlignment}` : null,
-      overviewFilters.graduationYear !== 'all' ? `Graduation Year: ${labels.graduationYear}` : null,
-      overviewFilters.programId !== 'all' ? `Course: ${labels.course}` : null,
+      !isDean && overviewFilters.graduationYear !== 'all' ? `Graduation Year: ${labels.graduationYear}` : null,
+      !isDean && overviewFilters.programId !== 'all' ? `Course: ${labels.course}` : null,
     ].filter((chip): chip is string => Boolean(chip));
   };
 
@@ -1229,8 +1422,6 @@ export default function Reports() {
     }
 
     const reportDepartment = tab === 'overview' ? 'all' : selectedDepartment;
-    const cachedProgramExport = tab === 'overview' ? overviewProgramData : programData;
-    const canUseCachedScopedData = tab !== 'overview';
     const exportOverviewFilters = overviewFilters;
     const fetchReportData = async <T,>(
       type: string,
@@ -1251,11 +1442,11 @@ export default function Reports() {
     };
 
     const [overviewExport, programExport, yearExport, statusExport, salaryExport] = await Promise.all([
-      tab === 'overview' && overview ? Promise.resolve(overview) : fetchReportData<Overview>('overview'),
-      cachedProgramExport.length ? Promise.resolve(cachedProgramExport) : fetchReportData<ProgramReport[]>('by_program', true),
-      canUseCachedScopedData && yearData.length ? Promise.resolve(yearData) : fetchReportData<YearReport[]>('by_year'),
-      canUseCachedScopedData && statusData.length ? Promise.resolve(statusData) : fetchReportData<StatusData[]>('employment_status', true),
-      canUseCachedScopedData && salaryData.length ? Promise.resolve(salaryData) : fetchReportData<SalaryData[]>('salary_distribution', true),
+      fetchReportData<Overview>('overview', true),
+      fetchReportData<ProgramReport[]>('by_program', true),
+      fetchReportData<YearReport[]>('by_year', true),
+      fetchReportData<StatusData[]>('employment_status', true),
+      fetchReportData<SalaryData[]>('salary_distribution', true),
     ]);
 
     const overviewRows: ExcelRow[] = overviewExport
@@ -1315,8 +1506,9 @@ export default function Reports() {
     const summarySheet = workbook.addWorksheet('Summary');
     summarySheet.addRow(['GradTrack Report Export']);
     summarySheet.addRow(['Generated At', new Date().toLocaleString()]);
-    summarySheet.addRow(['Year Filter', selectedYear === 'all' ? 'All Years' : selectedYear]);
-    summarySheet.addRow(['Department Filter', reportDepartment === 'all' ? 'All Departments' : reportDepartment]);
+    summarySheet.addRow(['Survey', selectedSurvey?.title || 'No survey selected']);
+    summarySheet.addRow(['Batch / Year Graduated', getBatchLabel()]);
+    summarySheet.addRow([isDean ? 'Program Scope' : 'Department Filter', isDean ? getReportScopeLabel() : reportDepartment === 'all' ? 'All Departments' : reportDepartment]);
     const labels = getOverviewFilterLabels();
     summarySheet.addRow(['Employability Status', labels.employmentStatus]);
     summarySheet.addRow(['Program Alignment', labels.programAlignment]);
@@ -1518,7 +1710,10 @@ export default function Reports() {
     });
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
-    link.download = `gradtrack_detailed_report${yearSuffix}_${fileDate}.xlsx`;
+    const scopeSuffix = isDean
+      ? `_${toFileSafePart(reportScope?.department_code || 'dean_scope')}`
+      : '';
+    link.download = `gradtrack_detailed_report${scopeSuffix}${yearSuffix}_${fileDate}.xlsx`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -1575,7 +1770,7 @@ export default function Reports() {
       yearForPdf,
       statusForPdf,
       salaryForPdf,
-      reportDepartment,
+      isDean ? getReportScopeLabel() : reportDepartment,
       tab === 'overview' ? overviewFilters.graduationYear : selectedYear,
     );
 
@@ -1583,22 +1778,25 @@ export default function Reports() {
     pdf.rect(0, 0, pageWidth, 110, 'F');
     pdf.setTextColor(255, 255, 255);
     pdf.setFontSize(22);
-    pdf.text('Graduate Tracer Study Report', marginLeft, 52);
+    pdf.text(isDean ? 'GradTrack Reports & Analytics' : 'Graduate Tracer Study Report', marginLeft, 52);
     pdf.setFontSize(13);
     pdf.text('Norzagaray College', marginLeft, 76);
 
     pdf.setTextColor(30, 30, 30);
     pdf.setFontSize(11);
     pdf.text(`Generated: ${new Date().toLocaleString()}`, marginLeft, 144);
-    pdf.text(`Department: ${reportDepartment === 'all' ? 'All Departments' : reportDepartment}`, marginLeft, 162);
-    pdf.text(`Year Scope: ${pdfOverviewFilterLabels ? pdfOverviewFilterLabels.graduationYear : selectedYear === 'all' ? 'All Years' : selectedYear}`, marginLeft, 180);
+    pdf.text(`${isDean ? 'Program Scope' : 'Department'}: ${isDean ? getReportScopeLabel() : reportDepartment === 'all' ? 'All Departments' : reportDepartment}`, marginLeft, 162);
+    pdf.text(`Batch: ${pdfOverviewFilterLabels ? (isDean ? getBatchLabel() : pdfOverviewFilterLabels.graduationYear) : getBatchLabel()}`, marginLeft, 180);
+    pdf.text(`Survey: ${selectedSurvey?.title || 'No survey selected'}`, marginLeft, 198);
     let coverDescriptionY = 204;
     if (pdfOverviewFilterLabels) {
-      pdf.text(`Employability Status: ${pdfOverviewFilterLabels.employmentStatus}`, marginLeft, 198);
-      pdf.text(`Program Alignment: ${pdfOverviewFilterLabels.programAlignment}`, marginLeft, 216);
-      pdf.text(`Graduation Year: ${pdfOverviewFilterLabels.graduationYear}`, marginLeft, 234);
-      pdf.text(`Course: ${pdfOverviewFilterLabels.course}`, marginLeft, 252);
-      coverDescriptionY = 280;
+      pdf.text(`Employability Status: ${pdfOverviewFilterLabels.employmentStatus}`, marginLeft, 216);
+      pdf.text(`Program Alignment: ${pdfOverviewFilterLabels.programAlignment}`, marginLeft, 234);
+      if (!isDean) {
+        pdf.text(`Graduation Year: ${pdfOverviewFilterLabels.graduationYear}`, marginLeft, 252);
+        pdf.text(`Course: ${pdfOverviewFilterLabels.course}`, marginLeft, 270);
+      }
+      coverDescriptionY = isDean ? 264 : 298;
     }
     pdf.setFontSize(11);
     const coverDescription = pdf.splitTextToSize(sectionDescriptions.cover, pageWidth - 80);
@@ -1606,7 +1804,7 @@ export default function Reports() {
 
     if (overviewForPdf) {
       autoTable(pdf, {
-        startY: pdfOverviewFilterLabels ? 324 : 248,
+        startY: pdfOverviewFilterLabels ? (isDean ? 308 : 342) : 266,
         head: [['Key Performance Indicator', 'Value']],
         body: [
           ['Total Graduates', overviewForPdf.total_graduates],
@@ -1626,22 +1824,24 @@ export default function Reports() {
     const aiAnalysisLines: string[] = [];
     const aiSummaryLines: string[] = [];
     const aiConclusionLines: string[] = [];
-    try {
-      if (aiAnalysis.trim() || aiSummary.trim() || aiConclusion.trim()) {
-        aiAnalysisLines.push(...splitAiText(aiAnalysis));
-        aiSummaryLines.push(...splitAiText(aiSummary));
-        aiConclusionLines.push(...splitAiText(aiConclusion));
-      } else {
-        const aiResponse = await fetch(`${API_BASE}/reports/ai-analytics.php`, { credentials: 'include' });
-        const aiResult = await aiResponse.json();
-        if (aiResult.success && aiResult.data) {
-          aiAnalysisLines.push(...splitAiText(String(aiResult.data.ai_analysis || '')));
-          aiSummaryLines.push(...splitAiText(String(aiResult.data.ai_summary || '')));
-          aiConclusionLines.push(...splitAiText(String(aiResult.data.ai_conclusion || '')));
+    if (!isDean) {
+      try {
+        if (aiAnalysis.trim() || aiSummary.trim() || aiConclusion.trim()) {
+          aiAnalysisLines.push(...splitAiText(aiAnalysis));
+          aiSummaryLines.push(...splitAiText(aiSummary));
+          aiConclusionLines.push(...splitAiText(aiConclusion));
+        } else {
+          const aiResponse = await fetch(`${API_BASE}/reports/ai-analytics.php`, { credentials: 'include' });
+          const aiResult = await aiResponse.json();
+          if (aiResult.success && aiResult.data) {
+            aiAnalysisLines.push(...splitAiText(String(aiResult.data.ai_analysis || '')));
+            aiSummaryLines.push(...splitAiText(String(aiResult.data.ai_summary || '')));
+            aiConclusionLines.push(...splitAiText(String(aiResult.data.ai_conclusion || '')));
+          }
         }
+      } catch {
+        // AI summary is optional in PDF.
       }
-    } catch {
-      // AI summary is optional in PDF.
     }
 
     if (aiAnalysisLines.length > 0 || aiSummaryLines.length > 0 || aiConclusionLines.length > 0) {
@@ -1723,7 +1923,7 @@ export default function Reports() {
         pdf.text(sectionTitle, marginLeft, 42);
         pdf.setFontSize(9);
         pdf.text(
-          `Department: ${reportDepartment === 'all' ? 'All Departments' : reportDepartment} | Year: ${selectedYear === 'all' ? 'All Years' : selectedYear}`,
+          `${isDean ? 'Program Scope' : 'Department'}: ${isDean ? getReportScopeLabel() : reportDepartment === 'all' ? 'All Departments' : reportDepartment} | Batch: ${getBatchLabel()}`,
           marginLeft,
           58,
         );
@@ -1784,7 +1984,9 @@ export default function Reports() {
     }
 
     const yearSuffix = selectedYear !== 'all' ? `_${selectedYear}` : '_all_years';
-    const departmentSuffix = reportDepartment !== 'all' ? `_${reportDepartment}` : '_all_departments';
+    const departmentSuffix = isDean
+      ? `_${toFileSafePart(reportScope?.department_code || 'dean_scope')}`
+      : reportDepartment !== 'all' ? `_${reportDepartment}` : '_all_departments';
     const fileDate = new Date().toISOString().slice(0, 10);
     pdf.save(`gradtrack_formal_report${departmentSuffix}${yearSuffix}_${fileDate}.pdf`);
   };
@@ -1798,8 +2000,13 @@ export default function Reports() {
     { key: 'surveys', label: 'Survey Analytics' },
   ] as const;
 
-  const renderAiAnalyticsSection = () => (
-    <div className="rounded-xl border-2 border-purple-200 bg-gradient-to-br from-purple-50 via-blue-50 to-slate-50 p-6 shadow-lg dark:border-purple-400/30 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800">
+  const renderAiAnalyticsSection = () => {
+    if (isDean) {
+      return null;
+    }
+
+    return (
+      <div className="rounded-xl border-2 border-purple-200 bg-gradient-to-br from-purple-50 via-blue-50 to-slate-50 p-6 shadow-lg dark:border-purple-400/30 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800">
       <div className="flex items-start gap-4">
         <div className="p-3 bg-gradient-to-br from-purple-600 to-blue-600 rounded-lg shadow-md">
           <Sparkles className="w-6 h-6 text-white" />
@@ -1840,10 +2047,10 @@ export default function Reports() {
           )}
         </div>
       </div>
-    </div>
-  );
+      </div>
+    );
+  };
 
-  const selectedSurvey = surveyItems.find((survey) => Number(survey.id) === selectedSurveyId);
   const surveyReportTables = surveyAnalytics?.report_tables ?? [];
   const selectedSurveyTableIndex = Number(selectedSurveyTable);
   const hasValidSurveyTableSelection = selectedSurveyTable !== ALL_SURVEY_TABLES_VALUE
@@ -1858,9 +2065,14 @@ export default function Reports() {
     ?? Math.max((overview?.total_employment_known ?? 0) - (overview?.total_employed ?? 0), 0);
   const overviewNotAligned = overview?.total_not_aligned
     ?? Math.max((overview?.total_alignment_known ?? 0) - (overview?.total_aligned ?? 0), 0);
+  const overviewPartiallyAligned = overview?.total_partially_aligned ?? 0;
+  const overviewExplicitNotAligned = overview?.total_explicit_not_aligned
+    ?? Math.max(overviewNotAligned - overviewPartiallyAligned, 0);
   const overviewPrograms = overviewProgramData;
   const overviewActiveFilterChips = getOverviewActiveFilterChips();
   const overviewHasRecords = (overview?.total_graduates ?? 0) > 0;
+  const overviewHasGraduatePopulation = isDean
+    && overviewBatchTrends.some((row) => Number(row.total_graduates) > 0);
   const hasOverviewEmploymentData = (overview?.total_employed ?? 0) + overviewUnemployed > 0;
   const hasOverviewWorkLocationData = (overview?.total_employed_local ?? 0) + (overview?.total_employed_abroad ?? 0) > 0;
   const hasOverviewAlignmentData = (overview?.total_aligned ?? 0) + overviewNotAligned > 0;
@@ -1901,7 +2113,7 @@ export default function Reports() {
           )}
         </div>
 
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <div className={`grid grid-cols-1 gap-3 md:grid-cols-2 ${isDean ? '' : 'xl:grid-cols-4'}`}>
           <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
             Employability Status
             <select
@@ -1928,7 +2140,7 @@ export default function Reports() {
             </select>
           </label>
 
-          <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
+          {!isDean && <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
             Graduation Year
             <select
               value={overviewFilterDraft.graduationYear}
@@ -1940,9 +2152,9 @@ export default function Reports() {
                 <option key={year} value={year}>{year}</option>
               ))}
             </select>
-          </label>
+          </label>}
 
-          <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
+          {!isDean && <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
             Course or Program
             <select
               value={overviewFilterDraft.programId}
@@ -1956,7 +2168,7 @@ export default function Reports() {
                 </option>
               ))}
             </select>
-          </label>
+          </label>}
 
         </div>
 
@@ -2009,6 +2221,11 @@ export default function Reports() {
           <p className="text-sm text-gray-500">
             {selectedSurvey ? `Viewing analytics for ${selectedSurvey.title}` : 'Graduate employment data counts'}
           </p>
+          {isDean && reportScope?.display_name && (
+            <p className="mt-1 text-sm font-semibold text-blue-800">
+              Program Scope: {reportScope.display_name}
+            </p>
+          )}
         </div>
         <div className="flex w-full flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center lg:w-auto lg:justify-end">
           {tab !== 'surveys' && surveyItems.length > 0 && (
@@ -2029,8 +2246,23 @@ export default function Reports() {
               </select>
             </div>
           )}
+          {isDean && (
+            <div className="flex w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
+              <label className="text-sm font-medium text-gray-700">Batch / Year Graduated:</label>
+              <select
+                value={selectedYear}
+                onChange={(e) => setSelectedYear(e.target.value)}
+                className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 sm:w-auto"
+              >
+                <option value="all">All Batches</option>
+                {availableYears.map((year) => (
+                  <option key={year} value={year}>{year}</option>
+                ))}
+              </select>
+            </div>
+          )}
           {/* Year Filter */}
-          {(tab === 'program' || tab === 'employment' || tab === 'salary') && availableYears.length > 0 && (
+          {!isDean && (tab === 'program' || tab === 'employment' || tab === 'salary') && availableYears.length > 0 && (
             <div className="flex w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
               <label className="text-sm font-medium text-gray-700">Filter by Year:</label>
               <select
@@ -2045,7 +2277,7 @@ export default function Reports() {
               </select>
             </div>
           )}
-          {tab !== 'overview' && tab !== 'surveys' && (
+          {!isDean && tab !== 'overview' && tab !== 'surveys' && (
             <div className="flex w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
               <label className="text-sm font-medium text-gray-700">Department:</label>
               <select
@@ -2062,7 +2294,7 @@ export default function Reports() {
               </select>
             </div>
           )}
-          {tab === 'surveys' && (
+          {!isDean && tab === 'surveys' && (
             <div className="flex w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
               <label className="text-sm font-medium text-gray-700">Department:</label>
               <select
@@ -2114,6 +2346,11 @@ export default function Reports() {
         </div>
 
         <div className="p-5">
+          {reportError && (
+            <div className="mb-5 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+              {reportError}
+            </div>
+          )}
           {tab === 'overview' ? (
             <div className="space-y-6">
               {renderOverviewFiltersSection()}
@@ -2134,9 +2371,10 @@ export default function Reports() {
                     <StatCard icon={Target} label="Aligned" value={overview.total_aligned.toString()} sub={formatNullableRate(overview.alignment_rate)} color="bg-orange-100 text-orange-700" />
                   </div>
 
-                  {!overviewHasRecords ? (
+                  {!overviewHasRecords && !overviewHasGraduatePopulation ? (
                     <div className="border rounded-xl p-8 text-center">
-                      <p className="font-semibold text-[#1b2a4a]">No graduate records match the selected filters. Try changing or resetting the filters.</p>
+                      <p className="font-semibold text-[#1b2a4a]">No report data is available for the selected batch.</p>
+                      <p className="mt-1 text-sm text-gray-500">Try another batch or reset the applicable filters.</p>
                     </div>
                   ) : (
                     <>
@@ -2230,9 +2468,13 @@ export default function Reports() {
                           <ResponsiveContainer width="100%" height="100%">
                             <PieChart>
                               <Pie 
-                                data={[
+                                data={isDean ? [
                                   { name: 'Aligned', value: overview.total_aligned },
-                                  { name: 'Not Aligned', value: overviewNotAligned }
+                                  { name: 'Partially Aligned', value: overviewPartiallyAligned },
+                                  { name: 'Not Aligned', value: overviewExplicitNotAligned },
+                                ] : [
+                                  { name: 'Aligned', value: overview.total_aligned },
+                                  { name: 'Not Aligned', value: overviewNotAligned },
                                 ]} 
                                 cx="50%" 
                                 cy="50%" 
@@ -2241,6 +2483,7 @@ export default function Reports() {
                                 label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
                               >
                                 <Cell fill="#f59e0b" />
+                                {isDean && <Cell fill="#facc15" />}
                                 <Cell fill="#94a3b8" />
                               </Pie>
                               <Tooltip />
@@ -2255,15 +2498,24 @@ export default function Reports() {
                           <div className="w-3 h-3 rounded-full bg-orange-500" />
                           <span className="text-xs text-gray-600">Aligned: {overview.total_aligned}</span>
                         </div>
+                        {isDean && (
+                          <div className="flex items-center gap-2">
+                            <div className="h-3 w-3 rounded-full bg-yellow-400" />
+                            <span className="text-xs text-gray-600">Partially: {overviewPartiallyAligned}</span>
+                          </div>
+                        )}
                         <div className="flex items-center gap-2">
                           <div className="w-3 h-3 rounded-full bg-slate-400" />
-                          <span className="text-xs text-gray-600">Not Aligned: {overviewNotAligned}</span>
+                          <span className="text-xs text-gray-600">Not Aligned: {isDean ? overviewExplicitNotAligned : overviewNotAligned}</span>
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  {/* Program-Based Pie Charts */}
+                  {/* Dean batch trends replace single-scope program comparisons. */}
+                  {isDean ? (
+                    <DeanBatchTrendCharts data={overviewBatchTrends} />
+                  ) : (
                   <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {/* Employment by Program */}
                     <div className="border rounded-xl p-5">
@@ -2373,6 +2625,7 @@ export default function Reports() {
                       </div>
                     </div>
                   </div>
+                  )}
 
                     </>
                   )}
@@ -2403,6 +2656,9 @@ export default function Reports() {
 
               {/* By Program */}
               {tab === 'program' && (
+                programData.length === 0 ? (
+                  <ReportEmptyState batchLabel={getBatchLabel()} />
+                ) : (
                 <div className="space-y-6">
                   <ResponsiveContainer width="100%" height={300}>
                     <BarChart data={programChartData}>
@@ -2447,10 +2703,14 @@ export default function Reports() {
 
                   {renderAiAnalyticsSection()}
                 </div>
+                )
               )}
 
               {/* By Year */}
               {tab === 'year' && (
+                yearData.length === 0 ? (
+                  <ReportEmptyState batchLabel={getBatchLabel()} />
+                ) : (
                 <div className="space-y-6">
                   <ResponsiveContainer width="100%" height={300}>
                     <BarChart data={yearChartData}>
@@ -2493,10 +2753,14 @@ export default function Reports() {
 
                   {renderAiAnalyticsSection()}
                 </div>
+                )
               )}
 
               {/* Employment Status */}
               {tab === 'employment' && (
+                statusData.reduce((sum, item) => sum + Number(item.count || 0), 0) === 0 ? (
+                  <ReportEmptyState batchLabel={getBatchLabel()} />
+                ) : (
                 <div className="space-y-6">
                   <div className="flex flex-col lg:flex-row items-center gap-8">
                     <div className="w-full max-w-[520px] h-96">
@@ -2665,10 +2929,14 @@ export default function Reports() {
 
                   {renderAiAnalyticsSection()}
                 </div>
+                )
               )}
 
               {/* Salary Distribution */}
               {tab === 'salary' && (
+                salaryData.reduce((sum, item) => sum + Number(item.count || 0), 0) === 0 ? (
+                  <ReportEmptyState batchLabel={getBatchLabel()} />
+                ) : (
                 <div className="space-y-6">
                   <ResponsiveContainer width="100%" height={300}>
                     <BarChart data={salaryData}>
@@ -2691,6 +2959,7 @@ export default function Reports() {
 
                   {renderAiAnalyticsSection()}
                 </div>
+                )
               )}
 
               {/* Survey Analytics */}
@@ -2736,7 +3005,14 @@ export default function Reports() {
                         </div>
                       ) : !surveyAnalytics ? (
                         <div className="text-center py-12 border rounded-xl bg-white">
-                          <p className="text-red-500">Failed to load analytics data.</p>
+                          <p className="font-semibold text-red-600">
+                            {surveyAnalyticsError || 'Unable to load survey analytics. Please try again.'}
+                          </p>
+                        </div>
+                      ) : surveyAnalytics.total_responses === 0 ? (
+                        <div className="rounded-xl border bg-white px-6 py-12 text-center">
+                          <p className="font-semibold text-[#1b2a4a]">No survey responses are available for this selection.</p>
+                          <p className="mt-1 text-sm text-gray-500">Try another batch or tracer survey.</p>
                         </div>
                       ) : (
                         <div className="space-y-6">
@@ -2988,6 +3264,7 @@ function SkeletonBlock({ className = '', style }: { className?: string; style?: 
 function OverviewLoadingSkeleton() {
   return (
     <div className="space-y-6" aria-label="Loading report data">
+      <p className="text-sm font-medium text-gray-500">Loading reports...</p>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
         {Array.from({ length: 5 }).map((_, index) => (
           <div key={index} className="rounded-xl border p-4">
@@ -3040,6 +3317,7 @@ function OverviewLoadingSkeleton() {
 function ReportTabLoadingSkeleton() {
   return (
     <div className="space-y-6" aria-label="Loading report tab">
+      <p className="text-sm font-medium text-gray-500">Loading reports...</p>
       <div className="rounded-xl border p-5">
         <SkeletonBlock className="mb-5 h-4 w-44" />
         <div className="flex h-72 items-end gap-3">
@@ -3076,6 +3354,7 @@ function ReportTabLoadingSkeleton() {
 function SurveyAnalyticsLoadingSkeleton() {
   return (
     <div className="space-y-6" aria-label="Loading survey analytics">
+      <p className="text-sm font-medium text-gray-500">Loading reports...</p>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {Array.from({ length: 4 }).map((_, index) => (
           <div key={index} className="rounded-xl border p-5">
@@ -3100,6 +3379,15 @@ function SurveyAnalyticsLoadingSkeleton() {
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+function ReportEmptyState({ batchLabel }: { batchLabel: string }) {
+  return (
+    <div className="rounded-xl border bg-white px-6 py-12 text-center">
+      <p className="font-semibold text-[#1b2a4a]">No report data is available for the selected batch.</p>
+      <p className="mt-1 text-sm text-gray-500">Current selection: {batchLabel}</p>
     </div>
   );
 }
@@ -3148,6 +3436,167 @@ function StatCard({ icon: Icon, label, value, sub, color }: {
       </div>
       <p className="text-2xl font-bold text-[#1b2a4a]">{value}</p>
       {sub && <p className="text-xs text-gray-400">{sub} rate</p>}
+    </div>
+  );
+}
+
+type BatchTrendTooltipMode = 'employment' | 'alignment' | 'retrieval';
+
+function formatBatchTrendRate(value: number | null | undefined): string {
+  const rate = Number(value);
+  return value !== null && value !== undefined && Number.isFinite(rate)
+    ? rate.toFixed(1) + '%'
+    : 'Not available';
+}
+
+function BatchTrendTooltip({ active, payload, mode }: {
+  active?: boolean;
+  payload?: Array<{ payload?: BatchTrendReport }>;
+  mode: BatchTrendTooltipMode;
+}) {
+  const row = payload?.find((item) => item.payload)?.payload;
+  if (!active || !row) {
+    return null;
+  }
+
+  return (
+    <div className="max-w-[220px] rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs shadow-lg">
+      <p className="mb-1 font-semibold text-[#1b2a4a]">Batch: {row.year_graduated}</p>
+      {mode === 'employment' && (
+        <>
+          <p className="text-emerald-700">Employed: {row.employed}</p>
+          <p className="text-red-600">Unemployed: {row.unemployed}</p>
+          <p className="mt-1 text-gray-600">Employment Rate: {formatBatchTrendRate(row.employment_rate)}</p>
+        </>
+      )}
+      {mode === 'alignment' && (
+        <>
+          <p className="text-orange-600">Aligned: {row.aligned}</p>
+          <p className="text-yellow-600">Partially Aligned: {row.partially_aligned}</p>
+          <p className="text-slate-600">Not Aligned: {row.not_aligned}</p>
+          <p className="mt-1 text-gray-600">Alignment Rate: {formatBatchTrendRate(row.alignment_rate)}</p>
+        </>
+      )}
+      {mode === 'retrieval' && (
+        <>
+          <p className="text-gray-700">Total Graduates: {row.total_graduates}</p>
+          <p className="text-blue-700">Survey Responses: {row.survey_responses}</p>
+          <p className="mt-1 text-gray-600">Retrieval Rate: {formatBatchTrendRate(row.retrieval_rate)}</p>
+        </>
+      )}
+    </div>
+  );
+}
+
+function DeanBatchTrendCharts({ data }: { data: BatchTrendReport[] }) {
+  const chartData = data
+    .filter((row) => Number.isFinite(Number(row.year_graduated)))
+    .slice()
+    .sort((a, b) => Number(a.year_graduated) - Number(b.year_graduated));
+  const hasGraduateData = chartData.some((row) => Number(row.total_graduates) > 0);
+  const hasEmploymentData = chartData.some((row) => Number(row.employment_total) > 0);
+  const hasAlignmentData = chartData.some((row) => Number(row.alignment_total) > 0);
+
+  const countAxisLabel = {
+    value: 'Number of Graduates',
+    angle: -90,
+    position: 'insideLeft' as const,
+    style: { fill: '#64748b', fontSize: 11 },
+  };
+  const batchAxisLabel = {
+    value: 'Batch',
+    position: 'insideBottom' as const,
+    offset: -8,
+    style: { fill: '#64748b', fontSize: 11 },
+  };
+
+  return (
+    <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+      <div className="min-w-0 rounded-xl border p-5">
+        <h3 className="mb-4 text-sm font-semibold text-[#1b2a4a]">Employment Trend by Batch</h3>
+        <div className="h-72 min-w-0">
+          {hasEmploymentData ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} margin={{ top: 8, right: 8, bottom: 28, left: 14 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="year_graduated" label={batchAxisLabel} minTickGap={12} />
+                <YAxis allowDecimals={false} label={countAxisLabel} width={46} />
+                <Tooltip content={<BatchTrendTooltip mode="employment" />} cursor={{ fill: '#f8fafc' }} />
+                <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
+                <Bar dataKey="employed" name="Employed" fill="#22c55e" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="unemployed" name="Unemployed" fill="#ef4444" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <OverviewChartEmptyState message={hasGraduateData
+              ? 'No employment response data is available for the selected batch.'
+              : 'No graduate data is available for the selected batch.'} />
+          )}
+        </div>
+      </div>
+
+      <div className="min-w-0 rounded-xl border p-5">
+        <h3 className="mb-4 text-sm font-semibold text-[#1b2a4a]">Job Alignment by Batch</h3>
+        <div className="h-72 min-w-0">
+          {hasAlignmentData ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} margin={{ top: 8, right: 8, bottom: 28, left: 14 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="year_graduated" label={batchAxisLabel} minTickGap={12} />
+                <YAxis allowDecimals={false} label={countAxisLabel} width={46} />
+                <Tooltip content={<BatchTrendTooltip mode="alignment" />} cursor={{ fill: '#f8fafc' }} />
+                <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
+                <Bar dataKey="aligned" name="Aligned" stackId="alignment" fill="#f59e0b" />
+                <Bar dataKey="partially_aligned" name="Partially Aligned" stackId="alignment" fill="#facc15" />
+                <Bar dataKey="not_aligned" name="Not Aligned" stackId="alignment" fill="#94a3b8" />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <OverviewChartEmptyState message={hasGraduateData
+              ? 'No job-alignment response data is available for the selected batch.'
+              : 'No graduate data is available for the selected batch.'} />
+          )}
+        </div>
+      </div>
+
+      <div className="min-w-0 rounded-xl border p-5">
+        <h3 className="mb-4 text-sm font-semibold text-[#1b2a4a]">Tracer Survey Retrieval Rate by Batch</h3>
+        <div className="h-72 min-w-0">
+          {hasGraduateData ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={chartData} margin={{ top: 8, right: 16, bottom: 28, left: 14 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="year_graduated" label={batchAxisLabel} minTickGap={12} />
+                <YAxis
+                  domain={[0, 100]}
+                  tickFormatter={(value: number) => value + '%'}
+                  label={{
+                    value: 'Retrieval Rate (%)',
+                    angle: -90,
+                    position: 'insideLeft',
+                    style: { fill: '#64748b', fontSize: 11 },
+                  }}
+                  width={52}
+                />
+                <Tooltip content={<BatchTrendTooltip mode="retrieval" />} />
+                <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
+                <Line
+                  type="monotone"
+                  dataKey="retrieval_rate"
+                  name="Retrieval Rate"
+                  stroke="#2563eb"
+                  strokeWidth={3}
+                  dot={{ r: 4, fill: '#2563eb' }}
+                  activeDot={{ r: 6 }}
+                  connectNulls={false}
+                />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <OverviewChartEmptyState message="No graduate data is available for the selected batch." />
+          )}
+        </div>
+      </div>
     </div>
   );
 }
@@ -3504,7 +3953,8 @@ function getReportCellAlignClass(align?: 'left' | 'center' | 'right') {
 function addSurveyExportSummarySheet(
   workbook: ExcelJS.Workbook,
   analytics: SurveyAnalyticsData,
-  departmentLabel: string,
+  scopeLabel: string,
+  batchLabel: string,
   generatedAt: Date,
 ) {
   const sheet = workbook.addWorksheet('Summary');
@@ -3514,7 +3964,8 @@ function addSurveyExportSummarySheet(
   sheet.addRow([]);
   sheet.addRow(['Survey Title', analytics.survey_title]);
   sheet.addRow(['Generated At', generatedAt.toLocaleString()]);
-  sheet.addRow(['Department Filter', departmentLabel]);
+  sheet.addRow(['Program / Department Scope', scopeLabel]);
+  sheet.addRow(['Batch / Year Graduated', batchLabel]);
   sheet.addRow(['Total Responses', analytics.total_responses]);
   sheet.addRow(['Response Rate (%)', analytics.response_rate ?? 'No data']);
   sheet.addRow(['Completion Rate (%)', analytics.completion_rate ?? 'No data']);

@@ -4,6 +4,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/admin_auth.php';
 require_once __DIR__ . '/../config/graduation_years.php';
+require_once __DIR__ . '/../config/dean_program_scope.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     http_response_code(405);
@@ -11,17 +12,11 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     exit;
 }
 
-$roleProgramScopes = [
-    'dean_cs' => ['BSCS', 'ACT'],
-    'dean_coed' => ['BSED', 'BEED'],
-    'dean_hm' => ['BSHM'],
-];
-
 $database = new Database();
 $db = $database->getConnection();
-$authUser = gradtrack_require_admin_auth($db, array_keys($roleProgramScopes), 'Only dean accounts can access this endpoint');
-$role = (string) $authUser['role'];
-$programCodes = $roleProgramScopes[$role];
+$authUser = gradtrack_require_admin_auth($db, gradtrack_dean_roles(), 'Only dean accounts can access this endpoint');
+$deanScope = gradtrack_dean_program_scope($db, $authUser);
+$programCodes = $deanScope['program_codes'];
 gradtrack_ensure_archive_schema($db, 'graduates');
 gradtrack_ensure_archive_schema($db, 'surveys', true);
 
@@ -196,6 +191,7 @@ try {
     echo json_encode([
         "success" => true,
         "program_scope" => $programCodes,
+        "scope" => $deanScope,
         "year_options" => $allowedYears,
         "selected_survey" => $selectedSurvey,
         "summary" => [

@@ -5,6 +5,7 @@ require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../config/survey_response_analytics.php';
 require_once __DIR__ . '/../config/admin_auth.php';
 require_once __DIR__ . '/../config/graduation_years.php';
+require_once __DIR__ . '/../config/dean_program_scope.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -315,12 +316,26 @@ function appendAllowedProgramCodeFilter(array &$whereParts, array &$bindings, ?a
     $whereParts[] = "{$alias}.code IN (" . implode(', ', $placeholders) . ")";
 }
 
-function getOverviewFilterOptions(PDO $db, ?int $surveyId, ?array $allowedProgramCodes): array
+function getOverviewFilterOptions(
+    PDO $db,
+    ?int $surveyId,
+    ?array $allowedProgramCodes,
+    bool $useExistingScopedYears = false
+): array
 {
     $years = [];
     if ($surveyId !== null) {
         $coverageYears = getReportGraduationYearCoverage($db, $surveyId);
-        if (is_array($coverageYears)) {
+        if ($useExistingScopedYears && is_array($allowedProgramCodes)) {
+            $yearOptions = ['program_codes' => $allowedProgramCodes];
+            if (is_array($coverageYears)) {
+                $yearOptions['allowed_graduation_years'] = $coverageYears;
+            }
+            $years = array_map(
+                static fn (array $row): string => (string)$row['year'],
+                gradtrack_analytics_fetch_year_dimensions($db, $yearOptions)
+            );
+        } elseif (is_array($coverageYears)) {
             $years = array_map('strval', $coverageYears);
         } else {
             $questions = getSurveyQuestions($db, $surveyId);
@@ -472,12 +487,40 @@ function getSurveyResponses(PDO $db, ?int $surveyId, array $overviewFilters = []
 
     $options = [
         'program_id' => $overviewFilters['program_id'] ?? null,
+        'program_codes' => $overviewFilters['program_codes'] ?? null,
+        'graduation_year' => $overviewFilters['graduation_year'] ?? null,
     ];
     $coverageYears = getReportGraduationYearCoverage($db, $surveyId);
     if (is_array($coverageYears)) {
         $options['allowed_graduation_years'] = $coverageYears;
     }
     return gradtrack_analytics_fetch_valid_responses($db, $surveyId, $options);
+}
+
+function getReportSurveyItems(PDO $db, ?array $allowedProgramCodes): array
+{
+    $surveys = $db->query(
+        "SELECT id, title, description, status, archived_at
+         FROM surveys
+         ORDER BY created_at DESC, id DESC"
+    )->fetchAll(PDO::FETCH_ASSOC);
+
+    return array_map(static function (array $survey) use ($db, $allowedProgramCodes): array {
+        $options = [];
+        if (is_array($allowedProgramCodes)) {
+            $options['program_codes'] = $allowedProgramCodes;
+        }
+        $coverage = gradtrack_get_survey_graduation_year_coverage($db, (int)$survey['id']);
+        if ($coverage['configured']) {
+            $options['allowed_graduation_years'] = $coverage['years'];
+        }
+
+        $survey['id'] = (int)$survey['id'];
+        $survey['response_count'] = count(
+            gradtrack_analytics_fetch_valid_responses($db, (int)$survey['id'], $options)
+        );
+        return $survey;
+    }, $surveys);
 }
 
 function getReportResponseDetails(array $response, array $questions): array
@@ -658,7 +701,8 @@ function getSurveyResponseCount(PDO $db, ?int $surveyId): int
 
 if (!defined('GRADTRACK_REPORTS_INDEX_NO_RUN')) {
 try {
-    $authUser = gradtrack_require_admin_auth($db, ['admin'], 'Only Admin accounts can access reports and analytics');
+    $reportRoles = array_merge(['admin'], gradtrack_dean_roles());
+    $authUser = gradtrack_require_admin_auth($db, $reportRoles, 'Only authorized report accounts can access reports and analytics');
     $auditUser = gradtrack_admin_audit_context($authUser);
     $reportType = isset($_GET['type']) ? $_GET['type'] : 'overview';
     $filterYear = getOptionalQueryValue(['year']);
@@ -666,13 +710,8 @@ try {
     $filterDepartment = $filterDepartmentParam !== null ? strtoupper(trim($filterDepartmentParam)) : null;
     $selectedSurveyId = getSelectedSurveyId($db);
 
-    $role = (string) $authUser['role'];
-    $roleProgramScopes = [
-        'dean_cs' => ['BSCS', 'ACT'],
-        'dean_coed' => ['BSED', 'BEED'],
-        'dean_hm' => ['BSHM'],
-    ];
-    $allowedProgramCodes = $roleProgramScopes[$role] ?? null;
+    $deanScope = gradtrack_dean_program_scope($db, $authUser);
+    $allowedProgramCodes = $deanScope['program_codes'] ?? null;
 
     if ($filterDepartment !== null && is_array($allowedProgramCodes) && !in_array($filterDepartment, $allowedProgramCodes, true)) {
         http_response_code(403);
@@ -693,11 +732,40 @@ try {
     }
 
     $overviewFilters = getOverviewFilters($db, $allowedProgramCodes, $selectedSurveyId);
+    if ($filterYear !== null) {
+        if (($overviewFilters['graduation_year'] ?? null) !== null
+            && (string)$overviewFilters['graduation_year'] !== (string)$filterYear) {
+            throw new ReportValidationException('Conflicting graduation year filters were supplied.');
+        }
+        $overviewFilters['graduation_year'] = $filterYear;
+    }
+
+    if ($reportType === 'report_context') {
+        echo json_encode([
+            'success' => true,
+            'data' => [
+                'scope' => $deanScope ?? [
+                    'restricted' => false,
+                    'display_name' => 'All authorized programs',
+                    'program_codes' => null,
+                    'programs' => [],
+                ],
+                'surveys' => getReportSurveyItems($db, $allowedProgramCodes),
+                'filter_options' => getOverviewFilterOptions(
+                    $db,
+                    $selectedSurveyId,
+                    $allowedProgramCodes,
+                    $deanScope !== null
+                ),
+            ],
+        ]);
+        exit;
+    }
 
     if ($reportType === 'overview_filter_options') {
         echo json_encode([
             "success" => true,
-            "data" => getOverviewFilterOptions($db, $selectedSurveyId, $allowedProgramCodes),
+            "data" => getOverviewFilterOptions($db, $selectedSurveyId, $allowedProgramCodes, $deanScope !== null),
         ]);
         exit;
     }
@@ -740,7 +808,9 @@ try {
             $questions = getSurveyQuestions($db, $selectedSurveyId);
             
             // Parse survey responses with canonical graduate year/program context
-            $surveyResponses = getSurveyResponses($db, $selectedSurveyId, $overviewFilters);
+            $surveyResponses = getSurveyResponses($db, $selectedSurveyId, array_merge($overviewFilters, [
+                'program_codes' => $filterDepartment !== null ? [$filterDepartment] : $allowedProgramCodes,
+            ]));
             $recordFilters = [
                 'program_id' => $overviewFilters['program_id'] ?? null,
                 'program_codes' => $filterDepartment !== null
@@ -766,6 +836,8 @@ try {
                 "total_employed_local" => (int)$summary['employed_local'],
                 "total_employed_abroad" => (int)$summary['employed_abroad'],
                 "total_aligned" => (int)$summary['aligned'],
+                "total_partially_aligned" => (int)$summary['partially_aligned'],
+                "total_explicit_not_aligned" => (int)$summary['explicit_not_aligned'],
                 "total_not_aligned" => (int)$summary['not_aligned'],
                 "total_alignment_known" => (int)$summary['alignment_total'],
                 "total_survey_responses" => (int)$summary['response_count'],
@@ -776,7 +848,10 @@ try {
 
         case 'by_program':
             $questions = getSurveyQuestions($db, $selectedSurveyId);
-            $surveyResponses = getSurveyResponses($db, $selectedSurveyId, $overviewFilters);
+            $surveyResponses = getSurveyResponses($db, $selectedSurveyId, array_merge($overviewFilters, [
+                'program_codes' => $filterDepartment !== null ? [$filterDepartment] : $allowedProgramCodes,
+                'graduation_year' => $filterYear ?? ($overviewFilters['graduation_year'] ?? null),
+            ]));
             $records = gradtrack_analytics_filter_records(
                 gradtrack_analytics_build_records($surveyResponses, $questions),
                 [
@@ -813,7 +888,10 @@ try {
 
         case 'by_year':
             $questions = getSurveyQuestions($db, $selectedSurveyId);
-            $surveyResponses = getSurveyResponses($db, $selectedSurveyId, $overviewFilters);
+            $surveyResponses = getSurveyResponses($db, $selectedSurveyId, array_merge($overviewFilters, [
+                'program_codes' => $filterDepartment !== null ? [$filterDepartment] : $allowedProgramCodes,
+                'graduation_year' => $filterYear ?? ($overviewFilters['graduation_year'] ?? null),
+            ]));
             $records = gradtrack_analytics_filter_records(
                 gradtrack_analytics_build_records($surveyResponses, $questions),
                 [
@@ -843,11 +921,83 @@ try {
             echo json_encode(["success" => true, "data" => $yearData]);
             break;
 
+        case 'by_batch_trends':
+            if ($selectedSurveyId === null) {
+                echo json_encode(["success" => true, "data" => []]);
+                break;
+            }
+
+            $questions = getSurveyQuestions($db, $selectedSurveyId);
+            $scopeProgramCodes = $filterDepartment !== null ? [$filterDepartment] : $allowedProgramCodes;
+            $selectedGraduationYear = $filterYear ?? ($overviewFilters['graduation_year'] ?? null);
+            $queryOptions = [
+                'program_id' => $overviewFilters['program_id'] ?? null,
+                'program_codes' => $scopeProgramCodes,
+                'graduation_year' => $selectedGraduationYear,
+            ];
+            if (is_array($coverageYears)) {
+                $queryOptions['allowed_graduation_years'] = $coverageYears;
+            }
+
+            // Keep retrieval participation independent of employment/alignment filters: every
+            // valid submitted questionnaire counts toward the selected survey's retrieval rate.
+            $baseRecords = gradtrack_analytics_build_records(
+                getSurveyResponses($db, $selectedSurveyId, $queryOptions),
+                $questions
+            );
+            $responseCountsByYear = [];
+            foreach ($baseRecords as $record) {
+                $recordYear = (int)($record['year'] ?? 0);
+                if ($recordYear > 0) {
+                    $responseCountsByYear[$recordYear] = ($responseCountsByYear[$recordYear] ?? 0) + 1;
+                }
+            }
+
+            $outcomeRecords = gradtrack_analytics_filter_records($baseRecords, [
+                'program_id' => $overviewFilters['program_id'] ?? null,
+                'program_codes' => $scopeProgramCodes,
+                'graduation_year' => $selectedGraduationYear,
+                'employment_status' => $overviewFilters['employment_status'] ?? null,
+                'alignment_status' => $overviewFilters['program_alignment'] ?? null,
+            ]);
+            $yearDimensions = gradtrack_analytics_fetch_year_dimensions($db, $queryOptions);
+            $batchTrendData = array_map(static function (array $year) use ($responseCountsByYear): array {
+                $yearGraduated = (int)($year['year'] ?? 0);
+                $totalGraduates = (int)($year['active_graduate_count'] ?? 0);
+                $surveyResponses = (int)($responseCountsByYear[$yearGraduated] ?? 0);
+
+                return [
+                    'year_graduated' => $yearGraduated,
+                    'total_graduates' => $totalGraduates,
+                    'survey_responses' => $surveyResponses,
+                    'retrieval_rate' => $totalGraduates > 0
+                        ? gradtrack_survey_percentage($surveyResponses, $totalGraduates, 1)
+                        : null,
+                    'employment_total' => (int)$year['employment_total'],
+                    'employed' => (int)$year['employed'],
+                    'unemployed' => (int)$year['unemployed'],
+                    'employment_rate' => $year['employment_rate'],
+                    'alignment_total' => (int)$year['alignment_total'],
+                    'aligned' => (int)$year['aligned'],
+                    'partially_aligned' => (int)$year['partially_aligned'],
+                    // The three stacked series must be mutually exclusive. The canonical
+                    // not_aligned bucket also includes partially aligned responses.
+                    'not_aligned' => (int)$year['explicit_not_aligned'],
+                    'alignment_rate' => $year['alignment_rate'],
+                ];
+            }, gradtrack_analytics_group_by_year($outcomeRecords, $yearDimensions));
+
+            echo json_encode(["success" => true, "data" => $batchTrendData]);
+            break;
+
         case 'employment_status':
             // Get survey responses and count each employment-status category.
             $questions = getSurveyQuestions($db, $selectedSurveyId);
             
-            $surveyResponses = getSurveyResponses($db, $selectedSurveyId, $overviewFilters);
+            $surveyResponses = getSurveyResponses($db, $selectedSurveyId, array_merge($overviewFilters, [
+                'program_codes' => $filterDepartment !== null ? [$filterDepartment] : $allowedProgramCodes,
+                'graduation_year' => $filterYear ?? ($overviewFilters['graduation_year'] ?? null),
+            ]));
             
             $statusCount = [
                 'employed_local' => 0,
@@ -912,7 +1062,10 @@ try {
             // Get survey responses and parse salary data
             $questions = getSurveyQuestions($db, $selectedSurveyId);
             
-            $surveyResponses = getSurveyResponses($db, $selectedSurveyId, $overviewFilters);
+            $surveyResponses = getSurveyResponses($db, $selectedSurveyId, array_merge($overviewFilters, [
+                'program_codes' => $filterDepartment !== null ? [$filterDepartment] : $allowedProgramCodes,
+                'graduation_year' => $filterYear ?? ($overviewFilters['graduation_year'] ?? null),
+            ]));
             $seenResponses = [];
             
             // Initialize salary ranges

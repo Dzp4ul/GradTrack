@@ -67,6 +67,7 @@ const staffNavItems: NavItem[] = [
 
 const deanNavItems: NavItem[] = [
   { to: '/admin/survey-status', icon: ClipboardCheck, label: 'Survey Participation' },
+  { to: '/admin/reports', icon: BarChart3, label: 'Reports & Analytics' },
 ];
 
 const roleLabels: Record<string, string> = {
@@ -124,7 +125,11 @@ export default function AdminLayout() {
     [user?.email, user?.full_name, user?.username]
   );
   const userRoleLabel = user?.role ? roleLabels[user.role] || user.role : 'User';
-  const panelLabel = user?.role === 'registrar' ? 'Registrar Panel' : 'Admin Panel';
+  const panelLabel = user?.role === 'registrar'
+    ? 'Registrar Panel'
+    : ['dean_cs', 'dean_coed', 'dean_hm'].includes(user?.role || '')
+      ? 'Dean Panel'
+      : 'Admin Panel';
   const profileImageUrl = useMemo(() => {
     const path = user?.profile_image_path;
     if (!path) return '';
