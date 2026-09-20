@@ -1568,7 +1568,7 @@ export default function RealtimeMessagingWorkspace({
 
   return (
     <section className="gradtrack-messaging overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-      <div className="grid h-[calc(100vh-170px)] min-h-[620px] grid-cols-1 lg:grid-cols-[360px_minmax(0,1fr)]">
+      <div className="grid h-[calc(100dvh-15rem-env(safe-area-inset-bottom))] min-h-[28rem] grid-cols-1 lg:h-[calc(100vh-170px)] lg:min-h-[620px] lg:grid-cols-[360px_minmax(0,1fr)]">
         <div className={`${mobileChatOpen ? 'hidden lg:block' : 'block'} min-h-0`}>
           <ConversationList
             currentGraduate={currentGraduate}

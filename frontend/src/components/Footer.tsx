@@ -11,8 +11,8 @@ export default function Footer() {
   const surveyAvailable = isEnabled('survey_available', true);
 
   return (
-    <footer className="border-t border-gray-200 bg-white">
-      <div className="mx-auto max-w-screen-2xl px-4 py-12 sm:px-6 lg:px-8">
+    <footer className="border-t border-gray-200 bg-white pb-[calc(4.5rem+env(safe-area-inset-bottom))] lg:pb-0">
+      <div className="mx-auto max-w-screen-2xl px-4 py-10 sm:px-6 sm:py-12 lg:px-8">
         <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-4">
           {/* Brand */}
           <div className="min-w-0">

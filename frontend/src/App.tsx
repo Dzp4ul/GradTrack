@@ -77,7 +77,7 @@ function HomeRoute() {
   }
 
   if (isGraduateAuthenticated) {
-    return <Navigate to="/graduate/portal" replace />;
+    return <Navigate to="/graduate/portal?tab=community_forum" replace />;
   }
 
   if (isAdminAuthenticated) {

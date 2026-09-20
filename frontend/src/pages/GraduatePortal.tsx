@@ -25,7 +25,6 @@ import {
   MapPin,
   Maximize2,
   Megaphone,
-  Menu,
   MessageCircle,
   MessageSquare,
   MoreHorizontal,
@@ -62,6 +61,7 @@ import type {
 } from '../components/messaging/types';
 import MessageBox from '../components/MessageBox';
 import FeatureUnavailable from '../components/FeatureUnavailable';
+import MobileBottomNav from '../components/MobileBottomNav';
 import NotificationBell from '../components/NotificationBell';
 import type { NotificationSnapshot } from '../components/NotificationBell';
 import ProfileAvatar from '../components/ProfileAvatar';
@@ -429,7 +429,7 @@ function getPortalTab(rawValue: string | null): PortalTab {
   if (rawValue && portalTabs.includes(rawValue as PortalTab)) {
     return rawValue as PortalTab;
   }
-  return 'announcements';
+  return 'community_forum';
 }
 
 function getProfileEditSection(rawValue: string | null): ProfileEditSection {
@@ -948,7 +948,6 @@ export default function GraduatePortal() {
     isAnnouncementRoute ? 'announcements' : (isCommunityProfileRoute ? 'my_profile' : getPortalTab(searchParams.get('tab')))
   ));
   const [loading, setLoading] = useState(true);
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [isDesktopMessagingLayout, setIsDesktopMessagingLayout] = useState(() => (
     typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches
   ));
@@ -1950,8 +1949,8 @@ export default function GraduatePortal() {
     }
 
     if (!searchParams.get('tab')) {
-      setActiveTab('announcements');
-      navigate('/graduate/announcements', { replace: true });
+      setActiveTab('community_forum');
+      navigate('/graduate/portal?tab=community_forum', { replace: true });
       return;
     }
 
@@ -3618,7 +3617,6 @@ export default function GraduatePortal() {
     setChatModalOpen(false);
     setMiniProfileGraduateId(null);
     setProfileMenuOpen(false);
-    setMobileNavOpen(false);
     setActiveTab('my_profile');
     navigate(`/graduate/community/profile/${targetId}`);
   }, [navigate]);
@@ -5059,8 +5057,8 @@ export default function GraduatePortal() {
   };
 
   const navItems: Array<{ key: PortalTab; label: string; shortLabel: string; icon: LucideIcon; badge?: number }> = [
-    { key: 'announcements', label: 'Announcements', shortLabel: 'News', icon: Megaphone },
     { key: 'community_forum', label: 'Home', shortLabel: 'Home', icon: Home },
+    { key: 'announcements', label: 'Announcements', shortLabel: 'News', icon: Megaphone },
     { key: 'messages', label: 'Messages', shortLabel: 'Chats', icon: MessageCircle, badge: unreadMessageCount },
     { key: 'jobs', label: 'Browse Jobs', shortLabel: 'Jobs', icon: Briefcase, badge: notificationCategoryCounts.browse_jobs },
     { key: 'job_posting', label: 'Job Posting', shortLabel: 'Post Job', icon: Pencil, badge: notificationCategoryCounts.job_posting },
@@ -5068,6 +5066,46 @@ export default function GraduatePortal() {
   ];
   const primaryNavItems = navItems.filter((item) => item.key !== 'my_profile');
   const activeNavItem = navItems.find((item) => item.key === activeTab);
+  const mobileBottomNavItems = [
+    {
+      key: 'community_forum',
+      label: 'Home',
+      icon: Home,
+      active: activeTab === 'community_forum' || activeTab === 'dashboard',
+      onSelect: () => selectTab('community_forum'),
+    },
+    {
+      key: 'announcements',
+      label: 'Announcements',
+      icon: Megaphone,
+      active: activeTab === 'announcements',
+      onSelect: () => selectTab('announcements'),
+    },
+    {
+      key: 'messages',
+      label: 'Chats',
+      icon: MessageCircle,
+      active: activeTab === 'messages',
+      badge: unreadMessageCount,
+      onSelect: () => selectTab('messages'),
+    },
+    {
+      key: 'jobs',
+      label: 'Browse Jobs',
+      icon: Briefcase,
+      active: activeTab === 'jobs',
+      badge: notificationCategoryCounts.browse_jobs,
+      onSelect: () => selectTab('jobs'),
+    },
+    {
+      key: 'job_posting',
+      label: 'Job Posting',
+      icon: Pencil,
+      active: activeTab === 'job_posting',
+      badge: notificationCategoryCounts.job_posting,
+      onSelect: () => selectTab('job_posting'),
+    },
+  ];
 
   const profileInputClass = 'w-full rounded-2xl border border-[var(--border-strong)] bg-[var(--input)] px-4 py-3 text-sm text-[var(--text-primary)] outline-none transition focus:border-blue-500';
 
@@ -5157,7 +5195,7 @@ export default function GraduatePortal() {
         <div className="mx-auto grid max-w-screen-2xl grid-cols-[auto_minmax(0,1fr)] items-center gap-3 px-4 py-2 sm:px-6 xl:grid-cols-[minmax(180px,1fr)_auto_minmax(340px,1fr)] xl:gap-5">
           <button
             type="button"
-            onClick={() => selectTab('announcements')}
+            onClick={() => selectTab('community_forum')}
             className="flex shrink-0 items-center gap-3 justify-self-start text-left"
             title="GradTrack Community"
             aria-label="Open GradTrack Community"
@@ -5276,62 +5314,21 @@ export default function GraduatePortal() {
               )}
             </div>
 
-            <button
-              type="button"
-              onClick={() => setMobileNavOpen((current) => !current)}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-full text-gray-500 transition hover:bg-gray-100 xl:hidden"
-              aria-label="Toggle mobile navigation"
-              aria-expanded={mobileNavOpen}
-            >
-              {mobileNavOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-            </button>
           </div>
         </div>
-
-        {mobileNavOpen && (
-          <div className="border-t border-gray-200 xl:hidden">
-            <div className="grid gap-1 px-4 py-3">
-              {navItems.map((item) => {
-                const isActive = activeTab === item.key;
-
-                return (
-                  <button
-                    key={item.key}
-                    type="button"
-                    onClick={() => {
-                      selectTab(item.key);
-                      setMobileNavOpen(false);
-                    }}
-                    className={`relative flex items-center gap-3 rounded-xl px-4 py-3 text-left text-sm font-medium transition ${
-                      isActive ? 'bg-blue-700 text-white' : 'text-gray-700 hover:bg-gray-100'
-                    }`}
-                    title={item.label}
-                    aria-label={item.label}
-                  >
-                    <item.icon className="h-5 w-5" />
-                    <span>{item.label}</span>
-                    {typeof item.badge === 'number' && item.badge > 0 && (
-                      <span className={`ml-auto min-w-5 rounded-full px-1.5 py-0.5 text-center text-[10px] font-bold leading-none ${isActive ? 'bg-[#f8c331] text-blue-950' : 'bg-rose-500 text-white'}`}>
-                        {item.badge > 99 ? '99+' : item.badge}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
       </header>
 
-      <main className="relative z-0 mx-auto max-w-screen-2xl px-3 py-4 pb-10 sm:px-6 sm:py-6">
-        <section className="mb-5 flex flex-col gap-4 border-b border-slate-200 pb-5 lg:flex-row lg:items-center lg:justify-between">
+      <MobileBottomNav items={mobileBottomNavItems} ariaLabel="Graduate portal mobile navigation" className="xl:hidden" />
+
+      <main className="relative z-0 mx-auto max-w-screen-2xl px-3 py-4 pb-[calc(6rem+env(safe-area-inset-bottom))] sm:px-6 sm:py-6 xl:pb-10">
+        <section className="mb-4 flex flex-col gap-3 border-b border-slate-200 pb-4 sm:mb-5 sm:gap-4 sm:pb-5 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 items-start gap-3">
-            <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-700 text-white shadow-sm">
-              <ActiveNavIcon className="h-6 w-6" />
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-700 text-white shadow-sm sm:h-12 sm:w-12 sm:rounded-2xl">
+              <ActiveNavIcon className="h-5 w-5 sm:h-6 sm:w-6" />
             </span>
             <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-blue-700">GradTrack Community</p>
-              <h1 className="mt-1 text-2xl font-bold text-slate-900 sm:text-3xl">{pageHeading.title}</h1>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-blue-700 sm:text-xs sm:tracking-[0.22em]">GradTrack Community</p>
+              <h1 className="mt-0.5 break-words text-xl font-bold text-slate-900 sm:mt-1 sm:text-3xl">{pageHeading.title}</h1>
               <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">{pageHeading.subtitle}</p>
             </div>
           </div>
@@ -5380,7 +5377,7 @@ export default function GraduatePortal() {
                   </div>
 
                   <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-                    <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+                    <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:rounded-[32px] sm:p-6">
                       <div className="flex flex-wrap items-center justify-between gap-4">
                         <div>
                           <p className="text-sm font-semibold text-slate-500">Access Snapshot</p>
@@ -5401,7 +5398,7 @@ export default function GraduatePortal() {
                     </div>
 
                     <div className="space-y-4">
-                      <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+                      <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:rounded-[32px] sm:p-6">
                         <h3 className="text-lg font-bold text-slate-900">Eligibility</h3>
                         <div className="mt-4 space-y-3 text-sm">
                           <StatusRow label="Employment status" value={ratingSummary?.status_flags.is_employed ? 'Employed' : 'Not employed'} positive={!!ratingSummary?.status_flags.is_employed} />
@@ -5638,7 +5635,7 @@ export default function GraduatePortal() {
 
               {activeTab === 'jobs' && !unavailableForTab(activeTab) && (
                 <section className="space-y-5">
-                  <div className="rounded-[32px] border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                  <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:rounded-[32px] sm:p-5">
                     <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                       <div>
                         <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Browse Jobs</h2>
@@ -5774,7 +5771,7 @@ export default function GraduatePortal() {
               {activeTab === 'job_posting' && !unavailableForTab(activeTab) && (
                 <section className="space-y-6">
                   {!showJobPostForm && (
-                    <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-sm">
+                    <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm sm:rounded-[32px] sm:p-6">
                       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                         <div>
                           <h2 className="text-2xl font-bold text-slate-900">Job Posting</h2>
@@ -7937,7 +7934,7 @@ function DashboardCard({
           : 'border-blue-200 bg-blue-50 text-blue-800';
 
   return (
-    <div className={`rounded-[28px] border p-5 shadow-sm ${toneClass}`}>
+    <div className={`rounded-3xl border p-4 shadow-sm sm:rounded-[28px] sm:p-5 ${toneClass}`}>
       <p className="text-sm font-semibold">{label}</p>
       <p className="mt-2 text-3xl font-bold">{value}</p>
       <p className="mt-2 text-xs opacity-80">{caption}</p>
@@ -7957,7 +7954,7 @@ function InfoTile({
   onAction: () => void;
 }) {
   return (
-    <div className="rounded-[28px] border border-slate-200 bg-slate-50 p-5">
+    <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4 sm:rounded-[28px] sm:p-5">
       <h3 className="text-lg font-bold text-slate-900">{title}</h3>
       <p className="mt-2 text-sm leading-7 text-slate-600">{description}</p>
       <button type="button" onClick={onAction} className="mt-4 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100">

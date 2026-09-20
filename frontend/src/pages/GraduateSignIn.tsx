@@ -57,7 +57,7 @@ export default function GraduateSignIn() {
         title: 'Welcome Back',
         message: 'You are now logged in to the Graduate Portal.',
       });
-      setTimeout(() => navigate('/graduate/announcements'), 900);
+      setTimeout(() => navigate('/graduate/portal?tab=community_forum'), 900);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to log in right now.';
       const isPending = message.toLowerCase().includes('pending alumni verification');
@@ -93,7 +93,7 @@ export default function GraduateSignIn() {
   }
 
   if (isAuthenticated) {
-    return <Navigate to="/graduate/portal" replace />;
+    return <Navigate to="/graduate/portal?tab=community_forum" replace />;
   }
 
   const loginBackground = resolveAssetUrl(getSetting('login_background_image_path'), '/520382375_1065446909052636_3412465913398569974_n.jpg');

@@ -119,7 +119,7 @@ export default function FloatingChatWindow({
 
   if (minimized) {
     return (
-      <div className="gradtrack-messaging fixed bottom-0 right-3 z-40 w-[min(22rem,calc(100vw-1.5rem))] rounded-t-xl border border-b-0 border-slate-200 bg-white shadow-2xl sm:right-6">
+      <div className="gradtrack-messaging fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom))] right-3 z-40 w-[min(22rem,calc(100vw-1.5rem))] rounded-xl border border-slate-200 bg-white shadow-2xl sm:right-6 xl:bottom-0 xl:rounded-b-none xl:border-b-0">
         <div className="flex items-center gap-2 px-3 py-2">
           {headerIdentity}
           <button type="button" onClick={onClose} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100" aria-label="Close floating chat"><X className="h-4 w-4" /></button>
@@ -130,7 +130,7 @@ export default function FloatingChatWindow({
 
   return (
     <>
-      <section className="gradtrack-messaging fixed bottom-0 right-3 z-40 flex h-[min(34rem,calc(100vh-7rem))] w-[min(24rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-t-xl border border-b-0 border-slate-200 bg-white shadow-2xl sm:right-6" aria-label={`Floating chat with ${label}`}>
+      <section className="gradtrack-messaging fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom))] right-3 z-40 flex h-[min(34rem,calc(100dvh-11.5rem))] w-[min(24rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl sm:right-6 xl:bottom-0 xl:h-[min(34rem,calc(100vh-7rem))] xl:rounded-b-none xl:border-b-0" aria-label={`Floating chat with ${label}`}>
         <header className="flex items-center gap-2 border-b border-slate-200 px-3 py-2">
           {headerIdentity}
           <button type="button" onClick={onOpenFull} className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-500 hover:bg-slate-100" aria-label="Open full Messages page" title="Open in Messages"><ExternalLink className="h-4 w-4" /></button>
