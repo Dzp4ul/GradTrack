@@ -237,10 +237,10 @@ if (!function_exists('gradtrack_current_graduate_user')) {
                          COALESCE(NULLIF(gp.middle_name, ''), g.middle_name) AS middle_name,
                          COALESCE(NULLIF(gp.last_name, ''), g.last_name) AS last_name,
                          COALESCE(NULLIF(gp.phone_number, ''), g.phone) AS phone,
-                         COALESCE(gp.graduation_year, g.year_graduated) AS year_graduated,
+                         g.year_graduated,
                          COALESCE(NULLIF(gp.current_location, ''), g.address) AS address,
                          p.id AS program_id,
-                         COALESCE(NULLIF(gp.program_course, ''), p.name) AS program_name,
+                         p.name AS program_name,
                          p.code AS program_code
                   FROM graduate_accounts ga
                   JOIN graduates g ON ga.graduate_id = g.id

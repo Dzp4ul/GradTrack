@@ -150,6 +150,41 @@ if ($surveyId > 0) {
     $expectedSummary = $expectedAnalytics['summary'];
     $expectedResponseCount = (int)$expectedSummary['response_count'];
 
+    $dashboardResponse = dean_reports_request(
+        '/dashboard/stats.php?' . http_build_query(['survey_id' => $surveyId]),
+        $csSession
+    );
+    $dashboard = $dashboardResponse['json']['data'] ?? [];
+    $dashboardProgramCodes = array_values(array_unique(array_map(
+        static fn (array $row): string => strtoupper((string)($row['code'] ?? '')),
+        is_array($dashboard['program_stats'] ?? null) ? $dashboard['program_stats'] : []
+    )));
+    dean_reports_assert($dashboardResponse['status'] === 200, 'CCS Dean can open the department dashboard');
+    dean_reports_assert(
+        ($dashboard['scope']['program_codes'] ?? []) === ['BSCS', 'ACT']
+        && array_diff($dashboardProgramCodes, ['BSCS', 'ACT']) === [],
+        'dashboard scope and program cards contain only the authenticated Dean programs'
+    );
+    dean_reports_assert(
+        (int)($dashboard['total_responses'] ?? -1) === $expectedResponseCount
+        && (int)($dashboard['total_employed'] ?? -1) === (int)$expectedSummary['employed']
+        && ($dashboard['employment_rate'] ?? null) == $expectedSummary['employment_rate']
+        && ($dashboard['alignment_rate'] ?? null) == $expectedSummary['alignment_rate'],
+        'dashboard response, employment, and alignment metrics match canonical scoped analytics'
+    );
+
+    $dashboardDepartmentAttack = dean_reports_request(
+        '/dashboard/stats.php?' . http_build_query([
+            'survey_id' => $surveyId,
+            'department' => 'BSED',
+        ]),
+        $csSession
+    );
+    dean_reports_assert(
+        $dashboardDepartmentAttack['status'] === 403,
+        'dashboard rejects a manipulated foreign department parameter'
+    );
+
     $overviewResponse = dean_reports_request(
         '/reports/index.php?' . http_build_query(['type' => 'overview', 'survey_id' => $surveyId]),
         $csSession
@@ -316,6 +351,18 @@ if ($surveyId > 0) {
             $csSession
         );
         dean_reports_assert($programAttack['status'] === 403, 'manipulated program IDs are rejected');
+
+        $dashboardProgramAttack = dean_reports_request(
+            '/dashboard/stats.php?' . http_build_query([
+                'survey_id' => $surveyId,
+                'programId' => $foreignProgramId,
+            ]),
+            $csSession
+        );
+        dean_reports_assert(
+            $dashboardProgramAttack['status'] === 403,
+            'dashboard rejects a manipulated foreign program ID'
+        );
     }
 
     $analyticsResponse = dean_reports_request(
@@ -450,6 +497,13 @@ dean_reports_assert(
     ($coedContext['json']['data']['scope']['program_codes'] ?? []) === ['BSED', 'BEED'],
     'a different Dean account automatically receives its own department programs'
 );
+if ($surveyId > 0) {
+    $coedDashboard = dean_reports_request('/dashboard/stats.php?survey_id=' . $surveyId, $coedSession);
+    dean_reports_assert(
+        ($coedDashboard['json']['data']['scope']['program_codes'] ?? []) === ['BSED', 'BEED'],
+        'a different Dean dashboard automatically receives its own department programs'
+    );
+}
 
 $adminSession = dean_reports_seed_session((int)$researchAdmin['id']);
 $adminContext = dean_reports_request('/reports/index.php?type=report_context', $adminSession);
@@ -457,6 +511,14 @@ dean_reports_assert(
     ($adminContext['json']['data']['scope']['restricted'] ?? true) === false,
     'the existing administrator report context remains unrestricted'
 );
+if ($surveyId > 0) {
+    $adminDashboard = dean_reports_request('/dashboard/stats.php?survey_id=' . $surveyId, $adminSession);
+    dean_reports_assert(
+        $adminDashboard['status'] === 200
+        && ($adminDashboard['json']['data']['scope']['restricted'] ?? true) === false,
+        'the existing administrator dashboard remains unrestricted and functional'
+    );
+}
 if ($surveyId > 0) {
     $adminDepartmentRequest = dean_reports_request(
         '/reports/index.php?' . http_build_query([

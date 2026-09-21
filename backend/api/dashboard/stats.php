@@ -4,17 +4,64 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/survey_response_analytics.php';
 require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/admin_auth.php';
+require_once __DIR__ . '/../config/dean_program_scope.php';
 require_once __DIR__ . '/../config/graduation_years.php';
 
 $database = new Database();
 $db = $database->getConnection();
-gradtrack_require_admin_auth(
+$dashboardUser = gradtrack_require_admin_auth(
     $db,
-    ['admin', 'mis_staff', 'research_coordinator'],
+    array_merge(['admin', 'mis_staff', 'research_coordinator'], gradtrack_dean_roles()),
     'Your role cannot access administrative dashboard statistics'
 );
+$deanScope = gradtrack_dean_program_scope($db, $dashboardUser);
 gradtrack_ensure_archive_schema($db, 'graduates');
 gradtrack_ensure_archive_schema($db, 'surveys', true);
+
+if ($deanScope !== null) {
+    $allowedScopeValues = array_merge(
+        $deanScope['program_codes'],
+        [(string)$deanScope['department_code']]
+    );
+    foreach (['department', 'department_code', 'program', 'program_code'] as $scopeParameter) {
+        if (!array_key_exists($scopeParameter, $_GET)) {
+            continue;
+        }
+        $requestedValues = is_array($_GET[$scopeParameter])
+            ? $_GET[$scopeParameter]
+            : preg_split('/\s*,\s*/', (string)$_GET[$scopeParameter]);
+        $requestedValues = array_values(array_filter(array_map(
+            static fn ($value): string => strtoupper(trim((string)$value)),
+            $requestedValues ?: []
+        )));
+        if (array_diff($requestedValues, $allowedScopeValues) !== []) {
+            http_response_code(403);
+            echo json_encode([
+                'success' => false,
+                'error' => 'Unauthorized department filter',
+            ]);
+            exit;
+        }
+    }
+
+    foreach (['program_id', 'programId'] as $programIdParameter) {
+        if (!array_key_exists($programIdParameter, $_GET)) {
+            continue;
+        }
+        $requestedProgramIds = is_array($_GET[$programIdParameter])
+            ? $_GET[$programIdParameter]
+            : preg_split('/\s*,\s*/', (string)$_GET[$programIdParameter]);
+        $requestedProgramIds = array_values(array_filter(array_map('intval', $requestedProgramIds ?: [])));
+        if (array_diff($requestedProgramIds, $deanScope['program_ids']) !== []) {
+            http_response_code(403);
+            echo json_encode([
+                'success' => false,
+                'error' => 'Unauthorized program filter',
+            ]);
+            exit;
+        }
+    }
+}
 
 function getSelectedSurveyId(PDO $db): ?int
 {
@@ -53,7 +100,7 @@ function getSurveyTitle(PDO $db, ?int $surveyId): string
     return (string)($stmt->fetchColumn() ?: '');
 }
 
-function getTotalEligibleGraduates(PDO $db, ?array $allowedYears = null): int
+function getTotalEligibleGraduates(PDO $db, ?array $allowedYears = null, ?array $programCodes = null): int
 {
     $where = [gradtrack_analytics_active_graduate_condition('g')];
     $params = [];
@@ -66,21 +113,53 @@ function getTotalEligibleGraduates(PDO $db, ?array $allowedYears = null): int
             'dashboard_coverage_year'
         );
     }
-    $stmt = $db->prepare('SELECT COUNT(*) FROM graduates g WHERE ' . implode(' AND ', $where));
+
+    $normalizedProgramCodes = gradtrack_analytics_normalize_program_codes($programCodes);
+    if ($normalizedProgramCodes !== []) {
+        $placeholders = [];
+        foreach ($normalizedProgramCodes as $index => $programCode) {
+            $placeholder = ':dashboard_program_' . $index;
+            $placeholders[] = $placeholder;
+            $params[$placeholder] = $programCode;
+        }
+        $where[] = 'p.code IN (' . implode(', ', $placeholders) . ')';
+    }
+
+    $stmt = $db->prepare(
+        'SELECT COUNT(*) FROM graduates g LEFT JOIN programs p ON p.id = g.program_id WHERE '
+        . implode(' AND ', $where)
+    );
     $stmt->execute($params);
     return (int)$stmt->fetchColumn();
 }
 
-function getAverageTimeToEmployment(PDO $db): ?float
+function getAverageTimeToEmployment(PDO $db, ?array $programCodes = null): ?float
 {
-    $stmt = $db->query("
+    $where = [
+        gradtrack_analytics_active_graduate_condition('g'),
+        "e.employment_status IN ('employed', 'self_employed', 'freelance')",
+        'e.time_to_employment > 0',
+    ];
+    $params = [];
+    $normalizedProgramCodes = gradtrack_analytics_normalize_program_codes($programCodes);
+    if ($normalizedProgramCodes !== []) {
+        $placeholders = [];
+        foreach ($normalizedProgramCodes as $index => $programCode) {
+            $placeholder = ':dashboard_average_program_' . $index;
+            $placeholders[] = $placeholder;
+            $params[$placeholder] = $programCode;
+        }
+        $where[] = 'p.code IN (' . implode(', ', $placeholders) . ')';
+    }
+
+    $stmt = $db->prepare("
         SELECT AVG(e.time_to_employment)
         FROM employment e
         INNER JOIN graduates g ON g.id = e.graduate_id
-        WHERE " . gradtrack_analytics_active_graduate_condition('g') . "
-          AND e.employment_status IN ('employed', 'self_employed', 'freelance')
-          AND e.time_to_employment > 0
+        LEFT JOIN programs p ON p.id = g.program_id
+        WHERE " . implode(' AND ', $where) . "
     ");
+    $stmt->execute($params);
     $value = $stmt->fetchColumn();
     return $value !== false && $value !== null ? round((float)$value, 1) : null;
 }
@@ -127,6 +206,7 @@ function dashboardMetricPrograms(array $programs, string $metric): array
 }
 
 try {
+    $allowedProgramCodes = $deanScope['program_codes'] ?? null;
     $selectedSurveyId = getSelectedSurveyId($db);
     $allowedYears = null;
     if ($selectedSurveyId !== null) {
@@ -143,7 +223,7 @@ try {
             exit;
         }
     }
-    $totalEligibleGraduates = getTotalEligibleGraduates($db, $allowedYears);
+    $totalEligibleGraduates = getTotalEligibleGraduates($db, $allowedYears, $allowedProgramCodes);
     $activeSurveys = (int)$db->query(
         "SELECT COUNT(*) FROM surveys WHERE status = 'active' AND archived_at IS NULL"
     )->fetchColumn();
@@ -154,6 +234,9 @@ try {
         ];
     if (is_array($allowedYears)) {
         $analyticsOptions['allowed_graduation_years'] = $allowedYears;
+    }
+    if (is_array($allowedProgramCodes)) {
+        $analyticsOptions['program_codes'] = $allowedProgramCodes;
     }
     $analytics = $selectedSurveyId !== null
         ? gradtrack_analytics_calculate($db, $selectedSurveyId, $analyticsOptions)
@@ -232,7 +315,7 @@ try {
             'total_alignment_known' => (int)$summary['alignment_total'],
             'employment_rate' => $summary['employment_rate'],
             'alignment_rate' => $summary['alignment_rate'],
-            'avg_time_to_employment' => getAverageTimeToEmployment($db),
+            'avg_time_to_employment' => getAverageTimeToEmployment($db, $allowedProgramCodes),
             'selected_survey_id' => $selectedSurveyId,
             'at_risk_programs' => $atRiskPrograms,
             'program_stats' => $programStats,
@@ -260,6 +343,12 @@ try {
             'total_eligible_graduates' => $totalEligibleGraduates,
             'pending_responses' => $pendingResponses,
             'survey_completion_rate' => $surveyCompletionRate,
+            'scope' => $deanScope ?? [
+                'restricted' => false,
+                'display_name' => 'Norzagaray College',
+                'program_codes' => null,
+                'programs' => [],
+            ],
         ],
     ], JSON_UNESCAPED_UNICODE);
 } catch (Throwable $e) {

@@ -1006,6 +1006,16 @@ try {
         $currentPassword = isset($_POST['current_password']) ? (string) $_POST['current_password'] : '';
         $password = isset($_POST['password']) ? (string) $_POST['password'] : '';
 
+        if (array_key_exists('program_course', $_POST) || array_key_exists('graduation_year', $_POST)) {
+            http_response_code(403);
+            echo json_encode([
+                'success' => false,
+                'code' => 'EDUCATION_FIELDS_READ_ONLY',
+                'error' => 'Program and graduation year are read-only verified graduate record fields.',
+            ]);
+            exit;
+        }
+
         if ($password !== '') {
             if ($currentPassword === '') {
                 http_response_code(400);

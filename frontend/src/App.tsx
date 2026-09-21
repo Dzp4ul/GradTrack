@@ -103,7 +103,7 @@ function AdminHome() {
   }
 
   if (user?.role && DEAN_ROLES.includes(user.role)) {
-    return <Navigate to="/admin/survey-status" replace />;
+    return <Dashboard />;
   }
 
   return <Dashboard />;

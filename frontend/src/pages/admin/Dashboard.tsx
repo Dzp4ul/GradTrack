@@ -24,6 +24,7 @@ import {
 } from 'recharts';
 import { API_ENDPOINTS } from '../../config/api';
 import { getProgramColor } from '../../config/programColors';
+import { useAuth } from '../../contexts/AuthContext';
 
 const SELECTED_SURVEY_STORAGE_KEY = 'gradtrack_selected_survey_id';
 const DASHBOARD_CACHE_KEY = 'gradtrack_dashboard_cache_v3';
@@ -112,6 +113,13 @@ interface DashboardData {
   total_eligible_graduates?: number;
   pending_responses?: number;
   survey_completion_rate?: NullableRate;
+  scope?: {
+    restricted: boolean;
+    display_name: string;
+    department_code?: string;
+    department_name?: string;
+    program_codes: string[] | null;
+  };
 }
 
 interface DashboardCacheEntry {
@@ -164,14 +172,17 @@ function ProgramBreakdown({ programs, noun }: { programs: MetricProgram[]; noun:
 }
 
 export default function Dashboard() {
+  const { user } = useAuth();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [alignmentProgram, setAlignmentProgram] = useState('overall');
+  const selectedSurveyId = localStorage.getItem(SELECTED_SURVEY_STORAGE_KEY) || 'active';
+  const dashboardCacheKey = `${DASHBOARD_CACHE_KEY}:${user?.id ?? 'unknown'}:${user?.role ?? 'unknown'}:${selectedSurveyId}`;
 
   useEffect(() => {
     const controller = new AbortController();
-    const cachedRaw = sessionStorage.getItem(DASHBOARD_CACHE_KEY);
+    const cachedRaw = sessionStorage.getItem(dashboardCacheKey);
     let hasFreshCache = false;
 
     if (cachedRaw) {
@@ -183,13 +194,12 @@ export default function Dashboard() {
           hasFreshCache = true;
         }
       } catch {
-        sessionStorage.removeItem(DASHBOARD_CACHE_KEY);
+        sessionStorage.removeItem(dashboardCacheKey);
       }
     }
 
-    const selectedSurveyId = localStorage.getItem(SELECTED_SURVEY_STORAGE_KEY);
     const params = new URLSearchParams();
-    if (selectedSurveyId) params.set('survey_id', selectedSurveyId);
+    if (selectedSurveyId !== 'active') params.set('survey_id', selectedSurveyId);
     const dashboardUrl = params.size > 0
       ? `${API_ENDPOINTS.DASHBOARD}?${params.toString()}`
       : API_ENDPOINTS.DASHBOARD;
@@ -205,7 +215,7 @@ export default function Dashboard() {
       .then((dashboardData) => {
         setData(dashboardData);
         setError('');
-        sessionStorage.setItem(DASHBOARD_CACHE_KEY, JSON.stringify({
+        sessionStorage.setItem(dashboardCacheKey, JSON.stringify({
           data: dashboardData,
           storedAt: Date.now(),
         } satisfies DashboardCacheEntry));
@@ -219,7 +229,7 @@ export default function Dashboard() {
       });
 
     return () => controller.abort();
-  }, []);
+  }, [dashboardCacheKey, selectedSurveyId]);
 
   const employment = useMemo<EmploymentMetric>(() => {
     if (data?.employment) return data.employment;
@@ -299,8 +309,10 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-bold text-[#1b2a4a] sm:text-2xl">GradTrack Dashboard</h1>
-        <p className="text-sm text-gray-500">Norzagaray College</p>
+        <h1 className="text-xl font-bold text-[#1b2a4a] sm:text-2xl">
+          {data.scope?.restricted ? 'Dean Dashboard' : 'GradTrack Dashboard'}
+        </h1>
+        <p className="text-sm text-gray-500">{data.scope?.display_name || 'Norzagaray College'}</p>
       </div>
 
       {error && (

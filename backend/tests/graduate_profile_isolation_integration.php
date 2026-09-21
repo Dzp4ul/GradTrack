@@ -49,8 +49,8 @@ try {
         'birthday' => $profile['birthday'],
         'civil_status' => $profile['civil_status'],
         'sex_gender' => $profile['sex_gender'],
-        'program_course' => $profile['program_course'],
-        'graduation_year' => $profile['graduation_year'],
+        'program_course' => 'Unauthorized Program Edit',
+        'graduation_year' => '2025',
         'current_location' => 'Profile Isolation Test Location',
         'job_title' => 'Senior Software Developer',
         'company_name' => 'XYZ Company',
@@ -61,6 +61,11 @@ try {
 
     profile_test_assert($updated['job_title'] === 'Senior Software Developer', 'The editable profile job title was not updated.');
     profile_test_assert($updated['company_name'] === 'XYZ Company', 'The editable profile company was not updated.');
+    profile_test_assert(
+        $updated['program_course'] === $profile['program_course']
+        && $updated['graduation_year'] === ($profile['graduation_year'] !== null ? (int)$profile['graduation_year'] : null),
+        'Graduate profile updates cannot modify read-only education fields.'
+    );
 
     $surveyStmt->execute([':id' => $surveyResponseId]);
     $surveyAfter = $surveyStmt->fetch(PDO::FETCH_ASSOC);
@@ -88,4 +93,3 @@ try {
     fwrite(STDERR, $exception->getMessage() . PHP_EOL);
     exit(1);
 }
-

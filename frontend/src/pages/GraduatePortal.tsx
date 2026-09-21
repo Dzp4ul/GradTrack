@@ -1349,7 +1349,6 @@ export default function GraduatePortal() {
 
   const selectTab = useCallback(
     (tab: PortalTab) => {
-      setActiveTab(tab);
       if (tab === 'announcements') {
         navigate('/graduate/announcements');
         return;
@@ -4804,8 +4803,6 @@ export default function GraduatePortal() {
       formData.append('birthday', profileForm.birthday);
       formData.append('civil_status', profileForm.civil_status.trim());
       formData.append('sex_gender', profileForm.sex_gender.trim());
-      formData.append('program_course', profileForm.program_course.trim());
-      formData.append('graduation_year', profileForm.graduation_year.trim());
       formData.append('current_location', profileForm.current_location.trim());
       formData.append('job_title', profileForm.job_title.trim());
       formData.append('company_name', profileForm.company_name.trim());
@@ -4992,15 +4989,6 @@ export default function GraduatePortal() {
       if (profileForm.phone_number.trim() && !/^[0-9+()\-.\s]+$/.test(profileForm.phone_number.trim())) {
         notify('warning', 'Phone number contains unsupported characters.', 'My Profile');
         return;
-      }
-
-      if (profileForm.graduation_year.trim()) {
-        const graduationYear = Number(profileForm.graduation_year);
-        const maximumYear = new Date().getFullYear() + 1;
-        if (!Number.isInteger(graduationYear) || graduationYear < 1900 || graduationYear > maximumYear) {
-          notify('warning', `Graduation year must be between 1900 and ${maximumYear}.`, 'My Profile');
-          return;
-        }
       }
 
       const today = new Date();
@@ -6781,8 +6769,8 @@ function ProfileIdentityPanel({
   onMessage: () => void;
 }) {
   const fullName = getGraduateFullName(user);
-  const program = profile ? (profile.program_course || '') : (user?.program_name || user?.program_code || '');
-  const batch = getBatchLabel(profile ? profile.graduation_year : user?.year_graduated);
+  const program = user?.program_name || user?.program_code || profile?.program_course || '';
+  const batch = getBatchLabel(user?.year_graduated || profile?.graduation_year);
   const location = buildProfileLocation(profile, user, survey);
   const employmentStatus = profile
     ? (profile.professional_status || '')
@@ -7039,8 +7027,8 @@ function ProfileInformationCard({
     { icon: CalendarDays, label: 'Birthday', value: formatProfileDateValue(profile ? profile.birthday : getProfileFieldValue(personalFields, 'birthday')) },
     { icon: Contact, label: 'Civil Status', value: profile ? profile.civil_status : getProfileFieldValue(personalFields, 'civil_status') },
     { icon: User, label: 'Sex / Gender', value: profile ? profile.sex_gender : getProfileFieldValue(personalFields, 'sex') },
-    { icon: GraduationCap, label: 'Program / Course', value: profile ? profile.program_course : (getProfileFieldValue(educationFields, 'degree_program') || user?.program_name || user?.program_code) },
-    { icon: CalendarDays, label: 'Graduation Year / Batch', value: profile ? profile.graduation_year : (getProfileFieldValue(educationFields, 'year_graduated') || (user?.year_graduated ? String(user.year_graduated) : '')) },
+    { icon: GraduationCap, label: 'Program / Course', value: user?.program_name || user?.program_code || getProfileFieldValue(educationFields, 'degree_program') || profile?.program_course },
+    { icon: CalendarDays, label: 'Graduation Year / Batch', value: user?.year_graduated || getProfileFieldValue(educationFields, 'year_graduated') || profile?.graduation_year },
   ];
 
   return (
@@ -7079,8 +7067,8 @@ function ProfileSupplementaryDetails({
         </div>
         {canEdit && (
           <button type="button" onClick={() => onEdit('education')} className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
-            <Pencil className="h-4 w-4" />
-            Update Details
+            <GraduationCap className="h-4 w-4" />
+            View Education
           </button>
         )}
       </div>
@@ -7548,7 +7536,7 @@ function ProfileSettingsWorkspace({
   onChangeCoverPhoto: () => void;
   onRemoveCoverPhoto: () => void;
 }) {
-  const canSubmit = ['basic', 'employment', 'education', 'security'].includes(activeSection);
+  const canSubmit = ['basic', 'employment', 'security'].includes(activeSection);
   const professionalStatusOptions = ['Currently Employed', 'Self-Employed', 'Freelance', 'Not Employed'];
   const activeSectionDetails = profileEditSections.find((section) => section.key === activeSection) ?? profileEditSections[0];
 
@@ -7683,14 +7671,18 @@ function ProfileSettingsWorkspace({
             {activeSection === 'education' && (
               <div className="space-y-5">
                 <div className="rounded-2xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm leading-6 text-blue-800">
-                  Profile education changes do not modify the program and graduation year submitted in your tracer survey.
+                  Education details are read-only and come from your verified graduate record. Contact the college if a correction is needed.
                 </div>
                 <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_180px]">
                   <Field label="Program / Course">
-                    <input maxLength={180} value={form.program_course} onChange={(event) => onFormChange((current) => ({ ...current, program_course: event.target.value }))} className={inputClassName} />
+                    <div className="min-h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800" aria-readonly="true">
+                      {user?.program_name || user?.program_code || 'Not specified'}
+                    </div>
                   </Field>
                   <Field label="Graduation Year / Batch">
-                    <input type="number" min={1900} max={new Date().getFullYear() + 1} value={form.graduation_year} onChange={(event) => onFormChange((current) => ({ ...current, graduation_year: event.target.value }))} className={inputClassName} />
+                    <div className="min-h-12 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-800" aria-readonly="true">
+                      {user?.year_graduated || 'Not specified'}
+                    </div>
                   </Field>
                 </div>
               </div>

@@ -66,6 +66,7 @@ const staffNavItems: NavItem[] = [
 ];
 
 const deanNavItems: NavItem[] = [
+  { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true },
   { to: '/admin/survey-status', icon: ClipboardCheck, label: 'Survey Participation' },
   { to: '/admin/reports', icon: BarChart3, label: 'Reports & Analytics' },
 ];

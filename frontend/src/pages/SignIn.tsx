@@ -12,6 +12,7 @@ function SignIn() {
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const emailRef = useRef<HTMLInputElement>(null);
   const passwordRef = useRef<HTMLInputElement>(null);
   const { login, isAuthenticated, isLoading: authLoading } = useAuth();
   const { getSetting, resolveAssetUrl, primaryColor } = useSystemSettings();
@@ -48,12 +49,18 @@ function SignIn() {
       } else if (['mis_staff', 'research_coordinator'].includes(user.role)) {
         navigate('/admin');
       } else if (['dean_cs', 'dean_coed', 'dean_hm'].includes(user.role)) {
-        navigate('/admin/survey-status');
+        navigate('/admin');
       } else {
         navigate('/admin');
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
+      setEmail('');
+      if (passwordRef.current) {
+        passwordRef.current.value = '';
+      }
+      setShowPassword(false);
+      emailRef.current?.focus();
     } finally {
       setIsLoading(false);
     }
@@ -112,12 +119,14 @@ function SignIn() {
               </label>
               <input
                 id="email"
+                ref={emailRef}
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
                 required
+                autoComplete="email"
               />
             </div>
 
@@ -133,6 +142,7 @@ function SignIn() {
                   placeholder="••••••••"
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition pr-12"
                   required
+                  autoComplete="current-password"
                 />
                 <button
                   type="button"

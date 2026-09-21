@@ -42,7 +42,8 @@ export default function PublicNav({ active }: PublicNavProps) {
   ];
 
   return (
-    <header className="sticky top-0 z-50 border-b border-gray-200 bg-white shadow-sm">
+    <>
+      <header className="fixed inset-x-0 top-0 z-50 border-b border-gray-200 bg-white shadow-sm">
       <div className="mx-auto flex max-w-screen-2xl items-center justify-between gap-3 px-3 py-2 sm:px-6">
         <Link to="/" className="flex min-w-0 shrink items-center gap-2.5 sm:gap-3">
           <img
@@ -142,6 +143,8 @@ export default function PublicNav({ active }: PublicNavProps) {
         </div>
       </div>
       <MobileBottomNav items={mobileNavItems} ariaLabel="Public mobile navigation" className="lg:hidden" />
-    </header>
+      </header>
+      <div className="h-[53px]" aria-hidden="true" />
+    </>
   );
 }
