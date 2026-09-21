@@ -98,6 +98,11 @@ interface EmploymentTrend {
   alignment_total?: number;
 }
 
+interface EmploymentTrendChartRow extends EmploymentTrend {
+  employment_chart_rate: number;
+  alignment_chart_rate: number;
+}
+
 interface DashboardData {
   total_graduates: number;
   total_employed?: number;
@@ -136,6 +141,13 @@ interface DashboardCacheEntry {
   storedAt: number;
 }
 
+interface SurveyOption {
+  id: number;
+  title: string;
+  status: string;
+  archived_at?: string | null;
+}
+
 const numberFormatter = new Intl.NumberFormat('en-US');
 
 function formatNumber(value: number | null | undefined) {
@@ -152,6 +164,67 @@ function formatRate(value: unknown, includeSymbol = true) {
   const rate = validRate(value);
   if (rate === null) return 'No data';
   return `${rate.toFixed(1)}${includeSymbol ? '%' : ''}`;
+}
+
+function EmploymentTrendTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload?: EmploymentTrendChartRow }>;
+  label?: string | number;
+}) {
+  const row = payload?.find((item) => item.payload)?.payload;
+  if (!active || !row) return null;
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs shadow-lg">
+      <p className="mb-1 font-semibold text-[#1b2a4a]">Batch {label ?? row.year}</p>
+      <p className="text-blue-700">Employment Rate: {formatRate(row.employment_rate)}</p>
+      <p className="mt-1 text-orange-600">Alignment Rate: {formatRate(row.alignment_rate)}</p>
+    </div>
+  );
+}
+
+function DashboardSkeleton() {
+  return (
+    <div className="animate-pulse space-y-6" aria-busy="true" aria-label="Loading dashboard analytics">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="space-y-2">
+          <div className="h-7 w-52 rounded bg-gray-200" />
+          <div className="h-4 w-36 rounded bg-gray-200" />
+        </div>
+        <div className="h-10 w-full rounded-lg bg-gray-200 sm:w-80" />
+      </div>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }, (_, index) => (
+          <div key={index} className="h-48 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+            <div className="h-9 w-9 rounded-lg bg-gray-200" />
+            <div className="mt-4 h-9 w-28 rounded bg-gray-200" />
+            <div className="mt-3 h-3 w-44 max-w-full rounded bg-gray-200" />
+            <div className="mt-6 h-3 w-full rounded bg-gray-100" />
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {Array.from({ length: 2 }, (_, index) => (
+          <div key={index} className="h-[320px] rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+            <div className="h-5 w-52 rounded bg-gray-200" />
+            <div className="mt-8 h-56 rounded-lg bg-gray-100" />
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        {Array.from({ length: 2 }, (_, index) => (
+          <div key={index} className="h-64 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+            <div className="h-5 w-48 rounded bg-gray-200" />
+            <div className="mt-8 h-40 rounded-lg bg-gray-100" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function MetricBreakdown({
@@ -213,12 +286,66 @@ export default function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [requestVersion, setRequestVersion] = useState(0);
+  const [surveyOptions, setSurveyOptions] = useState<SurveyOption[]>([]);
+  const [surveysLoading, setSurveysLoading] = useState(true);
+  const [surveyOptionsError, setSurveyOptionsError] = useState('');
   const [alignmentProgram, setAlignmentProgram] = useState('overall');
-  const selectedSurveyId = localStorage.getItem(SELECTED_SURVEY_STORAGE_KEY) || 'active';
+  const [selectedSurveyId, setSelectedSurveyId] = useState(() => (
+    localStorage.getItem(SELECTED_SURVEY_STORAGE_KEY) || 'active'
+  ));
   const dashboardCacheKey = `${DASHBOARD_CACHE_KEY}:${user?.id ?? 'unknown'}:${user?.role ?? 'unknown'}:${selectedSurveyId}`;
 
   useEffect(() => {
     const controller = new AbortController();
+    let isCurrentRequest = true;
+    setSurveysLoading(true);
+    setSurveyOptionsError('');
+
+    fetch(`${API_ENDPOINTS.SURVEYS}?archive=active&limit=100`, {
+      credentials: 'include',
+      signal: controller.signal,
+    })
+      .then(async (response) => {
+        const result = await response.json();
+        if (!response.ok || !result.success || !Array.isArray(result.data)) {
+          throw new Error(result.error || 'Unable to load survey choices.');
+        }
+        return result.data as SurveyOption[];
+      })
+      .then((surveys) => {
+        if (!isCurrentRequest) return;
+        const normalized = surveys.map((survey) => ({ ...survey, id: Number(survey.id) }));
+        setSurveyOptions(normalized);
+        setSelectedSurveyId((current) => {
+          if (current === 'none') return current;
+          if (current !== 'active' && normalized.some((survey) => String(survey.id) === current)) {
+            return current;
+          }
+
+          const fallback = normalized.find((survey) => survey.status === 'active') ?? normalized[0];
+          const nextSelection = fallback ? String(fallback.id) : 'none';
+          localStorage.setItem(SELECTED_SURVEY_STORAGE_KEY, nextSelection);
+          return nextSelection;
+        });
+      })
+      .catch((requestError: unknown) => {
+        if (!isCurrentRequest || (requestError instanceof DOMException && requestError.name === 'AbortError')) return;
+        setSurveyOptionsError(requestError instanceof Error ? requestError.message : 'Unable to load survey choices.');
+      })
+      .finally(() => {
+        if (isCurrentRequest) setSurveysLoading(false);
+      });
+
+    return () => {
+      isCurrentRequest = false;
+      controller.abort();
+    };
+  }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let isCurrentRequest = true;
     const cachedRaw = sessionStorage.getItem(dashboardCacheKey);
     let hasFreshCache = false;
 
@@ -233,6 +360,12 @@ export default function Dashboard() {
       } catch {
         sessionStorage.removeItem(dashboardCacheKey);
       }
+    }
+
+    setError('');
+    if (!hasFreshCache) {
+      setData(null);
+      setLoading(true);
     }
 
     const params = new URLSearchParams();
@@ -250,6 +383,7 @@ export default function Dashboard() {
         return result.data as DashboardData;
       })
       .then((dashboardData) => {
+        if (!isCurrentRequest) return;
         setData(dashboardData);
         setError('');
         sessionStorage.setItem(dashboardCacheKey, JSON.stringify({
@@ -258,15 +392,18 @@ export default function Dashboard() {
         } satisfies DashboardCacheEntry));
       })
       .catch((requestError: unknown) => {
-        if (requestError instanceof DOMException && requestError.name === 'AbortError') return;
+        if (!isCurrentRequest || (requestError instanceof DOMException && requestError.name === 'AbortError')) return;
         setError(requestError instanceof Error ? requestError.message : 'Unable to load dashboard analytics.');
       })
       .finally(() => {
-        if (!hasFreshCache) setLoading(false);
+        if (isCurrentRequest && !hasFreshCache) setLoading(false);
       });
 
-    return () => controller.abort();
-  }, [dashboardCacheKey, selectedSurveyId]);
+    return () => {
+      isCurrentRequest = false;
+      controller.abort();
+    };
+  }, [dashboardCacheKey, requestVersion, selectedSurveyId]);
 
   const employment = useMemo<EmploymentMetric>(() => {
     if (data?.employment) return data.employment;
@@ -331,26 +468,74 @@ export default function Dashboard() {
     };
   }, [data]);
   const useBatchBreakdown = data?.scope?.restricted === true;
+  const employmentTrendChartData = useMemo<EmploymentTrendChartRow[]>(() => (
+    (data?.employment_trends ?? []).map((trend) => ({
+      ...trend,
+      // Preserve a continuous survey-scope line while the tooltip keeps the
+      // distinction between an unanswered batch and a measured 0% rate.
+      employment_chart_rate: validRate(trend.employment_rate) ?? 0,
+      alignment_chart_rate: validRate(trend.alignment_rate) ?? 0,
+    }))
+  ), [data?.employment_trends]);
 
   if (loading) {
+    return <DashboardSkeleton />;
+  }
+
+  if (!data) {
     return (
-      <div className="flex h-96 items-center justify-center">
-        <div className="h-12 w-12 animate-spin rounded-full border-b-2 border-[#1b2a4a]" />
+      <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700" role="alert">
+        <p>{error || 'Unable to load dashboard data. Please check your connection and try again.'}</p>
+        <button
+          type="button"
+          onClick={() => {
+            setError('');
+            setLoading(true);
+            setRequestVersion((version) => version + 1);
+          }}
+          className="mt-3 rounded-lg bg-red-700 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-800 focus:outline-none focus:ring-2 focus:ring-red-500/40"
+        >
+          Try Again
+        </button>
       </div>
     );
   }
 
-  if (!data) {
-    return <p className="rounded-lg border border-red-200 bg-red-50 p-4 text-red-700">{error || 'Failed to load dashboard data.'}</p>;
-  }
-
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-bold text-[#1b2a4a] sm:text-2xl">
-          {data.scope?.restricted ? 'Dean Dashboard' : 'GradTrack Dashboard'}
-        </h1>
-        <p className="text-sm text-gray-500">{data.scope?.display_name || 'Norzagaray College'}</p>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-[#1b2a4a] sm:text-2xl">
+            {data.scope?.restricted ? 'Dean Dashboard' : 'GradTrack Dashboard'}
+          </h1>
+          <p className="text-sm text-gray-500">{data.scope?.display_name || 'Norzagaray College'}</p>
+        </div>
+        <div className="flex w-full flex-col gap-1 sm:w-auto sm:min-w-[320px] sm:flex-row sm:items-center sm:gap-2">
+          <label htmlFor="dashboard-survey-filter" className="text-sm font-medium text-gray-700">Survey:</label>
+          <select
+            id="dashboard-survey-filter"
+            value={selectedSurveyId}
+            disabled={surveysLoading}
+            onChange={(event) => {
+              const nextSurveyId = event.target.value;
+              setAlignmentProgram('overall');
+              setSelectedSurveyId(nextSurveyId);
+              localStorage.setItem(SELECTED_SURVEY_STORAGE_KEY, nextSurveyId);
+            }}
+            className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-wait disabled:opacity-60 sm:min-w-[260px]"
+          >
+            {selectedSurveyId === 'active' && <option value="active">Current active survey</option>}
+            <option value="none">No active survey selected</option>
+            {surveyOptions.map((survey) => (
+              <option key={survey.id} value={survey.id}>
+                {survey.title}{survey.status === 'active' ? ' (Active)' : ' (Saved)'}
+              </option>
+            ))}
+          </select>
+          {surveyOptionsError && (
+            <span className="text-xs text-amber-700" title={surveyOptionsError}>Survey list unavailable</span>
+          )}
+        </div>
       </div>
 
       {error && (
@@ -465,18 +650,23 @@ export default function Dashboard() {
 
         <div className="rounded-xl border bg-white p-5 shadow-sm">
           <h3 className="mb-4 text-lg font-semibold text-[#1b2a4a]">Employment Trends</h3>
-          {data.employment_trends.length > 0 ? (
-            <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={data.employment_trends}>
+          {employmentTrendChartData.length > 0 ? (
+            <>
+              <ResponsiveContainer width="100%" height={260}>
+                <LineChart data={employmentTrendChartData}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="year" tick={{ fontSize: 12 }} />
                 <YAxis domain={[0, 100]} tick={{ fontSize: 12 }} tickFormatter={(value) => `${value}%`} />
-                <Tooltip formatter={(value) => formatRate(value)} contentStyle={{ borderRadius: 8 }} />
+                <Tooltip content={<EmploymentTrendTooltip />} />
                 <Legend />
-                <Line type="linear" connectNulls={false} dataKey="employment_rate" name="Employment Rate" stroke="#2563eb" strokeWidth={2.5} dot={{ r: 5 }} activeDot={{ r: 7 }} />
-                <Line type="linear" connectNulls={false} dataKey="alignment_rate" name="Alignment Rate" stroke="#f97316" strokeWidth={2.5} dot={{ r: 5 }} activeDot={{ r: 7 }} />
-              </LineChart>
-            </ResponsiveContainer>
+                <Line type="linear" dataKey="employment_chart_rate" name="Employment Rate" stroke="#2563eb" strokeWidth={2.5} dot={{ r: 5 }} activeDot={{ r: 7 }} />
+                <Line type="linear" dataKey="alignment_chart_rate" name="Alignment Rate" stroke="#f97316" strokeWidth={2.5} dot={{ r: 5 }} activeDot={{ r: 7 }} />
+                </LineChart>
+              </ResponsiveContainer>
+              <p className="mt-1 text-center text-xs text-gray-500">
+                Batches without valid answers are shown at the 0% baseline to preserve the full survey trend line; hover shows "No data."
+              </p>
+            </>
           ) : (
             <div className="flex h-64 items-center justify-center text-sm text-gray-500">No graduation-year analytics</div>
           )}
