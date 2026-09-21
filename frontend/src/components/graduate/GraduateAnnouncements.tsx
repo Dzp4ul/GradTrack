@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
   ArrowLeft,
@@ -198,6 +198,7 @@ export function AnnouncementCard({ announcement, to, compact = false }: { announ
 
 export default function GraduateAnnouncements({ announcementId, publicMode = false, basePath = '/graduate/announcements' }: { announcementId?: number; publicMode?: boolean; basePath?: string }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [announcement, setAnnouncement] = useState<Announcement | null>(null);
@@ -209,6 +210,7 @@ export default function GraduateAnnouncements({ announcementId, publicMode = fal
   const committedSearch = searchParams.get('search') || '';
   const [category, setCategory] = useState(() => searchParams.get('category') || 'all');
   const [page, setPage] = useState(() => Math.max(1, Number(searchParams.get('page') || 1)));
+  const isAnnouncementPath = location.pathname === basePath || location.pathname.startsWith(`${basePath}/`);
 
   const loadList = useCallback(async () => {
     setLoading(true);
@@ -335,13 +337,15 @@ export default function GraduateAnnouncements({ announcementId, publicMode = fal
   }, [announcementId, loadDetail, loadList, publicMode]);
 
   useEffect(() => {
-    if (announcementId) return;
+    // Route transitions keep this component mounted for one render. Do not let
+    // announcement filters erase the destination portal tab during that render.
+    if (announcementId || !isAnnouncementPath) return;
     const next = new URLSearchParams();
     if (committedSearch) next.set('search', committedSearch);
     if (category !== 'all') next.set('category', category);
     if (page > 1) next.set('page', String(page));
     setSearchParams(next, { replace: true });
-  }, [announcementId, category, committedSearch, page, setSearchParams]);
+  }, [announcementId, category, committedSearch, isAnnouncementPath, page, setSearchParams]);
 
   const openAnnouncement = (id: number) => navigate(`${basePath}/${id}`);
   const chooseCategory = (nextCategory: string) => {
