@@ -3664,9 +3664,14 @@ function DeanBatchTrendCharts({ data }: { data: BatchTrendReport[] }) {
     }))
     .slice()
     .sort((a, b) => Number(a.year_graduated) - Number(b.year_graduated));
-  const hasGraduateData = chartData.some((row) => Number(row.total_graduates) > 0);
-  const hasEmploymentData = chartData.some((row) => Number(row.employment_total) > 0);
-  const hasAlignmentData = chartData.some((row) => Number(row.alignment_total) > 0);
+  const employmentAxisMax = Math.max(
+    1,
+    ...chartData.map((row) => Number(row.employed || 0) + Number(row.unemployed || 0)),
+  );
+  const alignmentAxisMax = Math.max(
+    1,
+    ...chartData.map((row) => Number(row.aligned || 0) + Number(row.not_aligned || 0)),
+  );
 
   const countAxisLabel = {
     value: 'Number of Graduates',
@@ -3686,12 +3691,12 @@ function DeanBatchTrendCharts({ data }: { data: BatchTrendReport[] }) {
       <div className="min-w-0 rounded-xl border p-5">
         <h3 className="mb-4 text-sm font-semibold text-[#1b2a4a]">Employment Trend by Batch</h3>
         <div className="h-72 min-w-0">
-          {hasEmploymentData ? (
+          {chartData.length > 0 ? (
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData} margin={{ top: 8, right: 8, bottom: 28, left: 14 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="year_graduated" label={batchAxisLabel} minTickGap={12} />
-                <YAxis allowDecimals={false} label={countAxisLabel} width={46} />
+                <YAxis allowDecimals={false} domain={[0, employmentAxisMax]} label={countAxisLabel} width={46} />
                 <Tooltip content={<BatchTrendTooltip mode="employment" />} cursor={{ fill: '#f8fafc' }} />
                 <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
                 <Bar dataKey="employed" name="Employed" fill="#22c55e" radius={[4, 4, 0, 0]} />
@@ -3699,9 +3704,7 @@ function DeanBatchTrendCharts({ data }: { data: BatchTrendReport[] }) {
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <OverviewChartEmptyState message={hasGraduateData
-              ? 'No employment response data is available for the selected batch.'
-              : 'No graduate data is available for the selected batch.'} />
+            <OverviewChartEmptyState message="No graduation-year scope is configured for the selected survey." />
           )}
         </div>
       </div>
@@ -3709,12 +3712,12 @@ function DeanBatchTrendCharts({ data }: { data: BatchTrendReport[] }) {
       <div className="min-w-0 rounded-xl border p-5">
         <h3 className="mb-4 text-sm font-semibold text-[#1b2a4a]">Job Alignment by Batch</h3>
         <div className="h-72 min-w-0">
-          {hasAlignmentData ? (
+          {chartData.length > 0 ? (
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={chartData} margin={{ top: 8, right: 8, bottom: 28, left: 14 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} />
                 <XAxis dataKey="year_graduated" label={batchAxisLabel} minTickGap={12} />
-                <YAxis allowDecimals={false} label={countAxisLabel} width={46} />
+                <YAxis allowDecimals={false} domain={[0, alignmentAxisMax]} label={countAxisLabel} width={46} />
                 <Tooltip content={<BatchTrendTooltip mode="alignment" />} cursor={{ fill: '#f8fafc' }} />
                 <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
                 <Bar dataKey="aligned" name="Aligned" stackId="alignment" fill="#f59e0b" />
@@ -3722,9 +3725,7 @@ function DeanBatchTrendCharts({ data }: { data: BatchTrendReport[] }) {
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <OverviewChartEmptyState message={hasGraduateData
-              ? 'No job-alignment response data is available for the selected batch.'
-              : 'No graduate data is available for the selected batch.'} />
+            <OverviewChartEmptyState message="No graduation-year scope is configured for the selected survey." />
           )}
         </div>
       </div>

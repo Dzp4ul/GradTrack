@@ -27,7 +27,7 @@ import { getProgramColor } from '../../config/programColors';
 import { useAuth } from '../../contexts/AuthContext';
 
 const SELECTED_SURVEY_STORAGE_KEY = 'gradtrack_selected_survey_id';
-const DASHBOARD_CACHE_KEY = 'gradtrack_dashboard_cache_v3';
+const DASHBOARD_CACHE_KEY = 'gradtrack_dashboard_cache_v4';
 const DASHBOARD_CACHE_TTL_MS = 2 * 60 * 1000;
 const PIE_COLORS = ['#0d9488', '#e11d48'];
 
@@ -49,11 +49,19 @@ interface MetricProgram {
   distribution?: DistributionItem[];
 }
 
+interface MetricYear {
+  year: number;
+  rate: NullableRate;
+  count: number;
+  total: number;
+}
+
 interface EmploymentMetric {
   rate: NullableRate;
   employed: number;
   total: number;
   by_program: MetricProgram[];
+  by_year?: MetricYear[];
 }
 
 interface AlignmentMetric {
@@ -63,6 +71,7 @@ interface AlignmentMetric {
   total: number;
   distribution: DistributionItem[];
   by_program: MetricProgram[];
+  by_year?: MetricYear[];
 }
 
 interface ProgramStat {
@@ -145,24 +154,52 @@ function formatRate(value: unknown, includeSymbol = true) {
   return `${rate.toFixed(1)}${includeSymbol ? '%' : ''}`;
 }
 
-function ProgramBreakdown({ programs, noun }: { programs: MetricProgram[]; noun: string }) {
+function MetricBreakdown({
+  programs,
+  years,
+  noun,
+  byBatch,
+}: {
+  programs: MetricProgram[];
+  years: MetricYear[];
+  noun: string;
+  byBatch: boolean;
+}) {
+  const rows = byBatch
+    ? years.map((year) => ({
+        key: `batch-${year.year}`,
+        label: String(year.year),
+        title: `Batch ${year.year}`,
+        rate: year.rate,
+        count: year.count,
+        total: year.total,
+      }))
+    : programs.map((program) => ({
+        key: String(program.program_id ?? program.code),
+        label: program.code,
+        title: program.name,
+        rate: program.rate,
+        count: program.count,
+        total: program.total,
+      }));
+
   return (
     <details className="group mt-4 border-t border-gray-100 pt-3">
       <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-semibold text-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 dark:text-blue-300">
-        <span>View by Program</span>
+        <span>View by {byBatch ? 'Batch' : 'Program'}</span>
         <ChevronDown className="h-3.5 w-3.5 transition group-open:rotate-180" />
       </summary>
       <div className="mt-3 max-h-48 space-y-2 overflow-y-auto pr-1">
-        {programs.map((program) => (
+        {rows.map((row) => (
           <div
-            key={program.program_id ?? program.code}
+            key={row.key}
             className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 text-xs"
-            title={program.name}
+            title={row.title}
           >
-            <span className="truncate font-semibold text-gray-700">{program.code}</span>
-            <span className="tabular-nums font-semibold text-gray-700">{formatRate(program.rate)}</span>
+            <span className="truncate font-semibold text-gray-700">{byBatch ? `Batch ${row.label}` : row.label}</span>
+            <span className="tabular-nums font-semibold text-gray-700">{formatRate(row.rate)}</span>
             <span className="min-w-14 text-right tabular-nums text-gray-400">
-              {program.total > 0 ? `${formatNumber(program.count)}/${formatNumber(program.total)}` : `No ${noun}`}
+              {row.total > 0 ? `${formatNumber(row.count)}/${formatNumber(row.total)}` : `No ${noun}`}
             </span>
           </div>
         ))}
@@ -293,6 +330,7 @@ export default function Dashboard() {
       rate: validRate(data?.survey_completion_rate),
     };
   }, [data]);
+  const useBatchBreakdown = data?.scope?.restricted === true;
 
   if (loading) {
     return (
@@ -335,7 +373,12 @@ export default function Dashboard() {
               ? `${formatNumber(employment.employed)} employed / ${formatNumber(employment.total)} valid respondents`
               : 'No valid employment-status responses'}
           </p>
-          <ProgramBreakdown programs={employment.by_program} noun="responses" />
+          <MetricBreakdown
+            programs={employment.by_program}
+            years={employment.by_year ?? []}
+            noun="responses"
+            byBatch={useBatchBreakdown}
+          />
         </div>
 
         <div className="rounded-xl border bg-white p-5 shadow-sm">
@@ -351,7 +394,12 @@ export default function Dashboard() {
               ? `${formatNumber(alignment.aligned)} aligned / ${formatNumber(alignment.total)} valid applicable respondents`
               : 'No valid applicable alignment responses'}
           </p>
-          <ProgramBreakdown programs={alignment.by_program} noun="answers" />
+          <MetricBreakdown
+            programs={alignment.by_program}
+            years={alignment.by_year ?? []}
+            noun="answers"
+            byBatch={useBatchBreakdown}
+          />
         </div>
 
         <div className="rounded-lg border border-amber-200 bg-white p-5 shadow-sm">

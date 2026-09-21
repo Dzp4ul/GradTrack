@@ -172,6 +172,28 @@ if ($surveyId > 0) {
         && ($dashboard['alignment_rate'] ?? null) == $expectedSummary['alignment_rate'],
         'dashboard response, employment, and alignment metrics match canonical scoped analytics'
     );
+    if ($coverage['configured']) {
+        $expectedCoverageYears = $coverage['years'];
+        sort($expectedCoverageYears, SORT_NUMERIC);
+        $dashboardTrendYears = array_map(
+            static fn (array $row): int => (int)($row['year'] ?? 0),
+            is_array($dashboard['employment_trends'] ?? null) ? $dashboard['employment_trends'] : []
+        );
+        $dashboardEmploymentYears = array_map(
+            static fn (array $row): int => (int)($row['year'] ?? 0),
+            is_array($dashboard['employment']['by_year'] ?? null) ? $dashboard['employment']['by_year'] : []
+        );
+        $dashboardAlignmentYears = array_map(
+            static fn (array $row): int => (int)($row['year'] ?? 0),
+            is_array($dashboard['alignment']['by_year'] ?? null) ? $dashboard['alignment']['by_year'] : []
+        );
+        dean_reports_assert(
+            $dashboardTrendYears === $expectedCoverageYears
+            && $dashboardEmploymentYears === $expectedCoverageYears
+            && $dashboardAlignmentYears === $expectedCoverageYears,
+            'Dean dashboard trends and stat-card breakdowns include every configured survey batch'
+        );
+    }
 
     $dashboardDepartmentAttack = dean_reports_request(
         '/dashboard/stats.php?' . http_build_query([
@@ -231,6 +253,14 @@ if ($surveyId > 0) {
         && $batchTrendYears === $sortedBatchTrendYears,
         'Dean batch trend analytics load in chronological order'
     );
+    if ($coverage['configured']) {
+        $expectedCoverageYears = $coverage['years'];
+        sort($expectedCoverageYears, SORT_NUMERIC);
+        dean_reports_assert(
+            $batchTrendYears === $expectedCoverageYears,
+            'Employment and alignment batch charts include the complete selected survey year scope'
+        );
+    }
 
     $expectedBatchOptions = $expectedOptions;
     $expectedBatchOptions['include_empty_years'] = true;
@@ -480,12 +510,17 @@ if ($surveyId > 0) {
                 $csSession
             );
             $emptyBatchTrendRow = $emptyBatchTrend['json']['data'][0] ?? [];
+            $emptyBatchGraduateCount = (int)($emptyBatchTrendRow['total_graduates'] ?? 0);
+            $emptyBatchRetrievalRate = $emptyBatchTrendRow['retrieval_rate'] ?? null;
+            $emptyBatchRetrievalIsValid = $emptyBatchGraduateCount > 0
+                ? is_numeric($emptyBatchRetrievalRate) && (float)$emptyBatchRetrievalRate === 0.0
+                : $emptyBatchRetrievalRate === null;
             dean_reports_assert(
                 $emptyBatchTrend['status'] === 200
-                && (int)($emptyBatchTrendRow['total_graduates'] ?? 0) > 0
+                && (string)($emptyBatchTrendRow['year_graduated'] ?? '') === $zeroResponseYear
                 && (int)($emptyBatchTrendRow['survey_responses'] ?? -1) === 0
-                && (float)($emptyBatchTrendRow['retrieval_rate'] ?? -1) === 0.0,
-                'a graduate batch with no responses returns a safe 0% retrieval rate'
+                && $emptyBatchRetrievalIsValid,
+                'a survey batch with no responses remains visible with a safe empty retrieval rate'
             );
         }
     }

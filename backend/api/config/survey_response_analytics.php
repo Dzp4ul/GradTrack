@@ -547,13 +547,42 @@ function gradtrack_analytics_fetch_year_dimensions(PDO $db, array $options = [])
         if ($year < 1900 || $year > 2099) {
             continue;
         }
-        $years[] = [
+        $years[$year] = [
             'year' => $year,
             'active_graduate_count' => (int)$row['active_graduate_count'],
         ];
     }
 
-    return $years;
+    // Survey coverage is a reporting dimension, not just a database filter.
+    // Seed every configured batch so charts retain the complete survey scope
+    // even when a batch has no graduate record or submitted response yet.
+    if (array_key_exists('allowed_graduation_years', $options)) {
+        $coverageYears = is_array($options['allowed_graduation_years'])
+            ? array_map('intval', $options['allowed_graduation_years'])
+            : [];
+        $coverageYears = array_values(array_unique(array_filter(
+            $coverageYears,
+            static fn (int $year): bool => $year >= 1900 && $year <= 2099
+        )));
+        sort($coverageYears, SORT_NUMERIC);
+
+        $selectedYear = (int)($options['graduation_year'] ?? 0);
+        if ($selectedYear >= 1900 && $selectedYear <= 2099) {
+            $coverageYears = in_array($selectedYear, $coverageYears, true) ? [$selectedYear] : [];
+        }
+
+        foreach ($coverageYears as $coverageYear) {
+            if (!isset($years[$coverageYear])) {
+                $years[$coverageYear] = [
+                    'year' => $coverageYear,
+                    'active_graduate_count' => 0,
+                ];
+            }
+        }
+    }
+
+    ksort($years, SORT_NUMERIC);
+    return array_values($years);
 }
 
 function gradtrack_analytics_question_roles(array $questions): array

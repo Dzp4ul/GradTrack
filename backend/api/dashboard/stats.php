@@ -205,6 +205,19 @@ function dashboardMetricPrograms(array $programs, string $metric): array
     }, $programs);
 }
 
+function dashboardMetricYears(array $years, string $metric): array
+{
+    return array_map(static function (array $stats) use ($metric): array {
+        $employment = $metric === 'employment';
+        return [
+            'year' => (int)$stats['year'],
+            'rate' => $employment ? $stats['employment_rate'] : $stats['alignment_rate'],
+            'count' => (int)($employment ? $stats['employed'] : $stats['aligned']),
+            'total' => (int)($employment ? $stats['employment_total'] : $stats['alignment_total']),
+        ];
+    }, $years);
+}
+
 try {
     $allowedProgramCodes = $deanScope['program_codes'] ?? null;
     $selectedSurveyId = getSelectedSurveyId($db);
@@ -300,6 +313,8 @@ try {
 
     $employmentPrograms = dashboardMetricPrograms($analytics['by_program'], 'employment');
     $alignmentPrograms = dashboardMetricPrograms($analytics['by_program'], 'alignment');
+    $employmentYears = dashboardMetricYears($analytics['by_year'], 'employment');
+    $alignmentYears = dashboardMetricYears($analytics['by_year'], 'alignment');
 
     echo json_encode([
         'success' => true,
@@ -326,6 +341,7 @@ try {
                 'employed' => (int)$summary['employed'],
                 'total' => (int)$summary['employment_total'],
                 'by_program' => $employmentPrograms,
+                'by_year' => $employmentYears,
             ],
             'alignment' => [
                 'rate' => $summary['alignment_rate'],
@@ -334,6 +350,7 @@ try {
                 'total' => (int)$summary['alignment_total'],
                 'distribution' => $summary['distribution'],
                 'by_program' => $alignmentPrograms,
+                'by_year' => $alignmentYears,
             ],
             'top_jobs' => [],
             'recommended_actions' => array_slice($actions, 0, 5),

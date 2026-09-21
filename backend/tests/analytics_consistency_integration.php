@@ -141,15 +141,16 @@ try {
             );
         }
 
-        $expectedYears = array_map(
-            static fn (array $row): int => (int)$row['year'],
-            gradtrack_analytics_fetch_year_dimensions($db, $coverageOptions)
-        );
+        $expectedYears = $coverage['years'];
+        sort($expectedYears, SORT_NUMERIC);
         $actualYears = array_map(static fn (array $row): int => (int)$row['year'], $years);
-        analytics_assert($actualYears === $expectedYears, 'trend years exactly match active-survey graduate years');
+        analytics_assert(
+            $actualYears === $expectedYears,
+            'trend years exactly match the complete configured survey scope, including empty batches'
+        );
         $sortedYears = $actualYears;
         sort($sortedYears, SORT_NUMERIC);
-        analytics_assert($actualYears === $sortedYears, 'trend years are sorted ascending without a generated date window');
+        analytics_assert($actualYears === $sortedYears, 'trend years are sorted in ascending batch order');
 
         $empty = gradtrack_analytics_finalize_bucket(gradtrack_analytics_empty_bucket());
         analytics_assert($empty['employment_rate'] === null, 'no employment answers returns No data instead of a fake 0%');
