@@ -121,6 +121,12 @@ function alumni_registry_sort_clause(array $input): string
 
 function alumni_registry_cast_record(array $row): array
 {
+    $row['full_name'] = gradtrack_uppercase_name($row['full_name'] ?? '');
+    foreach (['linked_first_name', 'linked_middle_name', 'linked_last_name'] as $nameKey) {
+        if (array_key_exists($nameKey, $row)) {
+            $row[$nameKey] = gradtrack_uppercase_nullable_name($row[$nameKey]);
+        }
+    }
     $row['id'] = (int) $row['id'];
     $row['course_id'] = $row['course_id'] !== null ? (int) $row['course_id'] : null;
     $row['batch_year'] = (int) $row['batch_year'];
@@ -146,7 +152,10 @@ function alumni_registry_clean_review_reason($value): ?string
 
 function alumni_registry_cast_account_review_row(array $row): array
 {
-    $fullName = trim((string) ($row['first_name'] ?? '') . ' ' . ((string) ($row['middle_name'] ?? '') !== '' ? (string) $row['middle_name'] . ' ' : '') . (string) ($row['last_name'] ?? ''));
+    $firstName = gradtrack_uppercase_name($row['first_name'] ?? '');
+    $middleName = gradtrack_uppercase_nullable_name($row['middle_name'] ?? null);
+    $lastName = gradtrack_uppercase_name($row['last_name'] ?? '');
+    $fullName = trim($firstName . ' ' . ($middleName !== null ? $middleName . ' ' : '') . $lastName);
 
     return [
         'account_id' => (int) $row['account_id'],
@@ -160,9 +169,9 @@ function alumni_registry_cast_account_review_row(array $row): array
         'reviewed_by_name' => $row['reviewed_by_name'],
         'full_name' => $fullName,
         'student_id' => $row['student_id'],
-        'first_name' => $row['first_name'],
-        'middle_name' => $row['middle_name'],
-        'last_name' => $row['last_name'],
+        'first_name' => $firstName,
+        'middle_name' => $middleName,
+        'last_name' => $lastName,
         'phone' => $row['phone'],
         'year_graduated' => $row['year_graduated'] !== null ? (int) $row['year_graduated'] : null,
         'address' => $row['address'],
@@ -172,7 +181,7 @@ function alumni_registry_cast_account_review_row(array $row): array
         'source_survey_response_id' => $row['source_survey_response_id'] !== null ? (int) $row['source_survey_response_id'] : null,
         'survey_submitted_at' => $row['survey_submitted_at'],
         'linked_registry_id' => $row['linked_registry_id'] !== null ? (int) $row['linked_registry_id'] : null,
-        'linked_registry_name' => $row['linked_registry_name'],
+        'linked_registry_name' => gradtrack_uppercase_nullable_name($row['linked_registry_name'] ?? null),
         'linked_registry_status' => $row['linked_registry_status'],
         'linked_registry_course_code' => $row['linked_registry_course_code'],
         'linked_registry_batch_year' => $row['linked_registry_batch_year'] !== null ? (int) $row['linked_registry_batch_year'] : null,
@@ -426,6 +435,7 @@ function alumni_registry_verified_registry_for_account(PDO $db, int $accountId):
                             WHERE id = :id");
     $update->execute([':id' => (int) $record['id']]);
     $record['registration_status'] = 'Verified';
+    $record['full_name'] = gradtrack_uppercase_name($record['full_name'] ?? '');
 
     return $record;
 }
@@ -560,7 +570,9 @@ function alumni_registry_export_rows(PDO $db): array
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $rows[] = [
             'No.' => $rowNumber,
-            'Alumni Name' => gradtrack_alumni_registry_safe_export_value($row['full_name'] ?? ''),
+            'Alumni Name' => gradtrack_alumni_registry_safe_export_value(
+                gradtrack_uppercase_name($row['full_name'] ?? '')
+            ),
             'Course' => gradtrack_alumni_registry_safe_export_value($row['course_name'] ?? ''),
             'Batch' => gradtrack_alumni_registry_safe_export_value($row['batch_year'] ?? ''),
         ];
@@ -796,7 +808,9 @@ function alumni_registry_handle_update(PDO $db, array $admin): void
         alumni_registry_json_error(409, 'Restore this alumni record before editing it');
     }
 
-    $fullName = gradtrack_alumni_registry_clean_text($data['full_name'] ?? $existing['full_name'], 180);
+    $fullName = gradtrack_uppercase_name(
+        gradtrack_alumni_registry_clean_text($data['full_name'] ?? $existing['full_name'], 180)
+    );
     if ($fullName === '' || gradtrack_alumni_registry_is_placeholder_name($fullName)) {
         alumni_registry_json_error(400, 'A valid alumni name is required');
     }
@@ -821,9 +835,15 @@ function alumni_registry_handle_update(PDO $db, array $admin): void
 
     $linkedUpdate = null;
     if (!empty($existing['linked_user_id']) && !empty($existing['linked_graduate_id'])) {
-        $firstName = gradtrack_alumni_registry_clean_text($data['linked_first_name'] ?? $existing['linked_first_name'], 50);
-        $middleName = gradtrack_alumni_registry_clean_text($data['linked_middle_name'] ?? $existing['linked_middle_name'], 100);
-        $lastName = gradtrack_alumni_registry_clean_text($data['linked_last_name'] ?? $existing['linked_last_name'], 50);
+        $firstName = gradtrack_uppercase_name(
+            gradtrack_alumni_registry_clean_text($data['linked_first_name'] ?? $existing['linked_first_name'], 50)
+        );
+        $middleName = gradtrack_uppercase_name(
+            gradtrack_alumni_registry_clean_text($data['linked_middle_name'] ?? $existing['linked_middle_name'], 100)
+        );
+        $lastName = gradtrack_uppercase_name(
+            gradtrack_alumni_registry_clean_text($data['linked_last_name'] ?? $existing['linked_last_name'], 50)
+        );
         $studentId = gradtrack_alumni_registry_clean_text($data['linked_student_id'] ?? $existing['linked_student_id'], 20);
         $email = strtolower(gradtrack_alumni_registry_clean_text(
             $data['linked_email'] ?? ($existing['linked_email'] ?? $existing['linked_graduate_email']),

@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/name_format.php';
 
 if (!function_exists('gradtrack_ensure_graduate_profile_table')) {
     function gradtrack_ensure_graduate_profile_table(PDO $db): void
@@ -237,8 +238,10 @@ if (!function_exists('gradtrack_editable_profile_ensure')) {
 if (!function_exists('gradtrack_editable_profile_validate_input')) {
     function gradtrack_editable_profile_validate_input(array $input): array
     {
-        $firstName = trim((string) ($input['first_name'] ?? ''));
-        $lastName = trim((string) ($input['last_name'] ?? ''));
+        $firstName = gradtrack_uppercase_name($input['first_name'] ?? '');
+        $lastName = gradtrack_uppercase_name($input['last_name'] ?? '');
+        $middleName = gradtrack_editable_profile_nullable_text($input['middle_name'] ?? null, 100, 'Middle name');
+        $middleName = gradtrack_uppercase_nullable_name($middleName);
         if ($firstName === '' || $lastName === '') {
             throw new InvalidArgumentException('First name and last name are required');
         }
@@ -266,7 +269,7 @@ if (!function_exists('gradtrack_editable_profile_validate_input')) {
 
         return [
             'first_name' => $firstName,
-            'middle_name' => gradtrack_editable_profile_nullable_text($input['middle_name'] ?? null, 100, 'Middle name'),
+            'middle_name' => $middleName,
             'last_name' => $lastName,
             'phone_number' => $phone,
             'birthday' => gradtrack_editable_profile_date($input['birthday'] ?? null, 'Birthday'),

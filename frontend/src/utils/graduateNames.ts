@@ -6,10 +6,10 @@ export interface ParsedGraduateName {
 }
 
 const NAME_EXTENSION_ALIASES: Record<string, string> = {
-  jr: 'Jr.',
-  'jr.': 'Jr.',
-  sr: 'Sr.',
-  'sr.': 'Sr.',
+  jr: 'JR.',
+  'jr.': 'JR.',
+  sr: 'SR.',
+  'sr.': 'SR.',
   ii: 'II',
   iii: 'III',
   iv: 'IV',
@@ -19,10 +19,12 @@ const NAME_EXTENSION_ALIASES: Record<string, string> = {
 
 const cleanNameText = (value: unknown): string => String(value ?? '').trim().replace(/\s+/g, ' ');
 
+export const uppercaseGraduateName = (value: unknown): string => cleanNameText(value).toUpperCase();
+
 export const normalizeGraduateNameExtension = (value: unknown): string => {
   const normalized = cleanNameText(value);
   if (!normalized) return '';
-  return NAME_EXTENSION_ALIASES[normalized.toLowerCase()] ?? normalized;
+  return NAME_EXTENSION_ALIASES[normalized.toLowerCase()] ?? normalized.toUpperCase();
 };
 
 const popTrailingNameExtension = (tokens: string[]): string => {
@@ -50,12 +52,12 @@ export const parseGraduateName = (fullName: unknown): ParsedGraduateName => {
 
   if (normalized.includes(',')) {
     const [lastPart, ...givenParts] = normalized.split(',');
-    const lastName = cleanNameText(lastPart);
+    const lastName = uppercaseGraduateName(lastPart);
     const tokens = cleanNameText(givenParts.join(' ')).split(' ').filter(Boolean);
     const nameExtension = popTrailingNameExtension(tokens);
     const trailingMiddleInitial = tokens.length > 1 && isMiddleInitial(tokens[tokens.length - 1]);
-    const middleName = trailingMiddleInitial ? tokens.pop() ?? '' : '';
-    const firstName = tokens.join(' ');
+    const middleName = uppercaseGraduateName(trailingMiddleInitial ? tokens.pop() ?? '' : '');
+    const firstName = uppercaseGraduateName(tokens.join(' '));
 
     return { firstName, middleName, lastName, nameExtension };
   }
@@ -68,19 +70,19 @@ export const parseGraduateName = (fullName: unknown): ParsedGraduateName => {
   // "Medico Kyla Mae J.". Preserve the legacy First-Middle-Last fallback for
   // genuinely unstructured names without that signal.
   if (tokens.length >= 3 && isMiddleInitial(tokens[tokens.length - 1])) {
-    const lastName = tokens.shift() ?? '';
-    const middleName = tokens.pop() ?? '';
-    return { firstName: tokens.join(' '), middleName, lastName, nameExtension };
+    const lastName = uppercaseGraduateName(tokens.shift() ?? '');
+    const middleName = uppercaseGraduateName(tokens.pop() ?? '');
+    return { firstName: uppercaseGraduateName(tokens.join(' ')), middleName, lastName, nameExtension };
   }
 
   if (tokens.length === 1) {
-    return { firstName: tokens[0], middleName: '', lastName: '', nameExtension };
+    return { firstName: uppercaseGraduateName(tokens[0]), middleName: '', lastName: '', nameExtension };
   }
 
   return {
-    firstName: tokens[0],
-    middleName: tokens.slice(1, -1).join(' '),
-    lastName: tokens[tokens.length - 1],
+    firstName: uppercaseGraduateName(tokens[0]),
+    middleName: uppercaseGraduateName(tokens.slice(1, -1).join(' ')),
+    lastName: uppercaseGraduateName(tokens[tokens.length - 1]),
     nameExtension,
   };
 };

@@ -8,33 +8,33 @@ import {
 import { parseGraduateName } from '../src/utils/graduateNames.ts';
 
 assert.deepEqual(parseGraduateName('Manansala, John Paul U.'), {
-  firstName: 'John Paul',
+  firstName: 'JOHN PAUL',
   middleName: 'U.',
-  lastName: 'Manansala',
+  lastName: 'MANANSALA',
   nameExtension: '',
 });
 assert.deepEqual(parseGraduateName('Medico Kyla Mae J. '), {
-  firstName: 'Kyla Mae',
+  firstName: 'KYLA MAE',
   middleName: 'J.',
-  lastName: 'Medico',
+  lastName: 'MEDICO',
   nameExtension: '',
 });
 assert.deepEqual(parseGraduateName('Bernabe, Joseph Ian DG.'), {
-  firstName: 'Joseph Ian',
+  firstName: 'JOSEPH IAN',
   middleName: 'DG.',
-  lastName: 'Bernabe',
+  lastName: 'BERNABE',
   nameExtension: '',
 });
 assert.deepEqual(parseGraduateName('Cruz, Gabriel'), {
-  firstName: 'Gabriel',
+  firstName: 'GABRIEL',
   middleName: '',
-  lastName: 'Cruz',
+  lastName: 'CRUZ',
   nameExtension: '',
 });
 assert.deepEqual(parseGraduateName('Dela Cruz, Maria Angelica'), {
-  firstName: 'Maria Angelica',
+  firstName: 'MARIA ANGELICA',
   middleName: '',
-  lastName: 'Dela Cruz',
+  lastName: 'DELA CRUZ',
   nameExtension: '',
 });
 
@@ -87,7 +87,10 @@ const adminLayout = await readFile(new URL('../src/pages/admin/AdminLayout.tsx',
 const registrarNavigation = adminLayout.match(/const registrarNavItems:[\s\S]*?= \[([\s\S]*?)\];/)?.[1] ?? '';
 assert.doesNotMatch(registrarNavigation, /Manage Graduates/);
 assert.doesNotMatch(registrarNavigation, /Dashboard/);
-assert.match(adminLayout, /user\?\.role === 'registrar' \? 'Registrar Panel' : 'Admin Panel'/);
+assert.match(
+  adminLayout,
+  /const panelLabel = user\?\.role === 'registrar'[\s\S]*?'Registrar Panel'[\s\S]*?: 'Admin Panel'/,
+);
 assert.match(adminLayout, /navItems\.length > 0 && \(\s*<button[\s\S]*aria-label="Toggle mobile navigation"/);
 
 const forum = await readFile(new URL('../src/pages/GraduatePortal.tsx', import.meta.url), 'utf8');

@@ -742,7 +742,7 @@ export default function GraduateParticipation() {
                       <td className="px-4 py-3 font-mono text-xs">{row.student_id || '-'}</td>
                       <td className="px-4 py-3">
                         <p className="font-medium text-[#1b2a4a]">
-                          {row.last_name}, {row.first_name}{row.middle_name ? ` ${row.middle_name.charAt(0)}.` : ''}
+                          {getGraduateDisplayName(row)}
                         </p>
                         <p className={`text-xs ${row.has_email ? 'text-gray-400' : 'text-red-500'}`}>
                           {row.email || 'No email address'}
@@ -912,7 +912,7 @@ function SummaryCard({ icon, label, value, cardClass }: { icon: ReactNode; label
 }
 
 function getGraduateDisplayName(row: GraduateParticipationRow) {
-  return `${row.last_name}, ${row.first_name}${row.middle_name ? ` ${row.middle_name.charAt(0)}.` : ''}`;
+  return `${row.last_name}, ${row.first_name}${row.middle_name ? ` ${row.middle_name.charAt(0)}.` : ''}`.toUpperCase();
 }
 
 function isStructuredAnswer(value: unknown) {

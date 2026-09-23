@@ -318,7 +318,7 @@ function extractRowsFromSheet(workbook: SpreadsheetWorkbook, sheetName: string):
   const detected: ImportRow[] = [];
   for (let index = headerMap.rowIndex + 1; index < rows.length; index += 1) {
     const row = rows[index] || [];
-    const name = cellToText(row[headerMap.nameIndex]);
+    const name = cellToText(row[headerMap.nameIndex]).toUpperCase();
     const course = cellToText(row[headerMap.courseIndex]);
     const batch = cellToText(row[headerMap.batchIndex]);
     if (name === '' && course === '' && batch === '') continue;
@@ -2123,7 +2123,7 @@ function EditModal({
           <Field label="Alumni Name">
             <input
               value={form.full_name}
-              onChange={(event) => onChange({ ...form, full_name: event.target.value })}
+              onChange={(event) => onChange({ ...form, full_name: event.target.value.toUpperCase() })}
               required
               className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
@@ -2175,7 +2175,7 @@ function EditModal({
                 <Field label="First Name">
                   <input
                     value={form.linked_first_name}
-                    onChange={(event) => onChange({ ...form, linked_first_name: event.target.value })}
+                    onChange={(event) => onChange({ ...form, linked_first_name: event.target.value.toUpperCase() })}
                     required
                     autoComplete="given-name"
                     maxLength={100}
@@ -2185,7 +2185,7 @@ function EditModal({
                 <Field label="Middle Name">
                   <input
                     value={form.linked_middle_name}
-                    onChange={(event) => onChange({ ...form, linked_middle_name: event.target.value })}
+                    onChange={(event) => onChange({ ...form, linked_middle_name: event.target.value.toUpperCase() })}
                     autoComplete="additional-name"
                     maxLength={100}
                     className="w-full rounded-lg border bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -2194,7 +2194,7 @@ function EditModal({
                 <Field label="Last Name">
                   <input
                     value={form.linked_last_name}
-                    onChange={(event) => onChange({ ...form, linked_last_name: event.target.value })}
+                    onChange={(event) => onChange({ ...form, linked_last_name: event.target.value.toUpperCase() })}
                     required
                     autoComplete="family-name"
                     maxLength={100}

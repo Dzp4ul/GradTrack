@@ -20,6 +20,11 @@ $nameB = gradtrack_alumni_registry_normalize_name('Dela Cruz, Vianne Kay G.');
 $nameC = gradtrack_alumni_registry_normalize_name('Vianne Kay G. Dela Cruz');
 $nameD = gradtrack_alumni_registry_normalize_name('DELA  CRUZ,  VIANNE KAY G.');
 
+alumni_registry_test_assert(
+    gradtrack_uppercase_name('  Dela   Cruz, Vianne Kay G. ') === 'DELA CRUZ, VIANNE KAY G.',
+    'graduate and alumni display names are stored in uppercase with normalized spaces'
+);
+
 alumni_registry_test_assert($nameA === $nameB, 'case-insensitive duplicate names match');
 alumni_registry_test_assert($nameA === $nameC, 'last-name-comma format matches given-name-first format');
 alumni_registry_test_assert($nameA === $nameD, 'repeated spaces do not change duplicate matching');

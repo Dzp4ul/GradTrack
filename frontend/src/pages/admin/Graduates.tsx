@@ -10,7 +10,7 @@ import {
   resolveGraduateImportProgramId,
   resolveImportedGraduationYear,
 } from '../../utils/graduateImport';
-import { parseGraduateName } from '../../utils/graduateNames';
+import { parseGraduateName, uppercaseGraduateName } from '../../utils/graduateNames';
 import { normalizeGraduationYear, normalizeGraduationYears } from '../../utils/graduationYears';
 
 const API_BASE = API_ROOT;
@@ -99,7 +99,7 @@ const PROGRAM_DURATION_YEARS: Record<string, number> = {
   ACT: 2,
 };
 
-const NAME_EXTENSION_OPTIONS = ['', 'Jr.', 'Sr.', 'II', 'III', 'IV', 'V', 'VI'];
+const NAME_EXTENSION_OPTIONS = ['', 'JR.', 'SR.', 'II', 'III', 'IV', 'V', 'VI'];
 
 const normalizeText = (value: unknown): string => {
   if (value === null || value === undefined) return '';
@@ -126,10 +126,10 @@ const pickValue = (row: Record<string, unknown>, keys: string[]): string => {
 };
 
 const NAME_EXTENSION_ALIASES: Record<string, string> = {
-  jr: 'Jr.',
-  'jr.': 'Jr.',
-  sr: 'Sr.',
-  'sr.': 'Sr.',
+  jr: 'JR.',
+  'jr.': 'JR.',
+  sr: 'SR.',
+  'sr.': 'SR.',
   ii: 'II',
   iii: 'III',
   iv: 'IV',
@@ -141,7 +141,7 @@ const normalizeNameExtension = (value: string): string => {
   const normalized = value.trim();
   if (!normalized) return '';
   const lower = normalized.toLowerCase();
-  return NAME_EXTENSION_ALIASES[lower] ?? normalized;
+  return NAME_EXTENSION_ALIASES[lower] ?? normalized.toUpperCase();
 };
 
 const formatGraduateDisplayName = (graduate: {
@@ -153,7 +153,7 @@ const formatGraduateDisplayName = (graduate: {
   const middleInitial = graduate.middle_name ? ` ${graduate.middle_name.charAt(0)}.` : '';
   const extension = normalizeText(graduate.name_extension);
   const suffix = extension ? ` ${extension}` : '';
-  return `${graduate.last_name}, ${graduate.first_name}${middleInitial}${suffix}`;
+  return `${graduate.last_name}, ${graduate.first_name}${middleInitial}${suffix}`.toUpperCase();
 };
 
 const formatImportGraduateName = (graduate: FormData): string => {
@@ -247,9 +247,9 @@ const mapExcelRowToPayload = (
   const fullName = pickValue(row, ['Name', 'Full Name', 'Name of Student', 'Name of Students', 'Student Name', 'Graduate Name', 'full_name', 'fullName']);
   const parsedName = parseGraduateName(fullName);
 
-  const firstName = pickValue(row, ['First Name', 'first_name', 'firstName']) || parsedName.firstName;
-  const middleName = pickValue(row, ['Middle Name', 'middle_name', 'middleName']) || parsedName.middleName;
-  const lastName = pickValue(row, ['Last Name', 'last_name', 'lastName']) || parsedName.lastName;
+  const firstName = uppercaseGraduateName(pickValue(row, ['First Name', 'first_name', 'firstName']) || parsedName.firstName);
+  const middleName = uppercaseGraduateName(pickValue(row, ['Middle Name', 'middle_name', 'middleName']) || parsedName.middleName);
+  const lastName = uppercaseGraduateName(pickValue(row, ['Last Name', 'last_name', 'lastName']) || parsedName.lastName);
   const nameExtension = normalizeNameExtension(
     pickValue(row, ['Name Extension', 'Name Ext', 'Suffix', 'name_extension', 'nameExtension', 'suffix']) || parsedName.nameExtension
   );
@@ -957,7 +957,9 @@ export default function Graduates() {
         ? formatStudentId(value)
         : field === 'phone'
           ? formatContactNumber(value)
-          : value;
+          : ['first_name', 'middle_name', 'last_name', 'name_extension'].includes(field)
+            ? uppercaseGraduateName(value)
+            : value;
       const next = { ...prev, [field]: normalizedValue };
 
       if (field === 'student_id' || field === 'program_id') {

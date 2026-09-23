@@ -6,6 +6,7 @@ require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/admin_auth.php';
 require_once __DIR__ . '/../config/graduation_years.php';
 require_once __DIR__ . '/../config/permanent_delete.php';
+require_once __DIR__ . '/../config/name_format.php';
 
 function normalize_nullable_text($value) {
     if (!isset($value)) {
@@ -262,8 +263,10 @@ try {
             $studentId = normalize_nullable_text($data['student_id'] ?? null);
             $email = normalize_nullable_text($data['email'] ?? null);
             $phone = normalize_nullable_text($data['phone'] ?? null);
-            $middleName = normalize_nullable_text($data['middle_name'] ?? null);
-            $nameExtension = normalize_name_extension($data['name_extension'] ?? null);
+            $firstName = gradtrack_uppercase_name($data['first_name'] ?? '');
+            $middleName = gradtrack_uppercase_nullable_name($data['middle_name'] ?? null);
+            $lastName = gradtrack_uppercase_name($data['last_name'] ?? '');
+            $nameExtension = gradtrack_uppercase_nullable_name(normalize_name_extension($data['name_extension'] ?? null));
             $address = normalize_nullable_text($data['address'] ?? null);
             $companyName = normalize_nullable_text($data['company_name'] ?? null);
             $jobTitle = normalize_nullable_text($data['job_title'] ?? null);
@@ -312,9 +315,9 @@ try {
                 ");
                 $stmt->execute([
                     ':student_id' => $studentId,
-                    ':first_name' => $data['first_name'],
+                    ':first_name' => $firstName,
                     ':middle_name' => $middleName,
-                    ':last_name' => $data['last_name'],
+                    ':last_name' => $lastName,
                     ':name_extension' => $nameExtension,
                     ':email' => $email,
                     ':phone' => $phone,
@@ -329,9 +332,9 @@ try {
                 ");
                 $stmt->execute([
                     ':student_id' => $studentId,
-                    ':first_name' => $data['first_name'],
+                    ':first_name' => $firstName,
                     ':middle_name' => $middleName,
-                    ':last_name' => $data['last_name'],
+                    ':last_name' => $lastName,
                     ':email' => $email,
                     ':phone' => $phone,
                     ':program_id' => $data['program_id'] ?? null,
@@ -359,7 +362,7 @@ try {
             ]);
             $db->commit();
 
-            $graduateName = trim((string)$data['first_name'] . ' ' . (string)$data['last_name']);
+            $graduateName = trim($firstName . ' ' . $lastName);
             $programCode = graduates_program_code_from_program_id($db, $data['program_id'] ?? null);
 
             // Audit Trail: call logAuditTrail() after a graduate record is successfully added.
@@ -436,8 +439,10 @@ try {
             $studentId = normalize_nullable_text($data['student_id'] ?? null);
             $email = normalize_nullable_text($data['email'] ?? null);
             $phone = normalize_nullable_text($data['phone'] ?? null);
-            $middleName = normalize_nullable_text($data['middle_name'] ?? null);
-            $nameExtension = normalize_name_extension($data['name_extension'] ?? null);
+            $firstName = gradtrack_uppercase_name($data['first_name'] ?? '');
+            $middleName = gradtrack_uppercase_nullable_name($data['middle_name'] ?? null);
+            $lastName = gradtrack_uppercase_name($data['last_name'] ?? '');
+            $nameExtension = gradtrack_uppercase_nullable_name(normalize_name_extension($data['name_extension'] ?? null));
             $address = normalize_nullable_text($data['address'] ?? null);
             $yearGraduated = gradtrack_normalize_graduation_year($data['year_graduated'] ?? null);
             $hasNameExtensionColumn = graduates_has_name_extension_column($db);
@@ -480,9 +485,9 @@ try {
                 $stmt->execute([
                     ':id' => $data['id'],
                     ':student_id' => $studentId,
-                    ':first_name' => $data['first_name'],
+                    ':first_name' => $firstName,
                     ':middle_name' => $middleName,
-                    ':last_name' => $data['last_name'],
+                    ':last_name' => $lastName,
                     ':name_extension' => $nameExtension,
                     ':email' => $email,
                     ':phone' => $phone,
@@ -501,9 +506,9 @@ try {
                 $stmt->execute([
                     ':id' => $data['id'],
                     ':student_id' => $studentId,
-                    ':first_name' => $data['first_name'],
+                    ':first_name' => $firstName,
                     ':middle_name' => $middleName,
-                    ':last_name' => $data['last_name'],
+                    ':last_name' => $lastName,
                     ':email' => $email,
                     ':phone' => $phone,
                     ':program_id' => $data['program_id'] ?? null,
@@ -533,7 +538,7 @@ try {
             ]);
             $db->commit();
 
-            $graduateName = trim((string)$data['first_name'] . ' ' . (string)$data['last_name']);
+            $graduateName = trim($firstName . ' ' . $lastName);
             $programCode = graduates_program_code_from_program_id($db, $data['program_id'] ?? null);
 
             // Audit Trail: call logAuditTrail() after a graduate record is successfully updated.

@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/archive.php';
 require_once __DIR__ . '/admin_auth.php';
+require_once __DIR__ . '/name_format.php';
 
 if (!function_exists('gradtrack_alumni_registry_admin_roles')) {
     function gradtrack_alumni_registry_admin_roles(): array
@@ -559,7 +560,9 @@ if (!function_exists('gradtrack_alumni_registry_validate_import_rows')) {
         foreach (array_values($rows) as $index => $row) {
             $row = is_array($row) ? $row : [];
             $rowNumber = isset($row['row_number']) ? (int) $row['row_number'] : $index + 1;
-            $name = gradtrack_alumni_registry_clean_text($row['name'] ?? $row['full_name'] ?? '', 180);
+            $name = gradtrack_uppercase_name(
+                gradtrack_alumni_registry_clean_text($row['name'] ?? $row['full_name'] ?? '', 180)
+            );
             $course = gradtrack_alumni_registry_clean_text($row['course'] ?? $row['course_name'] ?? '', 180);
             $batchRaw = gradtrack_alumni_registry_clean_text($row['batch'] ?? $row['batch_year'] ?? '', 20);
 
@@ -697,7 +700,9 @@ if (!function_exists('gradtrack_alumni_registry_account_context')) {
         }
 
         $middle = gradtrack_alumni_registry_clean_text($row['middle_name'] ?? '', 100);
-        $fullName = trim((string) ($row['first_name'] ?? '') . ' ' . ($middle !== '' ? $middle . ' ' : '') . (string) ($row['last_name'] ?? ''));
+        $fullName = gradtrack_uppercase_name(
+            trim((string) ($row['first_name'] ?? '') . ' ' . ($middle !== '' ? $middle . ' ' : '') . (string) ($row['last_name'] ?? ''))
+        );
 
         return [
             'account_id' => (int) $row['account_id'],
