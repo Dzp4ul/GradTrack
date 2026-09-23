@@ -6,7 +6,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
 } from 'recharts';
-import { Download, Users, Briefcase, Target, FileText, Sparkles, TrendingUp, CheckCircle2, BarChart3, Filter, RotateCcw, Check, ChevronDown } from 'lucide-react';
+import { Download, Users, Briefcase, Target, FileText, Sparkles, TrendingUp, CheckCircle2, BarChart3, Filter, RotateCcw, Check, ChevronDown, AlertTriangle } from 'lucide-react';
 import { API_ROOT } from '../../config/api';
 import { normalizeGraduationYears } from '../../utils/graduationYears';
 import { PROGRAM_COLORS } from '../../config/programColors';
@@ -178,6 +178,91 @@ interface ReportContextData {
   filter_options?: OverviewFilterOptions;
 }
 
+interface InferentialVariable {
+  key: string;
+  label: string;
+  source: 'graduate_dimension' | 'analytics_key';
+  analytics_key?: string | null;
+}
+
+interface InferentialMetadata {
+  surveyId: number;
+  surveyTitle: string;
+  variables: InferentialVariable[];
+  filterOptions: OverviewFilterOptions;
+  fieldAvailability: Record<string, boolean>;
+}
+
+interface InferentialTableColumn {
+  key: string;
+  label: string;
+}
+
+interface InferentialTableRow {
+  key: string;
+  label: string;
+  frequencies: number[];
+  total: number;
+}
+
+interface InferentialTable {
+  rowVariable: { key: string; label: string };
+  columnVariable: { key: string; label: string };
+  columns: InferentialTableColumn[];
+  rows: InferentialTableRow[];
+  columnTotals: number[];
+  grandTotal: number;
+}
+
+interface InferentialAnalysisResult {
+  status: 'complete' | 'insufficient_variation';
+  message?: string | null;
+  survey: { id: number; title: string };
+  filters: {
+    graduationYear: string | null;
+    programId: number | null;
+    programLabel: string | null;
+  };
+  analysis: {
+    variable1: { key: string; label: string };
+    variable2: { key: string; label: string };
+    test: string;
+    validResponses: number;
+    excludedResponses: number;
+    alpha: number;
+    canCalculate: boolean;
+    chiSquare: number | null;
+    degreesOfFreedom: number | null;
+    pValue: number | null;
+    significant: boolean | null;
+    cramersV: number | null;
+    associationStrength: string | null;
+    decision: string;
+  };
+  contingencyTable: InferentialTable;
+  expectedFrequencies: Omit<InferentialTable, 'rowVariable' | 'columnVariable'> | [];
+  chartData: {
+    categories: Array<{ category: string } & Record<string, string | number>>;
+    series: Array<{ key: string; label: string }>;
+  };
+  assumptions: {
+    passed: boolean;
+    cellsBelowOne: number;
+    cellsBelowFive: number;
+    percentageBelowFive: number;
+    minimumExpected: number | null;
+    warnings: string[];
+  };
+  interpretation: string;
+}
+
+interface InferentialSettings {
+  variable1: string;
+  variable2: string;
+  graduationYear: string;
+  programId: string;
+}
+
 interface AiAnalyticsCacheEntry {
   analysis: string;
   summary: string;
@@ -229,7 +314,7 @@ interface SurveyReportChart {
 const COLORS = ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6'];
 const SURVEY_CHART_COLORS = ['#1d4ed8', '#16a34a', '#f59e0b', '#dc2626', '#7c3aed', '#0891b2', '#ea580c', '#475569'];
 const DEAN_ROLES = ['dean_cs', 'dean_coed', 'dean_hm'];
-const REPORT_TABS = ['overview', 'program', 'year', 'employment', 'salary', 'surveys'] as const;
+const REPORT_TABS = ['overview', 'program', 'year', 'employment', 'salary', 'surveys', 'inferential'] as const;
 type ReportTab = typeof REPORT_TABS[number];
 const DEFAULT_OVERVIEW_FILTERS: OverviewFilters = {
   employmentStatus: 'all',
@@ -240,6 +325,12 @@ const DEFAULT_OVERVIEW_FILTERS: OverviewFilters = {
 const SELECTED_SURVEY_STORAGE_KEY = 'gradtrack_selected_survey_id';
 const NO_SURVEY_SELECTION_VALUE = 'none';
 const ALL_SURVEY_TABLES_VALUE = 'all';
+const DEFAULT_INFERENTIAL_SETTINGS: InferentialSettings = {
+  variable1: '',
+  variable2: '',
+  graduationYear: 'all',
+  programId: 'all',
+};
 const SURVEY_REPORT_HEADER_COLOR = 'FF1B2A4A';
 const SURVEY_REPORT_TABLE_BORDER: Partial<ExcelJS.Borders> = {
   top: { style: 'thin', color: { argb: 'FF000000' } },
@@ -288,6 +379,172 @@ const formatNullableRate = (value: number | null | undefined): string => (
     ? 'No data'
     : `${Number(value).toFixed(1)}%`
 );
+
+const formatInferentialStatistic = (value: number | null | undefined, decimals = 3): string => (
+  value === null || value === undefined || !Number.isFinite(Number(value))
+    ? 'Not calculated'
+    : Number(value).toFixed(decimals)
+);
+
+const formatInferentialPValue = (value: number | null | undefined): string => {
+  if (value === null || value === undefined || !Number.isFinite(Number(value))) {
+    return 'Not calculated';
+  }
+  return Number(value) < 0.001 ? '< 0.001' : Number(value).toFixed(3);
+};
+
+interface InferentialComparisonCopy {
+  question: string;
+  differentResult: string;
+  similarResult: string;
+  differenceLabel: string;
+}
+
+const getInferentialPairKey = (result: InferentialAnalysisResult): string => (
+  [result.analysis.variable1.key, result.analysis.variable2.key].sort().join('|')
+);
+
+const getInferentialComparisonCopy = (result: InferentialAnalysisResult): InferentialComparisonCopy => {
+  switch (getInferentialPairKey(result)) {
+    case 'employment_status|graduation_year':
+      return {
+        question: 'Do employment rates differ across graduation years?',
+        differentResult: 'Employment rates differ across graduation years.',
+        similarResult: 'Employment rates are similar across graduation years.',
+        differenceLabel: 'Employment-rate difference between graduation years',
+      };
+    case 'employment_status|program':
+      return {
+        question: 'Do programs have different employment rates?',
+        differentResult: 'Employment rates differ across programs.',
+        similarResult: 'Employment rates are similar across programs.',
+        differenceLabel: 'Employment-rate difference between programs',
+      };
+    case 'employment_status|job_course_alignment':
+      return {
+        question: 'Can job alignment be compared by employment status?',
+        differentResult: 'Job-alignment results differ by employment status.',
+        similarResult: 'Job-alignment results are similar by employment status.',
+        differenceLabel: 'Job-alignment difference between employment groups',
+      };
+    case 'employment_status|work_location':
+      return {
+        question: 'Can work location be compared by employment status?',
+        differentResult: 'Work-location results differ by employment status.',
+        similarResult: 'Work-location results are similar by employment status.',
+        differenceLabel: 'Work-location difference between employment groups',
+      };
+    case 'graduation_year|job_course_alignment':
+      return {
+        question: 'Does the percentage working in course-aligned jobs change across graduation years?',
+        differentResult: 'Job-alignment rates differ across graduation years.',
+        similarResult: 'Job-alignment rates are similar across graduation years.',
+        differenceLabel: 'Job-alignment difference between graduation years',
+      };
+    case 'graduation_year|program':
+      return {
+        question: 'Does the mix of program graduates change across graduation years?',
+        differentResult: 'The mix of program graduates differs across graduation years.',
+        similarResult: 'The mix of program graduates is similar across graduation years.',
+        differenceLabel: 'Program-mix difference between graduation years',
+      };
+    case 'graduation_year|work_location':
+      return {
+        question: 'Do local and overseas work percentages change across graduation years?',
+        differentResult: 'Local and overseas work percentages differ across graduation years.',
+        similarResult: 'Local and overseas work percentages are similar across graduation years.',
+        differenceLabel: 'Work-location difference between graduation years',
+      };
+    case 'job_course_alignment|program':
+      return {
+        question: 'Do programs differ in how often graduates work in course-aligned jobs?',
+        differentResult: 'Job-alignment rates differ across programs.',
+        similarResult: 'Job-alignment rates are similar across programs.',
+        differenceLabel: 'Job-alignment difference between programs',
+      };
+    case 'job_course_alignment|work_location':
+      return {
+        question: 'Are local and overseas workers equally likely to have course-aligned jobs?',
+        differentResult: 'Job-alignment rates differ between local and overseas workers.',
+        similarResult: 'Job-alignment rates are similar for local and overseas workers.',
+        differenceLabel: 'Job-alignment difference between local and overseas workers',
+      };
+    case 'program|work_location':
+      return {
+        question: 'Do local and overseas work percentages differ across programs?',
+        differentResult: 'Local and overseas work percentages differ across programs.',
+        similarResult: 'Local and overseas work percentages are similar across programs.',
+        differenceLabel: 'Work-location difference between programs',
+      };
+    default:
+      return {
+        question: `Do the results differ between ${result.analysis.variable1.label} and ${result.analysis.variable2.label}?`,
+        differentResult: 'The groups have different results.',
+        similarResult: 'The groups have similar results.',
+        differenceLabel: 'Difference between the selected categories',
+      };
+  }
+};
+
+const getInferentialUnavailableResult = (result: InferentialAnalysisResult): string => {
+  switch (getInferentialPairKey(result)) {
+    case 'employment_status|job_course_alignment':
+      return 'Job alignment is recorded only for employed graduates, so employed and unemployed groups cannot be compared.';
+    case 'employment_status|work_location':
+      return 'Work location is recorded only for employed graduates, so employed and unemployed groups cannot be compared.';
+    default:
+      return 'These groups cannot be compared because the answers do not contain enough different categories.';
+  }
+};
+
+const getInferentialPlainOutcome = (result: InferentialAnalysisResult): string => {
+  if (!result.analysis.canCalculate) return getInferentialUnavailableResult(result);
+  const copy = getInferentialComparisonCopy(result);
+  return result.analysis.significant ? copy.differentResult : copy.similarResult;
+};
+
+const getInferentialGroupResult = (result: InferentialAnalysisResult): string => {
+  if (!result.analysis.canCalculate) return 'Cannot compare';
+  return result.analysis.significant ? 'Different' : 'Similar';
+};
+
+const getInferentialDifferenceLabel = (strength: string | null): string => {
+  switch (strength) {
+    case 'Very Weak': return 'Almost no difference';
+    case 'Weak': return 'Small difference';
+    case 'Moderate': return 'Noticeable difference';
+    case 'Strong': return 'Large difference';
+    default: return 'Cannot be measured';
+  }
+};
+
+const getInferentialStrengthExplanation = (strength: string | null): string => {
+  switch (strength) {
+    case 'Very Weak': return 'The measured difference is extremely small.';
+    case 'Weak': return 'The measured difference is small.';
+    case 'Moderate': return 'The measured difference is noticeable.';
+    case 'Strong': return 'The measured difference is large.';
+    default: return 'There is not enough comparable data to measure a difference.';
+  }
+};
+
+const buildPlainLanguageInferentialSummary = (result: InferentialAnalysisResult): string => {
+  const { analysis, assumptions } = result;
+  if (!analysis.canCalculate) {
+    return getInferentialUnavailableResult(result);
+  }
+
+  const strengthText = getInferentialStrengthExplanation(analysis.associationStrength);
+  const cautionText = assumptions.passed
+    ? ''
+    : ' Some groups contain only a small number of responses, so use this finding with caution.';
+
+  if (analysis.significant) {
+    return `${getInferentialPlainOutcome(result)} ${strengthText} This shows a pattern in the responses, but it does not mean that one factor caused the other.${cautionText}`;
+  }
+
+  return `${getInferentialPlainOutcome(result)} ${strengthText} Small differences visible in the chart are likely normal variation in the responses.${cautionText}`;
+};
 
 const getEmploymentStatusChartLabel = (status: string): string => {
   if (status === 'Employed (Local)') {
@@ -558,6 +815,12 @@ export default function Reports() {
   const [surveyAnalyticsError, setSurveyAnalyticsError] = useState('');
   const [showSurveyGraphs, setShowSurveyGraphs] = useState(false);
   const [selectedSurveyTable, setSelectedSurveyTable] = useState(ALL_SURVEY_TABLES_VALUE);
+  const [inferentialMetadata, setInferentialMetadata] = useState<InferentialMetadata | null>(null);
+  const [inferentialSettings, setInferentialSettings] = useState<InferentialSettings>({ ...DEFAULT_INFERENTIAL_SETTINGS });
+  const [inferentialResult, setInferentialResult] = useState<InferentialAnalysisResult | null>(null);
+  const [inferentialMetadataLoading, setInferentialMetadataLoading] = useState(false);
+  const [inferentialAnalysisLoading, setInferentialAnalysisLoading] = useState(false);
+  const [inferentialError, setInferentialError] = useState('');
   const reportCacheRef = useRef<Record<string, unknown>>({});
   const aiCacheRef = useRef<Record<string, AiAnalyticsCacheEntry>>({});
   const aiRequestCacheRef = useRef<Record<string, Promise<AiAnalyticsCacheEntry>>>({});
@@ -567,6 +830,7 @@ export default function Reports() {
   const reportRequestSeqRef = useRef(0);
   const overviewRequestSeqRef = useRef(0);
   const aiRequestSeqRef = useRef(0);
+  const inferentialRequestSeqRef = useRef(0);
   const selectedSurvey = surveyItems.find((survey) => Number(survey.id) === selectedSurveyId);
 
   const getReportCacheKey = (
@@ -769,6 +1033,8 @@ export default function Reports() {
     if (surveys.length === 0) {
       setSelectedSurveyId(null);
       setSurveyAnalytics(null);
+      setInferentialMetadata(null);
+      setInferentialResult(null);
       localStorage.removeItem(SELECTED_SURVEY_STORAGE_KEY);
       return;
     }
@@ -925,7 +1191,14 @@ export default function Reports() {
   };
 
   const handleSelectedSurveyChange = (surveyId: number | null) => {
+    inferentialRequestSeqRef.current += 1;
     setSelectedSurveyId(surveyId);
+    setInferentialMetadata(null);
+    setInferentialResult(null);
+    setInferentialSettings({ ...DEFAULT_INFERENTIAL_SETTINGS });
+    setInferentialError('');
+    setInferentialMetadataLoading(false);
+    setInferentialAnalysisLoading(false);
     if (!surveyId) {
       setSurveyAnalytics(null);
       setNoSurveySelectionExplicit(true);
@@ -938,6 +1211,116 @@ export default function Reports() {
 
     if (tab === 'surveys') {
       fetchSurveyAnalytics(surveyId, selectedSurveyDepartment, selectedYear);
+    }
+  };
+
+  const fetchInferentialMetadata = async (surveyId: number) => {
+    const requestId = ++inferentialRequestSeqRef.current;
+    setInferentialMetadataLoading(true);
+    setInferentialError('');
+
+    try {
+      const params = new URLSearchParams({ survey_id: surveyId.toString() });
+      const response = await fetch(`${API_BASE}/reports/inferential-analysis.php?${params.toString()}`, {
+        credentials: 'include',
+        cache: 'no-store',
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success || !payload.data) {
+        throw new Error(payload.error || 'Unable to load inferential analysis settings.');
+      }
+      if (requestId !== inferentialRequestSeqRef.current) return;
+
+      const metadata = payload.data as InferentialMetadata;
+      const availableKeys = metadata.variables.map((variable) => variable.key);
+      const preferredVariable1 = availableKeys.includes('program') ? 'program' : availableKeys[0] || '';
+      const preferredVariable2 = availableKeys.find((key) => key === 'employment_status' && key !== preferredVariable1)
+        || availableKeys.find((key) => key !== preferredVariable1)
+        || '';
+      setInferentialMetadata(metadata);
+      setInferentialSettings({
+        variable1: preferredVariable1,
+        variable2: preferredVariable2,
+        graduationYear: 'all',
+        programId: 'all',
+      });
+    } catch (error) {
+      if (requestId !== inferentialRequestSeqRef.current) return;
+      setInferentialMetadata(null);
+      setInferentialError(error instanceof Error ? error.message : 'Unable to load inferential analysis settings.');
+    } finally {
+      if (requestId === inferentialRequestSeqRef.current) {
+        setInferentialMetadataLoading(false);
+      }
+    }
+  };
+
+  const updateInferentialSetting = <K extends keyof InferentialSettings>(
+    key: K,
+    value: InferentialSettings[K],
+  ) => {
+    setInferentialSettings((current) => ({ ...current, [key]: value }));
+    setInferentialResult(null);
+    setInferentialError('');
+  };
+
+  const handleResetInferential = () => {
+    const availableKeys = inferentialMetadata?.variables.map((variable) => variable.key) ?? [];
+    const variable1 = availableKeys.includes('program') ? 'program' : availableKeys[0] || '';
+    const variable2 = availableKeys.find((key) => key === 'employment_status' && key !== variable1)
+      || availableKeys.find((key) => key !== variable1)
+      || '';
+    inferentialRequestSeqRef.current += 1;
+    setInferentialSettings({ variable1, variable2, graduationYear: 'all', programId: 'all' });
+    setInferentialResult(null);
+    setInferentialError('');
+    setInferentialAnalysisLoading(false);
+  };
+
+  const runInferentialAnalysis = async () => {
+    if (!selectedSurveyId || inferentialAnalysisLoading) return;
+    if (!inferentialSettings.variable1 || !inferentialSettings.variable2) {
+      setInferentialError('Please select two categorical variables for inferential analysis.');
+      return;
+    }
+    if (inferentialSettings.variable1 === inferentialSettings.variable2) {
+      setInferentialError('Please select two different variables for inferential analysis.');
+      return;
+    }
+
+    const requestId = ++inferentialRequestSeqRef.current;
+    setInferentialAnalysisLoading(true);
+    setInferentialResult(null);
+    setInferentialError('');
+
+    try {
+      const response = await fetch(`${API_BASE}/reports/inferential-analysis.php`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          surveyId: selectedSurveyId,
+          variable1: inferentialSettings.variable1,
+          variable2: inferentialSettings.variable2,
+          filters: {
+            graduationYear: inferentialSettings.graduationYear,
+            programId: inferentialSettings.programId,
+          },
+        }),
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.success || !payload.data) {
+        throw new Error(payload.error || 'Unable to complete the inferential analysis.');
+      }
+      if (requestId !== inferentialRequestSeqRef.current) return;
+      setInferentialResult(payload.data as InferentialAnalysisResult);
+    } catch (error) {
+      if (requestId !== inferentialRequestSeqRef.current) return;
+      setInferentialError(error instanceof Error ? error.message : 'Unable to complete the inferential analysis.');
+    } finally {
+      if (requestId === inferentialRequestSeqRef.current) {
+        setInferentialAnalysisLoading(false);
+      }
     }
   };
 
@@ -1169,8 +1552,9 @@ export default function Reports() {
       employment: 'employment_status', salary: 'salary_distribution',
     };
 
-    if (tab === 'surveys') {
-      activeReportLoadKeyRef.current = 'surveys';
+    if (tab === 'surveys' || tab === 'inferential') {
+      activeReportLoadKeyRef.current = tab;
+      if (tab === 'inferential') setReportError('');
       setLoading(false);
       return;
     }
@@ -1188,6 +1572,18 @@ export default function Reports() {
       fetchSurveyAnalytics(selectedSurveyId, selectedSurveyDepartment, selectedYear);
     }
   }, [tab, selectedSurveyDepartment, selectedSurveyId, isDean, selectedYear]);
+
+  useEffect(() => {
+    if (tab !== 'inferential') return;
+    setInferentialResult(null);
+    setInferentialError('');
+    if (selectedSurveyId) {
+      fetchInferentialMetadata(selectedSurveyId);
+    } else {
+      setInferentialMetadata(null);
+      setInferentialMetadataLoading(false);
+    }
+  }, [tab, selectedSurveyId, isDean]);
 
   useEffect(() => {
     setShowSurveyGraphs(false);
@@ -1612,14 +2008,296 @@ export default function Reports() {
     return [
       overviewFilters.employmentStatus !== 'all' ? `Employability Status: ${labels.employmentStatus}` : null,
       overviewFilters.programAlignment !== 'all' ? `Program Alignment: ${labels.programAlignment}` : null,
-      !isDean && overviewFilters.graduationYear !== 'all' ? `Graduation Year: ${labels.graduationYear}` : null,
+      !isDean && overviewFilters.graduationYear !== 'all' ? `Year Graduated: ${labels.graduationYear}` : null,
       !isDean && overviewFilters.programId !== 'all' ? `Course: ${labels.course}` : null,
     ].filter((chip): chip is string => Boolean(chip));
+  };
+
+  const addInferentialWorksheetHeader = (sheet: ExcelJS.Worksheet, title: string, columns = 2) => {
+    const titleRow = sheet.addRow([title]);
+    titleRow.font = { bold: true, size: 14, color: { argb: SURVEY_REPORT_HEADER_COLOR } };
+    if (columns > 1) sheet.mergeCells(titleRow.number, 1, titleRow.number, columns);
+    sheet.addRow([]);
+  };
+
+  const styleInferentialTableHeader = (row: ExcelJS.Row) => {
+    row.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: SURVEY_REPORT_HEADER_COLOR } };
+    row.alignment = { vertical: 'middle', horizontal: 'center' };
+  };
+
+  const handleInferentialExcelExport = async () => {
+    if (!inferentialResult) return;
+    const { analysis, contingencyTable, expectedFrequencies, assumptions } = inferentialResult;
+    const workbook = new ExcelJS.Workbook();
+    workbook.creator = 'GradTrack';
+    workbook.created = new Date();
+
+    const summarySheet = workbook.addWorksheet('Analysis Summary');
+    addInferentialWorksheetHeader(summarySheet, 'GradTrack Inferential Analysis', 2);
+    [
+      ['Survey', inferentialResult.survey.title],
+      ['Generated At', new Date().toLocaleString()],
+      ['Variable 1', analysis.variable1.label],
+      ['Variable 2', analysis.variable2.label],
+      ['Year Graduated Filter', inferentialResult.filters.graduationYear || 'All Years'],
+      ['Course or Program Filter', inferentialResult.filters.programLabel || 'All Courses'],
+      ['Valid Responses Used', analysis.validResponses],
+      ['Excluded / Missing Responses', analysis.excludedResponses],
+      ['Decision', analysis.decision],
+      ['Interpretation', inferentialResult.interpretation || inferentialResult.message || 'Not calculated'],
+    ].forEach((row) => summarySheet.addRow(row));
+    summarySheet.getColumn(1).width = 30;
+    summarySheet.getColumn(2).width = 100;
+    summarySheet.getColumn(2).alignment = { wrapText: true, vertical: 'top' };
+    for (let index = 3; index <= summarySheet.rowCount; index += 1) {
+      summarySheet.getRow(index).getCell(1).font = { bold: true };
+    }
+
+    const observedSheet = workbook.addWorksheet('Observed Frequencies');
+    addInferentialWorksheetHeader(observedSheet, 'Observed Frequencies', contingencyTable.columns.length + 2);
+    const observedHeader = observedSheet.addRow([
+      analysis.variable1.label,
+      ...contingencyTable.columns.map((column) => column.label),
+      'Total',
+    ]);
+    styleInferentialTableHeader(observedHeader);
+    contingencyTable.rows.forEach((row) => observedSheet.addRow([row.label, ...row.frequencies, row.total]));
+    const observedTotalRow = observedSheet.addRow(['Total', ...contingencyTable.columnTotals, contingencyTable.grandTotal]);
+    observedTotalRow.font = { bold: true };
+    observedSheet.columns.forEach((column, index) => { column.width = index === 0 ? 28 : 16; });
+    observedSheet.views = [{ state: 'frozen', ySplit: 3 }];
+
+    const expectedSheet = workbook.addWorksheet('Expected Frequencies');
+    const expectedColumnCount = contingencyTable.columns.length + 2;
+    addInferentialWorksheetHeader(expectedSheet, 'Expected Frequencies', expectedColumnCount);
+    const expectedHeader = expectedSheet.addRow([
+      analysis.variable1.label,
+      ...contingencyTable.columns.map((column) => column.label),
+      'Total',
+    ]);
+    styleInferentialTableHeader(expectedHeader);
+    if (!Array.isArray(expectedFrequencies)) {
+      expectedFrequencies.rows.forEach((row) => expectedSheet.addRow([
+        row.label,
+        ...row.frequencies.map((value) => Number(value.toFixed(4))),
+        row.total,
+      ]));
+      const expectedTotalRow = expectedSheet.addRow([
+        'Total',
+        ...expectedFrequencies.columnTotals,
+        expectedFrequencies.grandTotal,
+      ]);
+      expectedTotalRow.font = { bold: true };
+    } else {
+      expectedSheet.addRow(['Expected frequencies were not calculated because the selected data had insufficient variation.']);
+    }
+    expectedSheet.columns.forEach((column, index) => { column.width = index === 0 ? 28 : 16; });
+    expectedSheet.views = [{ state: 'frozen', ySplit: 3 }];
+
+    const resultsSheet = workbook.addWorksheet('Statistical Results');
+    addInferentialWorksheetHeader(resultsSheet, 'Chi-Square Test Result', 2);
+    [
+      ['Statistical Test', analysis.test],
+      ['Variables', `${analysis.variable1.label} × ${analysis.variable2.label}`],
+      ['Chi-Square', analysis.chiSquare ?? 'Not calculated'],
+      ['Degrees of Freedom (df)', analysis.degreesOfFreedom ?? 'Not calculated'],
+      ['p-value', analysis.pValue ?? 'Not calculated'],
+      ['Significance Level (alpha)', analysis.alpha],
+      ["Cramer's V", analysis.cramersV ?? 'Not calculated'],
+      ['Association Strength', analysis.associationStrength ?? 'Not calculated'],
+      ['Decision', analysis.decision],
+      ['Valid Responses Used', analysis.validResponses],
+      ['Excluded / Missing Responses', analysis.excludedResponses],
+      ['Assumptions Passed', assumptions.passed ? 'Yes' : 'No'],
+      ['Expected Cells Below 1', assumptions.cellsBelowOne],
+      ['Expected Cells Below 5', assumptions.cellsBelowFive],
+      ['Percent of Expected Cells Below 5', assumptions.percentageBelowFive],
+      ['Minimum Expected Frequency', assumptions.minimumExpected ?? 'Not calculated'],
+      ['Assumption Warnings', assumptions.warnings.join(' ') || 'None'],
+    ].forEach((row) => resultsSheet.addRow(row));
+    resultsSheet.getColumn(1).width = 38;
+    resultsSheet.getColumn(2).width = 84;
+    resultsSheet.getColumn(2).alignment = { wrapText: true, vertical: 'top' };
+    for (let index = 3; index <= resultsSheet.rowCount; index += 1) {
+      resultsSheet.getRow(index).getCell(1).font = { bold: true };
+    }
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `gradtrack_inferential_analysis_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(link.href);
+  };
+
+  const handleInferentialPdfExport = async () => {
+    if (!inferentialResult) return;
+    const { analysis, contingencyTable, expectedFrequencies, assumptions } = inferentialResult;
+    const pdf = new jsPDF('p', 'pt', 'a4');
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const margin = 40;
+    const drawHeader = (title: string) => {
+      pdf.setFillColor(27, 42, 74);
+      pdf.rect(0, 0, pageWidth, 82, 'F');
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFontSize(18);
+      pdf.text(title, margin, 46);
+      pdf.setFontSize(10);
+      pdf.text('Norzagaray College | GradTrack Reports & Analytics', margin, 66);
+      pdf.setTextColor(30, 30, 30);
+    };
+
+    drawHeader('Inferential Analysis Report');
+    pdf.setFontSize(10);
+    const summaryRows = [
+      ['Survey', inferentialResult.survey.title],
+      ['Variables', `${analysis.variable1.label} x ${analysis.variable2.label}`],
+      ['Year Graduated', inferentialResult.filters.graduationYear || 'All Years'],
+      ['Course or Program', inferentialResult.filters.programLabel || 'All Courses'],
+      ['Valid Responses', analysis.validResponses],
+      ['Excluded / Missing', analysis.excludedResponses],
+    ];
+    autoTable(pdf, {
+      startY: 105,
+      head: [['Analysis Setting', 'Value']],
+      body: summaryRows,
+      styles: { fontSize: 9, cellPadding: 5 },
+      headStyles: { fillColor: [27, 42, 74] },
+      margin: { left: margin, right: margin },
+    });
+
+    if (analysis.canCalculate && inferentialResult.chartData.categories.length > 0) {
+      const chartConfig = {
+        type: 'bar',
+        data: {
+          labels: inferentialResult.chartData.categories.map((row) => row.category),
+          datasets: inferentialResult.chartData.series.map((series, index) => ({
+            label: series.label,
+            backgroundColor: SURVEY_CHART_COLORS[index % SURVEY_CHART_COLORS.length],
+            data: inferentialResult.chartData.categories.map((row) => Number(row[series.key] ?? 0)),
+          })),
+        },
+        options: {
+          title: { display: true, text: `${analysis.variable2.label} by ${analysis.variable1.label}` },
+          legend: { position: 'bottom' },
+          scales: { yAxes: [{ ticks: { beginAtZero: true, precision: 0 } }] },
+        },
+      };
+      try {
+        const chartResponse = await fetch(`https://quickchart.io/chart?width=1000&height=420&format=png&c=${encodeURIComponent(JSON.stringify(chartConfig))}`);
+        if (chartResponse.ok) {
+          const chartBase64 = `data:image/png;base64,${arrayBufferToBase64(await chartResponse.arrayBuffer())}`;
+          pdf.addPage();
+          drawHeader('Distribution Comparison');
+          pdf.addImage(chartBase64, 'PNG', margin, 110, pageWidth - margin * 2, 230);
+        }
+      } catch {
+        // Chart capture is best-effort; the complete numeric analysis remains in the export.
+      }
+    }
+
+    pdf.addPage();
+    drawHeader('Observed Frequencies');
+    autoTable(pdf, {
+      startY: 105,
+      head: [[analysis.variable1.label, ...contingencyTable.columns.map((column) => column.label), 'Total']],
+      body: [
+        ...contingencyTable.rows.map((row) => [row.label, ...row.frequencies, row.total]),
+        ['Total', ...contingencyTable.columnTotals, contingencyTable.grandTotal],
+      ],
+      styles: { fontSize: 8, cellPadding: 4, halign: 'center' },
+      headStyles: { fillColor: [27, 42, 74] },
+      columnStyles: { 0: { halign: 'left' } },
+      margin: { left: margin, right: margin },
+    });
+
+    if (!Array.isArray(expectedFrequencies)) {
+      pdf.addPage();
+      drawHeader('Expected Frequencies');
+      autoTable(pdf, {
+        startY: 105,
+        head: [[analysis.variable1.label, ...contingencyTable.columns.map((column) => column.label), 'Total']],
+        body: [
+          ...expectedFrequencies.rows.map((row) => [
+            row.label,
+            ...row.frequencies.map((value) => value.toFixed(3)),
+            row.total,
+          ]),
+          ['Total', ...expectedFrequencies.columnTotals, expectedFrequencies.grandTotal],
+        ],
+        styles: { fontSize: 8, cellPadding: 4, halign: 'center' },
+        headStyles: { fillColor: [27, 42, 74] },
+        columnStyles: { 0: { halign: 'left' } },
+        margin: { left: margin, right: margin },
+      });
+    }
+
+    pdf.addPage();
+    drawHeader('Chi-Square Test Result');
+    autoTable(pdf, {
+      startY: 105,
+      head: [['Statistical Detail', 'Result']],
+      body: [
+        ['Statistical Test', analysis.test],
+        ['Variables', `${analysis.variable1.label} x ${analysis.variable2.label}`],
+        ['Chi-Square', formatInferentialStatistic(analysis.chiSquare)],
+        ['Degrees of Freedom (df)', analysis.degreesOfFreedom ?? 'Not calculated'],
+        ['p-value', formatInferentialPValue(analysis.pValue)],
+        ['Significance Level (alpha)', analysis.alpha.toFixed(2)],
+        ["Cramer's V", formatInferentialStatistic(analysis.cramersV)],
+        ['Association Strength', analysis.associationStrength ?? 'Not calculated'],
+        ['Decision', analysis.decision],
+        ['Minimum Expected Frequency', formatInferentialStatistic(assumptions.minimumExpected)],
+      ],
+      styles: { fontSize: 9, cellPadding: 5 },
+      headStyles: { fillColor: [27, 42, 74] },
+      margin: { left: margin, right: margin },
+    });
+    const tableEndY = (pdf as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 360;
+    let textY = tableEndY + 28;
+    pdf.setFontSize(12);
+    pdf.setTextColor(27, 42, 74);
+    pdf.text('Statistical Interpretation', margin, textY);
+    textY += 18;
+    pdf.setFontSize(9);
+    pdf.setTextColor(35, 35, 35);
+    const interpretation = inferentialResult.interpretation || inferentialResult.message || 'The test could not be calculated.';
+    const interpretationLines = pdf.splitTextToSize(interpretation, pageWidth - margin * 2);
+    pdf.text(interpretationLines, margin, textY);
+    textY += interpretationLines.length * 11 + 18;
+    if (assumptions.warnings.length > 0) {
+      pdf.setFontSize(11);
+      pdf.setTextColor(146, 64, 14);
+      pdf.text('Statistical Assumption Notice', margin, textY);
+      textY += 16;
+      pdf.setFontSize(9);
+      const warningLines = pdf.splitTextToSize(assumptions.warnings.join(' '), pageWidth - margin * 2);
+      pdf.text(warningLines, margin, textY);
+    }
+
+    const pageCount = (pdf as jsPDF & { internal: { getNumberOfPages: () => number } }).internal.getNumberOfPages();
+    for (let page = 1; page <= pageCount; page += 1) {
+      pdf.setPage(page);
+      pdf.setFontSize(8);
+      pdf.setTextColor(110, 110, 110);
+      pdf.text(`Page ${page} of ${pageCount}`, pageWidth - 90, pageHeight - 16);
+      pdf.text('GradTrack - Confidential Inferential Analysis', margin, pageHeight - 16);
+    }
+    pdf.save(`gradtrack_inferential_analysis_${new Date().toISOString().slice(0, 10)}.pdf`);
   };
 
   const handleExport = async () => {
     if (tab === 'surveys') {
       await handleSurveyExcelExport();
+      return;
+    }
+    if (tab === 'inferential') {
+      await handleInferentialExcelExport();
       return;
     }
 
@@ -1714,7 +2392,7 @@ export default function Reports() {
     const labels = getOverviewFilterLabels();
     summarySheet.addRow(['Employability Status', labels.employmentStatus]);
     summarySheet.addRow(['Program Alignment', labels.programAlignment]);
-    summarySheet.addRow(['Graduation Year', labels.graduationYear]);
+    summarySheet.addRow(['Year Graduated', labels.graduationYear]);
     summarySheet.addRow(['Course', labels.course]);
     summarySheet.addRow(['Export Triggered From Tab', tab]);
     summarySheet.addRow([]);
@@ -1927,6 +2605,10 @@ export default function Reports() {
       await handleSurveyPdfExport();
       return;
     }
+    if (tab === 'inferential') {
+      await handleInferentialPdfExport();
+      return;
+    }
 
     const pdf = new jsPDF('p', 'pt', 'a4');
     const pageWidth = pdf.internal.pageSize.getWidth();
@@ -1995,7 +2677,7 @@ export default function Reports() {
       pdf.text(`Employability Status: ${pdfOverviewFilterLabels.employmentStatus}`, marginLeft, 216);
       pdf.text(`Program Alignment: ${pdfOverviewFilterLabels.programAlignment}`, marginLeft, 234);
       if (!isDean) {
-        pdf.text(`Graduation Year: ${pdfOverviewFilterLabels.graduationYear}`, marginLeft, 252);
+        pdf.text(`Year Graduated: ${pdfOverviewFilterLabels.graduationYear}`, marginLeft, 252);
         pdf.text(`Course: ${pdfOverviewFilterLabels.course}`, marginLeft, 270);
       }
       coverDescriptionY = isDean ? 264 : 298;
@@ -2200,6 +2882,7 @@ export default function Reports() {
     { key: 'employment', label: 'Employment Status' },
     { key: 'salary', label: 'Salary Distribution' },
     { key: 'surveys', label: 'Survey Analytics' },
+    { key: 'inferential', label: 'Inferential Analysis' },
   ] as const;
 
   const renderAiAnalyticsSection = () => {
@@ -2289,6 +2972,16 @@ export default function Reports() {
   const isSurveyExportDisabled = tab === 'surveys' && (
     surveyLoading || surveyAnalyticsLoading || !selectedSurveyId || !surveyAnalytics
   );
+  const isInferentialExportDisabled = tab === 'inferential' && (
+    inferentialMetadataLoading || inferentialAnalysisLoading || !inferentialResult
+  );
+  const isExportDisabled = isSurveyExportDisabled || isInferentialExportDisabled;
+  const inferentialTestsGraduationYear = [inferentialSettings.variable1, inferentialSettings.variable2]
+    .includes('graduation_year');
+  const inferentialTestsProgram = [inferentialSettings.variable1, inferentialSettings.variable2]
+    .includes('program');
+  const inferentialVariablesMatch = Boolean(inferentialSettings.variable1)
+    && inferentialSettings.variable1 === inferentialSettings.variable2;
   const exportButtonClass = (disabled: boolean) => `flex w-full items-center justify-center gap-2 border px-4 py-2.5 rounded-lg text-sm font-medium transition-colors sm:w-auto ${
     disabled ? 'cursor-not-allowed bg-gray-100 text-gray-400' : 'hover:bg-gray-50'
   }`;
@@ -2336,7 +3029,7 @@ export default function Reports() {
           </label>
 
           {!isDean && <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
-            Graduation Year
+            Year Graduated
             <select
               value={overviewFilterDraft.graduationYear}
               onChange={(e) => updateOverviewFilterDraft('graduationYear', e.target.value)}
@@ -2441,7 +3134,7 @@ export default function Reports() {
               </select>
             </div>
           )}
-          {isDean && (
+          {isDean && tab !== 'inferential' && (
             <div className="flex w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
               <label className="text-sm font-medium text-gray-700">Batch / Year Graduated:</label>
               <select
@@ -2472,7 +3165,7 @@ export default function Reports() {
               </select>
             </div>
           )}
-          {!isDean && tab !== 'overview' && tab !== 'surveys' && (
+          {!isDean && tab !== 'overview' && tab !== 'surveys' && tab !== 'inferential' && (
             <div className="flex w-full flex-col gap-1 sm:w-auto sm:flex-row sm:items-center sm:gap-2">
               <label className="text-sm font-medium text-gray-700">Department:</label>
               <select
@@ -2507,15 +3200,15 @@ export default function Reports() {
           )}
           <button
             onClick={handleExportPdf}
-            disabled={isSurveyExportDisabled}
-            className={exportButtonClass(isSurveyExportDisabled)}
+            disabled={isExportDisabled}
+            className={exportButtonClass(isExportDisabled)}
           >
             <FileText className="w-4 h-4" /> Export PDF
           </button>
           <button
             onClick={handleExport}
-            disabled={isSurveyExportDisabled}
-            className={exportButtonClass(isSurveyExportDisabled)}
+            disabled={isExportDisabled}
+            className={exportButtonClass(isExportDisabled)}
           >
             <Download className="w-4 h-4" /> Export Excel
           </button>
@@ -2827,7 +3520,7 @@ export default function Reports() {
             <ReportTabLoadingSkeleton />
           ) : (
             <>
-              {tab !== 'surveys' && (
+              {tab !== 'surveys' && tab !== 'inferential' && (
                 <div className="mb-6 space-y-3">
                   {renderOverviewFiltersSection()}
                   {overviewFilterError && (
@@ -3259,9 +3952,356 @@ export default function Reports() {
                   )}
                 </div>
               )}
+
+              {/* Inferential Analysis */}
+              {tab === 'inferential' && (
+                <InferentialAnalysisPanel
+                  selectedSurveyId={selectedSurveyId}
+                  metadata={inferentialMetadata}
+                  settings={inferentialSettings}
+                  result={inferentialResult}
+                  metadataLoading={inferentialMetadataLoading}
+                  analysisLoading={inferentialAnalysisLoading}
+                  error={inferentialError}
+                  testsGraduationYear={inferentialTestsGraduationYear}
+                  testsProgram={inferentialTestsProgram}
+                  variablesMatch={inferentialVariablesMatch}
+                  onSettingChange={updateInferentialSetting}
+                  onReset={handleResetInferential}
+                  onRun={runInferentialAnalysis}
+                />
+              )}
             </>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function InferentialResults({ result }: { result: InferentialAnalysisResult }) {
+  const { analysis, contingencyTable, assumptions } = result;
+  const expectedFrequencies = Array.isArray(result.expectedFrequencies) ? null : result.expectedFrequencies;
+  const comparisonCopy = getInferentialComparisonCopy(result);
+  const groupResult = getInferentialGroupResult(result);
+  const relationshipSummary = getInferentialPlainOutcome(result);
+  const strengthLabel = analysis.canCalculate
+    ? getInferentialDifferenceLabel(analysis.associationStrength)
+    : 'Cannot be measured';
+  const dataCheckLabel = !analysis.canCalculate
+    ? 'Cannot compare'
+    : assumptions.passed
+      ? 'Passed'
+      : 'Use caution';
+  const decisionColor = analysis.significant === true
+    ? 'bg-green-100 text-green-700'
+    : analysis.significant === false
+      ? 'bg-slate-100 text-slate-700'
+      : 'bg-amber-100 text-amber-700';
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        <InferentialStatCard
+          icon={Users}
+          label="Answers Compared"
+          value={analysis.validResponses.toLocaleString()}
+          subtext="Complete answers used in this comparison"
+          color="bg-blue-100 text-blue-700"
+        />
+        <InferentialStatCard
+          icon={!analysis.canCalculate ? AlertTriangle : analysis.significant ? CheckCircle2 : BarChart3}
+          label="Group Results"
+          value={groupResult}
+          subtext={relationshipSummary}
+          color={decisionColor}
+          compact
+        />
+        <InferentialStatCard
+          icon={Target}
+          label="Size of Difference"
+          value={strengthLabel}
+          subtext={comparisonCopy.differenceLabel}
+          color="bg-purple-100 text-purple-700"
+          compact
+        />
+        <InferentialStatCard
+          icon={Filter}
+          label="Answers Left Out"
+          value={analysis.excludedResponses.toLocaleString()}
+          subtext="Missing or incomplete answers"
+          color="bg-orange-100 text-orange-700"
+        />
+        <InferentialStatCard
+          icon={assumptions.passed && analysis.canCalculate ? CheckCircle2 : AlertTriangle}
+          label="Data Check"
+          value={dataCheckLabel}
+          subtext={assumptions.passed && analysis.canCalculate ? 'No common sample-size warning' : 'Review the note below'}
+          color={assumptions.passed && analysis.canCalculate ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}
+          compact
+        />
+      </div>
+
+      {result.status === 'insufficient_variation' && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 flex-none" />
+            <div>
+              <p className="font-semibold">These groups cannot be compared</p>
+              <p className="mt-1">{getInferentialUnavailableResult(result)}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {result.chartData.categories.length > 0 && (
+        <div className="rounded-xl border p-5">
+          <div className="mb-4">
+            <h3 className="text-sm font-semibold text-[#1b2a4a]">{analysis.variable2.label} by {analysis.variable1.label}</h3>
+            <p className="mt-1 text-xs text-gray-500">Grouped comparison of the observed category counts used in the test.</p>
+          </div>
+          <div className="overflow-x-auto">
+            <div className="h-[340px] min-w-[640px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={result.chartData.categories} margin={{ top: 12, right: 24, bottom: 28, left: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="category" tick={{ fontSize: 11 }} interval={0} angle={-12} textAnchor="end" height={58} />
+                  <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                  <Tooltip contentStyle={{ borderRadius: 8 }} />
+                  <Legend />
+                  {result.chartData.series.map((series, index) => (
+                    <Bar
+                      key={series.key}
+                      dataKey={series.key}
+                      name={series.label}
+                      fill={SURVEY_CHART_COLORS[index % SURVEY_CHART_COLORS.length]}
+                      radius={[4, 4, 0, 0]}
+                    />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-5">
+        <div className="rounded-xl border p-5 xl:col-span-3">
+          <div className="mb-4">
+            <h3 className="text-sm font-semibold text-[#1b2a4a]">Contingency Table</h3>
+            <p className="mt-1 text-xs text-gray-500">Observed Frequencies</p>
+          </div>
+          <InferentialFrequencyTable table={contingencyTable} expected={false} />
+          {expectedFrequencies && (
+            <details className="mt-4 rounded-lg border bg-gray-50">
+              <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-[#1b2a4a]">
+                View Expected Frequencies
+              </summary>
+              <div className="border-t bg-white p-4">
+                <InferentialFrequencyTable
+                  table={{
+                    ...contingencyTable,
+                    rows: expectedFrequencies.rows,
+                    columnTotals: expectedFrequencies.columnTotals,
+                    grandTotal: expectedFrequencies.grandTotal,
+                  }}
+                  expected
+                />
+              </div>
+            </details>
+          )}
+        </div>
+
+        <div className="rounded-xl border p-5 xl:col-span-2">
+          <h3 className="text-sm font-semibold text-[#1b2a4a]">Analysis Summary</h3>
+          <p className="mt-1 text-xs text-gray-500">A simple explanation of what the comparison found.</p>
+          <div className={`mt-4 rounded-lg px-4 py-3 ${decisionColor}`}>
+            <p className="font-semibold">{relationshipSummary}</p>
+            <p className="mt-1 text-xs opacity-90">
+              {analysis.canCalculate
+                ? `${comparisonCopy.differenceLabel}: ${strengthLabel.toLowerCase()}.`
+                : 'The selected answers do not contain enough variation for a reliable comparison.'}
+            </p>
+          </div>
+          <dl className="divide-y text-sm">
+            <InferentialDetail label="What was compared?" value={comparisonCopy.question} />
+            <InferentialDetail label="What does the data show?" value={relationshipSummary} />
+            <InferentialDetail label={comparisonCopy.differenceLabel} value={strengthLabel} />
+            <InferentialDetail label="Answers compared" value={analysis.validResponses.toLocaleString()} />
+            <InferentialDetail label="Answers left out" value={analysis.excludedResponses.toLocaleString()} />
+            <InferentialDetail label="Data check" value={dataCheckLabel} />
+          </dl>
+          <details className="mt-4 rounded-lg border bg-gray-50">
+            <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-[#1b2a4a]">
+              View technical statistical details
+            </summary>
+            <div className="border-t bg-white px-4 pb-2">
+              <p className="py-3 text-xs leading-relaxed text-gray-500">
+                These values are included for researchers and report verification.
+              </p>
+              <dl className="divide-y text-sm">
+                <InferentialDetail label="Statistical method" value={analysis.test} />
+                <InferentialDetail label="Chi-Square" value={formatInferentialStatistic(analysis.chiSquare)} />
+                <InferentialDetail label="Degrees of freedom" value={analysis.degreesOfFreedom?.toString() ?? 'Not calculated'} />
+                <InferentialDetail label="p-value" value={formatInferentialPValue(analysis.pValue)} />
+                <InferentialDetail label="Significance level" value={analysis.alpha.toFixed(2)} />
+                <InferentialDetail label="Cramer's V" value={formatInferentialStatistic(analysis.cramersV)} />
+              </dl>
+            </div>
+          </details>
+        </div>
+      </div>
+
+      <div className="rounded-xl border-2 border-purple-200 bg-gradient-to-br from-purple-50 via-blue-50 to-slate-50 p-6 shadow-sm">
+        <div className="flex items-start gap-4">
+          <div className="rounded-lg bg-gradient-to-br from-purple-600 to-blue-600 p-3 shadow-md">
+            <Sparkles className="h-6 w-6 text-white" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-lg font-bold text-[#1b2a4a]">Plain-Language Interpretation</h3>
+            <p className="mt-3 text-sm leading-relaxed text-gray-700">
+              {buildPlainLanguageInferentialSummary(result)}
+            </p>
+            {result.interpretation && (
+              <details className="mt-4 rounded-lg border border-purple-200 bg-white/70">
+                <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-[#1b2a4a]">
+                  View full statistical explanation
+                </summary>
+                <p className="border-t border-purple-100 px-4 py-3 text-sm leading-relaxed text-gray-600">
+                  {result.interpretation}
+                </p>
+              </details>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className={`rounded-xl border px-4 py-4 text-sm ${
+        assumptions.passed
+          ? 'border-green-200 bg-green-50 text-green-900'
+          : 'border-amber-200 bg-amber-50 text-amber-900'
+      }`}>
+        <div className="flex items-start gap-3">
+          {assumptions.passed
+            ? <CheckCircle2 className="mt-0.5 h-5 w-5 flex-none" />
+            : <AlertTriangle className="mt-0.5 h-5 w-5 flex-none" />}
+          <div>
+            <h3 className="font-semibold">Data Quality Check</h3>
+            {assumptions.passed ? (
+              <p className="mt-1">The response groups are large enough for this comparison. No common sample-size warning was found.</p>
+            ) : (
+              <p className="mt-1">Some groups have very few responses. Treat the result as an indication, not a final conclusion.</p>
+            )}
+            <details className="mt-2 text-xs opacity-80">
+              <summary className="cursor-pointer font-semibold">View technical data-check details</summary>
+              {!assumptions.passed && assumptions.warnings.length > 0 && (
+                <ul className="mt-2 list-disc space-y-1 pl-5">
+                  {assumptions.warnings.map((warning) => <li key={warning}>{warning}</li>)}
+                </ul>
+              )}
+              <p className="mt-2">
+                Expected cells below 5: {assumptions.cellsBelowFive} ({assumptions.percentageBelowFive.toFixed(1)}%); below 1: {assumptions.cellsBelowOne}; minimum expected: {formatInferentialStatistic(assumptions.minimumExpected)}.
+              </p>
+            </details>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InferentialStatCard({ icon: Icon = BarChart3, label, value, subtext, color, compact = false }: {
+  icon?: typeof BarChart3;
+  label: string;
+  value: string;
+  subtext?: string;
+  color: string;
+  compact?: boolean;
+}) {
+  return (
+    <div className="rounded-xl border p-4">
+      <div className="mb-2 flex items-center gap-2">
+        <div className={`rounded-lg p-2 ${color}`}><Icon className="h-4 w-4" /></div>
+        <span className="text-xs font-medium text-gray-500">{label}</span>
+      </div>
+      <p className={`${compact ? 'text-base leading-snug' : 'text-2xl'} font-bold text-[#1b2a4a]`}>{value}</p>
+      {subtext && <p className="mt-1 text-xs leading-snug text-gray-500">{subtext}</p>}
+    </div>
+  );
+}
+
+function InferentialDetail({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="grid grid-cols-1 gap-1 py-2.5 sm:grid-cols-2 sm:gap-3">
+      <dt className="text-gray-500">{label}</dt>
+      <dd className="font-semibold text-[#1b2a4a] sm:text-right">{value}</dd>
+    </div>
+  );
+}
+
+function InferentialFrequencyTable({ table, expected }: { table: InferentialTable; expected: boolean }) {
+  const formatCell = (value: number) => expected ? Number(value).toFixed(3) : Number(value).toLocaleString();
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[520px] border-collapse text-sm">
+        <thead>
+          <tr className="bg-[#1b2a4a] text-white">
+            <th className="border border-slate-300 px-3 py-2 text-left">{table.rowVariable.label}</th>
+            {table.columns.map((column) => (
+              <th key={column.key} className="border border-slate-300 px-3 py-2 text-center">{column.label}</th>
+            ))}
+            <th className="border border-slate-300 px-3 py-2 text-center">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          {table.rows.map((row) => (
+            <tr key={row.key} className="odd:bg-white even:bg-gray-50">
+              <th className="border border-gray-200 px-3 py-2 text-left font-semibold text-[#1b2a4a]">{row.label}</th>
+              {row.frequencies.map((frequency, index) => (
+                <td key={`${row.key}-${table.columns[index]?.key ?? index}`} className="border border-gray-200 px-3 py-2 text-center">
+                  {formatCell(frequency)}
+                </td>
+              ))}
+              <td className="border border-gray-200 px-3 py-2 text-center font-semibold">{formatCell(row.total)}</td>
+            </tr>
+          ))}
+          <tr className="bg-gray-100 font-bold text-[#1b2a4a]">
+            <th className="border border-gray-200 px-3 py-2 text-left">Total</th>
+            {table.columnTotals.map((total, index) => (
+              <td key={table.columns[index]?.key ?? index} className="border border-gray-200 px-3 py-2 text-center">{formatCell(total)}</td>
+            ))}
+            <td className="border border-gray-200 px-3 py-2 text-center">{formatCell(table.grandTotal)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function InferentialLoadingSkeleton() {
+  return (
+    <div className="space-y-6" aria-label="Loading inferential analysis settings">
+      <div className="rounded-xl border bg-gray-50 p-4">
+        <SkeletonBlock className="mb-4 h-4 w-52" />
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, index) => <SkeletonBlock key={index} className="h-16" />)}
+        </div>
+      </div>
+      <SkeletonBlock className="h-32 w-full" />
+    </div>
+  );
+}
+
+function InferentialResultLoadingSkeleton() {
+  return (
+    <div className="space-y-6" aria-label="Running inferential analysis">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
+        {Array.from({ length: 5 }).map((_, index) => <SkeletonBlock key={index} className="h-28" />)}
+      </div>
+      <SkeletonBlock className="h-80 w-full" />
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <SkeletonBlock className="h-72" />
+        <SkeletonBlock className="h-72" />
       </div>
     </div>
   );
@@ -3447,6 +4487,198 @@ function SurveyTableFilter({
       )}
     </div>
   );
+}
+
+function InferentialAnalysisPanel({
+  selectedSurveyId,
+  metadata: inferentialMetadata,
+  settings: inferentialSettings,
+  result: inferentialResult,
+  metadataLoading: inferentialMetadataLoading,
+  analysisLoading: inferentialAnalysisLoading,
+  error: inferentialError,
+  testsGraduationYear: inferentialTestsGraduationYear,
+  testsProgram: inferentialTestsProgram,
+  variablesMatch: inferentialVariablesMatch,
+  onSettingChange: updateInferentialSetting,
+  onReset: handleResetInferential,
+  onRun: runInferentialAnalysis,
+}: {
+  selectedSurveyId: number | null;
+  metadata: InferentialMetadata | null;
+  settings: InferentialSettings;
+  result: InferentialAnalysisResult | null;
+  metadataLoading: boolean;
+  analysisLoading: boolean;
+  error: string;
+  testsGraduationYear: boolean;
+  testsProgram: boolean;
+  variablesMatch: boolean;
+  onSettingChange: <K extends keyof InferentialSettings>(key: K, value: InferentialSettings[K]) => void;
+  onReset: () => void;
+  onRun: () => void;
+}) {
+    if (!selectedSurveyId) {
+      return (
+        <div className="rounded-xl border bg-white px-6 py-12 text-center">
+          <p className="font-semibold text-[#1b2a4a]">Select a survey to configure inferential analysis.</p>
+          <p className="mt-1 text-sm text-gray-500">Only responses belonging to the selected survey will be analyzed.</p>
+        </div>
+      );
+    }
+
+    if (inferentialMetadataLoading || (!inferentialMetadata && !inferentialError)) {
+      return <InferentialLoadingSkeleton />;
+    }
+
+    if (!inferentialMetadata) {
+      return (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-6 py-10 text-center">
+          <p className="font-semibold text-red-700">{inferentialError || 'Unable to load inferential analysis settings.'}</p>
+          <p className="mt-1 text-sm text-red-600">Select another survey or reopen this tab to retry.</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-6">
+        <div className="rounded-xl border bg-gray-50 p-4">
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Filter className="h-4 w-4 text-[#1b2a4a]" />
+                  <h3 className="text-sm font-semibold text-[#1b2a4a]">Inferential Analysis Settings</h3>
+                </div>
+                <p className="mt-1 text-xs text-gray-500">
+                  Select two categorical graduate tracer variables to test whether they are statistically associated.
+                </p>
+              </div>
+              {inferentialAnalysisLoading && (
+                <div className="flex items-center gap-2 text-xs font-medium text-gray-500">
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-gray-300 border-b-[#1b2a4a]" />
+                  Running analysis...
+                </div>
+              )}
+            </div>
+
+            {inferentialMetadata && inferentialMetadata.variables.length >= 2 ? (
+              <>
+                <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
+                    Variable 1
+                    <select
+                      value={inferentialSettings.variable1}
+                      onChange={(event) => updateInferentialSetting('variable1', event.target.value)}
+                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">Select a variable</option>
+                      {inferentialMetadata.variables.map((variable) => (
+                        <option key={variable.key} value={variable.key}>{variable.label}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
+                    Variable 2
+                    <select
+                      value={inferentialSettings.variable2}
+                      onChange={(event) => updateInferentialSetting('variable2', event.target.value)}
+                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">Select a variable</option>
+                      {inferentialMetadata.variables.map((variable) => (
+                        <option key={variable.key} value={variable.key}>{variable.label}</option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
+                    Year Graduated
+                    <select
+                      value={inferentialTestsGraduationYear ? 'all' : inferentialSettings.graduationYear}
+                      onChange={(event) => updateInferentialSetting('graduationYear', event.target.value)}
+                      disabled={inferentialTestsGraduationYear}
+                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400"
+                    >
+                      <option value="all">All Years</option>
+                      {inferentialMetadata.filterOptions.years.map((year) => (
+                        <option key={year} value={year}>{year}</option>
+                      ))}
+                    </select>
+                    {inferentialTestsGraduationYear && <span className="font-normal text-gray-400">Disabled because Year Graduated is being compared.</span>}
+                  </label>
+
+                  <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
+                    Course or Program
+                    <select
+                      value={inferentialTestsProgram ? 'all' : inferentialSettings.programId}
+                      onChange={(event) => updateInferentialSetting('programId', event.target.value)}
+                      disabled={inferentialTestsProgram}
+                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400"
+                    >
+                      <option value="all">All Courses</option>
+                      {inferentialMetadata.filterOptions.programs.map((program) => (
+                        <option key={program.id} value={program.id}>{program.code} - {program.name}</option>
+                      ))}
+                    </select>
+                    {inferentialTestsProgram && <span className="font-normal text-gray-400">Disabled because Course or Program is being tested.</span>}
+                  </label>
+                </div>
+
+                {inferentialVariablesMatch && (
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-900">
+                    Please select two different variables for inferential analysis.
+                  </div>
+                )}
+
+                <div className="flex flex-col justify-end gap-2 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={handleResetInferential}
+                    disabled={inferentialAnalysisLoading}
+                    className="flex items-center justify-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold text-gray-700 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <RotateCcw className="h-4 w-4" /> Reset
+                  </button>
+                  <button
+                    type="button"
+                    onClick={runInferentialAnalysis}
+                    disabled={inferentialAnalysisLoading || inferentialVariablesMatch || !inferentialSettings.variable1 || !inferentialSettings.variable2}
+                    className="flex items-center justify-center gap-2 rounded-lg bg-[#1b2a4a] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#24385f] disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <BarChart3 className="h-4 w-4" />
+                    {inferentialAnalysisLoading ? 'Running Analysis...' : 'Run Analysis'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                This survey does not contain at least two supported categorical variables for inferential analysis.
+              </div>
+            )}
+          </div>
+        </div>
+
+        {inferentialError && (
+          <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+            {inferentialError}
+          </div>
+        )}
+
+        {inferentialAnalysisLoading ? (
+          <InferentialResultLoadingSkeleton />
+        ) : !inferentialResult ? (
+          <div className="rounded-xl border bg-white px-6 py-12 text-center">
+            <BarChart3 className="mx-auto mb-3 h-10 w-10 text-blue-500" />
+            <p className="font-semibold text-[#1b2a4a]">Select two graduate tracer variables and click Run Analysis to perform an inferential statistical analysis.</p>
+            <p className="mt-1 text-sm text-gray-500">The Chi-Square test uses valid paired responses only.</p>
+          </div>
+        ) : (
+          <InferentialResults result={inferentialResult} />
+        )}
+      </div>
+    );
 }
 
 function SkeletonBlock({ className = '', style }: { className?: string; style?: React.CSSProperties }) {
