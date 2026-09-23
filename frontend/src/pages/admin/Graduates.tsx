@@ -440,11 +440,8 @@ export default function Graduates() {
         : [];
       setProgramOptions(nextProgramOptions);
 
-      const nextProgramId = nextProgramOptions.some((program) => program.id === selectedProgramId)
-        ? selectedProgramId
-        : nextProgramOptions[0]?.id ?? '';
-      if (nextProgramId !== selectedProgramId) {
-        setSelectedProgramId(nextProgramId);
+      if (selectedProgramId && !nextProgramOptions.some((program) => program.id === selectedProgramId)) {
+        setSelectedProgramId('');
         return;
       }
 
@@ -615,6 +612,15 @@ export default function Graduates() {
         isOpen: true,
         type: 'error',
         message: 'Select a year first before archiving by year.',
+      });
+      return;
+    }
+
+    if (!selectedProgramId) {
+      setMsgBox({
+        isOpen: true,
+        type: 'error',
+        message: 'Select a department before archiving by year.',
       });
       return;
     }
@@ -1042,15 +1048,14 @@ export default function Graduates() {
               <select
                 aria-label="Filter graduates by department"
                 value={selectedProgramId}
-                disabled={programOptions.length === 0}
                 onChange={(event) => {
                   setSelectedProgramId(event.target.value);
                   setFilterYear('');
                   setPage(1);
                 }}
-                className="w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-400"
+                className="w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
-                {programOptions.length === 0 && <option value="">No departments</option>}
+                <option value="">All Departments</option>
                 {programOptions.map((program) => (
                   <option key={program.id} value={program.id}>{program.code} — {program.name}</option>
                 ))}
@@ -1093,7 +1098,7 @@ export default function Graduates() {
 
             <button
               onClick={handleArchiveByYear}
-              disabled={!filterYear}
+              disabled={!filterYear || !selectedProgramId}
               className="px-3 py-2 rounded-lg text-sm font-medium text-red-700 border border-red-200 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               type="button"
             >
