@@ -555,6 +555,50 @@ try {
             $data = json_decode(file_get_contents("php://input"), true);
 
             if (($data['action'] ?? '') === 'permanent_delete') {
+                if (isset($data['year_graduated']) && $data['year_graduated'] !== '') {
+                    $year = gradtrack_normalize_graduation_year($data['year_graduated']);
+                    $programId = isset($data['program_id']) ? (int)$data['program_id'] : 0;
+                    if ($year === null) {
+                        throw new GradtrackPermanentDeleteException('A valid graduation year is required', 400);
+                    }
+                    if ($programId <= 0) {
+                        throw new GradtrackPermanentDeleteException('A department is required', 400);
+                    }
+
+                    $result = gradtrack_permanently_delete_graduates_by_year($db, $year, $programId);
+                    $deletedCount = (int)($result['deleted_count'] ?? 0);
+                    $programCode = graduates_program_code_from_program_id($db, $programId);
+
+                    logAuditTrail(
+                        $auditUser['user_id'],
+                        $auditUser['user_name'],
+                        $auditUser['user_role'],
+                        $programCode,
+                        'Permanently Delete',
+                        'Graduate Records',
+                        "Permanently deleted {$deletedCount} archived graduate records for graduation year {$year}.",
+                        null,
+                        [
+                            'graduation_year' => $year,
+                            'program_id' => $programId,
+                            'archived' => true,
+                        ],
+                        null,
+                        [
+                            'deleted_count' => $deletedCount,
+                            'preserved_survey_responses' => (int)($result['preserved_response_count'] ?? 0),
+                            'deleted_empty_chat_rooms' => (int)($result['deleted_room_count'] ?? 0),
+                        ]
+                    );
+                    gradtrack_delete_storage_references($result['storage_references'] ?? []);
+                    echo json_encode([
+                        'success' => true,
+                        'message' => "{$deletedCount} archived graduate record(s) for {$year} permanently deleted.",
+                        'deleted' => $deletedCount,
+                    ]);
+                    break;
+                }
+
                 if (isset($data['ids']) && is_array($data['ids'])) {
                     $result = gradtrack_permanently_delete_graduates($db, $data['ids']);
                     $records = $result['records'] ?? [];

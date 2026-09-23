@@ -696,6 +696,55 @@ export default function Graduates() {
     });
   };
 
+  const handlePermanentDeleteByYear = () => {
+    if (!filterYear || !selectedProgramId || isBulkDeleting) return;
+
+    const programCode = programOptions.find((program) => program.id === selectedProgramId)?.code || 'the selected department';
+    setMsgBox({
+      isOpen: true,
+      type: 'confirm',
+      title: 'Permanently Delete Archived Year?',
+      message: `Permanently delete every archived ${programCode} graduate from year ${filterYear} across all pages?\n\nGraduate accounts and account-owned data will be deleted. Historical survey responses will be preserved for reporting. This action cannot be undone.`,
+      confirmText: 'Delete Year Permanently',
+      cancelText: 'Cancel',
+      destructive: true,
+      onConfirm: async () => {
+        setIsBulkDeleting(true);
+        try {
+          const response = await fetch(`${API_BASE}/graduates/index.php`, {
+            method: 'DELETE',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({
+              action: 'permanent_delete',
+              year_graduated: filterYear,
+              program_id: selectedProgramId,
+            }),
+          });
+          const result = await response.json();
+          if (!response.ok || !result.success) {
+            throw new Error(result.error || 'Unable to permanently delete the archived graduation year');
+          }
+
+          await fetchGraduates();
+          setMsgBox({
+            isOpen: true,
+            type: 'success',
+            message: result.message || `${result.deleted ?? 0} archived graduate record(s) permanently deleted for ${filterYear}.`,
+          });
+        } catch (error) {
+          setMsgBox({
+            isOpen: true,
+            type: 'error',
+            message: getSafeErrorMessage(error, 'Unable to permanently delete the archived graduation year'),
+          });
+        } finally {
+          setIsBulkDeleting(false);
+        }
+      },
+    });
+  };
+
   const handleImportClick = () => {
     fileInputRef.current?.click();
   };
@@ -979,6 +1028,15 @@ export default function Graduates() {
               type="button"
             >
               {isBulkDeleting ? 'Deleting...' : `Delete Permanently (${selectedGraduateIds.length})`}
+            </button>
+
+            <button
+              onClick={handlePermanentDeleteByYear}
+              disabled={!filterYear || !selectedProgramId || isBulkDeleting}
+              className="px-3 py-2 rounded-lg text-sm font-medium text-red-700 border border-red-200 hover:bg-red-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              type="button"
+            >
+              Delete Year Permanently
             </button>
           </div>}
 

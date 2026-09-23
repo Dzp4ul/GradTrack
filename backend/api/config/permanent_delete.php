@@ -199,7 +199,7 @@ if (!function_exists('gradtrack_permanently_delete_graduate')) {
 }
 
 if (!function_exists('gradtrack_permanently_delete_graduates')) {
-    function gradtrack_permanently_delete_graduates(PDO $db, array $graduateIds): array
+    function gradtrack_permanently_delete_graduates(PDO $db, array $graduateIds, int $maximumRecords = 100): array
     {
         $ids = array_values(array_unique(array_filter(array_map('intval', $graduateIds), static function (int $id): bool {
             return $id > 0;
@@ -207,8 +207,9 @@ if (!function_exists('gradtrack_permanently_delete_graduates')) {
         if ($ids === []) {
             throw new GradtrackPermanentDeleteException('At least one graduate ID is required', 400);
         }
-        if (count($ids) > 100) {
-            throw new GradtrackPermanentDeleteException('A maximum of 100 graduate records can be permanently deleted at a time', 400);
+        $maximumRecords = max(1, $maximumRecords);
+        if (count($ids) > $maximumRecords) {
+            throw new GradtrackPermanentDeleteException("A maximum of {$maximumRecords} graduate records can be permanently deleted at a time", 400);
         }
 
         return gradtrack_permanent_delete_transaction($db, function () use ($db, $ids): array {
@@ -232,6 +233,54 @@ if (!function_exists('gradtrack_permanently_delete_graduates')) {
                 'deleted_room_count' => $deletedRoomCount,
                 'deleted_count' => count($records),
             ];
+        });
+    }
+}
+
+if (!function_exists('gradtrack_permanently_delete_graduates_by_year')) {
+    function gradtrack_permanently_delete_graduates_by_year(
+        PDO $db,
+        int $graduationYear,
+        int $programId,
+        int $maximumRecords = 1000
+    ): array {
+        if ($graduationYear < 1900 || $graduationYear > 2099) {
+            throw new GradtrackPermanentDeleteException('A valid graduation year is required', 400);
+        }
+        if ($programId <= 0) {
+            throw new GradtrackPermanentDeleteException('A department is required', 400);
+        }
+
+        return gradtrack_permanent_delete_transaction($db, function () use (
+            $db,
+            $graduationYear,
+            $programId,
+            $maximumRecords
+        ): array {
+            $stmt = $db->prepare('SELECT id
+                                  FROM graduates
+                                  WHERE year_graduated = :year_graduated
+                                    AND program_id = :program_id
+                                    AND archived_at IS NOT NULL
+                                  ORDER BY id ASC
+                                  FOR UPDATE');
+            $stmt->execute([
+                ':year_graduated' => $graduationYear,
+                ':program_id' => $programId,
+            ]);
+            $ids = array_map('intval', $stmt->fetchAll(PDO::FETCH_COLUMN));
+
+            if ($ids === []) {
+                return [
+                    'records' => [],
+                    'storage_references' => [],
+                    'preserved_response_count' => 0,
+                    'deleted_room_count' => 0,
+                    'deleted_count' => 0,
+                ];
+            }
+
+            return gradtrack_permanently_delete_graduates($db, $ids, $maximumRecords);
         });
     }
 }

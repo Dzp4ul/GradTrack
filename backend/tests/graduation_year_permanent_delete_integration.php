@@ -161,6 +161,24 @@ try {
     $bulkCheck->execute([':id_1' => $bulkGraduateOne, ':id_2' => $bulkGraduateTwo]);
     graduation_archive_assert((int) $bulkCheck->fetchColumn() === 0, 'bulk-deleted graduates are absent from the database');
 
+    $yearDeleteOne = graduation_archive_insert_graduate($db, (int) $program['id'], 2028, true, $suffix . 'year1');
+    $yearDeleteTwo = graduation_archive_insert_graduate($db, (int) $program['id'], 2028, true, $suffix . 'year2');
+    $yearActive = graduation_archive_insert_graduate($db, (int) $program['id'], 2028, false, $suffix . 'active');
+    $otherYearArchived = graduation_archive_insert_graduate($db, (int) $program['id'], 2029, true, $suffix . 'other');
+    $yearDeleteResult = gradtrack_permanently_delete_graduates_by_year($db, 2028, (int) $program['id']);
+    graduation_archive_assert(
+        (int) $yearDeleteResult['deleted_count'] === 2,
+        'year deletion removes every archived graduate in the selected department and year'
+    );
+    $yearScopeCheck = $db->prepare('SELECT COUNT(*) FROM graduates WHERE id IN (:id_1, :id_2)');
+    $yearScopeCheck->execute([':id_1' => $yearDeleteOne, ':id_2' => $yearDeleteTwo]);
+    graduation_archive_assert((int) $yearScopeCheck->fetchColumn() === 0, 'year-deleted archived graduates are absent');
+    $yearScopeCheck->execute([':id_1' => $yearActive, ':id_2' => $otherYearArchived]);
+    graduation_archive_assert(
+        (int) $yearScopeCheck->fetchColumn() === 2,
+        'year deletion preserves active graduates and archived graduates from other years'
+    );
+
     graduation_archive_expect_status(
         static fn () => gradtrack_permanently_delete_survey($db, $surveyId + 1000000000),
         404,
