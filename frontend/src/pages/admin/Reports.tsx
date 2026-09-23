@@ -109,7 +109,6 @@ interface SalaryData {
 interface SurveySummary {
   id: number;
   template_id?: number | null;
-  version_number?: number;
   based_on_survey_id?: number | null;
   title: string;
   description: string;
@@ -152,7 +151,6 @@ interface SurveyAnalyticsData {
   survey_id: number;
   survey_title: string;
   template_id?: number | null;
-  version_number?: number;
   total_responses: number;
   response_rate: number | null;
   completion_rate: number | null;
@@ -2436,8 +2434,8 @@ export default function Reports() {
                 <option value="">No active survey selected</option>
                 {surveyItems.map((survey) => (
                   <option key={survey.id} value={survey.id}>
-                    {survey.title} - Version {survey.version_number || 1}
-                    {survey.archived_at ? ' (Archived)' : survey.status === 'active' ? ' (Active)' : ' (Saved)'}
+                    {survey.title}
+                    {survey.archived_at ? ' (Archived)' : survey.status === 'active' ? ' (Active)' : ''}
                   </option>
                 ))}
               </select>
@@ -3174,8 +3172,8 @@ export default function Reports() {
                             <option value="">Select a saved survey</option>
                             {surveyItems.map((survey) => (
                               <option key={survey.id} value={survey.id}>
-                                {survey.title} - Version {survey.version_number || 1}
-                                {survey.archived_at ? ' (Archived)' : survey.status === 'active' ? ' (Active)' : ' (Saved)'}
+                                {survey.title}
+                                {survey.archived_at ? ' (Archived)' : survey.status === 'active' ? ' (Active)' : ''}
                               </option>
                             ))}
                           </select>
@@ -3213,7 +3211,7 @@ export default function Reports() {
                           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                             <div>
                               <h2 className="text-xl font-bold text-[#1b2a4a]">{surveyAnalytics.survey_title}</h2>
-                              <p className="text-sm text-gray-500">Version {surveyAnalytics.version_number || 1} · Survey Analytics & Insights</p>
+                              <p className="text-sm text-gray-500">Survey Analytics & Insights</p>
                             </div>
                             {surveyReportTables.length > 0 && (
                               <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
