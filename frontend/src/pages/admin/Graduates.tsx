@@ -59,6 +59,31 @@ interface FormData {
   time_to_employment: string;
 }
 
+interface ImportFailureRow {
+  sheetName: string;
+  rowNumber: number;
+  studentId: string;
+  graduateName: string;
+  reason: string;
+}
+
+interface ImportResult {
+  fileName: string;
+  totalRows: number;
+  added: number;
+  failed: number;
+  sheetCount: number;
+  graduationYears: string[];
+  failures: ImportFailureRow[];
+}
+
+interface ImportProgress {
+  fileName: string;
+  processed: number;
+  total: number;
+  currentSheet: string;
+}
+
 const emptyForm: FormData = {
   student_id: '', first_name: '', middle_name: '', last_name: '', name_extension: '', email: '', phone: '',
   program_id: '', year_graduated: '', address: '', employment_status: 'unemployed',
@@ -129,6 +154,17 @@ const formatGraduateDisplayName = (graduate: {
   const extension = normalizeText(graduate.name_extension);
   const suffix = extension ? ` ${extension}` : '';
   return `${graduate.last_name}, ${graduate.first_name}${middleInitial}${suffix}`;
+};
+
+const formatImportGraduateName = (graduate: FormData): string => {
+  const givenNames = [graduate.first_name, graduate.middle_name, graduate.name_extension]
+    .map(normalizeText)
+    .filter(Boolean)
+    .join(' ');
+  const lastName = normalizeText(graduate.last_name);
+
+  if (lastName && givenNames) return `${lastName}, ${givenNames}`;
+  return lastName || givenNames || '-';
 };
 
 const getProgramDurationById = (programId: string, programOptions: ProgramOption[]): number | null => {
@@ -304,6 +340,35 @@ const getSafeErrorMessage = (error: unknown, fallback: string): string => {
   return message;
 };
 
+const escapeCsvCell = (value: unknown): string => {
+  const normalized = normalizeText(value);
+  const safeValue = /^[=+\-@]/.test(normalized) ? `'${normalized}` : normalized;
+  return `"${safeValue.replace(/"/g, '""')}"`;
+};
+
+const downloadImportFailures = (result: ImportResult) => {
+  const rows = [
+    ['Worksheet', 'Excel Row', 'Student ID', 'Graduate', 'Failure Reason'],
+    ...result.failures.map((failure) => [
+      failure.sheetName,
+      String(failure.rowNumber),
+      failure.studentId,
+      failure.graduateName,
+      failure.reason,
+    ]),
+  ];
+  const csv = `\uFEFF${rows.map((row) => row.map(escapeCsvCell).join(',')).join('\r\n')}`;
+  const blobUrl = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  const fileBase = result.fileName.replace(/\.[^.]+$/, '').replace(/[^a-z0-9._-]+/gi, '-');
+  link.href = blobUrl;
+  link.download = `${fileBase || 'graduate-import'}-failed-rows.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(blobUrl);
+};
+
 const formatDateTime = (value?: string | null): string => {
   if (!value) return '-';
   const parsed = new Date(value.replace(' ', 'T'));
@@ -326,6 +391,8 @@ export default function Graduates() {
   const [showModal, setShowModal] = useState(false);
   const [formData, setFormData] = useState<FormData>(emptyForm);
   const [isImporting, setIsImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [selectedGraduateIds, setSelectedGraduateIds] = useState<number[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -755,7 +822,15 @@ export default function Graduates() {
 
     if (!file) return;
 
+    setImportResult(null);
+    setMsgBox((current) => ({ ...current, isOpen: false }));
     setIsImporting(true);
+    setImportProgress({
+      fileName: file.name,
+      processed: 0,
+      total: 0,
+      currentSheet: '',
+    });
 
     try {
       const workbook = await readSpreadsheet(file);
@@ -768,13 +843,26 @@ export default function Graduates() {
         throw new Error('No graduate rows were found. Include Student Number and Name columns, then try again.');
       }
 
+      setImportProgress((current) => current ? {
+        ...current,
+        total: extractedImport.rows.length,
+        currentSheet: extractedImport.rows[0]?.sheetName ?? '',
+      } : current);
+
       let successCount = 0;
       let failedCount = 0;
-      const failureReasons: Record<string, number> = {};
+      let processedCount = 0;
+      const failures: ImportFailureRow[] = [];
 
-      const addFailureReason = (reason: string) => {
-        const safeReason = getImportFailureReason(reason);
-        failureReasons[safeReason] = (failureReasons[safeReason] ?? 0) + 1;
+      const addFailure = (importedRow: typeof extractedImport.rows[number], payload: FormData, reason: unknown) => {
+        failedCount += 1;
+        failures.push({
+          sheetName: importedRow.sheetName,
+          rowNumber: importedRow.rowNumber,
+          studentId: normalizeText(payload.student_id) || '-',
+          graduateName: formatImportGraduateName(payload),
+          reason: getImportFailureReason(reason),
+        });
       };
 
       for (const importedRow of extractedImport.rows) {
@@ -788,62 +876,62 @@ export default function Graduates() {
           payload.program_id = importedRow.inferredProgramId || selectedProgramId;
         }
 
-        if (!payload.first_name || !payload.last_name) {
-          failedCount += 1;
-          addFailureReason('Missing name');
-          continue;
-        }
+        setImportProgress((current) => current ? {
+          ...current,
+          currentSheet: importedRow.sheetName,
+        } : current);
 
-        if (!payload.year_graduated) {
-          failedCount += 1;
-          addFailureReason('Missing graduation year');
-          continue;
-        }
+        try {
+          if (!payload.first_name || !payload.last_name) {
+            addFailure(importedRow, payload, 'Missing first or last name');
+            continue;
+          }
 
-        const response = await fetch(`${API_BASE}/graduates/index.php`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include',
-          body: JSON.stringify(payload),
-        });
-        const result = await response.json();
+          if (!payload.year_graduated) {
+            addFailure(importedRow, payload, 'Missing graduation year');
+            continue;
+          }
 
-        if (response.ok && result.success) {
-          successCount += 1;
-        } else {
-          failedCount += 1;
-          addFailureReason(result?.error || 'Rejected by server');
+          const response = await fetch(`${API_BASE}/graduates/index.php`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(payload),
+          });
+
+          let result: { success?: boolean; error?: unknown };
+          try {
+            result = await response.json();
+          } catch {
+            result = { success: false, error: `Server returned an invalid response (HTTP ${response.status})` };
+          }
+
+          if (response.ok && result.success) {
+            successCount += 1;
+          } else {
+            addFailure(importedRow, payload, result.error || 'Rejected by server');
+          }
+        } catch (error) {
+          addFailure(importedRow, payload, getSafeErrorMessage(error, 'Request failed'));
+        } finally {
+          processedCount += 1;
+          setImportProgress((current) => current ? {
+            ...current,
+            processed: processedCount,
+            currentSheet: importedRow.sheetName,
+          } : current);
         }
       }
 
       await fetchGraduates();
-
-      const sortedReasons = Object.entries(failureReasons)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 3)
-        .map(([reason, count]) => `${reason}: ${count}`)
-        .join(', ');
-
-      const msgType: MessageType = failedCount === 0
-        ? 'success'
-        : successCount > 0
-          ? 'warning'
-          : 'error';
-
-      const statusLabel = failedCount === 0
-        ? 'Import completed successfully.'
-        : successCount > 0
-          ? 'Import completed with some skipped rows.'
-          : 'Import failed.';
-      const graduationYearNotice = extractedImport.graduationYears.length > 0
-        ? `\nGraduation year${extractedImport.graduationYears.length === 1 ? '' : 's'}: ${extractedImport.graduationYears.join(', ')} (from the workbook headings).`
-        : '';
-      const worksheetNotice = `\nWorksheets processed: ${extractedImport.sheetCount}.`;
-
-      setMsgBox({
-        isOpen: true,
-        type: msgType,
-        message: `${statusLabel}${graduationYearNotice}${worksheetNotice}\nAdded: ${successCount}. Failed: ${failedCount}.${sortedReasons ? `\nSkipped rows: ${sortedReasons}.` : ''}`,
+      setImportResult({
+        fileName: file.name,
+        totalRows: extractedImport.rows.length,
+        added: successCount,
+        failed: failedCount,
+        sheetCount: extractedImport.sheetCount,
+        graduationYears: extractedImport.graduationYears,
+        failures,
       });
     } catch (error) {
       setMsgBox({
@@ -852,6 +940,7 @@ export default function Graduates() {
         message: getSafeErrorMessage(error, 'Excel import failed. Please check the file and try again.'),
       });
     } finally {
+      setImportProgress(null);
       setIsImporting(false);
     }
   };
@@ -1297,6 +1386,185 @@ export default function Graduates() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {isImporting && importProgress && (
+        <div
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="graduate-import-progress-title"
+        >
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl sm:p-8">
+            <div className="flex items-start gap-4">
+              <div className="mt-0.5 h-11 w-11 shrink-0 animate-spin rounded-full border-4 border-blue-100 border-t-blue-600" aria-hidden="true" />
+              <div className="min-w-0 flex-1">
+                <h2 id="graduate-import-progress-title" className="text-lg font-semibold text-[#1b2a4a]">
+                  Importing graduates
+                </h2>
+                <p className="mt-1 truncate text-sm text-gray-500" title={importProgress.fileName}>
+                  {importProgress.fileName}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-6" aria-live="polite">
+              {importProgress.total > 0 ? (
+                <>
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <span className="font-medium text-gray-700">
+                      {importProgress.processed} of {importProgress.total} rows processed
+                    </span>
+                    <span className="font-semibold text-blue-700">
+                      {Math.round((importProgress.processed / importProgress.total) * 100)}%
+                    </span>
+                  </div>
+                  <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-blue-100">
+                    <div
+                      className="h-full rounded-full bg-blue-600 transition-[width] duration-300"
+                      style={{ width: `${Math.min(100, (importProgress.processed / importProgress.total) * 100)}%` }}
+                    />
+                  </div>
+                  {importProgress.currentSheet && (
+                    <p className="mt-3 truncate text-xs text-gray-500" title={importProgress.currentSheet}>
+                      Worksheet: <span className="font-medium text-gray-700">{importProgress.currentSheet}</span>
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-gray-600">Reading and checking the workbook...</p>
+              )}
+            </div>
+
+            <p className="mt-5 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              Keep this page open until the import finishes.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {importResult && !isImporting && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/60 p-3 backdrop-blur-sm sm:p-6"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="graduate-import-results-title"
+        >
+          <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b px-5 py-4 sm:px-6">
+              <div className="min-w-0">
+                <h2 id="graduate-import-results-title" className="text-xl font-semibold text-[#1b2a4a]">
+                  Graduate Import Results
+                </h2>
+                <p className="mt-1 truncate text-sm text-gray-500" title={importResult.fileName}>
+                  {importResult.fileName}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setImportResult(null)}
+                className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                aria-label="Close import results"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="overflow-y-auto px-5 py-5 sm:px-6">
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Rows found</p>
+                  <p className="mt-1 text-2xl font-bold text-[#1b2a4a]">{importResult.totalRows}</p>
+                </div>
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                  <p className="text-xs font-medium uppercase tracking-wide text-emerald-700">Added</p>
+                  <p className="mt-1 text-2xl font-bold text-emerald-700">{importResult.added}</p>
+                </div>
+                <div className={`rounded-xl border p-4 ${importResult.failed > 0 ? 'border-red-200 bg-red-50' : 'border-emerald-200 bg-emerald-50'}`}>
+                  <p className={`text-xs font-medium uppercase tracking-wide ${importResult.failed > 0 ? 'text-red-700' : 'text-emerald-700'}`}>Failed</p>
+                  <p className={`mt-1 text-2xl font-bold ${importResult.failed > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{importResult.failed}</p>
+                </div>
+                <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+                  <p className="text-xs font-medium uppercase tracking-wide text-blue-700">Worksheets</p>
+                  <p className="mt-1 text-2xl font-bold text-blue-700">{importResult.sheetCount}</p>
+                </div>
+              </div>
+
+              {importResult.graduationYears.length > 0 && (
+                <p className="mt-4 text-sm text-gray-600">
+                  Graduation year{importResult.graduationYears.length === 1 ? '' : 's'} detected from the workbook: {' '}
+                  <span className="font-semibold text-gray-800">{importResult.graduationYears.join(', ')}</span>
+                </p>
+              )}
+
+              {importResult.failures.length > 0 ? (
+                <div className="mt-6">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                    <div>
+                      <h3 className="font-semibold text-gray-900">Failed rows</h3>
+                      <p className="mt-1 text-sm text-gray-500">
+                        Use the worksheet and Excel row number to correct each record before importing it again.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => downloadImportFailures(importResult)}
+                      className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-blue-200 px-3 py-2 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-50"
+                    >
+                      <Download size={16} />
+                      Download Failed Rows CSV
+                    </button>
+                  </div>
+
+                  {importResult.failures.length > 500 && (
+                    <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                      Showing the first 500 of {importResult.failures.length} failed rows. The CSV download includes all failed rows.
+                    </p>
+                  )}
+
+                  <div className="mt-3 max-h-[42vh] overflow-auto rounded-xl border border-gray-200">
+                    <table className="w-full min-w-[880px] text-left text-sm">
+                      <thead className="sticky top-0 z-10 bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+                        <tr>
+                          <th className="px-4 py-3 font-semibold">Worksheet</th>
+                          <th className="px-4 py-3 font-semibold">Excel Row</th>
+                          <th className="px-4 py-3 font-semibold">Student ID</th>
+                          <th className="px-4 py-3 font-semibold">Graduate</th>
+                          <th className="px-4 py-3 font-semibold">Reason</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {importResult.failures.slice(0, 500).map((failure, index) => (
+                          <tr key={`${failure.sheetName}-${failure.rowNumber}-${index}`} className="align-top hover:bg-gray-50">
+                            <td className="px-4 py-3 font-medium text-gray-800">{failure.sheetName}</td>
+                            <td className="px-4 py-3 tabular-nums text-gray-700">{failure.rowNumber}</td>
+                            <td className="px-4 py-3 font-mono text-xs text-gray-700">{failure.studentId}</td>
+                            <td className="px-4 py-3 text-gray-700">{failure.graduateName}</td>
+                            <td className="px-4 py-3 text-red-700">{failure.reason}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-5 text-sm text-emerald-800">
+                  All {importResult.added} graduate row{importResult.added === 1 ? '' : 's'} were imported successfully.
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end border-t bg-gray-50 px-5 py-4 sm:px-6">
+              <button
+                type="button"
+                onClick={() => setImportResult(null)}
+                className="rounded-lg bg-[#1b2a4a] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#263c66]"
+              >
+                Done
+              </button>
+            </div>
           </div>
         </div>
       )}
