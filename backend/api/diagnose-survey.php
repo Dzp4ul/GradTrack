@@ -63,7 +63,14 @@ try {
     if (empty($issues)) {
         try {
             $testData = json_encode(["test" => "data"]);
-            $stmt = $conn->prepare("INSERT INTO survey_responses (survey_id, graduate_id, responses, submitted_at) VALUES (1, NULL, :responses, NOW())");
+            $activeSurveyId = (int)$conn->query(
+                "SELECT id FROM surveys WHERE status = 'active' AND archived_at IS NULL ORDER BY id DESC LIMIT 1"
+            )->fetchColumn();
+            $stmt = $conn->prepare("INSERT INTO survey_responses
+                (survey_id, survey_version_id, graduate_id, responses, submitted_at)
+                VALUES (:survey_id, :survey_version_id, NULL, :responses, NOW())");
+            $stmt->bindValue(':survey_id', $activeSurveyId, PDO::PARAM_INT);
+            $stmt->bindValue(':survey_version_id', $activeSurveyId, PDO::PARAM_INT);
             $stmt->bindParam(':responses', $testData);
             $stmt->execute();
             $testId = $conn->lastInsertId();

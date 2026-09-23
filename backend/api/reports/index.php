@@ -132,20 +132,6 @@ function answerIndicatesAlignment(string $answerText): bool
         || strpos($answerText, 'not related') !== false;
 }
 
-function getNeighborAnswerText(array $data, $questionId, int $offset = -1): string
-{
-    if (!is_numeric($questionId)) {
-        return '';
-    }
-
-    $neighborKey = (string)(((int)$questionId) + $offset);
-    if (!array_key_exists($neighborKey, $data)) {
-        return '';
-    }
-
-    return answerToText($data[$neighborKey]);
-}
-
 function mapSalaryAnswerToRange(string $answerText): ?string
 {
     $normalized = strtolower(trim($answerText));
@@ -380,52 +366,6 @@ function isYearLikeAnswer(string $value): bool
     return preg_match('/^(19|20)\d{2}$/', $trimmed) === 1;
 }
 
-function getQuestionMap(PDO $db, ?int $surveyId): array
-{
-    if ($surveyId === null) {
-        return [];
-    }
-
-    $stmt = $db->prepare("
-        SELECT id, question_text, sort_order
-        FROM survey_questions
-        WHERE survey_id = :survey_id
-        ORDER BY sort_order
-    ");
-    $stmt->bindValue(':survey_id', $surveyId, PDO::PARAM_INT);
-    $stmt->execute();
-
-    $questionMap = [];
-    $questions = $stmt->fetchAll(PDO::FETCH_ASSOC);
-    foreach ($questions as $q) {
-        $questionMap[$q['id']] = strtolower((string)$q['question_text']);
-    }
-
-    $responseKeys = getSurveyResponseQuestionKeys($db, $surveyId);
-    if (!empty($questions) && !empty($responseKeys)) {
-        $firstResponseKey = min($responseKeys);
-        $firstQuestion = $questions[0];
-        $firstQuestionId = (int)$firstQuestion['id'];
-        $firstSortOrder = (int)$firstQuestion['sort_order'];
-        $idOffset = $firstQuestionId - $firstResponseKey;
-
-        foreach ($questions as $q) {
-            $questionText = strtolower((string)$q['question_text']);
-            $historicalKeyBySort = $firstResponseKey + ((int)$q['sort_order'] - $firstSortOrder);
-            $historicalKeyById = (int)$q['id'] - $idOffset;
-
-            if ($historicalKeyBySort > 0 && !isset($questionMap[$historicalKeyBySort])) {
-                $questionMap[$historicalKeyBySort] = $questionText;
-            }
-            if ($historicalKeyById > 0 && !isset($questionMap[$historicalKeyById])) {
-                $questionMap[$historicalKeyById] = $questionText;
-            }
-        }
-    }
-
-    return $questionMap;
-}
-
 function getSurveyQuestions(PDO $db, ?int $surveyId): array
 {
     if ($surveyId === null) {
@@ -433,50 +373,16 @@ function getSurveyQuestions(PDO $db, ?int $surveyId): array
     }
 
     $stmt = $db->prepare("
-        SELECT id, question_text, question_type, sort_order
+        SELECT id, section_id, question_key, analytics_key, section, question_text,
+               question_type, options, is_required, sort_order, is_active
         FROM survey_questions
-        WHERE survey_id = :survey_id
+        WHERE survey_id = :survey_id AND is_active = 1
         ORDER BY sort_order ASC, id ASC
     ");
     $stmt->bindValue(':survey_id', $surveyId, PDO::PARAM_INT);
     $stmt->execute();
 
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
-}
-
-function getSurveyResponseQuestionKeys(PDO $db, ?int $surveyId): array
-{
-    if ($surveyId === null) {
-        return [];
-    }
-
-    $stmt = $db->prepare("
-        SELECT responses
-        FROM survey_responses
-        WHERE survey_id = :survey_id
-          AND submitted_at IS NOT NULL
-        ORDER BY id ASC
-        LIMIT 25
-    ");
-    $stmt->bindValue(':survey_id', $surveyId, PDO::PARAM_INT);
-    $stmt->execute();
-
-    $keys = [];
-    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $response) {
-        $data = json_decode((string)$response['responses'], true);
-        if (!is_array($data)) {
-            continue;
-        }
-
-        foreach (array_keys($data) as $key) {
-            if (ctype_digit((string)$key)) {
-                $keys[(int)$key] = (int)$key;
-            }
-        }
-    }
-
-    sort($keys, SORT_NUMERIC);
-    return array_values($keys);
 }
 
 function getSurveyResponses(PDO $db, ?int $surveyId, array $overviewFilters = []): array
@@ -500,7 +406,7 @@ function getSurveyResponses(PDO $db, ?int $surveyId, array $overviewFilters = []
 function getReportSurveyItems(PDO $db, ?array $allowedProgramCodes): array
 {
     $surveys = $db->query(
-        "SELECT id, title, description, status, archived_at
+        "SELECT id, template_id, version_number, based_on_survey_id, title, description, status, archived_at
          FROM surveys
          ORDER BY created_at DESC, id DESC"
     )->fetchAll(PDO::FETCH_ASSOC);
@@ -536,91 +442,22 @@ function getReportResponseDetails(array $response, array $questions): array
     $workLocation = '';
     $salaryRange = null;
 
-    $data = json_decode((string)($response['responses'] ?? ''), true);
-    $answers = [];
-    if (is_array($data)) {
-        $answers = gradtrack_survey_build_answer_map($questions, $data);
-
-        foreach ($questions as $question) {
-            $questionId = (string)($question['id'] ?? '');
-            if ($questionId === '') {
-                continue;
-            }
-
-            $answer = $answers[$questionId] ?? null;
-            $questionText = strtolower((string)($question['question_text'] ?? ''));
-
-            if ($rowProgramCode === '' && strpos($questionText, 'degree program') !== false) {
-                if (is_string($answer) && !empty($answer)) {
-                    $candidateProgram = trim($answer);
-                    if ($candidateProgram !== '' && !isYearLikeAnswer($candidateProgram)) {
-                        $degreeProgram = $candidateProgram;
-                    }
-                }
-            }
-
-            if ($canonicalYear === null && (strpos($questionText, 'year graduated') !== false
-                || strpos($questionText, 'graduation year') !== false
-                || strpos($questionText, 'year of graduation') !== false)) {
-                $answerYear = gradtrack_normalize_graduation_year($answer);
-                if ($answerYear !== null) {
-                    $yearGraduated = (string)$answerYear;
-                }
-            }
-
-            if (strpos($questionText, 'employment status') !== false || strpos($questionText, 'presently employed') !== false) {
-                $employmentAnswer = parseEmploymentAnswer($answer);
-                if ($employmentAnswer !== null) {
-                    if ($employmentAnswer) {
-                        $isEmployed = true;
-                    } else {
-                        $isUnemployed = true;
-                    }
-                }
-            }
-
-            if (strpos($questionText, 'place of work') !== false || strpos($questionText, 'major line of business') !== false) {
-                $candidateLocation = answerToText($answer);
-                if (!answerIndicatesWorkLocation($candidateLocation) && strpos($questionText, 'place of work') !== false) {
-                    $candidateLocation = getNeighborAnswerText($answers, $questionId, -1);
-                }
-
-                if (answerIndicatesWorkLocation($candidateLocation)) {
-                    $workLocation = $candidateLocation;
-                }
-            }
-
-            if (
-                strpos($questionText, 'job related to') !== false
-                || strpos($questionText, 'related to your course') !== false
-                || strpos($questionText, 'reason(s) for staying on the job') !== false
-            ) {
-                $candidateRelated = answerToText($answer);
-                if (!answerIndicatesAlignment($candidateRelated) && strpos($questionText, 'job related to') !== false) {
-                    $candidateRelated = getNeighborAnswerText($answers, $questionId, -1);
-                }
-
-                if (answerIndicatesAlignment($candidateRelated)) {
-                    $jobRelated = $candidateRelated;
-                }
-            }
-
-            if (
-                strpos($questionText, 'gross monthly earning') !== false
-                || strpos($questionText, 'initial gross monthly') !== false
-                || strpos($questionText, 'job level position') !== false
-            ) {
-                $candidateRange = mapSalaryAnswerToRange(answerToText($answer));
-
-                if ($candidateRange === null && strpos($questionText, 'gross monthly earning') !== false) {
-                    $candidateRange = mapSalaryAnswerToRange(getNeighborAnswerText($answers, $questionId, -1));
-                }
-
-                if ($candidateRange !== null) {
-                    $salaryRange = $candidateRange;
-                }
-            }
+    $answers = gradtrack_survey_response_answer_map($questions, $response);
+    $programQuestionId = gradtrack_survey_question_id_by_analytics_key($questions, 'program');
+    if ($rowProgramCode === '' && $programQuestionId !== null) {
+        $candidateProgram = trim(answerToText($answers[$programQuestionId] ?? null));
+        if ($candidateProgram !== '' && !isYearLikeAnswer($candidateProgram)) {
+            $degreeProgram = $candidateProgram;
         }
+    }
+    $yearQuestionId = gradtrack_survey_question_id_by_analytics_key($questions, 'graduation_year');
+    if ($canonicalYear === null && $yearQuestionId !== null) {
+        $answerYear = gradtrack_normalize_graduation_year($answers[$yearQuestionId] ?? null);
+        if ($answerYear !== null) $yearGraduated = (string)$answerYear;
+    }
+    $salaryQuestionId = gradtrack_survey_question_id_by_analytics_key($questions, 'salary_range');
+    if ($salaryQuestionId !== null) {
+        $salaryRange = mapSalaryAnswerToRange(answerToText($answers[$salaryQuestionId] ?? null));
     }
 
     $roles = gradtrack_analytics_question_roles($questions);
@@ -647,6 +484,10 @@ function getReportResponseDetails(array $response, array $questions): array
     $isUnemployed = $employmentStatus === 'unemployed';
     $isAligned = $alignmentBucket === 'aligned';
     $workLocation = $canonicalWorkLocation ?? '';
+    $alignmentQuestionId = gradtrack_survey_question_id_by_analytics_key($questions, 'job_course_alignment');
+    $jobRelated = $alignmentQuestionId !== null
+        ? answerToText($answers[$alignmentQuestionId] ?? null)
+        : '';
 
     return [
         'row_program_code' => $rowProgramCode,
@@ -842,7 +683,12 @@ try {
                 "total_alignment_known" => (int)$summary['alignment_total'],
                 "total_survey_responses" => (int)$summary['response_count'],
                 "employment_rate" => $summary['employment_rate'],
-                "alignment_rate" => $summary['alignment_rate']
+                "alignment_rate" => $summary['alignment_rate'],
+                "field_availability" => [
+                    'employment_status' => !empty(gradtrack_analytics_question_roles($questions)['employment']),
+                    'job_course_alignment' => !empty(gradtrack_analytics_question_roles($questions)['alignment']),
+                    'work_location' => !empty(gradtrack_analytics_question_roles($questions)['work_location']),
+                ]
             ]]);
             break;
 

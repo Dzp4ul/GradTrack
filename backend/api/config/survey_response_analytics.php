@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/survey_versioning.php';
+
 const GRADTRACK_BARANGAY_NOT_SPECIFIED_LABEL = 'Barangay not specified';
 const GRADTRACK_BARANGAY_NOT_SPECIFIED_VALUE = '__barangay_not_specified__';
 
@@ -125,62 +127,11 @@ function gradtrack_survey_build_answer_map(array $questions, array $data): array
         return $answers;
     }
 
-    $exactRatio = gradtrack_survey_exact_hit_ratio($questions, $data);
-    if ($exactRatio >= 0.5) {
-        foreach ($questions as $question) {
-            $questionId = (string)($question['id'] ?? '');
-            if ($questionId !== '' && array_key_exists($questionId, $data)) {
-                $answers[$questionId] = $data[$questionId];
-            }
-        }
-
-        return $answers;
-    }
-
-    $responseKeys = gradtrack_survey_collect_numeric_response_keys($data);
-    if (empty($responseKeys)) {
-        return $answers;
-    }
-
-    $firstQuestion = $questions[0];
-    $firstQuestionId = (int)($firstQuestion['id'] ?? 0);
-    $firstSortOrder = (int)($firstQuestion['sort_order'] ?? 0);
-    $firstResponseKey = (int)min($responseKeys);
-    $idOffset = $firstQuestionId - $firstResponseKey;
-
-    $offsetHits = 0;
-    foreach ($questions as $question) {
-        $legacyKey = (string)((int)($question['id'] ?? 0) - $idOffset);
-        if ((int)$legacyKey > 0 && array_key_exists($legacyKey, $data)) {
-            $offsetHits++;
-        }
-    }
-
-    $useIdOffset = $offsetHits > 0;
-    $usedResponseKeys = [];
-
     foreach ($questions as $question) {
         $questionId = (string)($question['id'] ?? '');
-        if ($questionId === '') {
-            continue;
-        }
-
-        if (array_key_exists($questionId, $data)) {
+        if ($questionId !== '' && array_key_exists($questionId, $data)) {
             $answers[$questionId] = $data[$questionId];
-            $usedResponseKeys[$questionId] = true;
-            continue;
         }
-
-        $candidateKey = $useIdOffset
-            ? (string)((int)$questionId - $idOffset)
-            : (string)($firstResponseKey + ((int)($question['sort_order'] ?? 0) - $firstSortOrder));
-
-        if ((int)$candidateKey <= 0 || isset($usedResponseKeys[$candidateKey]) || !array_key_exists($candidateKey, $data)) {
-            continue;
-        }
-
-        $answers[$questionId] = $data[$candidateKey];
-        $usedResponseKeys[$candidateKey] = true;
     }
 
     return $answers;
@@ -315,19 +266,22 @@ function gradtrack_analytics_active_graduate_condition(string $alias = 'g'): str
     return "{$alias}.status = 'active' AND {$alias}.archived_at IS NULL";
 }
 
-function gradtrack_analytics_fetch_questions(PDO $db, int $surveyId): array
+function gradtrack_analytics_fetch_questions(PDO $db, int $surveyId, bool $includeRetired = false): array
 {
     if ($surveyId <= 0) {
         return [];
     }
 
     $stmt = $db->prepare(
-        'SELECT id, survey_id, section, question_text, question_type, options, is_required, sort_order
+        'SELECT id, survey_id, section_id, question_key, analytics_key, section,
+                question_text, question_type, options, is_required, sort_order, is_active,
+                introduced_at, created_at, retired_at
          FROM survey_questions
-         WHERE survey_id = :survey_id
+         WHERE survey_id = :survey_id AND (is_active = 1 OR :include_retired = 1)
          ORDER BY sort_order ASC, id ASC'
     );
     $stmt->bindValue(':survey_id', $surveyId, PDO::PARAM_INT);
+    $stmt->bindValue(':include_retired', $includeRetired ? 1 : 0, PDO::PARAM_INT);
     $stmt->execute();
 
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -465,7 +419,7 @@ function gradtrack_analytics_fetch_valid_responses(PDO $db, int $surveyId, array
     gradtrack_analytics_bind_values($stmt, $bindings);
     $stmt->execute();
 
-    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    return gradtrack_survey_hydrate_normalized_answers($db, $stmt->fetchAll(PDO::FETCH_ASSOC));
 }
 
 function gradtrack_analytics_fetch_program_dimensions(PDO $db, array $options = []): array
@@ -587,45 +541,11 @@ function gradtrack_analytics_fetch_year_dimensions(PDO $db, array $options = [])
 
 function gradtrack_analytics_question_roles(array $questions): array
 {
-    $candidates = [
-        'employment' => [],
-        'alignment' => [],
-        'work_location' => [],
+    return [
+        'employment' => gradtrack_survey_question_ids_by_analytics_keys($questions, ['employment_status']),
+        'alignment' => gradtrack_survey_question_ids_by_analytics_keys($questions, ['job_course_alignment']),
+        'work_location' => gradtrack_survey_question_ids_by_analytics_keys($questions, ['work_location']),
     ];
-
-    foreach ($questions as $question) {
-        $questionId = (string)($question['id'] ?? '');
-        if ($questionId === '') {
-            continue;
-        }
-
-        $text = gradtrack_survey_normalize_text($question['question_text'] ?? '');
-        $employmentScore = -1;
-        if (strpos($text, 'are you presently employed') !== false) $employmentScore = 100;
-        elseif (strpos($text, 'present employment status') !== false) $employmentScore = 90;
-        elseif (strpos($text, 'employment status') !== false) $employmentScore = 80;
-        if ($employmentScore >= 0) $candidates['employment'][] = ['id' => $questionId, 'score' => $employmentScore];
-
-        $alignmentScore = -1;
-        if (strpos($text, 'is your first job related') !== false) $alignmentScore = 100;
-        elseif (strpos($text, 'job related to') !== false || strpos($text, 'related to your course') !== false) $alignmentScore = 90;
-        if ($alignmentScore >= 0) $candidates['alignment'][] = ['id' => $questionId, 'score' => $alignmentScore];
-
-        $locationScore = -1;
-        if ($text === 'place of work') $locationScore = 100;
-        elseif (strpos($text, 'place of work') !== false) $locationScore = 90;
-        if ($locationScore >= 0) $candidates['work_location'][] = ['id' => $questionId, 'score' => $locationScore];
-    }
-
-    $roles = [];
-    foreach ($candidates as $role => $roleCandidates) {
-        usort($roleCandidates, static function (array $a, array $b): int {
-            return ($b['score'] <=> $a['score']) ?: ((int)$a['id'] <=> (int)$b['id']);
-        });
-        $roles[$role] = array_column($roleCandidates, 'id');
-    }
-
-    return $roles;
 }
 
 function gradtrack_analytics_classify_employment($answer): ?string
@@ -711,12 +631,8 @@ function gradtrack_analytics_build_records(array $responses, array $questions): 
     $records = [];
 
     foreach ($responses as $response) {
-        $data = json_decode((string)($response['responses'] ?? ''), true);
-        if (!is_array($data)) {
-            continue;
-        }
-
-        $answerMap = gradtrack_survey_build_answer_map($questions, $data);
+        $answerMap = gradtrack_survey_response_answer_map($questions, $response);
+        if ($answerMap === []) continue;
         $employmentStatus = gradtrack_analytics_first_classified_answer(
             $answerMap,
             $roles['employment'] ?? [],
@@ -971,6 +887,12 @@ function gradtrack_analytics_calculate(PDO $db, int $surveyId, array $options = 
         : [];
     $summary = gradtrack_analytics_summarize_records($records);
     $summary['distribution'] = gradtrack_analytics_distribution($summary);
+    $roles = gradtrack_analytics_question_roles($questions);
+    $availability = [
+        'employment_status' => !empty($roles['employment']),
+        'job_course_alignment' => !empty($roles['alignment']),
+        'work_location' => !empty($roles['work_location']),
+    ];
 
     return [
         'summary' => $summary,
@@ -979,5 +901,17 @@ function gradtrack_analytics_calculate(PDO $db, int $surveyId, array $options = 
         'records' => $records,
         'questions' => $questions,
         'responses' => $responses,
+        'field_availability' => $availability,
+        'unavailable_reasons' => array_values(array_filter([
+            !$availability['employment_status']
+                ? 'This survey version does not contain an Employment Status field.'
+                : null,
+            !$availability['job_course_alignment']
+                ? 'Job Alignment data is unavailable for this survey version.'
+                : null,
+            !$availability['work_location']
+                ? 'Work Location data is unavailable for this survey version.'
+                : null,
+        ])),
     ];
 }

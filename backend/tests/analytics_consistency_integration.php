@@ -28,15 +28,18 @@ function analytics_expected_rate(int $count, int $total): ?float
 try {
     $db = (new Database())->getConnection();
     $surveyId = (int)($db->query(
-        "SELECT id FROM surveys
-         WHERE status = 'active' AND archived_at IS NULL
-         ORDER BY created_at DESC, id DESC LIMIT 1"
+        "SELECT s.id FROM surveys s
+         WHERE s.archived_at IS NULL
+         ORDER BY (s.status = 'active') DESC,
+                  (SELECT COUNT(*) FROM survey_responses sr WHERE sr.survey_id = s.id) DESC,
+                  s.created_at DESC, s.id DESC
+         LIMIT 1"
     )->fetchColumn() ?: 0);
-    analytics_assert($surveyId > 0, 'an active, non-archived survey is available');
+    analytics_assert($surveyId > 0, 'a non-archived survey version is available');
 
     if ($surveyId > 0) {
         $coverage = gradtrack_get_survey_graduation_year_coverage($db, $surveyId);
-        analytics_assert($coverage['configured'], 'the active survey has configured graduation-year coverage');
+        analytics_assert($coverage['configured'], 'the selected survey version has configured graduation-year coverage');
         $coverageOptions = $coverage['configured']
             ? ['allowed_graduation_years' => $coverage['years']]
             : ['allowed_graduation_years' => []];
@@ -175,37 +178,54 @@ try {
             ]);
             $graduateId = (int)$db->lastInsertId();
 
-            $surveyStmt = $db->prepare(
-                "INSERT INTO surveys (title, description, status)
-                 VALUES (:title, 'Analytics consistency fixture', 'draft')"
+            $templateStmt = $db->prepare(
+                "INSERT INTO survey_templates (template_key, title, description)
+                 VALUES (:template_key, :title, 'Analytics consistency fixture')"
             );
-            $surveyStmt->execute([':title' => 'Analytics fixture ' . $suffix]);
+            $templateStmt->execute([
+                ':template_key' => gradtrack_survey_uuid(),
+                ':title' => 'Analytics fixture ' . $suffix,
+            ]);
+            $templateId = (int)$db->lastInsertId();
+            $surveyStmt = $db->prepare(
+                "INSERT INTO surveys (template_id, version_number, title, description, status)
+                 VALUES (:template_id, 1, :title, 'Analytics consistency fixture', 'draft')"
+            );
+            $surveyStmt->execute([
+                ':template_id' => $templateId,
+                ':title' => 'Analytics fixture ' . $suffix,
+            ]);
             $fixtureSurveyId = (int)$db->lastInsertId();
 
             $questionStmt = $db->prepare(
                 "INSERT INTO survey_questions
-                 (survey_id, section, question_text, question_type, is_required, sort_order)
-                 VALUES (:survey_id, 'Employment', :question_text, 'radio', 1, :sort_order)"
+                 (survey_id, question_key, analytics_key, section, question_text, question_type, is_required, sort_order)
+                 VALUES (:survey_id, :question_key, :analytics_key, 'Employment', :question_text, 'radio', 1, :sort_order)"
             );
             $questionStmt->execute([
                 ':survey_id' => $fixtureSurveyId,
+                ':question_key' => gradtrack_survey_uuid(),
+                ':analytics_key' => 'employment_status',
                 ':question_text' => 'Are you presently employed?',
                 ':sort_order' => 1,
             ]);
             $employmentQuestionId = (int)$db->lastInsertId();
             $questionStmt->execute([
                 ':survey_id' => $fixtureSurveyId,
+                ':question_key' => gradtrack_survey_uuid(),
+                ':analytics_key' => 'job_course_alignment',
                 ':question_text' => 'Is your first job related to the course you took?',
                 ':sort_order' => 2,
             ]);
             $alignmentQuestionId = (int)$db->lastInsertId();
 
             $responseStmt = $db->prepare(
-                'INSERT INTO survey_responses (survey_id, graduate_id, responses, submitted_at)
-                 VALUES (:survey_id, :graduate_id, :responses, NOW())'
+                'INSERT INTO survey_responses (survey_id, survey_version_id, graduate_id, responses, submitted_at)
+                 VALUES (:survey_id, :survey_version_id, :graduate_id, :responses, NOW())'
             );
             $responseStmt->execute([
                 ':survey_id' => $fixtureSurveyId,
+                ':survey_version_id' => $fixtureSurveyId,
                 ':graduate_id' => $graduateId,
                 ':responses' => json_encode([
                     (string)$employmentQuestionId => 'No',
@@ -214,6 +234,7 @@ try {
             ]);
             $responseStmt->execute([
                 ':survey_id' => $fixtureSurveyId,
+                ':survey_version_id' => $fixtureSurveyId,
                 ':graduate_id' => $graduateId,
                 ':responses' => json_encode([
                     (string)$employmentQuestionId => 'Yes',

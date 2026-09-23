@@ -1,0 +1,29 @@
+{
+  "name": "gradtrack-graduate-presentation",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Regenerable GradTrack graduate/alumni video presentation using captures of the current application UI.",
+  "scripts": {
+    "capture": "node scripts/capture-ui.mjs",
+    "narration": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/generate-narration.ps1",
+    "music": "node scripts/generate-music.mjs",
+    "sync": "node scripts/sync-public.mjs",
+    "studio": "npm run sync && remotion studio src/index.ts",
+    "render": "npm run sync && remotion render src/index.ts GradTrackGraduatePresentation gradtrack-graduate-presentation.mp4 --codec=h264 --crf=18 --pixel-format=yuv420p --audio-codec=aac --audio-bitrate=192k --overwrite",
+    "render:preview": "npm run sync && remotion render src/index.ts GradTrackGraduatePresentation output/preview.mp4 --codec=h264 --crf=26 --pixel-format=yuv420p --audio-codec=aac --scale=0.5 --overwrite",
+    "still": "npm run sync && remotion still src/index.ts GradTrackGraduatePresentation output/preview.png --frame=2550 --overwrite",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.518",
+    "@remotion/renderer": "4.0.518",
+    "@types/react": "18.3.5",
+    "@types/react-dom": "18.3.0",
+    "lucide-react": "0.344.0",
+    "playwright-core": "1.55.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "remotion": "4.0.518",
+    "typescript": "5.5.3"
+  }
+}

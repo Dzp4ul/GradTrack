@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../api/config/database.php';
+require_once __DIR__ . '/../api/config/survey_versioning.php';
 
 function survey_idempotency_assert(bool $condition, string $message): void
 {
@@ -54,6 +55,7 @@ $db = (new Database())->getConnection();
 $baseUrl = rtrim((string) (getenv('GRADTRACK_API_BASE_URL') ?: 'http://localhost/GradTrack/backend'), '/');
 $endpoint = $baseUrl . '/api/surveys/responses.php';
 $surveyId = 0;
+$templateId = 0;
 $graduateId = 0;
 $graduationYearQuestionId = 0;
 $previousActiveSurveyIds = [];
@@ -67,16 +69,32 @@ try {
     );
     $db->exec("UPDATE surveys SET status = 'inactive' WHERE status = 'active' AND archived_at IS NULL");
 
-    $surveyStmt = $db->prepare("INSERT INTO surveys (title, description, status, created_by)
-                                VALUES (:title, 'Automated concurrency regression fixture', 'active', 'integration-test')");
-    $surveyStmt->execute([':title' => 'Idempotency Test ' . $suffix]);
+    $templateStmt = $db->prepare("INSERT INTO survey_templates (template_key, title, description)
+                                  VALUES (:template_key, :title, 'Automated concurrency regression fixture')");
+    $templateStmt->execute([
+        ':template_key' => gradtrack_survey_uuid(),
+        ':title' => 'Idempotency Test ' . $suffix,
+    ]);
+    $templateId = (int)$db->lastInsertId();
+    $surveyStmt = $db->prepare("INSERT INTO surveys
+        (template_id, version_number, title, description, status, published_at, locked_at, created_by)
+        VALUES (:template_id, 1, :title, 'Automated concurrency regression fixture',
+                'active', NOW(), NOW(), 'integration-test')");
+    $surveyStmt->execute([
+        ':template_id' => $templateId,
+        ':title' => 'Idempotency Test ' . $suffix,
+    ]);
     $surveyId = (int) $db->lastInsertId();
+    $db->prepare('UPDATE survey_templates SET current_version_id = :survey_id WHERE id = :template_id')
+        ->execute([':survey_id' => $surveyId, ':template_id' => $templateId]);
 
     $questionStmt = $db->prepare("INSERT INTO survey_questions
-        (survey_id, section, question_text, question_type, options, is_required, sort_order)
-        VALUES (:survey_id, 'Educational Background', 'Year Graduated', 'multiple_choice', :options, 1, 1)");
+        (survey_id, question_key, analytics_key, section, question_text, question_type, options, is_required, sort_order)
+        VALUES (:survey_id, :question_key, 'graduation_year', 'Educational Background',
+                'Year Graduated', 'multiple_choice', :options, 1, 1)");
     $questionStmt->execute([
         ':survey_id' => $surveyId,
+        ':question_key' => gradtrack_survey_uuid(),
         ':options' => json_encode(['2025'], JSON_THROW_ON_ERROR),
     ]);
     $graduationYearQuestionId = (int) $db->lastInsertId();
@@ -192,8 +210,24 @@ try {
     $exitCode = 1;
 } finally {
     if ($surveyId > 0) {
+        $db->prepare('DELETE FROM graduate_accounts WHERE graduate_id = :graduate_id')
+            ->execute([':graduate_id' => $graduateId]);
+        $db->prepare(
+            'DELETE sra FROM survey_response_answers sra
+             INNER JOIN survey_responses sr ON sr.id = sra.survey_response_id
+             WHERE sr.survey_id = :id'
+        )->execute([':id' => $surveyId]);
+        $db->prepare('DELETE FROM survey_tokens WHERE survey_id = :id')->execute([':id' => $surveyId]);
+        $db->prepare('DELETE FROM survey_responses WHERE survey_id = :id')->execute([':id' => $surveyId]);
+        $db->prepare('DELETE FROM survey_questions WHERE survey_id = :id')->execute([':id' => $surveyId]);
+        $db->prepare('DELETE FROM survey_sections WHERE survey_id = :id')->execute([':id' => $surveyId]);
+        $db->prepare('UPDATE survey_templates SET current_version_id = NULL WHERE current_version_id = :id')
+            ->execute([':id' => $surveyId]);
         $cleanupSurvey = $db->prepare('DELETE FROM surveys WHERE id = :id');
         $cleanupSurvey->execute([':id' => $surveyId]);
+    }
+    if ($templateId > 0) {
+        $db->prepare('DELETE FROM survey_templates WHERE id = :id')->execute([':id' => $templateId]);
     }
     if ($graduateId > 0) {
         $cleanupGraduate = $db->prepare('DELETE FROM graduates WHERE id = :id');

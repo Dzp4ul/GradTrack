@@ -86,22 +86,34 @@ try {
     $totalResponses = count($responses);
 
     // Get questions
-    $stmt = $db->prepare("SELECT * FROM survey_questions WHERE survey_id = :id ORDER BY sort_order ASC");
-    $stmt->bindParam(':id', $surveyId);
-    $stmt->execute();
-    $questions = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    // Include retired questions in detailed analytics so removing a live-form
+    // question never hides or destroys its historical results.
+    $questions = gradtrack_analytics_fetch_questions($db, (int)$surveyId, true);
     $questionResponseKeys = buildQuestionResponseKeys($questions, $responses);
+    $roles = gradtrack_analytics_question_roles($questions);
 
     // Analyze responses
     $analytics = [
         'survey_id' => $surveyId,
         'survey_title' => $survey['title'],
+        'template_id' => isset($survey['template_id']) ? (int)$survey['template_id'] : null,
+        'version_number' => (int)($survey['version_number'] ?? 1),
         'total_responses' => $totalResponses,
         'response_rate' => calculateResponseRate($db, (int)$surveyId, $totalResponses, $analyticsOptions),
         'completion_rate' => calculateCompletionRate($responses, $questions),
         'selected_graduation_year' => $selectedGraduationYear,
         'scope' => $deanScope,
-        'questions_analytics' => []
+        'questions_analytics' => [],
+        'field_availability' => [
+            'employment_status' => !empty($roles['employment']),
+            'job_course_alignment' => !empty($roles['alignment']),
+            'work_location' => !empty($roles['work_location']),
+        ],
+        'unavailable_reasons' => array_values(array_filter([
+            empty($roles['employment']) ? 'This survey version does not contain an Employment Status field.' : null,
+            empty($roles['alignment']) ? 'Job Alignment data is unavailable for this survey version.' : null,
+            empty($roles['work_location']) ? 'Work Location data is unavailable for this survey version.' : null,
+        ])),
     ];
 
     // Analyze each question
@@ -113,28 +125,33 @@ try {
         $questionId = (string)$question['id'];
         $questionAnalytics = [
             'question_id' => $question['id'],
+            'question_key' => $question['question_key'] ?? null,
+            'analytics_key' => $question['analytics_key'] ?? null,
+            'display_order' => (int)($question['sort_order'] ?? 0),
+            'is_active' => (int)($question['is_active'] ?? 1),
             'question_text' => $question['question_text'],
             'question_type' => $question['question_type'],
             'section' => $question['section'] ?? '',
             'options' => decodeQuestionOptions($question['options'] ?? null),
             'total_answers' => 0,
             'skipped_answers' => 0,
+            'applicable_responses' => 0,
             'data' => []
         ];
 
         $answers = [];
         $seenResponses = [];
+        $applicableResponses = 0;
         foreach ($responses as $response) {
             if (gradtrack_survey_is_duplicate_response($response, $seenResponses)) {
                 continue;
             }
-
-            $responseData = json_decode($response['responses'], true);
-            if (!is_array($responseData)) {
+            if (!surveyQuestionAppliesToResponse($question, $response)) {
                 continue;
             }
 
-            $answerMap = gradtrack_survey_build_answer_map($questions, $responseData);
+            $applicableResponses++;
+            $answerMap = gradtrack_survey_response_answer_map($questions, $response);
             $answer = $answerMap[$questionId] ?? null;
             if (hasAnswerValue($answer)) {
                 $answers[] = $answer;
@@ -142,17 +159,18 @@ try {
         }
 
         $questionAnalytics['total_answers'] = count($answers);
-        $questionAnalytics['skipped_answers'] = max($totalResponses - count($answers), 0);
+        $questionAnalytics['applicable_responses'] = $applicableResponses;
+        $questionAnalytics['skipped_answers'] = max($applicableResponses - count($answers), 0);
 
         // Analyze based on question type
         switch ($question['question_type']) {
             case 'multiple_choice':
             case 'radio':
             case 'rating':
-                $questionAnalytics['data'] = analyzeMultipleChoice($answers, $questionAnalytics['options'], $totalResponses);
+                $questionAnalytics['data'] = analyzeMultipleChoice($answers, $questionAnalytics['options'], $applicableResponses);
                 break;
             case 'checkbox':
-                $questionAnalytics['data'] = analyzeCheckbox($answers, $questionAnalytics['options'], $totalResponses);
+                $questionAnalytics['data'] = analyzeCheckbox($answers, $questionAnalytics['options'], $applicableResponses);
                 break;
             case 'text':
             case 'date':
@@ -196,9 +214,7 @@ try {
 
 function isDisplayOnlyQuestion($question) {
     $questionType = strtolower((string)($question['question_type'] ?? ''));
-    $questionText = strtolower((string)($question['question_text'] ?? ''));
-
-    return $questionType === 'header' || strpos($questionText, 'professional examination(s) passed') === 0;
+    return $questionType === 'header';
 }
 
 function calculateResponseRate($db, $surveyId, $validResponseCount = null, array $options = []) {
@@ -249,7 +265,9 @@ function calculateCompletionRate(array $responses, array $questions): ?float {
     }
 
     $requiredQuestions = array_values(array_filter($questions, static function (array $question): bool {
-        return !empty($question['is_required']) && !isDisplayOnlyQuestion($question);
+        return (int)($question['is_active'] ?? 1) === 1
+            && !empty($question['is_required'])
+            && !isDisplayOnlyQuestion($question);
     }));
     if ($requiredQuestions === []) {
         return null;
@@ -257,13 +275,12 @@ function calculateCompletionRate(array $responses, array $questions): ?float {
 
     $complete = 0;
     foreach ($responses as $response) {
-        $data = json_decode((string)($response['responses'] ?? ''), true);
-        if (!is_array($data)) {
-            continue;
-        }
-        $answers = gradtrack_survey_build_answer_map($questions, $data);
+        $answers = gradtrack_survey_response_answer_map($questions, $response);
         $hasEveryRequiredAnswer = true;
         foreach ($requiredQuestions as $question) {
+            if (!surveyQuestionAppliesToResponse($question, $response)) {
+                continue;
+            }
             if (!gradtrack_survey_has_answer($answers[(string)$question['id']] ?? null)) {
                 $hasEveryRequiredAnswer = false;
                 break;
@@ -275,6 +292,22 @@ function calculateCompletionRate(array $responses, array $questions): ?float {
     }
 
     return gradtrack_survey_percentage($complete, count($responses), 1);
+}
+
+function surveyQuestionAppliesToResponse(array $question, array $response): bool
+{
+    $submittedAt = strtotime((string)($response['submitted_at'] ?? ''));
+    if ($submittedAt === false) {
+        return true;
+    }
+
+    $introducedAt = strtotime((string)($question['introduced_at'] ?? ''));
+    if ($introducedAt !== false && $submittedAt < $introducedAt) {
+        return false;
+    }
+
+    $retiredAt = strtotime((string)($question['retired_at'] ?? ''));
+    return $retiredAt === false || $submittedAt <= $retiredAt;
 }
 
 function decodeQuestionOptions($options) {
@@ -426,26 +459,6 @@ function analyzeText($answers) {
     ];
 }
 
-function collectResponseQuestionKeys($responses) {
-    $keys = [];
-
-    foreach ($responses as $response) {
-        $data = json_decode((string)$response['responses'], true);
-        if (!is_array($data)) {
-            continue;
-        }
-
-        foreach (array_keys($data) as $key) {
-            if (ctype_digit((string)$key)) {
-                $keys[(int)$key] = (int)$key;
-            }
-        }
-    }
-
-    sort($keys, SORT_NUMERIC);
-    return array_values($keys);
-}
-
 function buildQuestionResponseKeys($questions, $responses) {
     $map = [];
     foreach ($questions as $question) {
@@ -453,49 +466,7 @@ function buildQuestionResponseKeys($questions, $responses) {
         $map[$questionId] = [$questionId];
     }
 
-    $responseKeys = collectResponseQuestionKeys($responses);
-    if (empty($questions) || empty($responseKeys)) {
-        return $map;
-    }
-
-    usort($questions, function ($a, $b) {
-        return ((int)$a['sort_order']) <=> ((int)$b['sort_order']);
-    });
-
-    $firstResponseKey = min($responseKeys);
-    $firstQuestion = $questions[0];
-    $firstQuestionId = (int)$firstQuestion['id'];
-    $firstSortOrder = (int)$firstQuestion['sort_order'];
-    $idOffset = $firstQuestionId - $firstResponseKey;
-
-    foreach ($questions as $question) {
-        $questionId = (string)$question['id'];
-        // Prefer ID-offset mapping before sort-order mapping to avoid shifted answers
-        // when new questions are inserted into existing surveys.
-        $historicalKeys = [
-            (int)$question['id'] - $idOffset,
-            $firstResponseKey + ((int)$question['sort_order'] - $firstSortOrder),
-        ];
-
-        foreach ($historicalKeys as $historicalKey) {
-            $historicalKey = (string)$historicalKey;
-            if ((int)$historicalKey > 0 && !in_array($historicalKey, $map[$questionId], true)) {
-                $map[$questionId][] = $historicalKey;
-            }
-        }
-    }
-
     return $map;
-}
-
-function getAnswerFromKeys($data, $keys) {
-    foreach ($keys as $key) {
-        if (array_key_exists($key, $data)) {
-            return $data[$key];
-        }
-    }
-
-    return null;
 }
 
 function answerToText($answer) {
@@ -595,39 +566,39 @@ function buildSurveyReportTables(
 ) {
     $programs = (!empty($programFilters) && is_array($programFilters)) ? $programFilters : ['BSCS', 'ACT'];
     $questionIds = [
-        'program' => findSurveyQuestionId($questions, ['degree program']),
-        'year' => findSurveyQuestionId($questions, ['year graduated']),
-        'civil_status' => findSurveyQuestionId($questions, ['civil status']),
-        'sex' => findSurveyQuestionId($questions, ['sex']),
-        'honors' => findSurveyQuestionId($questions, ['honors']),
-        'exam_passed' => findSurveyQuestionId($questions, ['professional examination']),
-        'exam_name' => findSurveyQuestionId($questions, ['name of examination']),
-        'exam_rating' => findSurveyQuestionId($questions, ['rating']),
-        'pursue_degree' => findSurveyQuestionId($questions, ['reason', 'course']),
-        'training_title' => findSurveyQuestionId($questions, ['title of training']),
-        'training_duration' => findSurveyQuestionId($questions, ['duration']),
-        'training_institution' => findSurveyQuestionId($questions, ['name of training institution']),
-        'graduate_program' => findSurveyQuestionId($questions, ['name of graduate program']),
-        'earned_units' => findSurveyQuestionId($questions, ['earned units']),
-        'graduate_college' => findSurveyQuestionId($questions, ['college/university']),
-        'advance_reason' => findSurveyQuestionId($questions, ['pursue advance studies']),
-        'presently_employed' => findSurveyQuestionId($questions, ['are you presently employed']),
-        'employment_status' => findSurveyQuestionId($questions, ['present employment status']),
-        'occupation' => findSurveyQuestionId($questions, ['present occupation']),
-        'line_business' => findSurveyQuestionId($questions, ['major line of business']),
-        'place_work' => findSurveyQuestionId($questions, ['place of work']),
-        'first_job' => findSurveyQuestionId($questions, ['first job after college']),
-        'staying_reason' => findSurveyQuestionId($questions, ['reason', 'staying']),
-        'first_job_related' => findSurveyQuestionId($questions, ['first job related']),
-        'changing_reason' => findSurveyQuestionId($questions, ['reason', 'changing']),
-        'stay_length' => findSurveyQuestionId($questions, ['stay in your first job']),
-        'find_first_job' => findSurveyQuestionId($questions, ['find your first job']),
-        'land_first_job' => findSurveyQuestionId($questions, ['land your first job']),
-        'job_level' => findSurveyQuestionId($questions, ['job level']),
-        'gross_monthly' => findSurveyQuestionId($questions, ['gross monthly']),
-        'curriculum_relevant' => findSurveyQuestionId($questions, ['curriculum relevant']),
-        'competencies' => findSurveyQuestionId($questions, ['competencies']),
-        'unemployment_reason' => findSurveyQuestionId($questions, ['reason', 'not yet employed']),
+        'program' => gradtrack_survey_question_id_by_analytics_key($questions, 'program'),
+        'year' => gradtrack_survey_question_id_by_analytics_key($questions, 'graduation_year'),
+        'civil_status' => gradtrack_survey_question_id_by_analytics_key($questions, 'civil_status'),
+        'sex' => gradtrack_survey_question_id_by_analytics_key($questions, 'sex'),
+        'honors' => gradtrack_survey_question_id_by_analytics_key($questions, 'honors_awards'),
+        'exam_passed' => gradtrack_survey_question_id_by_analytics_key($questions, 'professional_examinations'),
+        'exam_name' => gradtrack_survey_question_id_by_analytics_key($questions, 'examination_name'),
+        'exam_rating' => gradtrack_survey_question_id_by_analytics_key($questions, 'examination_rating'),
+        'pursue_degree' => gradtrack_survey_question_id_by_analytics_key($questions, 'degree_reasons'),
+        'training_title' => gradtrack_survey_question_id_by_analytics_key($questions, 'training_title'),
+        'training_duration' => gradtrack_survey_question_id_by_analytics_key($questions, 'training_duration'),
+        'training_institution' => gradtrack_survey_question_id_by_analytics_key($questions, 'training_institution'),
+        'graduate_program' => gradtrack_survey_question_id_by_analytics_key($questions, 'graduate_program'),
+        'earned_units' => gradtrack_survey_question_id_by_analytics_key($questions, 'earned_units'),
+        'graduate_college' => gradtrack_survey_question_id_by_analytics_key($questions, 'graduate_institution'),
+        'advance_reason' => gradtrack_survey_question_id_by_analytics_key($questions, 'advance_studies_reason'),
+        'presently_employed' => gradtrack_survey_question_id_by_analytics_key($questions, 'employment_status'),
+        'employment_status' => gradtrack_survey_question_id_by_analytics_key($questions, 'employment_classification'),
+        'occupation' => gradtrack_survey_question_id_by_analytics_key($questions, 'occupation'),
+        'line_business' => gradtrack_survey_question_id_by_analytics_key($questions, 'industry'),
+        'place_work' => gradtrack_survey_question_id_by_analytics_key($questions, 'work_location'),
+        'first_job' => gradtrack_survey_question_id_by_analytics_key($questions, 'first_job'),
+        'staying_reason' => gradtrack_survey_question_id_by_analytics_key($questions, 'job_retention_reason'),
+        'first_job_related' => gradtrack_survey_question_id_by_analytics_key($questions, 'job_course_alignment'),
+        'changing_reason' => gradtrack_survey_question_id_by_analytics_key($questions, 'job_change_reason'),
+        'stay_length' => gradtrack_survey_question_id_by_analytics_key($questions, 'first_job_duration'),
+        'find_first_job' => gradtrack_survey_question_id_by_analytics_key($questions, 'job_search_method'),
+        'land_first_job' => gradtrack_survey_question_id_by_analytics_key($questions, 'first_job_waiting_time'),
+        'job_level' => gradtrack_survey_question_id_by_analytics_key($questions, 'job_level'),
+        'gross_monthly' => gradtrack_survey_question_id_by_analytics_key($questions, 'salary_range'),
+        'curriculum_relevant' => gradtrack_survey_question_id_by_analytics_key($questions, 'curriculum_relevance'),
+        'competencies' => gradtrack_survey_question_id_by_analytics_key($questions, 'useful_competencies'),
+        'unemployment_reason' => gradtrack_survey_question_id_by_analytics_key($questions, 'reason_unemployed'),
     ];
 
     $records = buildSurveyReportRecords($responses, $questions, $questionResponseKeys, $questionIds);
@@ -724,30 +695,6 @@ function buildSurveyReportTables(
     return $tables;
 }
 
-function findSurveyQuestionId($questions, $requiredTerms, $excludedTerms = []) {
-    foreach ($questions as $question) {
-        $text = normalizeReportText($question['question_text']);
-        $matches = true;
-        foreach ($requiredTerms as $term) {
-            if (strpos($text, normalizeReportText($term)) === false) {
-                $matches = false;
-                break;
-            }
-        }
-        foreach ($excludedTerms as $term) {
-            if ($matches && strpos($text, normalizeReportText($term)) !== false) {
-                $matches = false;
-                break;
-            }
-        }
-        if ($matches) {
-            return (string)$question['id'];
-        }
-    }
-
-    return null;
-}
-
 function buildSurveyReportRecords($responses, $questions, $questionResponseKeys, $questionIds) {
     $records = [];
     $seenResponses = [];
@@ -757,12 +704,7 @@ function buildSurveyReportRecords($responses, $questions, $questionResponseKeys,
             continue;
         }
 
-        $data = json_decode((string)$response['responses'], true);
-        if (!is_array($data)) {
-            continue;
-        }
-
-        $answers = gradtrack_survey_build_answer_map($questions, $data);
+        $answers = gradtrack_survey_response_answer_map($questions, $response);
 
         $program = strtoupper(trim((string)($response['program_code'] ?? '')));
         if ($program === '' && !empty($questionIds['program'])) {
@@ -1071,6 +1013,17 @@ function reportTable($number, $title, $headers, $rows, $sectionTitle = '', $note
         'rows' => $rows,
         'note' => $note,
     ];
+}
+
+function unavailableReportTable($number, $title, $fieldLabel, $sectionTitle = '') {
+    return reportTable(
+        $number,
+        $title,
+        [[reportCell('Availability', 1, 1, 'left')]],
+        [reportRow(["Required field is not available in this survey version: {$fieldLabel}."], false, true)],
+        $sectionTitle,
+        'No substitute question was used.'
+    );
 }
 
 function programHeaderLabel($program, $count) {
@@ -1434,6 +1387,9 @@ function buildAdvanceStudyReasonsTable($number, $programs, $records, $programTot
 }
 
 function buildProgramDistributionTable($number, $title, $firstColumn, $questionId, $categories, $records, $programs, $denominators, $sectionTitle = '', $note = '', $filter = null) {
+    if (empty($questionId)) {
+        return unavailableReportTable($number, $title, $firstColumn, $sectionTitle);
+    }
     $headers = [[reportCell($firstColumn, 1, 2, 'left')], []];
     foreach ($programs as $program) {
         $headers[0][] = reportCell(programHeaderLabel($program, $denominators[$program] ?? 0), 2);
@@ -1466,6 +1422,9 @@ function buildProgramDistributionTable($number, $title, $firstColumn, $questionI
 }
 
 function buildRankingProgramTable($number, $title, $firstColumn, $questionId, $categories, $records, $programs, $denominators) {
+    if (empty($questionId)) {
+        return unavailableReportTable($number, $title, $firstColumn);
+    }
     $headers = [[reportCell($firstColumn, 1, 2, 'left')], []];
     foreach ($programs as $program) {
         $headers[0][] = reportCell($program, 3);
@@ -1503,6 +1462,9 @@ function buildRankingProgramTable($number, $title, $firstColumn, $questionId, $c
 }
 
 function buildActualEmploymentTable($number, $title, $program, $records, $years, $questionIds, $sectionTitle = '') {
+    if (empty($questionIds['presently_employed']) && empty($questionIds['employment_status'])) {
+        return unavailableReportTable($number, $title, 'Employment Status', $sectionTitle);
+    }
     $headers = [
         [reportCell('Year of Graduation', 1, 2), reportCell('Employed', 2), reportCell('Not Employed', 2)],
         [reportCell('Frequency'), reportCell('%'), reportCell('Frequency'), reportCell('%')],
@@ -1552,6 +1514,9 @@ function buildActualEmploymentTable($number, $title, $program, $records, $years,
 }
 
 function buildEmploymentStatusByYearTable($records, $programs, $years, $questionIds, $number = '7') {
+    if (empty($questionIds['employment_status'])) {
+        return unavailableReportTable($number, 'Present Employment Status of ' . reportProgramPhrase($programs) . ' Graduates', 'Present Employment Status');
+    }
     $categories = getEmploymentStatusCategories();
     $headers = [[reportCell('Present Employment Status', 1, 3, 'left'), reportCell('Year of Graduation', count($years) * count($programs)), reportCell('Total', count($programs))]];
     $yearHeader = [];
@@ -1632,6 +1597,9 @@ function countRecordsForStatus($records, $program, $year, $questionId, $category
 }
 
 function buildPlaceOfWorkTable($records, $programs, $years, $questionIds, $number = '10') {
+    if (empty($questionIds['place_work'])) {
+        return unavailableReportTable($number, 'Place of Work of the ' . reportProgramPhrase($programs) . ' Graduates', 'Work Location');
+    }
     $headers = [
         [reportCell('Year Graduated', 1, 3), reportCell('Place of Work', count($programs) * 4)],
         [reportCell('Local', count($programs) * 2), reportCell('Abroad', count($programs) * 2)],
@@ -2113,36 +2081,8 @@ function getCompetencyCategories() {
 function analyzeEmploymentData($responses, $questions, $questionResponseKeys) {
     // Salary and time-to-job remain descriptive distributions. Employment and
     // alignment counts below come only from the canonical analytics service.
-    $salaryQuestionId = null;
-    $timeToJobQuestionId = null;
-    $salaryPriority = -1;
-    $timeToJobPriority = -1;
-    
-    foreach ($questions as $q) {
-        $text = strtolower(trim($q['question_text']));
-
-        $currentSalaryPriority = -1;
-        if (strpos($text, 'initial gross monthly') !== false || strpos($text, 'gross monthly earning') !== false) {
-            $currentSalaryPriority = 100;
-        } elseif (strpos($text, 'salary') !== false) {
-            $currentSalaryPriority = 80;
-        }
-        if ($currentSalaryPriority > $salaryPriority) {
-            $salaryPriority = $currentSalaryPriority;
-            $salaryQuestionId = (string)$q['id'];
-        }
-
-        $currentTimeToJobPriority = -1;
-        if (strpos($text, 'how long did it take') !== false && strpos($text, 'first job') !== false) {
-            $currentTimeToJobPriority = 100;
-        } elseif (strpos($text, 'how long') !== false && strpos($text, 'job') !== false) {
-            $currentTimeToJobPriority = 80;
-        }
-        if ($currentTimeToJobPriority > $timeToJobPriority) {
-            $timeToJobPriority = $currentTimeToJobPriority;
-            $timeToJobQuestionId = (string)$q['id'];
-        }
-    }
+    $salaryQuestionId = gradtrack_survey_question_id_by_analytics_key($questions, 'salary_range');
+    $timeToJobQuestionId = gradtrack_survey_question_id_by_analytics_key($questions, 'first_job_waiting_time');
     
     $roles = gradtrack_analytics_question_roles($questions);
     if (empty($roles['employment'])) return null;
@@ -2156,12 +2096,7 @@ function analyzeEmploymentData($responses, $questions, $questionResponseKeys) {
             continue;
         }
 
-        $data = json_decode($response['responses'], true);
-        if (!is_array($data)) {
-            continue;
-        }
-
-        $answerMap = gradtrack_survey_build_answer_map($questions, $data);
+        $answerMap = gradtrack_survey_response_answer_map($questions, $response);
         
         // Salary
         if ($salaryQuestionId) {

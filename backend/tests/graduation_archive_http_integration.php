@@ -3,6 +3,7 @@
 ob_start();
 require_once __DIR__ . '/../api/config/database.php';
 require_once __DIR__ . '/../api/config/session.php';
+require_once __DIR__ . '/../api/config/survey_versioning.php';
 
 $failures = 0;
 $baseUrl = rtrim((string) (getenv('GRADTRACK_HTTP_TEST_URL') ?: 'http://localhost/GradTrack/backend/api'), '/');
@@ -12,6 +13,7 @@ $csrfTokens = [];
 $fixtureIds = [
     'graduates' => [],
     'survey' => 0,
+    'template' => 0,
     'responses' => [],
     'forum_posts' => [],
     'registry' => 0,
@@ -109,8 +111,22 @@ function graduation_http_cleanup(PDO $db): void
     global $fixtureIds, $sessionIds;
     try {
         if ($fixtureIds['survey'] > 0) {
+            $db->prepare(
+                'DELETE sra FROM survey_response_answers sra
+                 INNER JOIN survey_responses sr ON sr.id = sra.survey_response_id
+                 WHERE sr.survey_id = :id'
+            )->execute([':id' => $fixtureIds['survey']]);
             $db->prepare('DELETE FROM survey_reminder_logs WHERE survey_id = :id')->execute([':id' => $fixtureIds['survey']]);
+            $db->prepare('DELETE FROM survey_tokens WHERE survey_id = :id')->execute([':id' => $fixtureIds['survey']]);
+            $db->prepare('DELETE FROM survey_responses WHERE survey_id = :id')->execute([':id' => $fixtureIds['survey']]);
+            $db->prepare('DELETE FROM survey_questions WHERE survey_id = :id')->execute([':id' => $fixtureIds['survey']]);
+            $db->prepare('DELETE FROM survey_sections WHERE survey_id = :id')->execute([':id' => $fixtureIds['survey']]);
+            $db->prepare('UPDATE survey_templates SET current_version_id = NULL WHERE current_version_id = :id')
+                ->execute([':id' => $fixtureIds['survey']]);
             $db->prepare('DELETE FROM surveys WHERE id = :id')->execute([':id' => $fixtureIds['survey']]);
+        }
+        if ($fixtureIds['template'] > 0) {
+            $db->prepare('DELETE FROM survey_templates WHERE id = :id')->execute([':id' => $fixtureIds['template']]);
         }
         if ($fixtureIds['registry'] > 0) {
             $db->prepare('DELETE FROM registered_alumni WHERE id = :id')->execute([':id' => $fixtureIds['registry']]);
@@ -252,25 +268,44 @@ try {
     $forum2027 = array_filter($fixturePosts, static fn ($row) => (int) ($row['author_year_graduated'] ?? 0) === 2027);
     graduation_http_assert(count($forum2027) === 1, 'Community Forum post data filters correctly for 2027');
 
-    $surveyStmt = $db->prepare("INSERT INTO surveys (title, description, status) VALUES (:title, 'HTTP test', 'draft')");
-    $surveyStmt->execute([':title' => 'HTTP report ' . $suffix]);
+    $templateStmt = $db->prepare("INSERT INTO survey_templates
+        (template_key, title, description) VALUES (:template_key, :title, 'HTTP test')");
+    $templateStmt->execute([
+        ':template_key' => gradtrack_survey_uuid(),
+        ':title' => 'HTTP report ' . $suffix,
+    ]);
+    $fixtureIds['template'] = (int)$db->lastInsertId();
+    $surveyStmt = $db->prepare("INSERT INTO surveys
+        (template_id, version_number, title, description, status)
+        VALUES (:template_id, 1, :title, 'HTTP test', 'draft')");
+    $surveyStmt->execute([
+        ':template_id' => $fixtureIds['template'],
+        ':title' => 'HTTP report ' . $suffix,
+    ]);
     $fixtureIds['survey'] = (int) $db->lastInsertId();
     $questionStmt = $db->prepare("INSERT INTO survey_questions
-        (survey_id, section, question_text, question_type, is_required, sort_order)
-        VALUES (:survey_id, 'Profile', 'Year Graduated', 'text', 1, 1)");
-    $questionStmt->execute([':survey_id' => $fixtureIds['survey']]);
+        (survey_id, question_key, analytics_key, section, question_text, question_type, is_required, sort_order)
+        VALUES (:survey_id, :question_key, 'graduation_year', 'Profile', 'Year Graduated', 'text', 1, 1)");
+    $questionStmt->execute([
+        ':survey_id' => $fixtureIds['survey'],
+        ':question_key' => gradtrack_survey_uuid(),
+    ]);
     $questionId = (int) $db->lastInsertId();
     $programQuestionStmt = $db->prepare("INSERT INTO survey_questions
-        (survey_id, section, question_text, question_type, is_required, sort_order)
-        VALUES (:survey_id, 'Profile', 'Degree Program', 'text', 1, 2)");
-    $programQuestionStmt->execute([':survey_id' => $fixtureIds['survey']]);
+        (survey_id, question_key, analytics_key, section, question_text, question_type, is_required, sort_order)
+        VALUES (:survey_id, :question_key, 'program', 'Profile', 'Degree Program', 'text', 1, 2)");
+    $programQuestionStmt->execute([
+        ':survey_id' => $fixtureIds['survey'],
+        ':question_key' => gradtrack_survey_uuid(),
+    ]);
     $programQuestionId = (int) $db->lastInsertId();
     foreach ([[$graduate2026, 2026], [$graduate2027, 2027]] as [$graduateId, $year]) {
         $responseStmt = $db->prepare('INSERT INTO survey_responses
-            (survey_id, graduate_id, responses, submitted_at)
-            VALUES (:survey_id, :graduate_id, :responses, NOW())');
+            (survey_id, survey_version_id, graduate_id, responses, submitted_at)
+            VALUES (:survey_id, :survey_version_id, :graduate_id, :responses, NOW())');
         $responseStmt->execute([
             ':survey_id' => $fixtureIds['survey'],
+            ':survey_version_id' => $fixtureIds['survey'],
             ':graduate_id' => $graduateId,
             ':responses' => json_encode([
                 (string) $questionId => (string) $year,

@@ -58,6 +58,12 @@ if (!function_exists('gradtrack_normalize_survey_question_label')) {
 if (!function_exists('gradtrack_is_graduation_year_question')) {
     function gradtrack_is_graduation_year_question(array $question): bool
     {
+        if (array_key_exists('analytics_key', $question)) {
+            return trim((string) $question['analytics_key']) === 'graduation_year';
+        }
+
+        // Used only while validating a newly authored legacy-shaped payload,
+        // before the API has assigned its semantic metadata.
         $label = gradtrack_normalize_survey_question_label($question['question_text'] ?? '');
         return in_array($label, [
             'year graduated',
@@ -205,9 +211,9 @@ if (!function_exists('gradtrack_get_survey_graduation_year_coverage')) {
         }
 
         $questionStmt = $db->prepare(
-            'SELECT id, question_text, question_type, options, sort_order
+            'SELECT id, analytics_key, question_text, question_type, options, sort_order
              FROM survey_questions
-             WHERE survey_id = :survey_id
+             WHERE survey_id = :survey_id AND analytics_key = \'graduation_year\' AND is_active = 1
              ORDER BY sort_order ASC, id ASC'
         );
         $questionStmt->execute([':survey_id' => $surveyId]);

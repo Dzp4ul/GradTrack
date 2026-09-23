@@ -108,6 +108,9 @@ interface SalaryData {
 
 interface SurveySummary {
   id: number;
+  template_id?: number | null;
+  version_number?: number;
+  based_on_survey_id?: number | null;
   title: string;
   description: string;
   response_count: number;
@@ -117,12 +120,16 @@ interface SurveySummary {
 
 interface SurveyQuestionAnalytics {
   question_id: number;
+  question_key?: string | null;
+  analytics_key?: string | null;
+  display_order?: number;
   question_text: string;
   question_type: string;
   section?: string;
   options?: string[];
   total_answers: number;
   skipped_answers?: number;
+  applicable_responses?: number;
   data: unknown;
 }
 
@@ -144,12 +151,16 @@ interface SurveyEmploymentInsights {
 interface SurveyAnalyticsData {
   survey_id: number;
   survey_title: string;
+  template_id?: number | null;
+  version_number?: number;
   total_responses: number;
   response_rate: number | null;
   completion_rate: number | null;
   questions_analytics: SurveyQuestionAnalytics[];
   employment_insights?: SurveyEmploymentInsights;
   report_tables?: SurveyReportTable[];
+  field_availability?: Record<string, boolean>;
+  unavailable_reasons?: string[];
   selected_graduation_year?: number | null;
   scope?: ReportScope | null;
 }
@@ -2425,7 +2436,7 @@ export default function Reports() {
                 <option value="">No active survey selected</option>
                 {surveyItems.map((survey) => (
                   <option key={survey.id} value={survey.id}>
-                    {survey.title}
+                    {survey.title} - Version {survey.version_number || 1}
                     {survey.archived_at ? ' (Archived)' : survey.status === 'active' ? ' (Active)' : ' (Saved)'}
                   </option>
                 ))}
@@ -3163,7 +3174,7 @@ export default function Reports() {
                             <option value="">Select a saved survey</option>
                             {surveyItems.map((survey) => (
                               <option key={survey.id} value={survey.id}>
-                                {survey.title}
+                                {survey.title} - Version {survey.version_number || 1}
                                 {survey.archived_at ? ' (Archived)' : survey.status === 'active' ? ' (Active)' : ' (Saved)'}
                               </option>
                             ))}
@@ -3191,10 +3202,18 @@ export default function Reports() {
                         </div>
                       ) : (
                         <div className="space-y-6">
+                          {Array.isArray(surveyAnalytics.unavailable_reasons) && surveyAnalytics.unavailable_reasons.length > 0 && (
+                            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                              <p className="font-semibold">Some analytics are unavailable for this survey version:</p>
+                              <ul className="mt-1 list-disc space-y-1 pl-5">
+                                {surveyAnalytics.unavailable_reasons.map((reason) => <li key={reason}>{reason}</li>)}
+                              </ul>
+                            </div>
+                          )}
                           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                             <div>
                               <h2 className="text-xl font-bold text-[#1b2a4a]">{surveyAnalytics.survey_title}</h2>
-                              <p className="text-sm text-gray-500">Survey Analytics & Insights</p>
+                              <p className="text-sm text-gray-500">Version {surveyAnalytics.version_number || 1} · Survey Analytics & Insights</p>
                             </div>
                             {surveyReportTables.length > 0 && (
                               <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
@@ -4303,12 +4322,12 @@ function buildSurveyQuestionExcelRows(analytics: SurveyAnalyticsData): ExcelRow[
     answerRows.forEach((row) => {
       rows.push({
         Section: section,
-        Number: `Q${questionIndex + 1}`,
+        Number: `Q${question.display_order || questionIndex + 1}`,
         'Survey Question': question.question_text,
         Type: questionType,
         'Answer / Option': row.label,
         Frequency: row.count,
-        Percentage: formatSurveyPercentage(row.count, analytics.total_responses),
+        Percentage: formatSurveyPercentage(row.count, question.applicable_responses ?? analytics.total_responses),
       });
     });
   });
@@ -4354,12 +4373,12 @@ function buildSurveyQuestionPdfRows(analytics: SurveyAnalyticsData): Array<Array
     answerRows.forEach((row) => {
       rows.push([
         section,
-        `Q${questionIndex + 1}`,
+        `Q${question.display_order || questionIndex + 1}`,
         question.question_text,
         questionType,
         row.label,
         row.count,
-        formatSurveyPercentage(row.count, analytics.total_responses),
+        formatSurveyPercentage(row.count, question.applicable_responses ?? analytics.total_responses),
       ]);
     });
   });
@@ -4398,7 +4417,7 @@ function SurveyQuestionReportTable({ analytics }: { analytics: SurveyAnalyticsDa
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between mb-5">
         <div>
           <h3 className="text-xl font-bold text-[#1b2a4a]">Survey Question Report</h3>
-          <p className="text-sm text-gray-500 mt-1">Percentages are calculated against total submitted responses.</p>
+          <p className="text-sm text-gray-500 mt-1">Percentages use the responses applicable to each question in this survey version.</p>
         </div>
         <div className="text-sm font-semibold text-[#1b2a4a]">
           {analytics.total_responses} total responses
@@ -4439,7 +4458,7 @@ function SurveyQuestionReportTable({ analytics }: { analytics: SurveyAnalyticsDa
                           {section}
                         </td>
                         <td rowSpan={rows.length} className="align-top px-4 py-4 font-semibold text-[#1b2a4a] border-r">
-                          Q{questionIndex + 1}
+                          Q{question.display_order || questionIndex + 1}
                         </td>
                         <td rowSpan={rows.length} className="align-top px-4 py-4 text-[#1b2a4a] border-r">
                           {question.question_text}
@@ -4451,7 +4470,7 @@ function SurveyQuestionReportTable({ analytics }: { analytics: SurveyAnalyticsDa
                     )}
                     <td className="px-4 py-3 text-gray-700 border-r">{row.label}</td>
                     <td className="px-4 py-3 text-right font-semibold text-[#1b2a4a] border-r">{row.count}</td>
-                    <td className="px-4 py-3 text-right text-gray-700">{formatSurveyPercentage(row.count, analytics.total_responses)}</td>
+                    <td className="px-4 py-3 text-right text-gray-700">{formatSurveyPercentage(row.count, question.applicable_responses ?? analytics.total_responses)}</td>
                   </tr>
                 ));
               })

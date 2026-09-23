@@ -530,14 +530,10 @@ function gradtrack_survey_validate_question_answer(array $question, $answer): ar
     );
 }
 
-function gradtrack_survey_find_question(array $questions, string $section, string $text): ?array
+function gradtrack_survey_find_question_by_analytics_key(array $questions, string $analyticsKey): ?array
 {
-    $normalizedSection = gradtrack_survey_normalize_comparison($section);
-    $normalizedText = gradtrack_survey_normalize_comparison($text);
     foreach ($questions as $question) {
-        $questionSection = gradtrack_survey_normalize_comparison($question['section'] ?? '');
-        $questionText = gradtrack_survey_normalize_comparison($question['question_text'] ?? '');
-        if (strpos($questionSection, $normalizedSection) !== false && strpos($questionText, $normalizedText) !== false) {
+        if (trim((string) ($question['analytics_key'] ?? '')) === $analyticsKey) {
             return $question;
         }
     }
@@ -561,59 +557,67 @@ function gradtrack_survey_answer_comparison($answer): string
 
 function gradtrack_survey_question_is_active(array $question, array $questions, array $responses): bool
 {
-    $section = gradtrack_survey_normalize_comparison($question['section'] ?? '');
-    $text = gradtrack_survey_normalize_comparison($question['question_text'] ?? '');
+    $analyticsKey = trim((string) ($question['analytics_key'] ?? ''));
 
-    if (strpos($section, 'employment data') !== false) {
-        $employedQuestion = gradtrack_survey_find_question($questions, 'Employment Data', 'Are you presently employed');
+    $employmentDependentKeys = [
+        'employment_classification',
+        'self_employment_skills',
+        'occupation',
+        'industry',
+        'work_location',
+        'first_job',
+        'job_retention_reason',
+        'job_course_alignment',
+        'job_change_reason',
+        'first_job_duration',
+        'job_search_method',
+        'first_job_waiting_time',
+        'job_level',
+        'salary_range',
+        'curriculum_relevance',
+        'useful_competencies',
+    ];
+    if (in_array($analyticsKey, $employmentDependentKeys, true) || $analyticsKey === 'reason_unemployed') {
+        $employedQuestion = gradtrack_survey_find_question_by_analytics_key($questions, 'employment_status');
         if ($employedQuestion !== null) {
-            $employedId = (int) ($employedQuestion['id'] ?? 0);
-            if ((int) ($question['id'] ?? 0) !== $employedId) {
-                $employedAnswer = gradtrack_survey_answer_comparison(gradtrack_survey_response_value($responses, $employedQuestion));
-                $isNotEmployedReason = strpos($text, 'reason s why you are not yet employed') !== false;
-                if ($isNotEmployedReason) return $employedAnswer === 'no';
-                if ($employedAnswer !== 'yes') return false;
-            }
+            $employedAnswer = gradtrack_survey_answer_comparison(gradtrack_survey_response_value($responses, $employedQuestion));
+            if ($analyticsKey === 'reason_unemployed') return $employedAnswer === 'no';
+            if ($employedAnswer !== 'yes') return false;
         }
     }
 
-    if (strpos($section, 'educational background') !== false
-        && (strpos($text, 'date taken') !== false || preg_match('/(^|\s)rating($|\s)/', $text))) {
-        $control = gradtrack_survey_find_question($questions, 'Educational Background', 'Name of Examination');
+    if (in_array($analyticsKey, ['examination_date', 'examination_rating'], true)) {
+        $control = gradtrack_survey_find_question_by_analytics_key($questions, 'examination_name');
         return gradtrack_survey_answer_comparison(gradtrack_survey_response_value($responses, $control)) !== '';
     }
 
-    if (strpos($section, 'trainings attended after college') !== false
-        && (strpos($text, 'duration') !== false || strpos($text, 'name of training institution') !== false)) {
-        $control = gradtrack_survey_find_question($questions, 'Trainings Attended After College', 'Title of Training');
+    if (in_array($analyticsKey, ['training_duration', 'training_institution'], true)) {
+        $control = gradtrack_survey_find_question_by_analytics_key($questions, 'training_title');
         return gradtrack_survey_answer_comparison(gradtrack_survey_response_value($responses, $control)) !== '';
     }
 
-    if (strpos($section, 'graduate studies') !== false
-        && (strpos($text, 'earned units') !== false
-            || strpos($text, 'name of college university') !== false
-            || strpos($text, 'what made you pursue advance studies') !== false)) {
-        $control = gradtrack_survey_find_question($questions, 'Graduate Studies', 'Name of Graduate Program');
+    if (in_array($analyticsKey, ['earned_units', 'graduate_institution', 'advance_studies_reason'], true)) {
+        $control = gradtrack_survey_find_question_by_analytics_key($questions, 'graduate_program');
         return gradtrack_survey_answer_comparison(gradtrack_survey_response_value($responses, $control)) !== '';
     }
 
-    if (strpos($section, 'employment data') !== false && strpos($text, 'if self employed') !== false) {
-        $control = gradtrack_survey_find_question($questions, 'Employment Data', 'Present Employment Status');
+    if ($analyticsKey === 'self_employment_skills') {
+        $control = gradtrack_survey_find_question_by_analytics_key($questions, 'employment_classification');
         return strpos(gradtrack_survey_answer_comparison(gradtrack_survey_response_value($responses, $control)), 'self employed') !== false;
     }
 
-    if (strpos($section, 'employment data') !== false && strpos($text, 'reason s for staying on the job') !== false) {
-        $control = gradtrack_survey_find_question($questions, 'Employment Data', 'Is this your first job after college');
+    if ($analyticsKey === 'job_retention_reason') {
+        $control = gradtrack_survey_find_question_by_analytics_key($questions, 'first_job');
         return strpos(gradtrack_survey_answer_comparison(gradtrack_survey_response_value($responses, $control)), 'yes') === 0;
     }
 
-    if (strpos($section, 'employment data') !== false && strpos($text, 'reason s for changing job') !== false) {
-        $control = gradtrack_survey_find_question($questions, 'Employment Data', 'Is this your first job after college');
+    if ($analyticsKey === 'job_change_reason') {
+        $control = gradtrack_survey_find_question_by_analytics_key($questions, 'first_job');
         return strpos(gradtrack_survey_answer_comparison(gradtrack_survey_response_value($responses, $control)), 'no') === 0;
     }
 
-    if (strpos($section, 'employment data') !== false && strpos($text, 'what competencies were useful') !== false) {
-        $control = gradtrack_survey_find_question($questions, 'Employment Data', 'college curriculum relevant');
+    if ($analyticsKey === 'useful_competencies') {
+        $control = gradtrack_survey_find_question_by_analytics_key($questions, 'curriculum_relevance');
         return strpos(gradtrack_survey_answer_comparison(gradtrack_survey_response_value($responses, $control)), 'yes') === 0;
     }
 

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
-  Plus, Edit2, Archive, RotateCcw, Search, ChevronLeft, ChevronRight, X, ClipboardList, ChevronDown, ChevronUp, ShieldCheck, BarChart3, Briefcase, Info, Trash2,
+  Plus, Edit2, Archive, RotateCcw, Search, ChevronLeft, ChevronRight, X, ClipboardList, ChevronDown, ChevronUp, ShieldCheck, BarChart3, Briefcase, Info, Trash2, ArrowUp, ArrowDown,
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import MessageBox from '../../components/MessageBox';
@@ -11,6 +11,9 @@ const API_BASE = API_ROOT;
 
 interface Question {
   id?: number;
+  question_key?: string;
+  analytics_key?: string | null;
+  section_id?: number | null;
   question_text: string;
   question_type: string;
   options: string[] | null;
@@ -21,6 +24,7 @@ interface Question {
 
 interface Survey {
   id: number;
+  template_id?: number | null;
   title: string;
   description: string;
   status: string;
@@ -36,6 +40,9 @@ interface Survey {
 
 interface FormData {
   id?: number;
+  template_id?: number | null;
+  response_count?: number;
+  question_definitions_locked?: boolean;
   title: string;
   description: string;
   status: string;
@@ -65,6 +72,9 @@ const getQuestionDisplayText = (question: Question) =>
 
 const getAnswerableQuestionCount = (questions?: Question[], fallback = 0) =>
   questions ? questions.filter((question) => !isHeaderQuestion(question)).length : fallback;
+
+const getDisplayQuestionNumber = (questions: Question[], index: number) =>
+  questions.slice(0, index + 1).filter((question) => !isHeaderQuestion(question)).length;
 
 export default function Surveys() {
   const [routeSearchParams, setRouteSearchParams] = useSearchParams();
@@ -296,8 +306,8 @@ export default function Surveys() {
     });
   };
 
-  const openEdit = (s: Survey) => {
-    fetch(`${API_BASE}/surveys/index.php?id=${s.id}`, {
+  const loadSurveyEditor = (surveyId: number) => {
+    fetch(`${API_BASE}/surveys/index.php?id=${surveyId}`, {
       credentials: 'include',
     })
       .then((r) => r.json())
@@ -307,6 +317,9 @@ export default function Surveys() {
           console.log('Editing survey data from server:', d);
           setFormData({
             id: d.id,
+            template_id: d.template_id ? Number(d.template_id) : null,
+            response_count: Number(d.response_count || 0),
+            question_definitions_locked: d.status === 'active' || Number(d.response_count || 0) > 0,
             title: d.title,
             description: d.description || '',
             status: d.status,
@@ -329,12 +342,21 @@ export default function Surveys() {
           setIsEditing(true);
           setShowModal(true);
         }
-      });
+      })
+      .catch(() => setMsgBox({ isOpen: true, type: 'error', message: 'Unable to open this survey.' }));
+  };
+
+  const openEdit = (s: Survey) => {
+    loadSurveyEditor(s.id);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const conflictingActiveSurvey = surveys.find((survey) => survey.status === 'active' && survey.id !== formData.id);
+    const conflictingActiveSurvey = surveys.find((survey) => (
+      survey.status === 'active'
+      && survey.id !== formData.id
+      && (!formData.template_id || Number(survey.template_id) !== Number(formData.template_id))
+    ));
 
     if (!isEditing && activeSurvey) {
       setMsgBox({
@@ -515,6 +537,81 @@ export default function Surveys() {
     });
   };
 
+  const addQuestion = () => {
+    setFormData((prev) => {
+      const questions = [...prev.questions, {
+        question_text: '',
+        question_type: 'text',
+        options: null,
+        is_required: 0,
+        sort_order: prev.questions.length + 1,
+        section: prev.questions[prev.questions.length - 1]?.section || '',
+      }];
+      setExpandedQ(questions.length - 1);
+      return { ...prev, questions };
+    });
+  };
+
+  const removeQuestion = (index: number) => {
+    const question = formData.questions[index];
+    const preservesHistoricalAnswers = Boolean(question.id) && Number(formData.response_count || 0) > 0;
+    setMsgBox({
+      isOpen: true,
+      type: 'confirm',
+      title: 'Remove Question?',
+      message: preservesHistoricalAnswers
+        ? `Remove "${question.question_text || 'this question'}" from future survey forms? Its existing answers and historical record will be preserved.`
+        : `Remove "${question.question_text || 'this untitled question'}" from this survey?`,
+      confirmText: 'Remove Question',
+      cancelText: 'Cancel',
+      destructive: true,
+      onConfirm: () => {
+        setFormData((prev) => ({
+          ...prev,
+          questions: prev.questions
+            .filter((_, questionIndex) => questionIndex !== index)
+            .map((item, questionIndex) => ({ ...item, sort_order: questionIndex + 1 })),
+        }));
+        setExpandedQ(null);
+      },
+    });
+  };
+
+  const moveQuestion = (index: number, direction: -1 | 1) => {
+    const target = index + direction;
+    if (target < 0 || target >= formData.questions.length) return;
+    setFormData((prev) => {
+      const questions = [...prev.questions];
+      [questions[index], questions[target]] = [questions[target], questions[index]];
+      return {
+        ...prev,
+        questions: questions.map((question, questionIndex) => ({
+          ...question,
+          sort_order: questionIndex + 1,
+        })),
+      };
+    });
+    setExpandedQ(target);
+  };
+
+  const updateOption = (questionIndex: number, optionIndex: number, value: string) => {
+    const options = [...(formData.questions[questionIndex].options || [])];
+    options[optionIndex] = value;
+    updateQuestion(questionIndex, 'options', options);
+  };
+
+  const addOption = (questionIndex: number) => {
+    updateQuestion(questionIndex, 'options', [...(formData.questions[questionIndex].options || []), '']);
+  };
+
+  const removeOption = (questionIndex: number, optionIndex: number) => {
+    updateQuestion(
+      questionIndex,
+      'options',
+      (formData.questions[questionIndex].options || []).filter((_, index) => index !== optionIndex),
+    );
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -618,7 +715,7 @@ export default function Surveys() {
                       <Info className="w-5 h-5" />
                     </button>
                     {archiveView === 'active' ? <>
-                      <button onClick={() => openEdit(s)} className="p-2 rounded-lg hover:bg-yellow-50 text-yellow-600 transition-colors font-medium" title="Edit">
+                      <button onClick={() => openEdit(s)} className="p-2 rounded-lg hover:bg-yellow-50 text-yellow-600 transition-colors font-medium" title="Edit survey">
                         <Edit2 className="w-5 h-5" />
                       </button>
                       <button onClick={() => handleArchive(s.id)} className="p-2 rounded-lg hover:bg-amber-50 text-amber-600 transition-colors font-medium" title="Archive">
@@ -660,7 +757,7 @@ export default function Surveys() {
                           return (
                             <div key={idx} className="bg-white rounded-lg p-3 border border-blue-100">
                               <p className={`text-sm font-semibold mb-2 ${isHeader ? 'text-gray-900' : 'text-blue-900'}`}>
-                                {isHeader ? `${idx + 1}. ` : `Q${idx + 1}: `}{getQuestionDisplayText(q)}
+                                {isHeader ? 'Header: ' : `Q${getDisplayQuestionNumber(s.questions || [], idx)}: `}{getQuestionDisplayText(q)}
                                 {!isHeader && q.is_required ? <span className="text-red-500 ml-1">*</span> : null}
                               </p>
                               <p className="text-xs text-gray-500 capitalize mb-2">{isHeader ? 'Header' : q.question_type.replace('_', ' ')}</p>
@@ -816,19 +913,34 @@ export default function Surveys() {
                 <div className="border-t pt-6">
                   <div className="flex items-center justify-between mb-4">
                     <h3 className="text-lg font-bold text-blue-900">Questions ({getAnswerableQuestionCount(formData.questions)})</h3>
+                    <button
+                      type="button"
+                      onClick={addQuestion}
+                      className="inline-flex items-center gap-2 rounded-lg bg-blue-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-800"
+                    >
+                      <Plus className="h-4 w-4" /> Add Question
+                    </button>
                   </div>
 
-                  {/* Section Input Helper */}
-                  <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                    <p className="text-sm text-blue-900 font-semibold mb-2">💡 Tip: Group questions by section</p>
-                    <p className="text-xs text-blue-700">Enter the same section name (e.g., "Personal Information") for multiple questions to group them together. Section headers will automatically appear on the survey.</p>
-                  </div>
+                  {/* Editing safety / section helper */}
+                  {isEditing && formData.question_definitions_locked ? (
+                    <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
+                      <p className="mb-2 text-sm font-semibold text-amber-900">Existing answers are protected</p>
+                      <p className="text-xs text-amber-800">You can add, reorder, or remove questions. Removing a saved question only hides it from future forms; past answers remain stored. Existing question wording, type, and choices are locked to keep those answers accurate.</p>
+                    </div>
+                  ) : (
+                    <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                      <p className="text-sm text-blue-900 font-semibold mb-2">Tip: Group questions by section</p>
+                      <p className="text-xs text-blue-700">Enter the same section name (e.g., "Personal Information") for multiple questions to group them together. Section headers will automatically appear on the survey.</p>
+                    </div>
+                  )}
 
                   <div className="space-y-3">
                     {formData.questions.map((q, i) => {
                       const prevSection = i > 0 ? formData.questions[i - 1].section : null;
                       const showSectionBadge = q.section && q.section !== prevSection;
                       const isHeader = isHeaderQuestion(q);
+                      const questionDefinitionLocked = Boolean(q.id) && Boolean(formData.question_definitions_locked);
                       
                       return (
                         <div key={i}>
@@ -847,7 +959,7 @@ export default function Surveys() {
                             >
                               <div className="flex-1">
                                 <span className="text-sm font-semibold text-blue-900">
-                                  {isHeader ? `Header ${i + 1}: ` : `Q${i + 1}: `}{q.question_text ? getQuestionDisplayText(q) : '(untitled)'}
+                                  {isHeader ? 'Header: ' : `Q${getDisplayQuestionNumber(formData.questions, i)}: `}{q.question_text ? getQuestionDisplayText(q) : '(untitled)'}
                                 </span>
                                 {q.section && (
                                   <span className="ml-2 text-xs bg-blue-200 text-blue-800 px-2 py-1 rounded-full">
@@ -856,12 +968,49 @@ export default function Surveys() {
                                 )}
                               </div>
                               <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={(event) => { event.stopPropagation(); moveQuestion(i, -1); }}
+                                  disabled={i === 0}
+                                  className="rounded-md p-1.5 text-blue-700 hover:bg-white disabled:cursor-not-allowed disabled:opacity-30"
+                                  aria-label="Move question up"
+                                  title="Move up"
+                                >
+                                  <ArrowUp className="h-4 w-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(event) => { event.stopPropagation(); moveQuestion(i, 1); }}
+                                  disabled={i === formData.questions.length - 1}
+                                  className="rounded-md p-1.5 text-blue-700 hover:bg-white disabled:cursor-not-allowed disabled:opacity-30"
+                                  aria-label="Move question down"
+                                  title="Move down"
+                                >
+                                  <ArrowDown className="h-4 w-4" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(event) => { event.stopPropagation(); removeQuestion(i); }}
+                                  className="rounded-md p-1.5 text-red-600 hover:bg-red-50"
+                                  aria-label="Delete question"
+                                  title="Delete question"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
                                 {expandedQ === i ? <ChevronUp className="w-5 h-5 text-gray-500" /> : <ChevronDown className="w-5 h-5 text-gray-500" />}
                               </div>
                             </div>
 
                             {expandedQ === i && (
-                              <div className="p-4 space-y-4 bg-gray-50">
+                              <fieldset
+                                disabled={questionDefinitionLocked}
+                                className={`p-4 space-y-4 bg-gray-50 ${questionDefinitionLocked ? 'opacity-75' : ''}`}
+                              >
+                                {questionDefinitionLocked && (
+                                  <p className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600">
+                                    This saved question is read-only because the survey is active or already has responses.
+                                  </p>
+                                )}
                                 <div>
                                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                                     Section <span className="text-xs text-gray-500">(Group related questions together)</span>
@@ -953,13 +1102,34 @@ export default function Surveys() {
                                         ? 'Options (official survey graduation-year coverage)'
                                         : 'Options (one per line)'}
                                     </label>
-                                    <textarea
-                                      value={q.options?.join('\n') || ''}
-                                      onChange={(e) => updateQuestion(i, 'options', e.target.value.split('\n'))}
-                                      rows={4}
-                                      placeholder="Option 1&#10;Option 2&#10;Option 3"
-                                      className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition resize-none"
-                                    />
+                                    <div className="space-y-2">
+                                      {(q.options || []).map((option, optionIndex) => (
+                                        <div key={optionIndex} className="flex items-center gap-2">
+                                          <input
+                                            type="text"
+                                            value={option}
+                                            onChange={(event) => updateOption(i, optionIndex, event.target.value)}
+                                            placeholder={`Option ${optionIndex + 1}`}
+                                            className="min-w-0 flex-1 rounded-lg border-2 border-gray-300 px-3 py-2 text-sm transition focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                          />
+                                          <button
+                                            type="button"
+                                            onClick={() => removeOption(i, optionIndex)}
+                                            className="rounded-lg p-2 text-red-600 hover:bg-red-50"
+                                            aria-label={`Remove option ${optionIndex + 1}`}
+                                          >
+                                            <Trash2 className="h-4 w-4" />
+                                          </button>
+                                        </div>
+                                      ))}
+                                      <button
+                                        type="button"
+                                        onClick={() => addOption(i)}
+                                        className="inline-flex items-center gap-2 rounded-lg border border-blue-300 px-3 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-50"
+                                      >
+                                        <Plus className="h-4 w-4" /> Add Option
+                                      </button>
+                                    </div>
                                     {isGraduationYearQuestion(q.question_text) && (
                                       <p className="mt-2 text-xs text-gray-500">
                                         Enter one four-digit year per line. These exact years control survey eligibility, monitoring, filters, and reminders.
@@ -967,7 +1137,7 @@ export default function Surveys() {
                                     )}
                                   </div>
                                 )}
-                              </div>
+                              </fieldset>
                             )}
                           </div>
                         </div>

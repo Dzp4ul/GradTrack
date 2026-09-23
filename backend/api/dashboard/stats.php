@@ -352,6 +352,8 @@ try {
                 'by_program' => $alignmentPrograms,
                 'by_year' => $alignmentYears,
             ],
+            'field_availability' => $analytics['field_availability'] ?? [],
+            'unavailable_reasons' => $analytics['unavailable_reasons'] ?? [],
             'top_jobs' => [],
             'recommended_actions' => array_slice($actions, 0, 5),
             'total_responses' => $totalResponses,

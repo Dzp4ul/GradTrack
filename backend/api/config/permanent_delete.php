@@ -244,7 +244,7 @@ if (!function_exists('gradtrack_permanently_delete_survey')) {
         }
 
         return gradtrack_permanent_delete_transaction($db, function () use ($db, $surveyId): array {
-            $stmt = $db->prepare('SELECT id, title, archived_at FROM surveys WHERE id = :id FOR UPDATE');
+            $stmt = $db->prepare('SELECT id, template_id, title, archived_at FROM surveys WHERE id = :id FOR UPDATE');
             $stmt->execute([':id' => $surveyId]);
             $survey = $stmt->fetch(PDO::FETCH_ASSOC);
             if (!$survey) {
@@ -254,14 +254,58 @@ if (!function_exists('gradtrack_permanently_delete_survey')) {
                 throw new GradtrackPermanentDeleteException('Only archived surveys can be permanently deleted', 409);
             }
 
+            $derivedStmt = $db->prepare('SELECT COUNT(*) FROM surveys WHERE based_on_survey_id = :survey_id');
+            $derivedStmt->execute([':survey_id' => $surveyId]);
+            if ((int)$derivedStmt->fetchColumn() > 0) {
+                throw new GradtrackPermanentDeleteException(
+                    'This historical version is the source of a newer survey version and cannot be permanently deleted',
+                    409
+                );
+            }
+
             // This table is present on older databases without a foreign key.
             $deleteReminders = $db->prepare('DELETE FROM survey_reminder_logs WHERE survey_id = :survey_id');
             $deleteReminders->execute([':survey_id' => $surveyId]);
+
+            // Versioned answer foreign keys intentionally prevent accidental data
+            // loss. A separately confirmed permanent deletion removes dependants in
+            // a deterministic order inside this transaction.
+            $deleteAnswers = $db->prepare(
+                'DELETE sra FROM survey_response_answers sra
+                 INNER JOIN survey_responses sr ON sr.id = sra.survey_response_id
+                 WHERE sr.survey_id = :survey_id'
+            );
+            $deleteAnswers->execute([':survey_id' => $surveyId]);
+            $deleteResponses = $db->prepare('DELETE FROM survey_responses WHERE survey_id = :survey_id');
+            $deleteResponses->execute([':survey_id' => $surveyId]);
+            $deleteTokens = $db->prepare('DELETE FROM survey_tokens WHERE survey_id = :survey_id');
+            $deleteTokens->execute([':survey_id' => $surveyId]);
+            $deleteQuestions = $db->prepare('DELETE FROM survey_questions WHERE survey_id = :survey_id');
+            $deleteQuestions->execute([':survey_id' => $surveyId]);
+            $deleteSections = $db->prepare('DELETE FROM survey_sections WHERE survey_id = :survey_id');
+            $deleteSections->execute([':survey_id' => $surveyId]);
+
+            $templateId = (int)($survey['template_id'] ?? 0);
+            if ($templateId > 0) {
+                $clearCurrent = $db->prepare(
+                    'UPDATE survey_templates SET current_version_id = NULL WHERE id = :template_id AND current_version_id = :survey_id'
+                );
+                $clearCurrent->execute([':template_id' => $templateId, ':survey_id' => $surveyId]);
+            }
 
             $deleteStmt = $db->prepare('DELETE FROM surveys WHERE id = :id AND archived_at IS NOT NULL');
             $deleteStmt->execute([':id' => $surveyId]);
             if ($deleteStmt->rowCount() !== 1) {
                 throw new GradtrackPermanentDeleteException('Survey archive state changed; please refresh and try again', 409);
+            }
+
+            if ($templateId > 0) {
+                $remaining = $db->prepare('SELECT COUNT(*) FROM surveys WHERE template_id = :template_id');
+                $remaining->execute([':template_id' => $templateId]);
+                if ((int)$remaining->fetchColumn() === 0) {
+                    $deleteTemplate = $db->prepare('DELETE FROM survey_templates WHERE id = :template_id');
+                    $deleteTemplate->execute([':template_id' => $templateId]);
+                }
             }
 
             return ['record' => $survey];

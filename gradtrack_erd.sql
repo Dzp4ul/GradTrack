@@ -28,9 +28,14 @@ CREATE TABLE `programs` (
 
 CREATE TABLE `surveys` (
     `id` INT NOT NULL AUTO_INCREMENT,
+    `template_id` INT NOT NULL,
+    `version_number` INT UNSIGNED NOT NULL DEFAULT 1,
+    `based_on_survey_id` INT DEFAULT NULL,
     `title` VARCHAR(200) NOT NULL,
     `description` TEXT DEFAULT NULL,
     `status` ENUM('active','inactive','draft') DEFAULT 'draft',
+    `published_at` DATETIME DEFAULT NULL,
+    `locked_at` DATETIME DEFAULT NULL,
     `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
     `created_by` VARCHAR(100) DEFAULT NULL,
     `modified_by` VARCHAR(100) DEFAULT NULL,
@@ -282,14 +287,25 @@ CREATE TABLE `employment` (
 
 CREATE TABLE `survey_questions` (
     `id` INT NOT NULL AUTO_INCREMENT,
+    `question_key` CHAR(36) NOT NULL,
+    `analytics_key` VARCHAR(80) DEFAULT NULL,
     `survey_id` INT DEFAULT NULL,
+    `section_id` INT DEFAULT NULL,
     `section` VARCHAR(100) DEFAULT NULL,
     `question_text` TEXT NOT NULL,
-    `question_type` ENUM('text','date','multiple_choice','radio','rating','checkbox') DEFAULT 'text',
+    `question_type` ENUM('header','text','date','multiple_choice','radio','rating','checkbox') DEFAULT 'text',
     `options` JSON DEFAULT NULL,
     `is_required` TINYINT(1) DEFAULT 0,
     `sort_order` INT DEFAULT 0,
+    `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+    `introduced_at` DATETIME DEFAULT NULL,
+    `retired_at` DATETIME DEFAULT NULL,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_survey_question_order` (`survey_id`, `sort_order`),
+    UNIQUE KEY `uq_survey_questions_key` (`survey_id`, `question_key`),
+    KEY `idx_survey_questions_analytics_key` (`survey_id`, `analytics_key`, `is_active`),
     KEY `idx_survey_questions_survey_id` (`survey_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -311,6 +327,7 @@ CREATE TABLE `survey_tokens` (
 CREATE TABLE `survey_responses` (
     `id` INT NOT NULL AUTO_INCREMENT,
     `survey_id` INT DEFAULT NULL,
+    `survey_version_id` INT NOT NULL,
     `graduate_id` INT DEFAULT NULL,
     `responses` JSON DEFAULT NULL,
     `submitted_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
@@ -325,8 +342,54 @@ CREATE TABLE `survey_responses` (
     `barangay_name` VARCHAR(120) DEFAULT NULL,
     PRIMARY KEY (`id`),
     KEY `idx_survey_responses_survey_id` (`survey_id`),
+    KEY `idx_survey_responses_version` (`survey_version_id`),
     KEY `idx_survey_responses_graduate_id` (`graduate_id`),
     KEY `idx_survey_responses_graduate_account_id` (`graduate_account_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `survey_templates` (
+    `id` INT NOT NULL AUTO_INCREMENT,
+    `template_key` CHAR(36) NOT NULL,
+    `title` VARCHAR(200) NOT NULL,
+    `description` TEXT DEFAULT NULL,
+    `current_version_id` INT DEFAULT NULL,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_survey_templates_key` (`template_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `survey_sections` (
+    `id` INT NOT NULL AUTO_INCREMENT,
+    `survey_id` INT NOT NULL,
+    `section_key` CHAR(36) NOT NULL,
+    `title` VARCHAR(200) NOT NULL,
+    `display_order` INT NOT NULL DEFAULT 0,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_survey_section_key` (`survey_id`, `section_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `survey_question_options` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `survey_question_id` INT NOT NULL,
+    `option_key` CHAR(36) NOT NULL,
+    `option_value` VARCHAR(500) NOT NULL,
+    `label` VARCHAR(500) NOT NULL,
+    `sort_order` INT NOT NULL DEFAULT 0,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_survey_question_option_key` (`survey_question_id`, `option_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `survey_response_answers` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `survey_response_id` INT NOT NULL,
+    `survey_question_id` INT NOT NULL,
+    `question_key` CHAR(36) NOT NULL,
+    `source_question_id` INT DEFAULT NULL,
+    `is_canonical` TINYINT(1) NOT NULL DEFAULT 1,
+    `answer_value` JSON DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_survey_response_source` (`survey_response_id`, `source_question_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE `graduate_accounts` (

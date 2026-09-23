@@ -5,6 +5,7 @@ require_once __DIR__ . '/../config/graduate_auth.php';
 require_once __DIR__ . '/../config/graduate_profile.php';
 require_once __DIR__ . '/../config/storage.php';
 require_once __DIR__ . '/../config/realtime.php';
+require_once __DIR__ . '/../config/survey_versioning.php';
 
 function gradtrack_profile_upload_root(): string
 {
@@ -335,52 +336,6 @@ function gradtrack_profile_is_meaningful_answer($value): bool
     ], true);
 }
 
-function gradtrack_profile_collect_question_keys(array $decodedResponses): array
-{
-    $keys = [];
-    foreach (array_keys($decodedResponses) as $key) {
-        $stringKey = (string) $key;
-        if ($stringKey !== '' && ctype_digit($stringKey)) {
-            $keys[(int) $stringKey] = (int) $stringKey;
-        }
-    }
-
-    sort($keys, SORT_NUMERIC);
-    return array_values($keys);
-}
-
-function gradtrack_profile_allows_historical_fallback(array $questions, array $decodedResponses): bool
-{
-    $questionIdSet = [];
-    foreach ($questions as $question) {
-        $questionId = (string) ($question['id'] ?? '');
-        if ($questionId !== '' && ctype_digit($questionId)) {
-            $questionIdSet[$questionId] = true;
-        }
-    }
-
-    $numericResponseKeys = [];
-    $exactQuestionKeyHits = 0;
-    foreach (array_keys($decodedResponses) as $responseKey) {
-        $responseKeyString = (string) $responseKey;
-        if (!ctype_digit($responseKeyString)) {
-            continue;
-        }
-
-        $numericResponseKeys[$responseKeyString] = true;
-        if (isset($questionIdSet[$responseKeyString])) {
-            $exactQuestionKeyHits++;
-        }
-    }
-
-    $numericKeyCount = count($numericResponseKeys);
-    if ($numericKeyCount === 0) {
-        return false;
-    }
-
-    return ($exactQuestionKeyHits / $numericKeyCount) < 0.5;
-}
-
 function gradtrack_profile_build_question_key_map(array $questions, array $decodedResponses): array
 {
     $map = [];
@@ -388,48 +343,6 @@ function gradtrack_profile_build_question_key_map(array $questions, array $decod
         $questionId = (string) ($question['id'] ?? '');
         if ($questionId !== '' && ctype_digit($questionId)) {
             $map[$questionId] = [$questionId];
-        }
-    }
-
-    $responseKeys = gradtrack_profile_collect_question_keys($decodedResponses);
-    if (empty($map) || empty($responseKeys) || !gradtrack_profile_allows_historical_fallback($questions, $decodedResponses)) {
-        return $map;
-    }
-
-    usort($questions, static function ($a, $b) {
-        return ((int) ($a['sort_order'] ?? 0)) <=> ((int) ($b['sort_order'] ?? 0));
-    });
-
-    $firstQuestion = $questions[0] ?? null;
-    if ($firstQuestion === null || !isset($firstQuestion['id'])) {
-        return $map;
-    }
-
-    $firstQuestionId = (int) $firstQuestion['id'];
-    $firstSortOrder = (int) ($firstQuestion['sort_order'] ?? 0);
-    $firstResponseKey = (int) min($responseKeys);
-    $idOffset = $firstQuestionId - $firstResponseKey;
-
-    foreach ($questions as $question) {
-        $questionId = (string) ($question['id'] ?? '');
-        if ($questionId === '' || !isset($map[$questionId])) {
-            continue;
-        }
-
-        $historicalKeys = [
-            (int) $question['id'] - $idOffset,
-            $firstResponseKey + ((int) ($question['sort_order'] ?? 0) - $firstSortOrder),
-        ];
-
-        foreach ($historicalKeys as $historicalKey) {
-            if ($historicalKey <= 0) {
-                continue;
-            }
-
-            $historicalKeyString = (string) $historicalKey;
-            if (!in_array($historicalKeyString, $map[$questionId], true)) {
-                $map[$questionId][] = $historicalKeyString;
-            }
         }
     }
 
@@ -492,6 +405,46 @@ function gradtrack_profile_field_from_question(
     array $sectionNeedles,
     array $textNeedleGroups
 ): ?array {
+    $analyticsAliases = [
+        'birthday' => 'birth_date',
+        'civil_status' => 'civil_status',
+        'sex' => 'sex',
+        'telephone' => 'phone_number',
+        'region' => 'region',
+        'province' => 'province',
+        'city_municipality' => 'city_municipality',
+        'barangay' => 'barangay',
+        'currently_employed' => 'employment_status',
+        'employment_type' => 'employment_classification',
+        'current_job_title' => 'occupation',
+        'industry' => 'industry',
+        'company_location' => 'work_location',
+        'job_related_to_program' => 'job_course_alignment',
+        'self_employed_skills' => 'self_employment_skills',
+        'skills_used' => 'useful_competencies',
+        'unemployment_reasons' => 'reason_unemployed',
+    ];
+    $analyticsKey = $analyticsAliases[$key] ?? null;
+    if ($analyticsKey !== null) {
+        foreach ($questions as $question) {
+            if (trim((string) ($question['analytics_key'] ?? '')) !== $analyticsKey) {
+                continue;
+            }
+            $answer = gradtrack_profile_answer_for_question($decodedResponses, $questionKeyMap, $question);
+            if (!gradtrack_profile_is_meaningful_answer($answer)) {
+                return null;
+            }
+            return [
+                'key' => $key,
+                'label' => $label,
+                'value' => gradtrack_profile_answer_text($answer),
+                'question_id' => (int) ($question['id'] ?? 0),
+                'question_text' => (string) ($question['question_text'] ?? $label),
+            ];
+        }
+        return null;
+    }
+
     foreach ($textNeedleGroups as $textNeedles) {
         $question = gradtrack_profile_find_question($questions, $sectionNeedles, $textNeedles);
         if (!$question) {
@@ -782,17 +735,15 @@ function gradtrack_profile_survey_data(PDO $db, array $user): ?array
         return null;
     }
 
-    $decodedResponses = json_decode((string) ($response['responses'] ?? '{}'), true);
-    if (!is_array($decodedResponses)) {
-        $decodedResponses = [];
-    }
-
-    $questionStmt = $db->prepare('SELECT id, section, question_text, question_type, sort_order
+    $questionStmt = $db->prepare('SELECT id, question_key, analytics_key, section, question_text, question_type, sort_order
                                   FROM survey_questions
-                                  WHERE survey_id = :survey_id
+                                  WHERE survey_id = :survey_id AND is_active = 1
                                   ORDER BY sort_order ASC, id ASC');
     $questionStmt->execute([':survey_id' => (int) $response['survey_id']]);
     $questions = $questionStmt->fetchAll(PDO::FETCH_ASSOC);
+    $hydratedResponses = gradtrack_survey_hydrate_normalized_answers($db, [$response]);
+    $response = $hydratedResponses[0] ?? $response;
+    $decodedResponses = gradtrack_survey_response_answer_map($questions, $response);
     $questionKeyMap = gradtrack_profile_build_question_key_map($questions, $decodedResponses);
 
     $directAddressField = gradtrack_profile_field_from_question($questions, $decodedResponses, $questionKeyMap, 'current_address', 'Current Address', [], [['current', 'address'], ['residential', 'address'], ['home', 'address']]);

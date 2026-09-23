@@ -84,23 +84,35 @@ try {
     $memberStmt->execute([':room_id' => $sharedRoomId, ':graduate_id' => $graduate2026]);
     $memberStmt->execute([':room_id' => $soloRoomId, ':graduate_id' => $graduate2027]);
 
+    $templateStmt = $db->prepare("INSERT INTO survey_templates
+        (template_key, title, description)
+        VALUES (:template_key, :title, 'Integration test')");
+    $templateStmt->execute([
+        ':template_key' => gradtrack_survey_uuid(),
+        ':title' => 'Graduation year integration ' . $suffix,
+    ]);
+    $templateId = (int)$db->lastInsertId();
     $surveyStmt = $db->prepare("INSERT INTO surveys
-        (title, description, status, archived_at, status_before_archive)
-        VALUES (:title, 'Integration test', 'inactive', NOW(), 'draft')");
-    $surveyStmt->execute([':title' => 'Graduation year integration ' . $suffix]);
+        (template_id, version_number, title, description, status, archived_at, status_before_archive)
+        VALUES (:template_id, 1, :title, 'Integration test', 'inactive', NOW(), 'draft')");
+    $surveyStmt->execute([
+        ':template_id' => $templateId,
+        ':title' => 'Graduation year integration ' . $suffix,
+    ]);
     $surveyId = (int) $db->lastInsertId();
 
     $questionStmt = $db->prepare("INSERT INTO survey_questions
-        (survey_id, section, question_text, question_type, is_required, sort_order)
-        VALUES (:survey_id, 'Profile', 'Year Graduated', 'text', 1, 1)");
-    $questionStmt->execute([':survey_id' => $surveyId]);
+        (survey_id, question_key, analytics_key, section, question_text, question_type, is_required, sort_order)
+        VALUES (:survey_id, :question_key, 'graduation_year', 'Profile', 'Year Graduated', 'text', 1, 1)");
+    $questionStmt->execute([':survey_id' => $surveyId, ':question_key' => gradtrack_survey_uuid()]);
     $questionId = (int) $db->lastInsertId();
 
     $responseStmt = $db->prepare('INSERT INTO survey_responses
-        (survey_id, graduate_id, responses, submitted_at)
-        VALUES (:survey_id, :graduate_id, :responses, NOW())');
+        (survey_id, survey_version_id, graduate_id, responses, submitted_at)
+        VALUES (:survey_id, :survey_version_id, :graduate_id, :responses, NOW())');
     $responseStmt->execute([
         ':survey_id' => $surveyId,
+        ':survey_version_id' => $surveyId,
         ':graduate_id' => $graduate2027,
         ':responses' => json_encode([(string) $questionId => '2027']),
     ]);

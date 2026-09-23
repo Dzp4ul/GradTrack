@@ -4,6 +4,7 @@ ob_start();
 require_once __DIR__ . '/../api/config/database.php';
 require_once __DIR__ . '/../api/config/session.php';
 require_once __DIR__ . '/../api/config/graduation_years.php';
+require_once __DIR__ . '/../api/config/survey_versioning.php';
 
 $failures = 0;
 $baseUrl = rtrim((string) (getenv('GRADTRACK_HTTP_TEST_URL') ?: 'http://localhost/GradTrack/backend/api'), '/');
@@ -12,6 +13,7 @@ $sessionIds = [];
 $csrfTokens = [];
 $fixture = [
     'surveys' => [],
+    'templates' => [],
     'graduates' => [],
     'accounts' => [],
     'admins' => [],
@@ -90,13 +92,42 @@ function coverage_create_admin(PDO $db, string $role, string $suffix): int
 
 function coverage_create_survey(PDO $db, string $title, string $status, array $years): int
 {
-    $stmt = $db->prepare("INSERT INTO surveys (title, description, status) VALUES (:title, 'Coverage integration test', :status)");
-    $stmt->execute([':title' => $title, ':status' => $status]);
+    global $fixture;
+    $templateStmt = $db->prepare(
+        "INSERT INTO survey_templates (template_key, title, description)
+         VALUES (:template_key, :title, 'Coverage integration test')"
+    );
+    $templateStmt->execute([':template_key' => gradtrack_survey_uuid(), ':title' => $title]);
+    $templateId = (int)$db->lastInsertId();
+    $fixture['templates'][] = $templateId;
+
+    $stmt = $db->prepare(
+        "INSERT INTO surveys (template_id, version_number, title, description, status, published_at, locked_at)
+         VALUES (:template_id, 1, :title, 'Coverage integration test', :status,
+                 CASE WHEN :publish_status = 'draft' THEN NULL ELSE NOW() END,
+                 CASE WHEN :lock_status = 'draft' THEN NULL ELSE NOW() END)"
+    );
+    $stmt->execute([
+        ':template_id' => $templateId,
+        ':title' => $title,
+        ':status' => $status,
+        ':publish_status' => $status,
+        ':lock_status' => $status,
+    ]);
     $surveyId = (int) $db->lastInsertId();
     $questionStmt = $db->prepare("INSERT INTO survey_questions
-        (survey_id, section, question_text, question_type, options, is_required, sort_order)
-        VALUES (:survey_id, 'Educational Background', 'Q16: Year Graduated', 'multiple_choice', :options, 1, 16)");
-    $questionStmt->execute([':survey_id' => $surveyId, ':options' => json_encode(array_map('strval', $years))]);
+        (survey_id, question_key, analytics_key, section, question_text, question_type, options, is_required, sort_order)
+        VALUES (:survey_id, :question_key, 'graduation_year', 'Educational Background',
+                'Q16: Year Graduated', 'multiple_choice', :options, 1, 16)");
+    $questionStmt->execute([
+        ':survey_id' => $surveyId,
+        ':question_key' => gradtrack_survey_uuid(),
+        ':options' => json_encode(array_map('strval', $years)),
+    ]);
+    if ($status !== 'draft') {
+        $db->prepare('UPDATE survey_templates SET current_version_id = :survey_id WHERE id = :template_id')
+            ->execute([':survey_id' => $surveyId, ':template_id' => $templateId]);
+    }
     return $surveyId;
 }
 
@@ -143,7 +174,22 @@ function coverage_cleanup(PDO $db): void
             $db->prepare('DELETE FROM graduate_accounts WHERE id = :id')->execute([':id' => $accountId]);
         }
         foreach ($fixture['surveys'] as $surveyId) {
+            $db->prepare(
+                'DELETE sra FROM survey_response_answers sra
+                 INNER JOIN survey_responses sr ON sr.id = sra.survey_response_id
+                 WHERE sr.survey_id = :id'
+            )->execute([':id' => $surveyId]);
+            $db->prepare('DELETE FROM survey_reminder_logs WHERE survey_id = :id')->execute([':id' => $surveyId]);
+            $db->prepare('DELETE FROM survey_tokens WHERE survey_id = :id')->execute([':id' => $surveyId]);
+            $db->prepare('DELETE FROM survey_responses WHERE survey_id = :id')->execute([':id' => $surveyId]);
+            $db->prepare('DELETE FROM survey_questions WHERE survey_id = :id')->execute([':id' => $surveyId]);
+            $db->prepare('DELETE FROM survey_sections WHERE survey_id = :id')->execute([':id' => $surveyId]);
+            $db->prepare('UPDATE survey_templates SET current_version_id = NULL WHERE current_version_id = :id')
+                ->execute([':id' => $surveyId]);
             $db->prepare('DELETE FROM surveys WHERE id = :id')->execute([':id' => $surveyId]);
+        }
+        foreach ($fixture['templates'] as $templateId) {
+            $db->prepare('DELETE FROM survey_templates WHERE id = :id')->execute([':id' => $templateId]);
         }
         foreach ($fixture['graduates'] as $graduateId) {
             $db->prepare('DELETE FROM graduates WHERE id = :id')->execute([':id' => $graduateId]);
@@ -197,7 +243,7 @@ try {
     $deanSession = coverage_session(['admin_user_id' => $deanId]);
     $superAdminSession = coverage_session(['admin_user_id' => $superAdminId]);
 
-    $surveyA = coverage_create_survey($db, 'Coverage A ' . $suffix, 'active', [2025, 2024, 2023, 2022, 2021]);
+    $surveyA = coverage_create_survey($db, 'Coverage A ' . $suffix, 'draft', [2025, 2024, 2023, 2022, 2021]);
     $fixture['surveys'][] = $surveyA;
     $graduateByYear = [];
     foreach (range(2020, 2027) as $year) {
@@ -208,11 +254,12 @@ try {
     $historicalSurvey = coverage_create_survey($db, 'Historical 2027-2030 ' . $suffix, 'inactive', [2027, 2028, 2029, 2030]);
     $fixture['surveys'][] = $historicalSurvey;
     $historicalResponseInsert = $db->prepare(
-        'INSERT INTO survey_responses (survey_id, graduate_id, responses, submitted_at)
-         VALUES (:survey_id, :graduate_id, :responses, NOW())'
+        'INSERT INTO survey_responses (survey_id, survey_version_id, graduate_id, responses, submitted_at)
+         VALUES (:survey_id, :survey_version_id, :graduate_id, :responses, NOW())'
     );
     $historicalResponseInsert->execute([
         ':survey_id' => $historicalSurvey,
+        ':survey_version_id' => $historicalSurvey,
         ':graduate_id' => $graduateByYear[2027],
         ':responses' => json_encode(['coverage' => 2027]),
     ]);
@@ -241,7 +288,7 @@ try {
         'id' => $surveyA,
         'title' => 'Coverage A ' . $suffix,
         'description' => 'Coverage integration test',
-        'status' => 'active',
+        'status' => 'draft',
         'questions' => [$surveyQuestionPayload + ['options' => ['2021', ' 2021 ', 'not-a-year']]],
     ]);
     coverage_assert($invalidSurveyUpdate['status'] === 422 && ($invalidSurveyUpdate['json']['code'] ?? '') === 'INVALID_GRADUATION_YEAR_COVERAGE', 'Survey Management API rejects duplicate and malformed coverage options');
@@ -258,11 +305,12 @@ try {
     $storedOptions = json_decode((string) $storedOptionsStmt->fetchColumn(), true);
     coverage_assert($validSurveyUpdate['status'] === 200 && $storedOptions === ['2021', '2022', '2023', '2024', '2025'], 'Survey Management API trims and sorts only the explicitly supplied coverage years');
 
-    $responseStmt = $db->prepare('INSERT INTO survey_responses (survey_id, graduate_id, responses, submitted_at)
-                                  VALUES (:survey_id, :graduate_id, :responses, NOW())');
+    $responseStmt = $db->prepare('INSERT INTO survey_responses (survey_id, survey_version_id, graduate_id, responses, submitted_at)
+                                  VALUES (:survey_id, :survey_version_id, :graduate_id, :responses, NOW())');
     foreach ([2020, 2021] as $year) {
         $responseStmt->execute([
             ':survey_id' => $surveyA,
+            ':survey_version_id' => $surveyA,
             ':graduate_id' => $graduateByYear[$year],
             ':responses' => json_encode(['coverage' => $year]),
         ]);

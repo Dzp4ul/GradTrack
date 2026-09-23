@@ -142,41 +142,6 @@ function getOverviewData(PDO $db, ?int $surveyId, array $analyticsOptions = []):
     ];
 }
 
-function getSurveyResponseQuestionKeys(PDO $db, ?int $surveyId): array
-{
-    if ($surveyId === null) {
-        return [];
-    }
-
-    $stmt = $db->prepare("
-        SELECT responses
-        FROM survey_responses
-        WHERE survey_id = :survey_id
-          AND submitted_at IS NOT NULL
-        ORDER BY id ASC
-        LIMIT 25
-    ");
-    $stmt->bindValue(':survey_id', $surveyId, PDO::PARAM_INT);
-    $stmt->execute();
-
-    $keys = [];
-    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $response) {
-        $data = json_decode((string)$response['responses'], true);
-        if (!is_array($data)) {
-            continue;
-        }
-
-        foreach (array_keys($data) as $key) {
-            if (ctype_digit((string)$key)) {
-                $keys[(int)$key] = (int)$key;
-            }
-        }
-    }
-
-    sort($keys, SORT_NUMERIC);
-    return array_values($keys);
-}
-
 function normalizeReportType(string $type): string
 {
     $allowed = ['overview', 'by_program', 'by_year', 'employment_status', 'salary_distribution'];

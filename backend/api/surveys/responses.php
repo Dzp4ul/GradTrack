@@ -8,6 +8,7 @@ require_once __DIR__ . '/../config/system_settings.php';
 require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/survey_validation.php';
 require_once __DIR__ . '/../config/graduation_years.php';
+require_once __DIR__ . '/../config/survey_versioning.php';
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 use PHPMailer\PHPMailer\Exception as MailException;
@@ -81,100 +82,6 @@ function survey_response_frontend_url(): string
         return gradtrack_frontend_url();
 }
 
-    function survey_response_collect_question_keys(array $decodedResponses): array
-    {
-        $keys = [];
-        foreach (array_keys($decodedResponses) as $key) {
-            $stringKey = (string) $key;
-            if ($stringKey !== '' && ctype_digit($stringKey)) {
-                $keys[(int) $stringKey] = (int) $stringKey;
-            }
-        }
-
-        if (empty($keys)) {
-            return [];
-        }
-
-        sort($keys, SORT_NUMERIC);
-        return array_values($keys);
-    }
-
-    function survey_response_build_question_key_map(array $questions, array $decodedResponses): array
-    {
-        $map = [];
-        foreach ($questions as $question) {
-            $questionId = (string) ($question['id'] ?? '');
-            if ($questionId === '' || !ctype_digit($questionId)) {
-                continue;
-            }
-
-            $map[$questionId] = [$questionId];
-        }
-
-        if (empty($map)) {
-            return $map;
-        }
-
-        $responseKeys = survey_response_collect_question_keys($decodedResponses);
-        if (empty($responseKeys)) {
-            return $map;
-        }
-
-        usort($questions, static function ($a, $b) {
-            return ((int) ($a['sort_order'] ?? 0)) <=> ((int) ($b['sort_order'] ?? 0));
-        });
-
-        $firstQuestion = $questions[0] ?? null;
-        if ($firstQuestion === null || !isset($firstQuestion['id'])) {
-            return $map;
-        }
-
-        $firstQuestionId = (int) $firstQuestion['id'];
-        $firstSortOrder = (int) ($firstQuestion['sort_order'] ?? 0);
-        $firstResponseKey = (int) min($responseKeys);
-        $idOffset = $firstQuestionId - $firstResponseKey;
-
-        foreach ($questions as $question) {
-            if (!isset($question['id'])) {
-                continue;
-            }
-
-            $questionId = (string) $question['id'];
-            if (!isset($map[$questionId])) {
-                continue;
-            }
-
-            $historicalKeys = [
-                (int) $question['id'] - $idOffset,
-                $firstResponseKey + ((int) ($question['sort_order'] ?? 0) - $firstSortOrder),
-            ];
-
-            foreach ($historicalKeys as $historicalKey) {
-                if ($historicalKey <= 0) {
-                    continue;
-                }
-
-                $historicalKeyString = (string) $historicalKey;
-                if (!in_array($historicalKeyString, $map[$questionId], true)) {
-                    $map[$questionId][] = $historicalKeyString;
-                }
-            }
-        }
-
-        return $map;
-    }
-
-    function survey_response_get_answer_by_keys(array $decodedResponses, array $keys)
-    {
-        foreach ($keys as $key) {
-            if (array_key_exists($key, $decodedResponses)) {
-                return $decodedResponses[$key];
-            }
-        }
-
-        return null;
-    }
-
 function survey_response_normalize_label($value): string
 {
         $text = strtolower(trim((string) ($value ?? '')));
@@ -194,9 +101,9 @@ function survey_response_answer_text($value): string
 function survey_response_psgc_question_map(PDO $conn, int $surveyId): array
 {
         $stmt = $conn->prepare(
-                'SELECT id, question_text
+                'SELECT id, analytics_key
                  FROM survey_questions
-                 WHERE survey_id = :survey_id
+                 WHERE survey_id = :survey_id AND is_active = 1
                  ORDER BY sort_order ASC, id ASC'
         );
         $stmt->execute([':survey_id' => $surveyId]);
@@ -205,20 +112,14 @@ function survey_response_psgc_question_map(PDO $conn, int $surveyId): array
         $map = [];
         foreach ($questions as $question) {
                 $id = isset($question['id']) ? (int) $question['id'] : 0;
-                $label = survey_response_normalize_label($question['question_text'] ?? '');
+                $analyticsKey = trim((string) ($question['analytics_key'] ?? ''));
 
                 if ($id <= 0) {
                         continue;
                 }
 
-                if (!isset($map['region']) && preg_match('/\bregion\b/', $label)) {
-                        $map['region'] = $id;
-                } elseif (!isset($map['province']) && preg_match('/\bprovince\b/', $label)) {
-                        $map['province'] = $id;
-                } elseif (!isset($map['city_municipality']) && (preg_match('/\bcity\b/', $label) || preg_match('/\bmunicipality\b/', $label))) {
-                        $map['city_municipality'] = $id;
-                } elseif (!isset($map['barangay']) && preg_match('/\bbarangay\b/', $label)) {
-                        $map['barangay'] = $id;
+                if (in_array($analyticsKey, ['region', 'province', 'city_municipality', 'barangay'], true)) {
+                        $map[$analyticsKey] = $id;
                 }
         }
 
@@ -467,9 +368,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             : null;
 
         $questionStmt = $conn->prepare(
-            'SELECT id, section, question_text, question_type, options, is_required, sort_order
+            'SELECT id, section_id, question_key, analytics_key, section, question_text,
+                    question_type, options, is_required, sort_order, is_active
              FROM survey_questions
-             WHERE survey_id = :survey_id
+             WHERE survey_id = :survey_id AND is_active = 1
              ORDER BY sort_order ASC, id ASC'
         );
         $questionStmt->execute([':survey_id' => (int) $surveyId]);
@@ -601,10 +503,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
         
         // Insert survey response
-        $insertColumns = ['survey_id', 'graduate_id', 'responses', 'submitted_at'];
-        $insertPlaceholders = [':survey_id', ':graduate_id', ':responses', 'NOW()'];
+        $insertColumns = ['survey_id', 'survey_version_id', 'graduate_id', 'responses', 'submitted_at'];
+        $insertPlaceholders = [':survey_id', ':survey_version_id', ':graduate_id', ':responses', 'NOW()'];
         $insertValues = [
             ':survey_id' => $surveyId,
+            ':survey_version_id' => $surveyId,
             ':graduate_id' => $graduateId,
             ':responses' => json_encode($responses, JSON_UNESCAPED_UNICODE),
         ];
@@ -631,7 +534,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $stmt->execute();
-        $responseId = $conn->lastInsertId();
+        $responseId = (int)$conn->lastInsertId();
+        gradtrack_survey_insert_normalized_answers(
+            $conn,
+            $responseId,
+            $surveyQuestions,
+            $responses
+        );
         
         // Mark token as submitted if token was used
         if (isset($tokenData)) {
@@ -805,16 +714,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         ";
         $stmt = $conn->prepare($query);
         $stmt->execute($params);
-        $responses = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        $responses = gradtrack_survey_hydrate_normalized_answers($conn, $stmt->fetchAll(PDO::FETCH_ASSOC));
 
         $questionCache = [];
         foreach ($responses as &$response) {
             $responseSurveyId = (int) $response['survey_id'];
             if (!isset($questionCache[$responseSurveyId])) {
                 $questionStmt = $conn->prepare("
-                    SELECT id, section, question_text, question_type, sort_order
+                    SELECT id, section_id, question_key, analytics_key, section, question_text, question_type, sort_order
                     FROM survey_questions
-                    WHERE survey_id = :survey_id
+                    WHERE survey_id = :survey_id AND is_active = 1
                     ORDER BY sort_order ASC, id ASC
                 ");
                 $questionStmt->execute([':survey_id' => $responseSurveyId]);
@@ -837,44 +746,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
                 $decodedResponses = is_array($decoded) ? $decoded : [];
             }
 
-            $answers = [];
             $orderedQuestions = $questionCache[$responseSurveyId]['ordered'];
-            $questionKeyMap = survey_response_build_question_key_map($orderedQuestions, $decodedResponses);
-            $usedResponseKeys = [];
-
-            // Only use historical fallback mapping when this response appears to come
-            // from an older key schema (legacy numeric keys). For current-schema
-            // responses, rely on exact question IDs to avoid cross-field leakage
-            // (e.g., Region appearing under Name Extension).
-            $questionIdSet = [];
-            foreach ($orderedQuestions as $question) {
-                $questionId = (string) ($question['id'] ?? '');
-                if ($questionId !== '' && ctype_digit($questionId)) {
-                    $questionIdSet[$questionId] = true;
-                }
-            }
-
-            $numericResponseKeys = [];
-            $exactQuestionKeyHits = 0;
-            foreach (array_keys($decodedResponses) as $responseKey) {
-                $responseKeyString = (string) $responseKey;
-                if (!ctype_digit($responseKeyString)) {
-                    continue;
-                }
-
-                $numericResponseKeys[$responseKeyString] = true;
-                if (isset($questionIdSet[$responseKeyString])) {
-                    $exactQuestionKeyHits++;
-                }
-            }
-
-            $numericKeyCount = count($numericResponseKeys);
-            $exactHitRatio = $numericKeyCount > 0 ? ($exactQuestionKeyHits / $numericKeyCount) : 0;
-            $allowHistoricalFallback = $exactHitRatio < 0.5;
+            $answerMap = gradtrack_survey_response_answer_map($orderedQuestions, $response);
+            $answers = [];
 
             foreach ($orderedQuestions as $question) {
                 $questionKey = (string) ($question['id'] ?? '');
-                if ($questionKey === '' || !isset($questionKeyMap[$questionKey])) {
+                if ($questionKey === '') {
                     continue;
                 }
 
@@ -883,40 +761,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
                     continue;
                 }
 
-                $answer = null;
-                $sourceKey = null;
-
-                // Prefer exact question-id key first for current schema responses.
-                if (array_key_exists($questionKey, $decodedResponses)) {
-                    $answer = $decodedResponses[$questionKey];
-                    $sourceKey = $questionKey;
-                } elseif ($allowHistoricalFallback) {
-                    // Fall back to historical key candidates, but never reuse a key already mapped.
-                    foreach ($questionKeyMap[$questionKey] as $candidateKey) {
-                        if (!array_key_exists($candidateKey, $decodedResponses)) {
-                            continue;
-                        }
-                        if (isset($usedResponseKeys[$candidateKey])) {
-                            continue;
-                        }
-
-                        $answer = $decodedResponses[$candidateKey];
-                        $sourceKey = (string) $candidateKey;
-                        break;
-                    }
-                }
-
-                if ($sourceKey !== null) {
-                    $usedResponseKeys[$sourceKey] = true;
-                }
-
                 $answers[] = [
                     'question_id' => $questionKey,
+                    'question_key' => $question['question_key'] ?? null,
+                    'analytics_key' => $question['analytics_key'] ?? null,
                     'question_text' => $question['question_text'] ?? ('Question ' . $questionKey),
                     'question_type' => $question['question_type'] ?? null,
                     'section' => $question['section'] ?? null,
                     'sort_order' => isset($question['sort_order']) ? (int) $question['sort_order'] : 0,
-                    'answer' => $answer,
+                    'answer' => $answerMap[$questionKey] ?? null,
                 ];
             }
 
