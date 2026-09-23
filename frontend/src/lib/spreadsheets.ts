@@ -1,4 +1,5 @@
 import ExcelJS from 'exceljs';
+import JSZip from 'jszip';
 
 export interface SpreadsheetWorkbook {
   sheetNames: string[];
@@ -8,6 +9,7 @@ export interface SpreadsheetWorkbook {
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_ROWS = 50_000;
 const MAX_COLUMNS = 500;
+const MAX_XML_CHARACTERS = 50 * 1024 * 1024;
 
 const excelValue = (value: ExcelJS.CellValue): unknown => {
   if (value === null || value === undefined || typeof value !== 'object' || value instanceof Date) return value ?? '';
@@ -37,6 +39,150 @@ const worksheetRows = (worksheet: ExcelJS.Worksheet): unknown[][] => {
     rows.push(values);
   }
   return rows;
+};
+
+const decodeXmlText = (value: string): string => value
+  .replace(/&#x([0-9a-f]+);/gi, (_, code: string) => String.fromCodePoint(Number.parseInt(code, 16)))
+  .replace(/&#(\d+);/g, (_, code: string) => String.fromCodePoint(Number.parseInt(code, 10)))
+  .replace(/&lt;/g, '<')
+  .replace(/&gt;/g, '>')
+  .replace(/&quot;/g, '"')
+  .replace(/&apos;/g, "'")
+  .replace(/&amp;/g, '&');
+
+const xmlAttribute = (attributes: string, name: string): string => {
+  const escapedName = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = attributes.match(new RegExp(`(?:^|\\s)${escapedName}=(?:"([^"]*)"|'([^']*)')`, 'i'));
+  return decodeXmlText(match?.[1] ?? match?.[2] ?? '');
+};
+
+const xmlTextRuns = (xml: string): string => {
+  const parts: string[] = [];
+  const textPattern = /<(?:[A-Za-z_][\w.-]*:)?t\b[^>]*>([\s\S]*?)<\/(?:[A-Za-z_][\w.-]*:)?t>/gi;
+  for (const match of xml.matchAll(textPattern)) {
+    parts.push(decodeXmlText(match[1]));
+  }
+  return parts.join('');
+};
+
+const columnIndexFromReference = (reference: string): number => {
+  const letters = reference.match(/^[A-Z]+/i)?.[0]?.toUpperCase() ?? '';
+  let value = 0;
+  for (const letter of letters) value = (value * 26) + letter.charCodeAt(0) - 64;
+  return value;
+};
+
+const normalizeZipPath = (target: string): string => {
+  const normalized = target.replace(/\\/g, '/').replace(/^\/+/, '');
+  const path = normalized.startsWith('xl/') ? normalized : `xl/${normalized}`;
+  const parts: string[] = [];
+  path.split('/').forEach((part) => {
+    if (part === '' || part === '.') return;
+    if (part === '..') parts.pop();
+    else parts.push(part);
+  });
+  return parts.join('/');
+};
+
+const parseSharedStringsXml = (xml: string): string[] => {
+  const strings: string[] = [];
+  const itemPattern = /<(?:[A-Za-z_][\w.-]*:)?si\b[^>]*>([\s\S]*?)<\/(?:[A-Za-z_][\w.-]*:)?si>/gi;
+  for (const match of xml.matchAll(itemPattern)) strings.push(xmlTextRuns(match[1]));
+  return strings;
+};
+
+const parseWorksheetXml = (xml: string, sharedStrings: string[]): unknown[][] => {
+  const rows: unknown[][] = [];
+  let maximumColumn = 0;
+  const rowPattern = /<(?:[A-Za-z_][\w.-]*:)?row\b([^>]*)>([\s\S]*?)<\/(?:[A-Za-z_][\w.-]*:)?row>/gi;
+
+  for (const rowMatch of xml.matchAll(rowPattern)) {
+    const rowNumber = Number.parseInt(xmlAttribute(rowMatch[1], 'r'), 10);
+    if (!Number.isFinite(rowNumber) || rowNumber < 1) continue;
+    if (rowNumber > MAX_ROWS) throw new Error(`Spreadsheet exceeds the ${MAX_ROWS.toLocaleString()} row safety limit.`);
+
+    const values: unknown[] = [];
+    const cellPattern = /<(?:[A-Za-z_][\w.-]*:)?c\b([^>]*?)(?:>([\s\S]*?)<\/(?:[A-Za-z_][\w.-]*:)?c>|\s*\/>)/gi;
+    for (const cellMatch of rowMatch[2].matchAll(cellPattern)) {
+      const reference = xmlAttribute(cellMatch[1], 'r');
+      const columnNumber = columnIndexFromReference(reference);
+      if (columnNumber < 1) continue;
+      if (columnNumber > MAX_COLUMNS) throw new Error(`Spreadsheet exceeds the ${MAX_COLUMNS} column safety limit.`);
+      maximumColumn = Math.max(maximumColumn, columnNumber);
+
+      const type = xmlAttribute(cellMatch[1], 't').toLowerCase();
+      const body = cellMatch[2] ?? '';
+      const rawValueMatch = body.match(/<(?:[A-Za-z_][\w.-]*:)?v\b[^>]*>([\s\S]*?)<\/(?:[A-Za-z_][\w.-]*:)?v>/i);
+      const rawValue = decodeXmlText(rawValueMatch?.[1] ?? '');
+      let value: unknown = '';
+
+      if (type === 's') {
+        value = sharedStrings[Number.parseInt(rawValue, 10)] ?? '';
+      } else if (type === 'inlinestr') {
+        value = xmlTextRuns(body);
+      } else if (type === 'b') {
+        value = rawValue === '1';
+      } else if (type === 'str' || type === 'e') {
+        value = rawValue;
+      } else if (rawValue !== '') {
+        const numericValue = Number(rawValue);
+        value = Number.isFinite(numericValue) ? numericValue : rawValue;
+      }
+
+      values[columnNumber - 1] = value;
+    }
+    rows[rowNumber - 1] = values;
+  }
+
+  if (rows.length > MAX_ROWS) throw new Error(`Spreadsheet exceeds the ${MAX_ROWS.toLocaleString()} row safety limit.`);
+  return rows.map((row) => Array.from({ length: maximumColumn }, (_, index) => row?.[index] ?? ''));
+};
+
+// Some registrar-generated workbooks use valid namespace-prefixed OOXML tags
+// (for example <x:workbook>) that ExcelJS 4 cannot parse. This fallback reads
+// the small, tabular subset GradTrack needs without changing the uploaded file.
+const readNamespacedXlsx = async (buffer: ArrayBuffer): Promise<SpreadsheetWorkbook> => {
+  const zip = await JSZip.loadAsync(buffer);
+  const workbookEntry = zip.file('xl/workbook.xml');
+  if (!workbookEntry) throw new Error('Workbook metadata is missing');
+
+  const workbookXml = await workbookEntry.async('string');
+  if (workbookXml.length > MAX_XML_CHARACTERS) throw new Error('Workbook metadata is too large');
+
+  const relationshipsXml = await zip.file('xl/_rels/workbook.xml.rels')?.async('string') ?? '';
+  const relationshipTargets = new Map<string, string>();
+  const relationshipPattern = /<(?:[A-Za-z_][\w.-]*:)?Relationship\b([^>]*?)(?:\/?>)/gi;
+  for (const match of relationshipsXml.matchAll(relationshipPattern)) {
+    const id = xmlAttribute(match[1], 'Id');
+    const target = xmlAttribute(match[1], 'Target');
+    if (id && target) relationshipTargets.set(id, normalizeZipPath(target));
+  }
+
+  const sharedStringsEntry = zip.file('xl/sharedStrings.xml');
+  const sharedStringsXml = sharedStringsEntry ? await sharedStringsEntry.async('string') : '';
+  if (sharedStringsXml.length > MAX_XML_CHARACTERS) throw new Error('Shared strings are too large');
+  const sharedStrings = parseSharedStringsXml(sharedStringsXml);
+
+  const sheetNames: string[] = [];
+  const sheets: Record<string, unknown[][]> = {};
+  const sheetPattern = /<(?:[A-Za-z_][\w.-]*:)?sheet\b([^>]*?)(?:\/?>)/gi;
+  let sheetIndex = 0;
+  for (const match of workbookXml.matchAll(sheetPattern)) {
+    sheetIndex += 1;
+    const name = xmlAttribute(match[1], 'name') || `Sheet${sheetIndex}`;
+    const relationshipId = xmlAttribute(match[1], 'r:id');
+    const target = relationshipTargets.get(relationshipId) ?? `xl/worksheets/sheet${sheetIndex}.xml`;
+    const worksheetEntry = zip.file(target);
+    if (!worksheetEntry) continue;
+
+    const worksheetXml = await worksheetEntry.async('string');
+    if (worksheetXml.length > MAX_XML_CHARACTERS) throw new Error(`Worksheet ${name} is too large`);
+    sheetNames.push(name);
+    sheets[name] = parseWorksheetXml(worksheetXml, sharedStrings);
+  }
+
+  if (sheetNames.length === 0) throw new Error('No readable worksheet was found');
+  return { sheetNames, sheets };
 };
 
 const csvRows = (content: string): unknown[][] => {
@@ -89,13 +235,18 @@ export const readSpreadsheet = async (file: File): Promise<SpreadsheetWorkbook> 
     throw new Error('Only .xlsx and .csv files are supported. Convert legacy .xls files to .xlsx before importing.');
   }
 
-  const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(await file.arrayBuffer());
-  const sheets: Record<string, unknown[][]> = {};
-  workbook.eachSheet((worksheet) => {
-    sheets[worksheet.name] = worksheetRows(worksheet);
-  });
-  return { sheetNames: Object.keys(sheets), sheets };
+  const buffer = await file.arrayBuffer();
+  try {
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(buffer);
+    const sheets: Record<string, unknown[][]> = {};
+    workbook.eachSheet((worksheet) => {
+      sheets[worksheet.name] = worksheetRows(worksheet);
+    });
+    return { sheetNames: Object.keys(sheets), sheets };
+  } catch {
+    return readNamespacedXlsx(buffer);
+  }
 };
 
 export const createXlsxBlob = async (rows: Record<string, unknown>[], sheetName: string): Promise<Blob> => {

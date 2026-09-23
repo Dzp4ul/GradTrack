@@ -8,6 +8,7 @@
     "build": "vite build",
     "lint": "eslint .",
     "test:active-survey-years": "node --experimental-strip-types tests/active-survey-graduation-years.test.mjs",
+    "test:graduate-import": "node --experimental-strip-types tests/graduate-import.test.mjs",
     "test:graduation-archives": "node --experimental-strip-types tests/graduation-archives.test.mjs",
     "test:survey-validation": "node --experimental-strip-types tests/survey-validation.test.mjs",
     "preview": "vite preview",
@@ -16,6 +17,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",
     "exceljs": "^4.4.0",
+    "jszip": "^3.10.1",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7",
     "lucide-react": "^0.344.0",

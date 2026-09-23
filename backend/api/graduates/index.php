@@ -265,6 +265,16 @@ try {
             $middleName = normalize_nullable_text($data['middle_name'] ?? null);
             $nameExtension = normalize_name_extension($data['name_extension'] ?? null);
             $address = normalize_nullable_text($data['address'] ?? null);
+            $companyName = normalize_nullable_text($data['company_name'] ?? null);
+            $jobTitle = normalize_nullable_text($data['job_title'] ?? null);
+            $industry = normalize_nullable_text($data['industry'] ?? null);
+            $dateHired = normalize_nullable_text($data['date_hired'] ?? null);
+            $monthlySalaryRaw = normalize_nullable_text($data['monthly_salary'] ?? null);
+            $monthlySalary = $monthlySalaryRaw !== null && is_numeric($monthlySalaryRaw) ? $monthlySalaryRaw : null;
+            $timeToEmploymentRaw = normalize_nullable_text($data['time_to_employment'] ?? null);
+            $timeToEmployment = $timeToEmploymentRaw !== null && is_numeric($timeToEmploymentRaw)
+                ? max(0, (int)$timeToEmploymentRaw)
+                : 0;
             $yearGraduated = gradtrack_normalize_graduation_year($data['year_graduated'] ?? null);
             $hasNameExtensionColumn = graduates_has_name_extension_column($db);
 
@@ -338,14 +348,14 @@ try {
             ");
             $empStmt->execute([
                 ':graduate_id' => $graduateId,
-                ':company' => $data['company_name'] ?? null,
-                ':job_title' => $data['job_title'] ?? null,
-                ':industry' => $data['industry'] ?? null,
+                ':company' => $companyName,
+                ':job_title' => $jobTitle,
+                ':industry' => $industry,
                 ':status' => $data['employment_status'] ?? 'unemployed',
                 ':aligned' => $data['is_aligned'] ?? 'not_aligned',
-                ':date_hired' => $data['date_hired'] ?? null,
-                ':salary' => $data['monthly_salary'] ?? null,
-                ':time' => $data['time_to_employment'] ?? 0,
+                ':date_hired' => $dateHired,
+                ':salary' => $monthlySalary,
+                ':time' => $timeToEmployment,
             ]);
             $db->commit();
 

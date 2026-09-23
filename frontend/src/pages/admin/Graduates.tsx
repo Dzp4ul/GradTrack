@@ -5,7 +5,11 @@ import {
 import MessageBox from '../../components/MessageBox';
 import { API_ROOT } from '../../config/api';
 import { readSpreadsheet } from '../../lib/spreadsheets';
-import { extractOfficialListGraduationYear, resolveImportedGraduationYear } from '../../utils/graduateImport';
+import {
+  extractGraduateImportRows,
+  resolveGraduateImportProgramId,
+  resolveImportedGraduationYear,
+} from '../../utils/graduateImport';
 import { parseGraduateName } from '../../utils/graduateNames';
 import { normalizeGraduationYear, normalizeGraduationYears } from '../../utils/graduationYears';
 
@@ -77,6 +81,8 @@ const normalizeText = (value: unknown): string => {
   return String(value).trim();
 };
 
+const normalizeFieldKey = (value: unknown): string => normalizeText(value).toLowerCase().replace(/[^a-z0-9]/g, '');
+
 const pickValue = (row: Record<string, unknown>, keys: string[]): string => {
   for (const key of keys) {
     if (Object.prototype.hasOwnProperty.call(row, key)) {
@@ -84,10 +90,15 @@ const pickValue = (row: Record<string, unknown>, keys: string[]): string => {
       if (value !== '') return value;
     }
   }
+
+  const normalizedKeys = new Set(keys.map(normalizeFieldKey));
+  for (const [key, rawValue] of Object.entries(row)) {
+    if (!normalizedKeys.has(normalizeFieldKey(key))) continue;
+    const value = normalizeText(rawValue);
+    if (value !== '') return value;
+  }
   return '';
 };
-
-const normalizeHeaderKey = (value: unknown): string => normalizeText(value).toLowerCase().replace(/[^a-z0-9]/g, '');
 
 const NAME_EXTENSION_ALIASES: Record<string, string> = {
   jr: 'Jr.',
@@ -118,24 +129,6 @@ const formatGraduateDisplayName = (graduate: {
   const extension = normalizeText(graduate.name_extension);
   const suffix = extension ? ` ${extension}` : '';
   return `${graduate.last_name}, ${graduate.first_name}${middleInitial}${suffix}`;
-};
-
-const findHeaderRowIndex = (rows: unknown[][]): number => {
-  const required = new Set(['studentnumber', 'studentid', 'name']);
-
-  for (let i = 0; i < rows.length; i += 1) {
-    const row = rows[i] ?? [];
-    const keys = new Set(row.map((cell) => normalizeHeaderKey(cell)).filter(Boolean));
-    const hasStudent = keys.has('studentnumber') || keys.has('studentid');
-    const hasName = keys.has('name') || keys.has('fullname');
-    const hasAnyContact = keys.has('email') || keys.has('emailadd') || keys.has('emailaddress') || keys.has('contactnumber') || keys.has('contactno');
-
-    if (required.has('name') && hasStudent && hasName && hasAnyContact) {
-      return i;
-    }
-  }
-
-  return -1;
 };
 
 const getProgramDurationById = (programId: string, programOptions: ProgramOption[]): number | null => {
@@ -196,14 +189,14 @@ const resolveProgramId = (row: Record<string, unknown>, programOptions: ProgramO
 
   const code = pickValue(row, ['Program Code', 'program_code', 'programCode']).toUpperCase();
   if (code !== '') {
-    const matchByCode = programOptions.find((option) => option.code === code);
-    if (matchByCode) return matchByCode.id;
+    const matchByCode = resolveGraduateImportProgramId(code, programOptions);
+    if (matchByCode) return matchByCode;
   }
 
-  const name = pickValue(row, ['Program', 'Program Name', 'program_name', 'programName']).toLowerCase();
+  const name = pickValue(row, ['Program', 'Program Name', 'program_name', 'programName']);
   if (name !== '') {
-    const matchByName = programOptions.find((option) => option.name.toLowerCase() === name);
-    if (matchByName) return matchByName.id;
+    const matchByName = resolveGraduateImportProgramId(name, programOptions);
+    if (matchByName) return matchByName;
   }
 
   return '';
@@ -215,7 +208,7 @@ const mapExcelRowToPayload = (
   officialListYear = '',
   selectedFilterYear = '',
 ): FormData => {
-  const fullName = pickValue(row, ['Name', 'Full Name', 'full_name', 'fullName']);
+  const fullName = pickValue(row, ['Name', 'Full Name', 'Name of Student', 'Name of Students', 'Student Name', 'Graduate Name', 'full_name', 'fullName']);
   const parsedName = parseGraduateName(fullName);
 
   const firstName = pickValue(row, ['First Name', 'first_name', 'firstName']) || parsedName.firstName;
@@ -229,7 +222,7 @@ const mapExcelRowToPayload = (
 
   return {
     ...emptyForm,
-    student_id: pickValue(row, ['Student ID', 'Student Number', 'student_id', 'studentId']),
+    student_id: pickValue(row, ['Student ID', 'Student Number', 'Student No.', 'Student No', 'ID Number', 'student_id', 'studentId']),
     first_name: firstName,
     middle_name: middleName,
     last_name: lastName,
@@ -717,46 +710,13 @@ export default function Graduates() {
 
     try {
       const workbook = await readSpreadsheet(file);
-      const firstSheetName = workbook.sheetNames[0];
-      if (!firstSheetName) {
+      if (workbook.sheetNames.length === 0) {
         throw new Error('Excel file has no worksheet.');
       }
 
-      const matrixRows = workbook.sheets[firstSheetName] || [];
-
-      const headerRowIndex = findHeaderRowIndex(matrixRows);
-      const headingRows = headerRowIndex >= 0 ? matrixRows.slice(0, headerRowIndex) : matrixRows.slice(0, 20);
-      const officialListYear = extractOfficialListGraduationYear(headingRows) || '';
-      let rows: Record<string, unknown>[] = [];
-
-      if (headerRowIndex >= 0) {
-        const rawHeaders = matrixRows[headerRowIndex] ?? [];
-        const headers = rawHeaders.map((cell) => normalizeText(cell));
-
-        rows = matrixRows.slice(headerRowIndex + 1)
-          .map((row) => {
-            const record: Record<string, unknown> = {};
-            headers.forEach((header, index) => {
-              if (header !== '') {
-                record[header] = row[index] ?? '';
-              }
-            });
-            return record;
-          })
-          .filter((row) => Object.values(row).some((value) => normalizeText(value) !== ''));
-      } else {
-        const headers = (matrixRows[0] || []).map((cell) => normalizeText(cell));
-        rows = matrixRows.slice(1).map((row) => {
-          const record: Record<string, unknown> = {};
-          headers.forEach((header, index) => {
-            if (header !== '') record[header] = row[index] ?? '';
-          });
-          return record;
-        }).filter((row) => Object.values(row).some((value) => normalizeText(value) !== ''));
-      }
-
-      if (rows.length === 0) {
-        throw new Error('Excel file is empty.');
+      const extractedImport = extractGraduateImportRows(workbook, programOptions);
+      if (extractedImport.rows.length === 0) {
+        throw new Error('No graduate rows were found. Include Student Number and Name columns, then try again.');
       }
 
       let successCount = 0;
@@ -768,10 +728,15 @@ export default function Graduates() {
         failureReasons[safeReason] = (failureReasons[safeReason] ?? 0) + 1;
       };
 
-      for (const row of rows) {
-        const payload = mapExcelRowToPayload(row, programOptions, officialListYear, filterYear);
+      for (const importedRow of extractedImport.rows) {
+        const payload = mapExcelRowToPayload(
+          importedRow.row,
+          programOptions,
+          importedRow.graduationYear,
+          filterYear,
+        );
         if (!payload.program_id) {
-          payload.program_id = selectedProgramId;
+          payload.program_id = importedRow.inferredProgramId || selectedProgramId;
         }
 
         if (!payload.first_name || !payload.last_name) {
@@ -821,14 +786,15 @@ export default function Graduates() {
         : successCount > 0
           ? 'Import completed with some skipped rows.'
           : 'Import failed.';
-      const graduationYearNotice = officialListYear
-        ? `\nGraduation year: ${officialListYear} (from the official list heading).`
+      const graduationYearNotice = extractedImport.graduationYears.length > 0
+        ? `\nGraduation year${extractedImport.graduationYears.length === 1 ? '' : 's'}: ${extractedImport.graduationYears.join(', ')} (from the workbook headings).`
         : '';
+      const worksheetNotice = `\nWorksheets processed: ${extractedImport.sheetCount}.`;
 
       setMsgBox({
         isOpen: true,
         type: msgType,
-        message: `${statusLabel}${graduationYearNotice}\nAdded: ${successCount}. Failed: ${failedCount}.${sortedReasons ? `\nSkipped rows: ${sortedReasons}.` : ''}`,
+        message: `${statusLabel}${graduationYearNotice}${worksheetNotice}\nAdded: ${successCount}. Failed: ${failedCount}.${sortedReasons ? `\nSkipped rows: ${sortedReasons}.` : ''}`,
       });
     } catch (error) {
       setMsgBox({
