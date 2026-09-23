@@ -1,5 +1,6 @@
--- Seed survey responses for analytics using existing graduates data.
--- Scope: graduates with a valid stored graduation year, with partial coverage (about 72%) so not all graduates are marked as answered.
+-- Seed survey responses for analytics using the migrated 2016-2020 demo graduate cohort.
+-- Scope: demo graduates whose student-number prefix is exactly four years before
+-- Year Graduated, with partial coverage so not every graduate is marked answered.
 
 USE gradtrack_db;
 
@@ -106,7 +107,9 @@ LEFT JOIN survey_responses sr
 	ON sr.survey_id = @active_survey_id
    AND sr.graduate_id = g.id
 WHERE @active_survey_id IS NOT NULL
-  AND g.year_graduated BETWEEN 1900 AND 2099
+  AND g.year_graduated BETWEEN 2016 AND 2020
+  AND g.student_id REGEXP '^[0-9]{4}-[0-9]+$'
+  AND CAST(LEFT(g.student_id, 4) AS UNSIGNED) = g.year_graduated - 4
   AND sr.id IS NULL
   AND MOD(g.id, 100) < 72;
 
@@ -120,4 +123,6 @@ FROM graduates g
 LEFT JOIN survey_responses sr
 	ON sr.graduate_id = g.id
    AND sr.survey_id = @active_survey_id
-WHERE g.year_graduated BETWEEN 1900 AND 2099;
+WHERE g.year_graduated BETWEEN 2016 AND 2020
+  AND g.student_id REGEXP '^[0-9]{4}-[0-9]+$'
+  AND CAST(LEFT(g.student_id, 4) AS UNSIGNED) = g.year_graduated - 4;
