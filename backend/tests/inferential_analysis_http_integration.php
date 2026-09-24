@@ -88,7 +88,7 @@ register_shutdown_function('inferential_http_cleanup');
 
 $db = (new Database())->getConnection();
 $adminId = (int)($db->query(
-    "SELECT id FROM admin_users WHERE role = 'admin' AND COALESCE(is_active, 1) = 1 ORDER BY id LIMIT 1"
+    "SELECT id FROM admin_users WHERE role = 'research_coordinator' AND COALESCE(is_active, 1) = 1 ORDER BY id LIMIT 1"
 )->fetchColumn() ?: 0);
 $deanId = (int)($db->query(
     "SELECT id FROM admin_users WHERE role = 'dean_cs' AND COALESCE(is_active, 1) = 1 ORDER BY id LIMIT 1"

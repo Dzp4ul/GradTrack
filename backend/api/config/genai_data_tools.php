@@ -8,49 +8,49 @@ if (!function_exists('gradtrack_genai_data_tool_catalog')) {
     {
         return [
             'alumni_verification_summary' => [
-                'roles' => ['alumni_admin'],
+                'roles' => ['alumni_president'],
                 'feature' => 'Alumni Verification',
                 'description' => 'Approved, pending, and rejected Graduate Portal verification accounts.',
                 'metrics' => ['summary', 'approved', 'pending', 'rejected'],
             ],
             'alumni_verification_list' => [
-                'roles' => ['alumni_admin'],
+                'roles' => ['alumni_president'],
                 'feature' => 'Alumni Verification',
                 'description' => 'A limited list of alumni verification accounts by pending, approved, or rejected status.',
                 'metrics' => ['summary', 'pending', 'approved', 'rejected'],
             ],
             'alumni_registry_summary' => [
-                'roles' => ['alumni_admin'],
+                'roles' => ['alumni_president'],
                 'feature' => 'Registered Alumni',
                 'description' => 'Official alumni totals, survey-completion status, and counts by program.',
                 'metrics' => ['summary', 'total', 'answered', 'not_answered', 'by_program', 'program'],
             ],
             'alumni_registry_list' => [
-                'roles' => ['alumni_admin'],
+                'roles' => ['alumni_president'],
                 'feature' => 'Registered Alumni',
                 'description' => 'A limited list of non-archived official alumni registry records, optionally for one program.',
                 'metrics' => ['summary', 'verified', 'registered', 'unclaimed', 'inactive'],
             ],
             'survey_participation' => [
-                'roles' => ['admin', 'dean_cs', 'dean_coed', 'dean_hm'],
+                'roles' => ['research_coordinator', 'dean_cs', 'dean_coed', 'dean_hm'],
                 'feature' => 'Survey Participation',
                 'description' => 'The active survey and its eligible graduate, answered, not-answered, and response-rate totals. Dean results are restricted to assigned programs.',
                 'metrics' => ['summary', 'current_survey', 'total', 'answered', 'not_answered', 'response_rate'],
             ],
             'survey_participation_list' => [
-                'roles' => ['admin', 'dean_cs', 'dean_coed', 'dean_hm'],
+                'roles' => ['research_coordinator', 'dean_cs', 'dean_coed', 'dean_hm'],
                 'feature' => 'Survey Participation',
                 'description' => 'A limited list of graduates covered by the active survey, optionally filtered to answered or not answered. Dean rows are restricted to assigned programs.',
                 'metrics' => ['summary', 'answered', 'not_answered'],
             ],
             'report_analytics' => [
-                'roles' => ['admin'],
+                'roles' => ['research_coordinator'],
                 'feature' => 'Reports & Analytics',
                 'description' => 'Submitted tracer-study response analytics, including employment, salary, alignment, program, and graduation-year results.',
                 'metrics' => ['summary', 'employed', 'unemployed', 'employment_rate', 'alignment_rate'],
             ],
             'graduate_program_counts' => [
-                'roles' => ['admin', 'registrar'],
+                'roles' => ['research_coordinator', 'registrar'],
                 'feature' => 'Graduate Records',
                 'description' => 'Non-archived graduate-record totals overall or by program.',
                 'metrics' => ['total', 'by_program', 'program'],
@@ -61,11 +61,11 @@ if (!function_exists('gradtrack_genai_data_tool_catalog')) {
                 'description' => 'A limited list of non-archived graduate records, optionally for one program.',
                 'metrics' => ['summary'],
             ],
-            'job_approval_summary' => ['roles' => ['alumni_admin'], 'feature' => 'Job Approval', 'description' => 'Pending, approved, and declined alumni job-post totals.', 'metrics' => ['summary', 'pending', 'approved', 'declined']],
-            'forum_moderation_summary' => ['roles' => ['alumni_admin'], 'feature' => 'Forum Moderation', 'description' => 'Pending, resolved, and dismissed forum-report totals.', 'metrics' => ['summary', 'pending', 'resolved', 'dismissed']],
-            'announcement_summary' => ['roles' => ['alumni_admin'], 'feature' => 'Announcements', 'description' => 'Draft, published, and archived administrator-announcement totals.', 'metrics' => ['summary', 'draft', 'published', 'archived']],
-            'system_user_summary' => ['roles' => ['super_admin'], 'feature' => 'User Management', 'description' => 'Active and inactive administrator-account totals.', 'metrics' => ['summary', 'active', 'inactive']],
-            'system_dashboard_statistics' => ['roles' => ['super_admin'], 'feature' => 'System Statistics', 'description' => 'High-level authorized table totals for the Super Admin.', 'metrics' => ['summary', 'admin_users', 'graduates', 'alumni_accounts', 'surveys', 'submitted_survey_responses']],
+            'job_approval_summary' => ['roles' => ['alumni_president'], 'feature' => 'Job Approval', 'description' => 'Pending, approved, and declined alumni job-post totals.', 'metrics' => ['summary', 'pending', 'approved', 'declined']],
+            'forum_moderation_summary' => ['roles' => ['alumni_president'], 'feature' => 'Forum Moderation', 'description' => 'Pending, resolved, and dismissed forum-report totals.', 'metrics' => ['summary', 'pending', 'resolved', 'dismissed']],
+            'announcement_summary' => ['roles' => ['alumni_president'], 'feature' => 'Announcements', 'description' => 'Draft, published, and archived administrator-announcement totals.', 'metrics' => ['summary', 'draft', 'published', 'archived']],
+            'system_user_summary' => ['roles' => ['admin'], 'feature' => 'User Management', 'description' => 'Active and inactive administrator-account totals.', 'metrics' => ['summary', 'active', 'inactive']],
+            'system_dashboard_statistics' => ['roles' => ['admin'], 'feature' => 'System Statistics', 'description' => 'High-level authorized table totals for the Admin.', 'metrics' => ['summary', 'admin_users', 'graduates', 'alumni_accounts', 'surveys', 'submitted_survey_responses']],
         ];
     }
 }
@@ -193,13 +193,13 @@ if (!function_exists('gradtrack_genai_resolve_data_tool')) {
         $mentionsEmploymentAnalytics = preg_match('/\b(employed|unemployed|employment(?:\s+rate|\s+status)?|salary|income|job[-\s]?align(?:ed|ment)|alignment\s+rate)\b/i', $text) === 1;
         $route = strtolower(trim((string) ($pageContext['route'] ?? '')));
         $onParticipationPage = strpos($route, '/admin/survey-status') === 0
-            || ($role === 'admin' && strpos($route, '/admin/graduates') === 0);
+            || ($role === 'research_coordinator' && strpos($route, '/admin/graduates') === 0);
 
         if ($metric === 'current_survey') {
-            $tool = in_array($role, ['admin', 'dean_cs', 'dean_coed', 'dean_hm'], true)
+            $tool = in_array($role, ['research_coordinator', 'dean_cs', 'dean_coed', 'dean_hm'], true)
                 ? 'survey_participation'
                 : null;
-        } elseif ($requestsList && in_array($role, ['admin', 'dean_cs', 'dean_coed', 'dean_hm'], true)
+        } elseif ($requestsList && in_array($role, ['research_coordinator', 'dean_cs', 'dean_coed', 'dean_hm'], true)
             && !$mentionsEmploymentAnalytics
             && ($mentionsSurvey || $mentionsGraduates || $mentionsProgram)) {
             $tool = 'survey_participation_list';
@@ -209,23 +209,23 @@ if (!function_exists('gradtrack_genai_resolve_data_tool')) {
             && ($mentionsGraduates || $mentionsProgram)) {
             $tool = 'graduate_record_list';
             $metric = 'summary';
-        } elseif ($requestsList && $role === 'alumni_admin' && !$mentionsEmploymentAnalytics && $mentionsVerification) {
+        } elseif ($requestsList && $role === 'alumni_president' && !$mentionsEmploymentAnalytics && $mentionsVerification) {
             $tool = 'alumni_verification_list';
-        } elseif ($requestsList && $role === 'alumni_admin' && !$mentionsEmploymentAnalytics
+        } elseif ($requestsList && $role === 'alumni_president' && !$mentionsEmploymentAnalytics
             && ($mentionsRegistry || preg_match('/\balumni\b/i', $text) === 1)) {
             $tool = 'alumni_registry_list';
         } elseif ($requestsData && $mentionsEmploymentAnalytics) {
-            $tool = $role === 'admin' ? 'report_analytics' : null;
+            $tool = $role === 'research_coordinator' ? 'report_analytics' : null;
         } elseif ($requestsData && $onParticipationPage && ($mentionsSurvey || $mentionsGraduates || $mentionsProgram)) {
             $tool = 'survey_participation';
             if ($metric === 'summary' && ($mentionsGraduates || $mentionsProgram) && !$mentionsSurvey) $metric = 'total';
         } elseif ($requestsData && ($mentionsVerification
-            || ($role === 'alumni_admin' && $mentionsRegistry && in_array($metric, ['approved', 'pending', 'rejected'], true)))) {
+            || ($role === 'alumni_president' && $mentionsRegistry && in_array($metric, ['approved', 'pending', 'rejected'], true)))) {
             $tool = 'alumni_verification_summary';
         } elseif ($requestsData && $mentionsRegistry) {
             $tool = 'alumni_registry_summary';
         } elseif ($requestsData && $mentionsSurvey) {
-            $tool = $role === 'alumni_admin' ? 'alumni_registry_summary' : 'survey_participation';
+            $tool = $role === 'alumni_president' ? 'alumni_registry_summary' : 'survey_participation';
         } elseif ($requestsData && $mentionsJobs) {
             $tool = 'job_approval_summary';
         } elseif ($requestsData && $mentionsForum) {
@@ -236,11 +236,11 @@ if (!function_exists('gradtrack_genai_resolve_data_tool')) {
             $tool = 'system_user_summary';
         } elseif ($requestsData && $mentionsSystem) {
             $tool = 'system_dashboard_statistics';
-        } elseif ($requestsData && $role === 'super_admin'
+        } elseif ($requestsData && in_array($role, ['admin', 'research_coordinator'], true)
             && preg_match('/\b(graduates?|alumni\s+accounts?|surveys?|survey\s+responses?)\b/i', $text) === 1) {
             $tool = 'system_dashboard_statistics';
         } elseif ($requestsData && $mentionsProgram) {
-            if ($role === 'alumni_admin') {
+            if ($role === 'alumni_president') {
                 $tool = 'alumni_registry_summary';
                 $metric = $programCode !== null ? 'program' : 'by_program';
             } elseif (str_starts_with($role, 'dean_')) {
@@ -250,7 +250,7 @@ if (!function_exists('gradtrack_genai_resolve_data_tool')) {
                 $tool = 'graduate_program_counts';
                 $metric = $programCode !== null ? 'program' : 'by_program';
             }
-        } elseif ($requestsData && $mentionsGraduates && in_array($role, ['admin', 'registrar'], true)) {
+        } elseif ($requestsData && $mentionsGraduates && in_array($role, ['research_coordinator', 'registrar'], true)) {
             $tool = 'graduate_program_counts';
             $metric = 'total';
         } elseif ($requestsData && $mentionsGraduates && str_starts_with($role, 'dean_')) {
@@ -264,17 +264,17 @@ if (!function_exists('gradtrack_genai_resolve_data_tool')) {
         }
 
         if ($tool === null && $requestsData) {
-            if ($role === 'alumni_admin' && strpos($route, '/admin/alumni-registered-list') === 0) {
+            if ($role === 'alumni_president' && strpos($route, '/admin/alumni-registered-list') === 0) {
                 $tool = in_array($metric, ['answered', 'not_answered'], true)
                     ? 'alumni_registry_summary'
                     : 'alumni_verification_summary';
-            } elseif ($role === 'alumni_admin' && strpos($route, '/admin/job-approvals') === 0) {
+            } elseif ($role === 'alumni_president' && strpos($route, '/admin/job-approvals') === 0) {
                 $tool = 'job_approval_summary';
-            } elseif ($role === 'alumni_admin' && strpos($route, '/admin/forum-moderation') === 0) {
+            } elseif ($role === 'alumni_president' && strpos($route, '/admin/forum-moderation') === 0) {
                 $tool = 'forum_moderation_summary';
-            } elseif ($role === 'alumni_admin' && strpos($route, '/admin/announcements') === 0) {
+            } elseif ($role === 'alumni_president' && strpos($route, '/admin/announcements') === 0) {
                 $tool = 'announcement_summary';
-            } elseif (in_array($role, ['admin', 'dean_cs', 'dean_coed', 'dean_hm'], true)
+            } elseif (in_array($role, ['research_coordinator', 'dean_cs', 'dean_coed', 'dean_hm'], true)
                 && (strpos($route, '/admin/survey-status') === 0 || strpos($route, '/admin/graduates') === 0)) {
                 $tool = 'survey_participation';
             }

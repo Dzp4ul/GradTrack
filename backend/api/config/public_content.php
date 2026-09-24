@@ -115,7 +115,7 @@ if (!function_exists('gradtrack_public_content_seed')) {
                 ['Graduate Portal', [
                     ['What can graduates do in the Graduate Portal?', 'Graduates can update their profile, browse and create published Community Forum discussions, comment on posts, report inappropriate content, browse approved job opportunities, and manage their own job posts if they meet the requirements.'],
                     ['Why are some portal features locked?', 'GradTrack unlocks some features based on survey information. Job posting is available to graduates marked as employed. The Community Forum is available to authenticated graduates, while posts still go through moderator review before they appear publicly.'],
-                    ['How do forum posts and job posts appear in the portal?', 'Community Forum posts are published immediately after validation. Reported content can be reviewed and hidden by the Alumni Admin. Job posts continue to follow the existing approval workflow before they appear in Browse Jobs.'],
+                    ['How do forum posts and job posts appear in the portal?', 'Community Forum posts are published immediately after validation. Reported content can be reviewed and hidden by the Alumni President. Job posts continue to follow the existing approval workflow before they appear in Browse Jobs.'],
                     ['Can graduates comment on forum posts?', 'Yes. Graduates can open a published forum post, read the full discussion, leave comments, and report inappropriate content.'],
                 ]],
                 ['Data & Reports', [

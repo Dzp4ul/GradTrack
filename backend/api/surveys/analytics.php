@@ -11,7 +11,7 @@ $database = new Database();
 $db = $database->getConnection();
 $authUser = gradtrack_require_admin_auth(
     $db,
-    array_merge(['admin'], gradtrack_dean_roles()),
+    array_merge(['research_coordinator'], gradtrack_dean_roles()),
     'Only authorized report accounts can view survey analytics'
 );
 $deanScope = gradtrack_dean_program_scope($db, $authUser);

@@ -6,7 +6,7 @@ require_once __DIR__ . '/name_format.php';
 if (!function_exists('gradtrack_alumni_registry_admin_roles')) {
     function gradtrack_alumni_registry_admin_roles(): array
     {
-        return ['alumni_admin'];
+        return ['alumni_president'];
     }
 }
 
@@ -508,7 +508,7 @@ if (!function_exists('gradtrack_alumni_registry_require_admin')) {
             http_response_code(403);
             echo json_encode([
                 'success' => false,
-                'error' => 'Only Alumni Admin accounts can manage the alumni registered list',
+                'error' => 'Only Alumni President accounts can manage the alumni registered list',
             ]);
             exit;
         }

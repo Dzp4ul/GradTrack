@@ -85,7 +85,7 @@ function initials(name?: string | null) {
 
 function showAnnouncementAuthor(announcement: Announcement) {
   return announcement.author_type !== 'admin'
-    && (announcement.author_name || '').trim().toLowerCase() !== 'alumni admin';
+    && (announcement.author_name || '').trim().toLowerCase() !== 'alumni president';
 }
 
 function AnnouncementImage({ announcement, compact = false }: { announcement: Announcement; compact?: boolean }) {

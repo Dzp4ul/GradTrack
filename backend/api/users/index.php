@@ -10,7 +10,7 @@ $allowedRoles = gradtrack_admin_role_values();
 $database = new Database();
 $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
-$authUser = gradtrack_require_admin_auth($db, ['super_admin'], 'Only super admin can manage users');
+$authUser = gradtrack_require_admin_auth($db, gradtrack_system_admin_roles(), 'Only the Admin can manage personnel users');
 $auditUser = gradtrack_admin_audit_context($authUser);
 
 gradtrack_ensure_admin_role_column($db);
@@ -166,10 +166,10 @@ try {
             if (
                 $nextIsActive === 0
                 && (int) $authUser['id'] === $id
-                && $authUser['role'] === 'super_admin'
+                && $authUser['role'] === 'admin'
             ) {
                 http_response_code(400);
-                echo json_encode(["success" => false, "error" => "Logged-in super admin account cannot be deactivated"]);
+                echo json_encode(["success" => false, "error" => "Your logged-in Admin account cannot be deactivated"]);
                 break;
             }
 

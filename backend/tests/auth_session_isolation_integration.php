@@ -172,7 +172,7 @@ $insertFixture->execute([
     ':email' => $fixtureEmail,
     ':password' => password_hash($fixturePassword, PASSWORD_DEFAULT),
     ':full_name' => 'Authentication Isolation Test',
-    ':role' => 'super_admin',
+    ':role' => 'research_coordinator',
 ]);
 $temporaryAdminId = (int) $db->lastInsertId();
 
@@ -205,7 +205,7 @@ auth_isolation_assert(
 );
 auth_isolation_assert(
     ($liveLoginMe['json']['user']['id'] ?? null) === $temporaryAdminId
-        && ($liveLoginMe['json']['user']['role'] ?? null) === 'super_admin',
+        && ($liveLoginMe['json']['user']['role'] ?? null) === 'research_coordinator',
     'auth restoration resolves the live-login user and role from that session cookie'
 );
 
@@ -214,8 +214,8 @@ $unhashedPasswordCount = count(array_filter($passwordRows, static function ($pas
     return empty(password_get_info((string) $password)['algo']);
 }));
 auth_isolation_assert($unhashedPasswordCount === 0, 'all active administrator passwords use password_hash-compatible storage');
-$alumniAdmin = auth_isolation_admin_for_role($db, 'alumni_admin');
-$admin = auth_isolation_admin_for_role($db, 'admin');
+$alumniPresident = auth_isolation_admin_for_role($db, 'alumni_president');
+$admin = auth_isolation_admin_for_role($db, 'research_coordinator');
 $registrar = auth_isolation_admin_for_role($db, 'registrar');
 $graduateStmt = $db->query("SELECT ga.id
                             FROM graduate_accounts ga
@@ -226,13 +226,13 @@ $graduateStmt = $db->query("SELECT ga.id
                             ORDER BY ga.id ASC LIMIT 1");
 $graduateAccountId = (int) ($graduateStmt->fetchColumn() ?: 0);
 
-auth_isolation_assert($alumniAdmin !== null, 'an active Alumni Admin test principal exists');
-auth_isolation_assert($admin !== null, 'an active Admin test principal exists');
+auth_isolation_assert($alumniPresident !== null, 'an active Alumni President test principal exists');
+auth_isolation_assert($admin !== null, 'an active Research Coordinator test principal exists');
 auth_isolation_assert($registrar !== null, 'an active Registrar test principal exists');
 auth_isolation_assert($graduateAccountId > 0, 'an active verified Graduate test principal exists');
 
-if ($alumniAdmin && $admin && $registrar && $graduateAccountId > 0) {
-    $preLoginSession = auth_isolation_seed_session('admin_user_id', (int) $alumniAdmin['id']);
+if ($alumniPresident && $admin && $registrar && $graduateAccountId > 0) {
+    $preLoginSession = auth_isolation_seed_session('admin_user_id', (int) $alumniPresident['id']);
     ini_set('session.use_strict_mode', '1');
     session_id($preLoginSession);
     gradtrack_establish_session_identity('admin_user_id', (int) $admin['id']);
@@ -249,7 +249,7 @@ if ($alumniAdmin && $admin && $registrar && $graduateAccountId > 0) {
         'session rotation invalidates the pre-login ID and preserves the authenticated identity only on the new ID'
     );
 
-    $alumniSession = auth_isolation_seed_session('admin_user_id', (int) $alumniAdmin['id']);
+    $alumniSession = auth_isolation_seed_session('admin_user_id', (int) $alumniPresident['id']);
     $adminSession = auth_isolation_seed_session('admin_user_id', (int) $admin['id']);
     $registrarSession = auth_isolation_seed_session('admin_user_id', (int) $registrar['id']);
     $graduateSession = auth_isolation_seed_session('graduate_account_id', $graduateAccountId);
@@ -261,32 +261,32 @@ if ($alumniAdmin && $admin && $registrar && $graduateAccountId > 0) {
     $registrarMe = auth_isolation_request($baseUrl . '/auth/check.php', $registrarSession);
     $graduateMe = auth_isolation_request($baseUrl . '/graduate-auth/check.php', $graduateSession);
 
-    auth_isolation_assert(($alumniMe['json']['user']['role'] ?? null) === 'alumni_admin', 'Chrome-equivalent session remains Alumni Admin');
-    auth_isolation_assert(($adminMe['json']['user']['role'] ?? null) === 'admin', 'Incognito-equivalent session remains Admin');
+    auth_isolation_assert(($alumniMe['json']['user']['role'] ?? null) === 'alumni_president', 'Chrome-equivalent session remains Alumni President');
+    auth_isolation_assert(($adminMe['json']['user']['role'] ?? null) === 'research_coordinator', 'Incognito-equivalent session remains Research Coordinator');
     auth_isolation_assert(($registrarMe['json']['user']['role'] ?? null) === 'registrar', 'independent-browser session remains Registrar');
     auth_isolation_assert(($graduateMe['json']['user']['role'] ?? null) === 'graduate', 'independent-browser session remains Graduate');
 
     $adminRefresh = auth_isolation_request($baseUrl . '/auth/check.php', $adminSession);
     $alumniRefresh = auth_isolation_request($baseUrl . '/auth/check.php', $alumniSession);
     $graduateRefresh = auth_isolation_request($baseUrl . '/graduate-auth/check.php', $graduateSession);
-    auth_isolation_assert(($adminRefresh['json']['user']['id'] ?? null) === (int) $admin['id'], 'Admin identity survives refresh');
-    auth_isolation_assert(($alumniRefresh['json']['user']['id'] ?? null) === (int) $alumniAdmin['id'], 'Alumni Admin identity survives refresh');
+    auth_isolation_assert(($adminRefresh['json']['user']['id'] ?? null) === (int) $admin['id'], 'Research Coordinator identity survives refresh');
+    auth_isolation_assert(($alumniRefresh['json']['user']['id'] ?? null) === (int) $alumniPresident['id'], 'Alumni President identity survives refresh');
     auth_isolation_assert(($graduateRefresh['json']['user']['account_id'] ?? null) === $graduateAccountId, 'Graduate identity survives refresh');
 
     $alumniReports = auth_isolation_request($baseUrl . '/reports/index.php?type=overview', $alumniSession);
     $adminModeration = auth_isolation_request($baseUrl . '/forum/moderation.php', $adminSession);
     $registrarUsers = auth_isolation_request($baseUrl . '/users/index.php', $registrarSession);
-    auth_isolation_assert($alumniReports['status'] === 403, 'Alumni Admin is forbidden from Admin reports API');
-    auth_isolation_assert($adminModeration['status'] === 403, 'Admin is forbidden from Alumni Admin moderation API');
-    auth_isolation_assert($registrarUsers['status'] === 403, 'Registrar is forbidden from Super Admin user API');
+    auth_isolation_assert($alumniReports['status'] === 403, 'Alumni President is forbidden from Research Coordinator reports API');
+    auth_isolation_assert($adminModeration['status'] === 403, 'Research Coordinator is forbidden from Alumni President moderation API');
+    auth_isolation_assert($registrarUsers['status'] === 403, 'Registrar is forbidden from Research Coordinator user API');
 
     $logout = auth_isolation_request($baseUrl . '/auth/logout.php', $adminSession, 'POST');
     $adminAfterLogout = auth_isolation_request($baseUrl . '/auth/check.php', $adminSession);
     $alumniAfterOtherLogout = auth_isolation_request($baseUrl . '/auth/check.php', $alumniSession);
     $graduateAfterOtherLogout = auth_isolation_request($baseUrl . '/graduate-auth/check.php', $graduateSession);
-    auth_isolation_assert($logout['status'] === 200, 'Admin logout succeeds');
-    auth_isolation_assert(empty($adminAfterLogout['json']['authenticated']), 'logout invalidates only the presented Admin session');
-    auth_isolation_assert(($alumniAfterOtherLogout['json']['user']['role'] ?? null) === 'alumni_admin', 'Alumni Admin remains signed in after another session logs out');
+    auth_isolation_assert($logout['status'] === 200, 'Research Coordinator logout succeeds');
+    auth_isolation_assert(empty($adminAfterLogout['json']['authenticated']), 'logout invalidates only the presented Research Coordinator session');
+    auth_isolation_assert(($alumniAfterOtherLogout['json']['user']['role'] ?? null) === 'alumni_president', 'Alumni President remains signed in after another session logs out');
     auth_isolation_assert(($graduateAfterOtherLogout['json']['user']['role'] ?? null) === 'graduate', 'Graduate remains signed in after another session logs out');
 }
 

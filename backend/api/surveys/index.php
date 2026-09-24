@@ -99,7 +99,7 @@ function gradtrack_survey_manager(): bool
 {
     global $authenticatedAdmin;
     return $authenticatedAdmin !== null
-        && in_array((string) $authenticatedAdmin['role'], ['admin'], true);
+        && in_array((string) $authenticatedAdmin['role'], ['research_coordinator'], true);
 }
 
 function gradtrack_require_survey_manager(): void

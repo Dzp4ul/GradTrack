@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . '/graduate_account_status.php';
 require_once __DIR__ . '/session.php';
 require_once __DIR__ . '/storage.php';
 require_once __DIR__ . '/archive.php';
@@ -28,13 +29,14 @@ if (!function_exists('gradtrack_ensure_graduate_account_verification_schema')) {
         $statusType = strtolower((string) ($statusColumn['Type'] ?? ''));
 
         if (!$statusColumn) {
-            $db->exec("ALTER TABLE graduate_accounts ADD COLUMN status ENUM('pending_verification','active','inactive','rejected') NOT NULL DEFAULT 'pending_verification'");
+            $db->exec('ALTER TABLE graduate_accounts ADD COLUMN status ' . gradtrack_graduate_account_status_enum_definition());
         } elseif (
             strpos($statusType, 'pending_verification') === false
             || strpos($statusType, 'rejected') === false
+            || strpos($statusType, 'disabled') === false
         ) {
             $db->exec("UPDATE graduate_accounts SET status = 'active' WHERE status IS NULL");
-            $db->exec("ALTER TABLE graduate_accounts MODIFY status ENUM('pending_verification','active','inactive','rejected') NOT NULL DEFAULT 'pending_verification'");
+            $db->exec('ALTER TABLE graduate_accounts MODIFY status ' . gradtrack_graduate_account_status_enum_definition());
         }
 
         $addedVerificationStatus = false;
@@ -94,11 +96,19 @@ if (!function_exists('gradtrack_graduate_account_access_error')) {
         $status = strtolower((string) ($account['status'] ?? 'inactive'));
         $verificationStatus = strtolower((string) ($account['alumni_verification_status'] ?? 'pending'));
 
+        if ($status === 'disabled') {
+            return [
+                'code' => 'disabled',
+                'account_status' => 'disabled',
+                'error' => 'Your Graduate Portal account is disabled because it has not been used for at least one year. Please contact the Alumni President.',
+            ];
+        }
+
         if ($status === 'pending_verification' || $verificationStatus === 'pending') {
             return [
                 'code' => 'pending_verification',
                 'account_status' => 'pending_verification',
-                'error' => 'Your account is currently pending alumni verification. Please wait for the Alumni Admin to review and approve your account.',
+                'error' => 'Your account is currently pending alumni verification. Please wait for the Alumni President to review and approve your account.',
             ];
         }
 
@@ -110,7 +120,7 @@ if (!function_exists('gradtrack_graduate_account_access_error')) {
                 'rejection_reason' => $reason !== '' ? $reason : null,
                 'error' => $reason !== ''
                     ? 'Your Graduate Portal registration was rejected. Reason: ' . $reason
-                    : 'Your Graduate Portal registration was rejected by the Alumni Admin.',
+                    : 'Your Graduate Portal registration was rejected by the Alumni President.',
             ];
         }
 

@@ -69,7 +69,7 @@ try {
 
     if (isset($user['is_active']) && (int) $user['is_active'] === 0) {
         http_response_code(403);
-        echo json_encode(["error" => "Account is deactivated. Please contact super admin."]);
+        echo json_encode(["error" => "Account is deactivated. Please contact the Research Coordinator."]);
         exit;
     }
 

@@ -2,6 +2,7 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useSystemSettings } from '../contexts/SystemSettingsContext';
 import MaintenancePage from '../pages/MaintenancePage';
+import { ROLES } from '../config/roles';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -29,11 +30,11 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
 
   if (allowedRoles && user && !allowedRoles.includes(user.role)) {
     const fallbackPath =
-      user.role === 'registrar'
+      user.role === ROLES.REGISTRAR
         ? '/admin/graduates'
-        : user.role === 'alumni_admin'
+        : user.role === ROLES.ALUMNI_PRESIDENT
           ? '/admin/alumni-registered-list'
-        : ['mis_staff', 'research_coordinator'].includes(user.role)
+        : [ROLES.MIS_STAFF, ROLES.RESEARCH_COORDINATOR].includes(user.role as typeof ROLES.MIS_STAFF | typeof ROLES.RESEARCH_COORDINATOR)
           ? '/admin'
         : ['dean_cs', 'dean_coed', 'dean_hm'].includes(user.role)
           ? '/admin/survey-status'
@@ -41,7 +42,7 @@ export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) 
     return <Navigate to={fallbackPath} replace />;
   }
 
-  if (isMaintenanceMode && user?.role !== 'super_admin') {
+  if (isMaintenanceMode && user?.role !== ROLES.ADMIN) {
     return <MaintenancePage />;
   }
 

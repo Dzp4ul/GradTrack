@@ -13,7 +13,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 
 $database = new Database();
 $db = $database->getConnection();
-$authUser = gradtrack_require_admin_auth($db, ['admin'], 'Only admin accounts can access graduate survey status');
+$authUser = gradtrack_require_admin_auth($db, ['research_coordinator'], 'Only the Research Coordinator can access graduate survey status');
 gradtrack_ensure_archive_schema($db, 'graduates');
 gradtrack_ensure_archive_schema($db, 'surveys', true);
 

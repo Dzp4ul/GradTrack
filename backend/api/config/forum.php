@@ -18,7 +18,20 @@ if (!function_exists('gradtrack_forum_categories')) {
 if (!function_exists('gradtrack_forum_moderator_roles')) {
     function gradtrack_forum_moderator_roles(): array
     {
-        return ['alumni_admin'];
+        return ['alumni_president'];
+    }
+}
+
+if (!function_exists('gradtrack_forum_report_viewer_relation')) {
+    function gradtrack_forum_report_viewer_relation(int $reporterGraduateId, int $authorGraduateId, int $viewerGraduateId): ?string
+    {
+        if ($viewerGraduateId === $reporterGraduateId) {
+            return 'reporter';
+        }
+        if ($viewerGraduateId === $authorGraduateId) {
+            return 'reported_user';
+        }
+        return null;
     }
 }
 
@@ -772,7 +785,7 @@ if (!function_exists('gradtrack_forum_require_moderator')) {
             http_response_code(403);
             echo json_encode([
                 'success' => false,
-                'error' => 'Only Alumni Admin accounts can moderate the forum',
+                'error' => 'Only Alumni President accounts can moderate the forum',
             ]);
             exit;
         }

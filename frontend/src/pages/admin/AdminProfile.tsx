@@ -3,6 +3,7 @@ import { Camera, Eye, EyeOff, KeyRound, Mail, Pencil, Save, ShieldCheck, UserCir
 import { API_BASE_URL, API_ENDPOINTS } from '../../config/api';
 import { useAuth } from '../../contexts/AuthContext';
 import MessageBox from '../../components/MessageBox';
+import { ROLE_LABELS } from '../../config/roles';
 
 interface ProfileForm {
   full_name: string;
@@ -20,17 +21,7 @@ const emptyForm: ProfileForm = {
   confirm_password: '',
 };
 
-const roleLabels: Record<string, string> = {
-  super_admin: 'Super Admin',
-  admin: 'Admin',
-  mis_staff: 'MIS Staff',
-  research_coordinator: 'Research Coordinator',
-  registrar: 'Registrar',
-  alumni_admin: 'Alumni Admin',
-  dean_cs: 'Dean-CCS',
-  dean_coed: 'Dean - COED',
-  dean_hm: 'Dean - HM',
-};
+const roleLabels: Record<string, string> = ROLE_LABELS;
 
 const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const passwordPattern = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{12,}$/;

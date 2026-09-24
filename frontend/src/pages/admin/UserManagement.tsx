@@ -3,6 +3,7 @@ import { Plus, Search, Edit2, UserCheck, UserX, X } from 'lucide-react';
 import { API_ENDPOINTS } from '../../config/api';
 import { useAuth } from '../../contexts/AuthContext';
 import MessageBox from '../../components/MessageBox';
+import { PERSONNEL_ROLE_OPTIONS, ROLE_LABELS, ROLES } from '../../config/roles';
 
 interface UserAccount {
   id: number;
@@ -28,34 +29,13 @@ const emptyForm: UserForm = {
   username: '',
   email: '',
   full_name: '',
-  role: 'admin',
+  role: ROLES.MIS_STAFF,
   password: '',
   is_active: 1,
 };
 
-const roleOptions = [
-  { value: 'super_admin', label: 'Super Admin' },
-  { value: 'admin', label: 'Admin' },
-  { value: 'mis_staff', label: 'MIS Staff' },
-  { value: 'research_coordinator', label: 'Research Coordinator' },
-  { value: 'registrar', label: 'Registrar' },
-  { value: 'alumni_admin', label: 'Alumni Admin' },
-  { value: 'dean_cs', label: 'Dean-CCS' },
-  { value: 'dean_coed', label: 'Dean - COED' },
-  { value: 'dean_hm', label: 'Dean - HM' },
-];
-
-const roleLabels: Record<string, string> = {
-  super_admin: 'Super Admin',
-  admin: 'Admin',
-  mis_staff: 'MIS Staff',
-  research_coordinator: 'Research Coordinator',
-  registrar: 'Registrar',
-  alumni_admin: 'Alumni Admin',
-  dean_cs: 'Dean-CCS',
-  dean_coed: 'Dean - COED',
-  dean_hm: 'Dean - HM',
-};
+const roleOptions = PERSONNEL_ROLE_OPTIONS;
+const roleLabels: Record<string, string> = ROLE_LABELS;
 
 function normalizeIsActive(value: unknown): 0 | 1 {
   return Number(value) === 1 ? 1 : 0;
@@ -191,7 +171,7 @@ export default function UserManagement() {
       const errorMessage = error instanceof Error ? error.message : 'Failed to save user';
 
       if (errorMessage.toLowerCase().includes('cannot be deactivated')) {
-        setInlineNotice('Your logged-in super admin account cannot be deactivated.');
+        setInlineNotice('Your logged-in Research Coordinator account cannot be deactivated.');
         setShowModal(false);
         return;
       }
@@ -209,10 +189,10 @@ export default function UserManagement() {
   const handleToggleActive = (target: UserAccount) => {
     const currentStatus = normalizeIsActive(target.is_active);
     const nextStatus = currentStatus === 1 ? 0 : 1;
-    const isSelfSuperAdmin = user?.id === target.id && user?.role === 'super_admin';
+    const isSelfCoordinator = user?.id === target.id && user?.role === ROLES.RESEARCH_COORDINATOR;
 
-    if (isSelfSuperAdmin && nextStatus === 0) {
-      setInlineNotice('Your logged-in super admin account cannot be deactivated.');
+    if (isSelfCoordinator && nextStatus === 0) {
+      setInlineNotice('Your logged-in Research Coordinator account cannot be deactivated.');
       return;
     }
 
@@ -256,7 +236,7 @@ export default function UserManagement() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[#1b2a4a]">User Management</h1>
-          <p className="text-sm text-gray-500">Manage admin, alumni admin, moderator, dean, and registrar accounts</p>
+          <p className="text-sm text-gray-500">Manage authorized GradTrack personnel accounts and access roles</p>
         </div>
         <button
           onClick={openAddModal}
@@ -324,8 +304,8 @@ export default function UserManagement() {
             <div className="py-10 text-center text-gray-400">No users found</div>
           ) : (
             users.map((account) => {
-              const isSelfSuperAdmin = user?.id === account.id && user?.role === 'super_admin';
-              const canDeactivate = !(isSelfSuperAdmin && account.is_active === 1);
+              const isSelfCoordinator = user?.id === account.id && user?.role === ROLES.RESEARCH_COORDINATOR;
+              const canDeactivate = !(isSelfCoordinator && account.is_active === 1);
 
               return (
                 <div key={account.id} className="p-4">
@@ -391,8 +371,8 @@ export default function UserManagement() {
                 <tr><td colSpan={6} className="text-center py-10 text-gray-400">No users found</td></tr>
               ) : (
                 users.map((account) => {
-                  const isSelfSuperAdmin = user?.id === account.id && user?.role === 'super_admin';
-                  const canDeactivate = !(isSelfSuperAdmin && account.is_active === 1);
+                  const isSelfCoordinator = user?.id === account.id && user?.role === ROLES.RESEARCH_COORDINATOR;
+                  const canDeactivate = !(isSelfCoordinator && account.is_active === 1);
 
                   return (
                     <tr key={account.id} className="border-b last:border-0 hover:bg-gray-50 transition-colors">

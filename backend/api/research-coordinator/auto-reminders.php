@@ -4,7 +4,9 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/survey_reminders.php';
 require_once __DIR__ . '/../config/admin_auth.php';
+require_once __DIR__ . '/../config/admin_roles.php';
 require_once __DIR__ . '/../config/graduation_years.php';
+require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 use PHPMailer\PHPMailer\Exception as MailException;
@@ -12,41 +14,42 @@ use PHPMailer\PHPMailer\PHPMailer;
 
 $database = new Database();
 $db = $database->getConnection();
-$authUser = gradtrack_require_admin_auth($db, ['super_admin'], 'Only super admin can manage auto reminders');
+$authUser = gradtrack_require_admin_auth($db, gradtrack_system_admin_roles(), 'Only the Admin can manage auto reminders');
+$auditUser = gradtrack_admin_audit_context($authUser);
 $method = $_SERVER['REQUEST_METHOD'];
 
-function super_reminder_json_response(int $statusCode, array $payload): void
+function coordinator_reminder_json_response(int $statusCode, array $payload): void
 {
     http_response_code($statusCode);
     echo json_encode($payload);
     exit;
 }
 
-function super_reminder_clean_text($value): string
+function coordinator_reminder_clean_text($value): string
 {
     return trim((string) ($value ?? ''));
 }
 
-function super_reminder_escape($value): string
+function coordinator_reminder_escape($value): string
 {
     return htmlspecialchars((string) $value, ENT_QUOTES, 'UTF-8');
 }
 
-function super_reminder_frontend_url(): string
+function coordinator_reminder_frontend_url(): string
 {
     return gradtrack_frontend_url();
 }
 
-function super_reminder_create_mailer(): PHPMailer
+function coordinator_reminder_create_mailer(): PHPMailer
 {
-    $host = super_reminder_clean_text(getenv('MAIL_HOST') ?: 'smtp.gmail.com');
-    $username = super_reminder_clean_text(getenv('MAIL_USERNAME') ?: '');
-    $password = str_replace(' ', '', super_reminder_clean_text(getenv('MAIL_PASSWORD') ?: ''));
-    $fromAddress = super_reminder_clean_text(getenv('MAIL_FROM_ADDRESS') ?: $username);
-    $fromName = super_reminder_clean_text(getenv('MAIL_FROM_NAME') ?: 'GRADTRACK');
+    $host = coordinator_reminder_clean_text(getenv('MAIL_HOST') ?: 'smtp.gmail.com');
+    $username = coordinator_reminder_clean_text(getenv('MAIL_USERNAME') ?: '');
+    $password = str_replace(' ', '', coordinator_reminder_clean_text(getenv('MAIL_PASSWORD') ?: ''));
+    $fromAddress = coordinator_reminder_clean_text(getenv('MAIL_FROM_ADDRESS') ?: $username);
+    $fromName = coordinator_reminder_clean_text(getenv('MAIL_FROM_NAME') ?: 'GRADTRACK');
 
     if ($host === '' || $username === '' || $password === '' || $fromAddress === '') {
-        super_reminder_json_response(500, [
+        coordinator_reminder_json_response(500, [
             "success" => false,
             "error" => "Mail credentials are not configured. Please check MAIL_HOST, MAIL_USERNAME, MAIL_PASSWORD, and MAIL_FROM_ADDRESS."
         ]);
@@ -62,7 +65,7 @@ function super_reminder_create_mailer(): PHPMailer
     $mail->CharSet = 'UTF-8';
     $mail->SMTPKeepAlive = true;
 
-    $encryption = strtolower(super_reminder_clean_text(getenv('MAIL_ENCRYPTION') ?: 'tls'));
+    $encryption = strtolower(coordinator_reminder_clean_text(getenv('MAIL_ENCRYPTION') ?: 'tls'));
     if ($encryption === 'ssl' || $encryption === 'smtps') {
         $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
     } elseif ($encryption === 'tls' || $encryption === 'starttls') {
@@ -75,24 +78,24 @@ function super_reminder_create_mailer(): PHPMailer
     return $mail;
 }
 
-function super_reminder_graduate_name(array $graduate): string
+function coordinator_reminder_graduate_name(array $graduate): string
 {
     $name = trim(($graduate['first_name'] ?? '') . ' ' . ($graduate['last_name'] ?? ''));
     return $name !== '' ? $name : 'Graduate';
 }
 
-function super_reminder_survey_link(array $survey): string
+function coordinator_reminder_survey_link(array $survey): string
 {
-    return super_reminder_frontend_url() . '/survey-verify?survey_id=' . urlencode((string) $survey['id']);
+    return coordinator_reminder_frontend_url() . '/survey-verify?survey_id=' . urlencode((string) $survey['id']);
 }
 
-function super_reminder_email_html(array $graduate, array $survey, string $message, string $surveyLink): string
+function coordinator_reminder_email_html(array $graduate, array $survey, string $message, string $surveyLink): string
 {
-    $name = super_reminder_escape(super_reminder_graduate_name($graduate));
-    $surveyTitle = super_reminder_escape($survey['title'] ?? 'Graduate Tracer Study Survey');
-    $programCode = super_reminder_escape($graduate['program_code'] ?? '');
-    $messageHtml = nl2br(super_reminder_escape($message));
-    $safeSurveyLink = super_reminder_escape($surveyLink);
+    $name = coordinator_reminder_escape(coordinator_reminder_graduate_name($graduate));
+    $surveyTitle = coordinator_reminder_escape($survey['title'] ?? 'Graduate Tracer Study Survey');
+    $programCode = coordinator_reminder_escape($graduate['program_code'] ?? '');
+    $messageHtml = nl2br(coordinator_reminder_escape($message));
+    $safeSurveyLink = coordinator_reminder_escape($surveyLink);
 
     return <<<HTML
 <!doctype html>
@@ -142,9 +145,9 @@ function super_reminder_email_html(array $graduate, array $survey, string $messa
 HTML;
 }
 
-function super_reminder_email_text(array $graduate, array $survey, string $message, string $surveyLink): string
+function coordinator_reminder_email_text(array $graduate, array $survey, string $message, string $surveyLink): string
 {
-    $name = super_reminder_graduate_name($graduate);
+    $name = coordinator_reminder_graduate_name($graduate);
     $surveyTitle = (string) ($survey['title'] ?? 'Graduate Tracer Study Survey');
 
     return "Hello {$name},\n\n"
@@ -154,7 +157,7 @@ function super_reminder_email_text(array $graduate, array $survey, string $messa
         . "Thank you,\nGRADTRACK";
 }
 
-function super_reminder_get_setting(PDO $db, string $key, string $default): string
+function coordinator_reminder_get_setting(PDO $db, string $key, string $default): string
 {
     try {
         $stmt = $db->prepare("SELECT setting_value FROM system_settings WHERE setting_key = :key LIMIT 1");
@@ -166,13 +169,13 @@ function super_reminder_get_setting(PDO $db, string $key, string $default): stri
     }
 }
 
-function super_reminder_get_active_survey(PDO $db): ?array
+function coordinator_reminder_get_active_survey(PDO $db): ?array
 {
     $coverage = gradtrack_get_active_survey_graduation_year_coverage($db);
     return $coverage['survey'];
 }
 
-function super_reminder_get_eligible_graduates(PDO $db, int $surveyId, array $allowedYears, int $limit = 5000): array
+function coordinator_reminder_get_eligible_graduates(PDO $db, int $surveyId, array $allowedYears, int $limit = 5000): array
 {
     $whereParts = [
         'sr.id IS NULL',
@@ -186,7 +189,7 @@ function super_reminder_get_eligible_graduates(PDO $db, int $surveyId, array $al
         $params,
         'g.year_graduated',
         $allowedYears,
-        'super_reminder_coverage_year'
+        'coordinator_reminder_coverage_year'
     );
     $sql = "
         SELECT g.id, g.student_id, g.first_name, g.last_name, g.email, p.code AS program_code
@@ -206,7 +209,7 @@ function super_reminder_get_eligible_graduates(PDO $db, int $surveyId, array $al
     return $stmt->fetchAll(PDO::FETCH_ASSOC);
 }
 
-function super_reminder_get_logs(PDO $db, int $limit = 50): array
+function coordinator_reminder_get_logs(PDO $db, int $limit = 50): array
 {
     try {
         $stmt = $db->query("
@@ -223,7 +226,7 @@ function super_reminder_get_logs(PDO $db, int $limit = 50): array
     }
 }
 
-function super_reminder_get_stats(PDO $db): array
+function coordinator_reminder_get_stats(PDO $db): array
 {
     try {
         $totalSent = (int) $db->query("SELECT COUNT(*) FROM survey_reminder_logs WHERE status = 'sent'")->fetchColumn();
@@ -260,19 +263,19 @@ try {
     gradtrack_survey_reminder_ensure_log_table($db);
 
     if ($method === 'GET') {
-        $action = super_reminder_clean_text($_GET['action'] ?? 'status');
+        $action = coordinator_reminder_clean_text($_GET['action'] ?? 'status');
 
         if ($action === 'status') {
             $coverage = gradtrack_get_active_survey_graduation_year_coverage($db);
             $activeSurvey = $coverage['survey'];
             $eligibleCount = 0;
             if ($activeSurvey && $coverage['configured']) {
-                $eligible = super_reminder_get_eligible_graduates($db, (int) $activeSurvey['id'], $coverage['years'], 999999);
+                $eligible = coordinator_reminder_get_eligible_graduates($db, (int) $activeSurvey['id'], $coverage['years'], 999999);
                 $eligibleCount = count($eligible);
             }
 
-            $intervalDays = (int) super_reminder_get_setting($db, 'survey_reminder_days', '3');
-            $emailEnabled = super_reminder_get_setting($db, 'enable_email_notifications', 'true') === 'true';
+            $intervalDays = (int) coordinator_reminder_get_setting($db, 'survey_reminder_days', '3');
+            $emailEnabled = coordinator_reminder_get_setting($db, 'enable_email_notifications', 'true') === 'true';
 
             echo json_encode([
                 'success' => true,
@@ -285,7 +288,7 @@ try {
                     'eligible_count' => $eligibleCount,
                     'interval_days' => $intervalDays,
                     'email_enabled' => $emailEnabled,
-                    'stats' => super_reminder_get_stats($db),
+                    'stats' => coordinator_reminder_get_stats($db),
                 ],
             ]);
             exit;
@@ -295,7 +298,7 @@ try {
             $logLimit = isset($_GET['limit']) ? min(200, max(1, (int) $_GET['limit'])) : 50;
             echo json_encode([
                 'success' => true,
-                'data' => super_reminder_get_logs($db, $logLimit),
+                'data' => coordinator_reminder_get_logs($db, $logLimit),
             ]);
             exit;
         }
@@ -303,10 +306,10 @@ try {
         if ($action === 'eligible') {
             $coverage = gradtrack_get_active_survey_graduation_year_coverage($db);
             if ($coverage['survey'] === null) {
-                super_reminder_json_response(409, ['success' => false, 'error' => 'No active survey found']);
+                coordinator_reminder_json_response(409, ['success' => false, 'error' => 'No active survey found']);
             }
             if (!$coverage['configured']) {
-                super_reminder_json_response(422, [
+                coordinator_reminder_json_response(422, [
                     'success' => false,
                     'code' => 'GRADUATION_YEAR_COVERAGE_NOT_CONFIGURED',
                     'error' => 'Graduation year coverage has not been configured for the active survey.',
@@ -317,9 +320,9 @@ try {
                 $surveyId = (int) $coverage['survey']['id'];
             }
             if ($surveyId !== (int) $coverage['survey']['id']) {
-                super_reminder_json_response(409, ['success' => false, 'error' => 'Reminders can only use the active survey']);
+                coordinator_reminder_json_response(409, ['success' => false, 'error' => 'Reminders can only use the active survey']);
             }
-            $eligible = super_reminder_get_eligible_graduates($db, $surveyId, $coverage['years']);
+            $eligible = coordinator_reminder_get_eligible_graduates($db, $surveyId, $coverage['years']);
             echo json_encode([
                 'success' => true,
                 'data' => $eligible,
@@ -328,24 +331,24 @@ try {
             exit;
         }
 
-        super_reminder_json_response(400, ['success' => false, 'error' => 'Unknown action']);
+        coordinator_reminder_json_response(400, ['success' => false, 'error' => 'Unknown action']);
     }
 
     if ($method === 'POST') {
         $data = json_decode(file_get_contents('php://input'), true);
         if (!is_array($data)) {
-            super_reminder_json_response(400, ['success' => false, 'error' => 'Invalid JSON payload']);
+            coordinator_reminder_json_response(400, ['success' => false, 'error' => 'Invalid JSON payload']);
         }
 
-        $action = super_reminder_clean_text($data['action'] ?? 'send_reminders');
+        $action = coordinator_reminder_clean_text($data['action'] ?? 'send_reminders');
 
         if ($action === 'send_reminders') {
             $coverage = gradtrack_get_active_survey_graduation_year_coverage($db);
             if ($coverage['survey'] === null) {
-                super_reminder_json_response(409, ['success' => false, 'error' => 'No active survey found']);
+                coordinator_reminder_json_response(409, ['success' => false, 'error' => 'No active survey found']);
             }
             if (!$coverage['configured']) {
-                super_reminder_json_response(422, [
+                coordinator_reminder_json_response(422, [
                     'success' => false,
                     'code' => 'GRADUATION_YEAR_COVERAGE_NOT_CONFIGURED',
                     'error' => 'Graduation year coverage has not been configured for the active survey.',
@@ -356,32 +359,32 @@ try {
                 $surveyId = (int) $coverage['survey']['id'];
             }
             if ($surveyId !== (int) $coverage['survey']['id']) {
-                super_reminder_json_response(409, ['success' => false, 'error' => 'Reminders can only use the active survey']);
+                coordinator_reminder_json_response(409, ['success' => false, 'error' => 'Reminders can only use the active survey']);
             }
 
             $surveyStmt = $db->prepare("SELECT id, title, status FROM surveys WHERE id = :id AND archived_at IS NULL LIMIT 1");
             $surveyStmt->execute([':id' => $surveyId]);
             $survey = $surveyStmt->fetch(PDO::FETCH_ASSOC);
             if (!$survey) {
-                super_reminder_json_response(404, ['success' => false, 'error' => 'Survey not found']);
+                coordinator_reminder_json_response(404, ['success' => false, 'error' => 'Survey not found']);
             }
 
-            $emailEnabled = super_reminder_get_setting($db, 'enable_email_notifications', 'true') === 'true';
+            $emailEnabled = coordinator_reminder_get_setting($db, 'enable_email_notifications', 'true') === 'true';
             if (!$emailEnabled) {
-                super_reminder_json_response(400, ['success' => false, 'error' => 'Email notifications are disabled in system settings']);
+                coordinator_reminder_json_response(400, ['success' => false, 'error' => 'Email notifications are disabled in system settings']);
             }
 
-            $subject = super_reminder_clean_text($data['subject'] ?? '');
+            $subject = coordinator_reminder_clean_text($data['subject'] ?? '');
             if ($subject === '') {
                 $subject = 'Reminder: Complete your Graduate Tracer Study Survey';
             }
 
-            $message = super_reminder_clean_text($data['message'] ?? '');
+            $message = coordinator_reminder_clean_text($data['message'] ?? '');
             if ($message === '') {
                 $message = 'Please complete the Graduate Tracer Study Survey. Your response helps Norzagaray College improve its programs and support graduates with better alumni services.';
             }
 
-            $reminderType = super_reminder_clean_text($data['reminder_type'] ?? 'manual');
+            $reminderType = coordinator_reminder_clean_text($data['reminder_type'] ?? 'manual');
             $reminderType = in_array($reminderType, ['manual', 'auto'], true) ? $reminderType : 'manual';
 
             $graduateIds = isset($data['graduate_ids']) && is_array($data['graduate_ids'])
@@ -422,21 +425,21 @@ try {
                 $stmt->execute($params);
                 $recipients = $stmt->fetchAll(PDO::FETCH_ASSOC);
             } else {
-                $recipients = super_reminder_get_eligible_graduates($db, $surveyId, $coverage['years']);
+                $recipients = coordinator_reminder_get_eligible_graduates($db, $surveyId, $coverage['years']);
             }
 
             if (empty($recipients)) {
-                super_reminder_json_response(400, ['success' => false, 'error' => 'No eligible graduates found for this reminder']);
+                coordinator_reminder_json_response(400, ['success' => false, 'error' => 'No eligible graduates found for this reminder']);
             }
 
-            $surveyLink = super_reminder_survey_link($survey);
-            $mailer = super_reminder_create_mailer();
+            $surveyLink = coordinator_reminder_survey_link($survey);
+            $mailer = coordinator_reminder_create_mailer();
             $sent = [];
             $failed = [];
             $skipped = [];
 
             foreach ($recipients as $recipient) {
-                $email = super_reminder_clean_text($recipient['email'] ?? '');
+                $email = coordinator_reminder_clean_text($recipient['email'] ?? '');
                 if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
                     $skipped[] = [
                         "id" => (int) $recipient['id'],
@@ -451,11 +454,11 @@ try {
 
                 try {
                     $mailer->clearAddresses();
-                    $mailer->addAddress($email, super_reminder_graduate_name($recipient));
+                    $mailer->addAddress($email, coordinator_reminder_graduate_name($recipient));
                     $mailer->Subject = $subject;
                     $mailer->isHTML(true);
-                    $mailer->Body = super_reminder_email_html($recipient, $survey, $message, $surveyLink);
-                    $mailer->AltBody = super_reminder_email_text($recipient, $survey, $message, $surveyLink);
+                    $mailer->Body = coordinator_reminder_email_html($recipient, $survey, $message, $surveyLink);
+                    $mailer->AltBody = coordinator_reminder_email_text($recipient, $survey, $message, $surveyLink);
                     $mailer->send();
 
                     $sent[] = ["id" => (int) $recipient['id'], "email" => $email];
@@ -470,6 +473,20 @@ try {
             }
 
             $mailer->smtpClose();
+
+            logAuditTrail(
+                $auditUser['user_id'],
+                $auditUser['user_name'],
+                $auditUser['user_role'],
+                $auditUser['department'],
+                'Send',
+                'Auto Email Reminders',
+                'Processed survey reminder emails.',
+                $surveyId,
+                null,
+                null,
+                ['eligible' => count($recipients), 'sent' => count($sent), 'failed' => count($failed), 'skipped' => count($skipped)]
+            );
 
             echo json_encode([
                 "success" => count($failed) === 0,
@@ -496,22 +513,34 @@ try {
                     ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)
                 ");
                 $stmt->execute([':value' => (string) $intervalDays]);
+                logAuditTrail(
+                    $auditUser['user_id'],
+                    $auditUser['user_name'],
+                    $auditUser['user_role'],
+                    $auditUser['department'],
+                    'Update',
+                    'Auto Email Reminders',
+                    'Updated the survey reminder interval.',
+                    null,
+                    null,
+                    ['interval_days' => $intervalDays]
+                );
             }
 
             echo json_encode([
                 'success' => true,
                 'message' => 'Auto-reminder settings updated',
                 'data' => [
-                    'interval_days' => $intervalDays ?? (int) super_reminder_get_setting($db, 'survey_reminder_days', '3'),
+                    'interval_days' => $intervalDays ?? (int) coordinator_reminder_get_setting($db, 'survey_reminder_days', '3'),
                 ],
             ]);
             exit;
         }
 
-        super_reminder_json_response(400, ['success' => false, 'error' => 'Unknown action']);
+        coordinator_reminder_json_response(400, ['success' => false, 'error' => 'Unknown action']);
     }
 
-    super_reminder_json_response(405, ['success' => false, 'error' => 'Method not allowed']);
+    coordinator_reminder_json_response(405, ['success' => false, 'error' => 'Method not allowed']);
 } catch (Exception $e) {
-    super_reminder_json_response(500, ['success' => false, 'error' => gradtrack_public_exception_message($e, 'Unable to process reminders right now.', 'Super-admin reminders API')]);
+    coordinator_reminder_json_response(500, ['success' => false, 'error' => gradtrack_public_exception_message($e, 'Unable to process reminders right now.', 'Admin reminders API')]);
 }

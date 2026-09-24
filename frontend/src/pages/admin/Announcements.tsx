@@ -367,7 +367,7 @@ export default function Announcements() {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-700">Alumni Administration</p>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-700">Alumni President</p>
           <h1 className="mt-1 text-2xl font-bold text-[#1b2a4a]">Announcement Manager</h1>
           <p className="mt-1 text-sm text-gray-500">Create and manage announcements shown in the Graduate Portal.</p>
         </div>
@@ -434,7 +434,7 @@ export default function Announcements() {
       {formOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 px-3 py-5" onMouseDown={(event) => { if (event.target === event.currentTarget && !saving) closeForm(); }}>
           <form onSubmit={handleSubmit} className="flex max-h-[94vh] w-full max-w-3xl flex-col overflow-hidden rounded-[28px] bg-white shadow-2xl">
-            <div className="flex items-start justify-between border-b px-6 py-5"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-700">Alumni Admin</p><h2 className="mt-1 text-xl font-bold text-[#1b2a4a]">{form.id ? 'Edit Announcement' : 'Create Announcement'}</h2></div><button type="button" onClick={closeForm} disabled={saving} className="cursor-pointer rounded-full p-2 text-gray-500 transition hover:bg-gray-100"><X className="h-5 w-5" /></button></div>
+            <div className="flex items-start justify-between border-b px-6 py-5"><div><p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-700">Alumni President</p><h2 className="mt-1 text-xl font-bold text-[#1b2a4a]">{form.id ? 'Edit Announcement' : 'Create Announcement'}</h2></div><button type="button" onClick={closeForm} disabled={saving} className="cursor-pointer rounded-full p-2 text-gray-500 transition hover:bg-gray-100"><X className="h-5 w-5" /></button></div>
             <div className="overflow-y-auto px-6 py-5">
               <div className="space-y-5">
                 <label className="block text-sm font-bold text-gray-700">Title <span className="text-red-500">*</span><input required maxLength={255} value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} className="mt-2 w-full rounded-xl border px-4 py-3 text-sm outline-none focus:border-blue-500" placeholder="Announcement title" /></label>

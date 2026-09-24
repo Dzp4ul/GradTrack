@@ -1,0 +1,16 @@
+[Unit]
+Description=GradTrack graduate account inactivity enforcement
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/gradtrack
+EnvironmentFile=/etc/gradtrack/gradtrack.env
+ExecStart=/usr/bin/php /var/www/gradtrack/backend/scripts/disable_inactive_graduate_accounts.php
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full

@@ -224,7 +224,7 @@ function gradtrack_notifications_add_registrar(PDO $db, array &$notifications): 
     }
 }
 
-function gradtrack_notifications_add_super_admin(PDO $db, array &$notifications, int $currentUserId): void
+function gradtrack_notifications_add_research_coordinator(PDO $db, array &$notifications, int $currentUserId): void
 {
     $stmt = $db->prepare("SELECT id, full_name, username, role, created_at
                          FROM admin_users
@@ -239,7 +239,7 @@ function gradtrack_notifications_add_super_admin(PDO $db, array &$notifications,
             $notifications,
             'admin-user:' . $row['id'],
             'user',
-            'Admin account available',
+            'Personnel account available',
             $name . ' has access as ' . str_replace('_', ' ', (string) $row['role']) . '.',
             $row['created_at'],
             '/admin/user-management'
@@ -501,6 +501,63 @@ function gradtrack_notifications_add_graduate(PDO $db, array &$notifications, ar
                 '/graduate/portal?tab=community_forum&post_id=' . (int) $row['post_id']
             );
         }
+
+        if (gradtrack_forum_table_exists($db, 'forum_reports')) {
+            $reporterStmt = $db->prepare("SELECT fr.id, fr.target_type, fr.post_id, fr.comment_id,
+                                                 fr.reviewed_at, fp.title
+                                          FROM forum_reports fr
+                                          JOIN forum_posts fp ON fp.id = fr.post_id
+                                          LEFT JOIN forum_comments fc ON fc.id = fr.comment_id
+                                          WHERE fr.reporter_graduate_id = :graduate_id
+                                            AND fr.status = 'resolved'
+                                            AND ((fr.target_type = 'post' AND fp.status = 'hidden')
+                                              OR (fr.target_type = 'comment' AND fc.status = 'hidden'))
+                                          ORDER BY fr.reviewed_at DESC, fr.id DESC
+                                          LIMIT 10");
+            $reporterStmt->execute([':graduate_id' => $graduateId]);
+            foreach ($reporterStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $targetLabel = $row['target_type'] === 'comment' ? 'comment' : 'post';
+                gradtrack_notifications_add(
+                    $notifications,
+                    'forum-report-reviewed:' . (int) $row['id'] . ':' . gradtrack_notifications_date_token($row['reviewed_at']),
+                    'forum_report',
+                    'Report reviewed',
+                    'Your report was reviewed and action was taken. The reported ' . $targetLabel . ' was hidden.',
+                    $row['reviewed_at'],
+                    '/graduate/portal?tab=community_forum&report_id=' . (int) $row['id'],
+                    'high'
+                );
+            }
+
+            $reportedUserStmt = $db->prepare("SELECT MIN(fr.id) AS id, fr.target_type, fr.post_id, fr.comment_id,
+                                                     MAX(fr.reviewed_at) AS reviewed_at, fp.title
+                                              FROM forum_reports fr
+                                              JOIN forum_posts fp ON fp.id = fr.post_id
+                                              LEFT JOIN forum_comments fc ON fc.id = fr.comment_id
+                                              WHERE fr.status = 'resolved'
+                                                AND ((fr.target_type = 'post' AND fp.graduate_id = :post_owner AND fp.status = 'hidden')
+                                                  OR (fr.target_type = 'comment' AND fc.graduate_id = :comment_owner AND fc.status = 'hidden'))
+                                              GROUP BY fr.target_type, fr.post_id, fr.comment_id, fp.title
+                                              ORDER BY reviewed_at DESC
+                                              LIMIT 10");
+            $reportedUserStmt->execute([
+                ':post_owner' => $graduateId,
+                ':comment_owner' => $graduateId,
+            ]);
+            foreach ($reportedUserStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $targetLabel = $row['target_type'] === 'comment' ? 'comment' : 'post';
+                gradtrack_notifications_add(
+                    $notifications,
+                    'forum-content-hidden:' . $row['target_type'] . ':' . (int) $row['post_id'] . ':' . (int) ($row['comment_id'] ?? 0) . ':' . gradtrack_notifications_date_token($row['reviewed_at']),
+                    'forum_report',
+                    'Content hidden after moderation',
+                    'Your ' . $targetLabel . ' was hidden after a report was reviewed.',
+                    $row['reviewed_at'],
+                    '/graduate/portal?tab=community_forum&report_id=' . (int) $row['id'],
+                    'high'
+                );
+            }
+        }
     }
 
     $jobStmt = $db->prepare("SELECT id, title, company, approval_status, approval_reviewed_at, updated_at, created_at
@@ -613,15 +670,14 @@ function gradtrack_notifications_generate(PDO $db, array $auth): array
     } else {
         $role = (string) $auth['role'];
 
-        if ($role === 'admin') {
+        if ($role === 'research_coordinator') {
             gradtrack_notifications_add_admin_surveys($db, $notifications);
-        } elseif ($role === 'alumni_admin') {
+            gradtrack_notifications_add_research_coordinator($db, $notifications, (int) $auth['target_id']);
+        } elseif ($role === 'alumni_president') {
             gradtrack_notifications_add_forum_moderator($db, $notifications);
             gradtrack_notifications_add_alumni_engagement($db, $notifications);
         } elseif ($role === 'registrar') {
             gradtrack_notifications_add_registrar($db, $notifications);
-        } elseif ($role === 'super_admin') {
-            gradtrack_notifications_add_super_admin($db, $notifications, (int) $auth['target_id']);
         } else {
             gradtrack_notifications_add_dean($db, $notifications, $role);
         }

@@ -1250,7 +1250,7 @@ async function loadVisibleJob(jobId) {
             COALESCE(NULLIF(profile.last_name, ''), g.last_name) AS last_name,
             COALESCE(NULLIF(TRIM(CONCAT_WS(' ', profile.first_name, profile.middle_name, profile.last_name)), ''),
                      NULLIF(TRIM(CONCAT_WS(' ', g.first_name, g.middle_name, g.last_name)), ''),
-                     NULLIF(TRIM(admin.full_name), ''), 'Alumni Admin') AS poster_full_name,
+                     NULLIF(TRIM(admin.full_name), ''), 'GradTrack Personnel') AS poster_full_name,
             COALESCE(NULLIF(profile.program_course, ''), p.name) AS poster_program_name,
             p.code AS poster_program_code, gpi.file_path AS poster_profile_image_path
        FROM job_posts jp

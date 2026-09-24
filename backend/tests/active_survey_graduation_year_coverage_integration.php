@@ -236,12 +236,11 @@ try {
     $fixture['previous_active_ids'] = array_map('intval', $db->query("SELECT id FROM surveys WHERE status = 'active' AND archived_at IS NULL")->fetchAll(PDO::FETCH_COLUMN));
     $db->exec("UPDATE surveys SET status = 'inactive' WHERE status = 'active' AND archived_at IS NULL");
 
-    $fixture['admins'][] = $adminId = coverage_create_admin($db, 'admin', $suffix);
+    $fixture['admins'][] = $adminId = coverage_create_admin($db, 'research_coordinator', $suffix);
     $fixture['admins'][] = $deanId = coverage_create_admin($db, 'dean_cs', $suffix);
-    $fixture['admins'][] = $superAdminId = coverage_create_admin($db, 'super_admin', $suffix);
     $adminSession = coverage_session(['admin_user_id' => $adminId]);
     $deanSession = coverage_session(['admin_user_id' => $deanId]);
-    $superAdminSession = coverage_session(['admin_user_id' => $superAdminId]);
+    $researchCoordinatorSession = $adminSession;
 
     $surveyA = coverage_create_survey($db, 'Coverage A ' . $suffix, 'draft', [2025, 2024, 2023, 2022, 2021]);
     $fixture['surveys'][] = $surveyA;
@@ -351,8 +350,8 @@ try {
     $expectedA = array_values(array_map(static fn (int $year): int => $graduateByYear[$year], range(2021, 2025)));
     sort($adminIds);
     sort($expectedA);
-    coverage_assert($adminStatus['status'] === 200 && $adminIds === $expectedA, 'Tests 1-4: Admin monitoring includes only 2021 through 2025 and excludes 2020/2026');
-    coverage_assert(($adminStatus['json']['year_options'] ?? []) === range(2021, 2025), 'Test 7: Admin year filter comes only from active-survey options');
+    coverage_assert($adminStatus['status'] === 200 && $adminIds === $expectedA, 'Tests 1-4: Research Coordinator monitoring includes only 2021 through 2025 and excludes 2020/2026');
+    coverage_assert(($adminStatus['json']['year_options'] ?? []) === range(2021, 2025), 'Test 7: Research Coordinator year filter comes only from active-survey options');
     $adminSummary = $adminStatus['json']['summary'] ?? [];
     coverage_assert(($adminSummary['total'] ?? -1) === 5 && ($adminSummary['answered'] ?? -1) === 1 && ($adminSummary['not_answered'] ?? -1) === 4, 'Test 11 status population reconciles: eligible = answered + not answered');
 
@@ -364,7 +363,7 @@ try {
 
     $badAdminYear = coverage_request('graduates/survey-status.php?' . $query . '&year_graduated=2020', $adminSession);
     $badDeanYear = coverage_request('dean/survey-status.php?' . $query . '&year_graduated=2020', $deanSession);
-    coverage_assert($badAdminYear['status'] === 422 && $badDeanYear['status'] === 422, 'Test 11: Admin and Dean APIs reject a manually requested out-of-coverage year');
+    coverage_assert($badAdminYear['status'] === 422 && $badDeanYear['status'] === 422, 'Test 11: Research Coordinator and Dean APIs reject a manually requested out-of-coverage year');
 
     $badReminderSelection = coverage_request('graduates/notify.php', $adminSession, 'POST', [
         'survey_id' => $surveyA,
@@ -374,7 +373,7 @@ try {
     ]);
     coverage_assert($badReminderSelection['status'] === 400, 'A manually selected out-of-coverage graduate cannot be notified');
 
-    $eligibleReminders = coverage_request('super-admin/auto-reminders.php?action=eligible&survey_id=' . $surveyA, $superAdminSession);
+    $eligibleReminders = coverage_request('research-coordinator/auto-reminders.php?action=eligible&survey_id=' . $surveyA, $researchCoordinatorSession);
     $eligibleReminderIds = array_map('intval', array_column($eligibleReminders['json']['data'] ?? [], 'id'));
     $coveredUnansweredIncluded = count(array_filter(
         range(2022, 2025),

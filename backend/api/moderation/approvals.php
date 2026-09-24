@@ -144,7 +144,7 @@ function gradtrack_moderation_reviewer(PDO $db): array
     $user = gradtrack_require_admin_auth(
         $db,
         gradtrack_engagement_admin_roles(),
-        'Only Alumni Admin accounts can review graduate portal approvals'
+        'Only Alumni President accounts can review graduate portal approvals'
     );
     $role = (string) $user['role'];
 

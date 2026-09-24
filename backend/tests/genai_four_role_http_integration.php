@@ -109,46 +109,46 @@ session_cache_limiter('');
 
 $roleIds = [];
 $stmt = $db->prepare('SELECT id FROM admin_users WHERE role = :role AND is_active = 1 ORDER BY id ASC LIMIT 1');
-foreach (['admin', 'registrar', 'alumni_admin', 'dean_cs'] as $role) {
+foreach (['research_coordinator', 'registrar', 'alumni_president', 'dean_cs'] as $role) {
     $stmt->execute([':role' => $role]);
     $roleIds[$role] = (int)($stmt->fetchColumn() ?: 0);
     genai_four_role_assert($roleIds[$role] > 0, "an active {$role} test account exists");
 }
 
 try {
-    if ($roleIds['admin'] > 0) {
-        $session = genai_four_role_session($roleIds['admin']);
-        $howTo = genai_four_role_chat('Admin', $session, 'How do I answer the survey?', '/admin/graduates');
+    if ($roleIds['research_coordinator'] > 0) {
+        $session = genai_four_role_session($roleIds['research_coordinator']);
+        $howTo = genai_four_role_chat('Research Coordinator', $session, 'How do I answer the survey?', '/admin/graduates');
         $answer = (string)($howTo['json']['data']['assistant']['answer'] ?? '');
-        genai_four_role_assert(str_contains($answer, 'Verify & Continue') && str_contains($answer, 'Submit Survey'), 'Admin how-to uses the implemented graduate survey controls');
+        genai_four_role_assert(str_contains($answer, 'Verify & Continue') && str_contains($answer, 'Submit Survey'), 'Research Coordinator how-to uses the implemented graduate survey controls');
 
-        $count = genai_four_role_chat('Admin', $session, 'Ilan ang sumagot sa survey?', '/admin/graduates');
+        $count = genai_four_role_chat('Research Coordinator', $session, 'Ilan ang sumagot sa survey?', '/admin/graduates');
         $answered = genai_four_role_metric($count, 'Submitted survey responses');
         genai_four_role_assert(
             ($count['json']['data']['context']['dataTool'] ?? '') === 'survey_participation'
             && $answered !== null
             && str_contains((string)$count['json']['data']['assistant']['answer'], $answered),
-            'Admin Taglish count answer contains the current authorized survey-response total'
+            'Research Coordinator Taglish count answer contains the current authorized survey-response total'
         );
 
-        $list = genai_four_role_chat('Admin', $session, 'Show graduates who have not answered the survey.', '/admin/graduates');
+        $list = genai_four_role_chat('Research Coordinator', $session, 'Show graduates who have not answered the survey.', '/admin/graduates');
         genai_four_role_assert(
             ($list['json']['data']['context']['dataTool'] ?? '') === 'survey_participation_list'
             && genai_four_role_metric($list, 'Records shown') !== null
             && str_contains((string)($list['json']['data']['dataUsed']['privacy'] ?? ''), 'not sent to Groq'),
-            'Admin list uses authorized active-survey rows without sending names to Groq'
+            'Research Coordinator list uses authorized active-survey rows without sending names to Groq'
         );
 
-        $currentSurvey = genai_four_role_chat('Admin', $session, 'What is the current survey?', '/admin/graduates');
+        $currentSurvey = genai_four_role_chat('Research Coordinator', $session, 'What is the current survey?', '/admin/graduates');
         genai_four_role_assert(
             $activeSurveyTitle !== ''
             && ($currentSurvey['json']['data']['context']['dataTool'] ?? '') === 'survey_participation'
             && str_contains((string)$currentSurvey['json']['data']['assistant']['answer'], $activeSurveyTitle),
-            'Admin current-survey answer uses the active survey title from the database'
+            'Research Coordinator current-survey answer uses the active survey title from the database'
         );
 
-        $restricted = genai_four_role_chat('Admin', $session, 'How many alumni verification requests are pending?', '/admin');
-        genai_four_role_assert(stripos((string)$restricted['json']['data']['assistant']['answer'], 'does not have access') !== false, 'Admin is denied Alumni Admin verification data');
+        $restricted = genai_four_role_chat('Research Coordinator', $session, 'How many alumni verification requests are pending?', '/admin');
+        genai_four_role_assert(stripos((string)$restricted['json']['data']['assistant']['answer'], 'does not have access') !== false, 'Research Coordinator is denied Alumni President verification data');
     }
 
     if ($roleIds['registrar'] > 0) {
@@ -175,36 +175,36 @@ try {
         );
 
         $restricted = genai_four_role_chat('Registrar', $session, 'How many BSCS graduates are employed?', '/admin/graduates');
-        genai_four_role_assert(stripos((string)$restricted['json']['data']['assistant']['answer'], 'does not have access') !== false, 'Registrar is denied Admin employment analytics');
+        genai_four_role_assert(stripos((string)$restricted['json']['data']['assistant']['answer'], 'does not have access') !== false, 'Registrar is denied Research Coordinator employment analytics');
     }
 
-    if ($roleIds['alumni_admin'] > 0) {
-        $session = genai_four_role_session($roleIds['alumni_admin']);
-        $howTo = genai_four_role_chat('Alumni Admin', $session, 'How do I verify an alumni account?', '/admin/alumni-registered-list');
+    if ($roleIds['alumni_president'] > 0) {
+        $session = genai_four_role_session($roleIds['alumni_president']);
+        $howTo = genai_four_role_chat('Alumni President', $session, 'How do I verify an alumni account?', '/admin/alumni-registered-list');
         genai_four_role_assert(
             stripos((string)$howTo['json']['data']['assistant']['answer'], 'Pending Verification') !== false
             && stripos((string)$howTo['json']['data']['assistant']['answer'], 'Approve') !== false,
-            'Alumni Admin how-to uses the implemented verification tab and button'
+            'Alumni President how-to uses the implemented verification tab and button'
         );
 
-        $count = genai_four_role_chat('Alumni Admin', $session, 'Ilan ang pending alumni verification?', '/admin/alumni-registered-list');
+        $count = genai_four_role_chat('Alumni President', $session, 'Ilan ang pending alumni verification?', '/admin/alumni-registered-list');
         $pending = genai_four_role_metric($count, 'Pending');
         genai_four_role_assert(
             ($count['json']['data']['context']['dataTool'] ?? '') === 'alumni_verification_summary'
             && $pending !== null
             && str_contains((string)$count['json']['data']['assistant']['answer'], $pending),
-            'Alumni Admin Filipino count answer contains the live pending-verification total'
+            'Alumni President Filipino count answer contains the live pending-verification total'
         );
 
-        $list = genai_four_role_chat('Alumni Admin', $session, 'Ipakita ang pending alumni verification requests.', '/admin/alumni-registered-list');
+        $list = genai_four_role_chat('Alumni President', $session, 'Ipakita ang pending alumni verification requests.', '/admin/alumni-registered-list');
         genai_four_role_assert(
             ($list['json']['data']['context']['dataTool'] ?? '') === 'alumni_verification_list'
             && genai_four_role_metric($list, 'Records shown') !== null,
-            'Alumni Admin list uses live pending-verification records'
+            'Alumni President list uses live pending-verification records'
         );
 
-        $restricted = genai_four_role_chat('Alumni Admin', $session, 'Show employment statistics by program.', '/admin/alumni-registered-list');
-        genai_four_role_assert(stripos((string)$restricted['json']['data']['assistant']['answer'], 'does not have access') !== false, 'Alumni Admin is denied Admin employment analytics');
+        $restricted = genai_four_role_chat('Alumni President', $session, 'Show employment statistics by program.', '/admin/alumni-registered-list');
+        genai_four_role_assert(stripos((string)$restricted['json']['data']['assistant']['answer'], 'does not have access') !== false, 'Alumni President is denied Research Coordinator employment analytics');
     }
 
     if ($roleIds['dean_cs'] > 0) {

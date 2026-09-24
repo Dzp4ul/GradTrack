@@ -189,12 +189,12 @@ try {
     $program = $db->query('SELECT id, code, name FROM programs ORDER BY id ASC LIMIT 1')->fetch(PDO::FETCH_ASSOC);
     if (!$program) throw new RuntimeException('At least one program is required.');
 
-    foreach (['registrar', 'admin', 'alumni_admin'] as $role) {
+    foreach (['registrar', 'research_coordinator', 'alumni_president'] as $role) {
         $fixtureIds['admins'][$role] = graduation_http_create_admin($db, $role, $suffix);
     }
     $registrarSession = graduation_http_seed_session(['admin_user_id' => $fixtureIds['admins']['registrar']]);
-    $adminSession = graduation_http_seed_session(['admin_user_id' => $fixtureIds['admins']['admin']]);
-    $alumniSession = graduation_http_seed_session(['admin_user_id' => $fixtureIds['admins']['alumni_admin']]);
+    $adminSession = graduation_http_seed_session(['admin_user_id' => $fixtureIds['admins']['research_coordinator']]);
+    $alumniSession = graduation_http_seed_session(['admin_user_id' => $fixtureIds['admins']['alumni_president']]);
     $anonymousSession = graduation_http_seed_session();
 
     $graduatePayload = static function (int $year, string $label) use ($program, $suffix): array {
@@ -400,7 +400,7 @@ try {
     graduation_http_assert($restoreSurvey['status'] === 200, 'survey Restore returns the survey to active management');
     graduation_http_request('surveys/index.php', $adminSession, 'DELETE', ['id' => $fixtureIds['survey']]);
     $deleteSurvey = graduation_http_request('surveys/index.php', $adminSession, 'DELETE', ['id' => $fixtureIds['survey'], 'action' => 'permanent_delete']);
-    graduation_http_assert($deleteSurvey['status'] === 200, 'authorized Admin permanently deletes an archived survey');
+    graduation_http_assert($deleteSurvey['status'] === 200, 'authorized Research Coordinator permanently deletes an archived survey');
     $surveyDbCheck = $db->prepare('SELECT COUNT(*) FROM surveys WHERE id = :id');
     $surveyDbCheck->execute([':id' => $fixtureIds['survey']]);
     graduation_http_assert((int) $surveyDbCheck->fetchColumn() === 0, 'survey and its dependent rows stay deleted after refetch');
@@ -418,7 +418,7 @@ try {
     graduation_http_assert($restoreRegistry['status'] === 200, 'alumni registry Restore returns the record to the active list');
     graduation_http_request('alumni-registry/index.php', $alumniSession, 'DELETE', ['id' => $fixtureIds['registry']]);
     $deleteRegistry = graduation_http_request('alumni-registry/index.php?action=permanent_delete', $alumniSession, 'DELETE', ['id' => $fixtureIds['registry']]);
-    graduation_http_assert($deleteRegistry['status'] === 200, 'authorized Alumni Admin permanently deletes an archived registry record');
+    graduation_http_assert($deleteRegistry['status'] === 200, 'authorized Alumni President permanently deletes an archived registry record');
     $registryDbCheck = $db->prepare('SELECT COUNT(*) FROM registered_alumni WHERE id = :id');
     $registryDbCheck->execute([':id' => $fixtureIds['registry']]);
     graduation_http_assert((int) $registryDbCheck->fetchColumn() === 0, 'alumni registry row stays deleted after an archive refetch');

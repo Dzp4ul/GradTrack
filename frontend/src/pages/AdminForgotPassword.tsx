@@ -262,7 +262,7 @@ export default function AdminForgotPassword() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">Admin Email</label>
+            <label className="block text-sm font-semibold text-gray-700 mb-1">Personnel Email</label>
             <input
               type="email"
               value={form.email}

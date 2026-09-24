@@ -1,0 +1,11 @@
+[Unit]
+Description=Enforce GradTrack graduate inactivity status daily
+
+[Timer]
+OnCalendar=*-*-* 00:15:00 Asia/Manila
+Persistent=true
+RandomizedDelaySec=10m
+Unit=gradtrack-account-status.service
+
+[Install]
+WantedBy=timers.target

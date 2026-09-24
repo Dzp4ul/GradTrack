@@ -7,7 +7,7 @@ require_once __DIR__ . '/../config/graduation_years.php';
 
 $database = new Database();
 $db = $database->getConnection();
-$authUser = gradtrack_require_admin_auth($db, ['admin'], 'Only Admin accounts can access predictive analytics');
+$authUser = gradtrack_require_admin_auth($db, ['research_coordinator'], 'Only the Research Coordinator can access predictive analytics');
 
 try {
     $surveyStmt = $db->query(

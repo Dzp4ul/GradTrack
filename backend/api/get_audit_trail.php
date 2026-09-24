@@ -3,6 +3,7 @@ require_once __DIR__ . '/config/cors.php';
 require_once __DIR__ . '/config/database.php';
 require_once __DIR__ . '/config/audit_trail.php';
 require_once __DIR__ . '/config/admin_auth.php';
+require_once __DIR__ . '/config/admin_roles.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     http_response_code(405);
@@ -87,7 +88,7 @@ function gradtrack_audit_write_csv(array $rows, array $filters): void
 
 $database = new Database();
 $db = $database->getConnection();
-$authUser = gradtrack_require_admin_auth($db, ['super_admin'], 'You do not have permission to view the audit trail');
+$authUser = gradtrack_require_admin_auth($db, gradtrack_system_admin_roles(), 'Only the Admin can view the audit trail');
 $role = (string) $authUser['role'];
 gradtrack_ensure_audit_trail_table($db);
 

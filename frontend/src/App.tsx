@@ -40,11 +40,7 @@ import { GraduateAuthProvider, useGraduateAuth } from './contexts/GraduateAuthCo
 import { GraduateProtectedRoute } from './lib/GraduateProtectedRoute';
 import { useSystemSettings } from './contexts/SystemSettingsContext';
 import ScrollToTop from './components/ScrollToTop';
-
-const SUPER_ADMIN_ROLES = ['super_admin'];
-const ADMIN_ROLES = ['admin'];
-const ALUMNI_ADMIN_ROLES = ['alumni_admin'];
-const DEAN_ROLES = ['dean_cs', 'dean_coed', 'dean_hm'];
+import { ADMIN_ROLES, ALUMNI_PRESIDENT_ROLES, DEAN_ROLES, JOB_POSTING_ROLES, RESEARCH_COORDINATOR_ROLES, ROLES } from './config/roles';
 
 function PublicPage({ children }: { children: ReactNode }) {
   const { isMaintenanceMode, isLoading } = useSystemSettings();
@@ -90,19 +86,19 @@ function HomeRoute() {
 function AdminHome() {
   const { user } = useAuth();
 
-  if (user?.role === 'super_admin') {
+  if (user?.role === ROLES.ADMIN) {
     return <Navigate to="/admin/user-management" replace />;
   }
 
-  if (user?.role === 'registrar') {
+  if (user?.role === ROLES.REGISTRAR) {
     return <Navigate to="/admin/graduates" replace />;
   }
 
-  if (user?.role === 'alumni_admin') {
+  if (user?.role === ROLES.ALUMNI_PRESIDENT) {
     return <Navigate to="/admin/alumni-registered-list" replace />;
   }
 
-  if (user?.role && DEAN_ROLES.includes(user.role)) {
+  if (user?.role && (DEAN_ROLES as readonly string[]).includes(user.role)) {
     return <Dashboard />;
   }
 
@@ -112,7 +108,7 @@ function AdminHome() {
 function GraduatesRoute() {
   const { user } = useAuth();
 
-  if (user?.role === 'admin') {
+  if (user?.role === ROLES.RESEARCH_COORDINATOR) {
     return <GraduateParticipation />;
   }
 
@@ -188,7 +184,7 @@ function App() {
             <Route
               path="graduates"
               element={
-                <ProtectedRoute allowedRoles={['admin', 'registrar']}>
+                <ProtectedRoute allowedRoles={[ROLES.RESEARCH_COORDINATOR, ROLES.REGISTRAR]}>
                   <GraduatesRoute />
                 </ProtectedRoute>
               }
@@ -208,7 +204,7 @@ function App() {
             <Route
               path="job-postings"
               element={
-                <ProtectedRoute allowedRoles={ALUMNI_ADMIN_ROLES}>
+                <ProtectedRoute allowedRoles={JOB_POSTING_ROLES}>
                   <JobPostings />
                 </ProtectedRoute>
               }
@@ -216,7 +212,7 @@ function App() {
             <Route
               path="job-approvals"
               element={
-                <ProtectedRoute allowedRoles={ALUMNI_ADMIN_ROLES}>
+                <ProtectedRoute allowedRoles={ALUMNI_PRESIDENT_ROLES}>
                   <EngagementApprovals />
                 </ProtectedRoute>
               }
@@ -224,7 +220,7 @@ function App() {
             <Route
               path="alumni-registered-list"
               element={
-                <ProtectedRoute allowedRoles={ALUMNI_ADMIN_ROLES}>
+                <ProtectedRoute allowedRoles={ALUMNI_PRESIDENT_ROLES}>
                   <AlumniRegisteredList />
                 </ProtectedRoute>
               }
@@ -232,7 +228,7 @@ function App() {
             <Route
               path="forum-moderation"
               element={
-                <ProtectedRoute allowedRoles={ALUMNI_ADMIN_ROLES}>
+                <ProtectedRoute allowedRoles={ALUMNI_PRESIDENT_ROLES}>
                   <ForumModeration />
                 </ProtectedRoute>
               }
@@ -240,7 +236,7 @@ function App() {
             <Route
               path="surveys"
               element={
-                <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+                <ProtectedRoute allowedRoles={RESEARCH_COORDINATOR_ROLES}>
                   <Surveys />
                 </ProtectedRoute>
               }
@@ -248,7 +244,7 @@ function App() {
             <Route
               path="surveys/:id"
               element={
-                <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+                <ProtectedRoute allowedRoles={RESEARCH_COORDINATOR_ROLES}>
                   <SurveyDetail />
                 </ProtectedRoute>
               }
@@ -256,7 +252,7 @@ function App() {
             <Route
               path="surveys/:surveyId/responses"
               element={
-                <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+                <ProtectedRoute allowedRoles={RESEARCH_COORDINATOR_ROLES}>
                   <SurveyResponses />
                 </ProtectedRoute>
               }
@@ -264,7 +260,7 @@ function App() {
             <Route
               path="surveys/:surveyId/analytics"
               element={
-                <ProtectedRoute allowedRoles={ADMIN_ROLES}>
+                <ProtectedRoute allowedRoles={RESEARCH_COORDINATOR_ROLES}>
                   <SurveyAnalytics />
                 </ProtectedRoute>
               }
@@ -272,7 +268,7 @@ function App() {
             <Route
               path="reports"
               element={
-                <ProtectedRoute allowedRoles={[...ADMIN_ROLES, ...DEAN_ROLES]}>
+                <ProtectedRoute allowedRoles={[...RESEARCH_COORDINATOR_ROLES, ...DEAN_ROLES]}>
                   <Reports />
                 </ProtectedRoute>
               }
@@ -284,7 +280,7 @@ function App() {
             <Route
               path="system-settings"
               element={
-                <ProtectedRoute allowedRoles={SUPER_ADMIN_ROLES}>
+                <ProtectedRoute allowedRoles={ADMIN_ROLES}>
                   <Settings />
                 </ProtectedRoute>
               }
@@ -292,7 +288,7 @@ function App() {
             <Route
               path="backup-database"
               element={
-                <ProtectedRoute allowedRoles={SUPER_ADMIN_ROLES}>
+                <ProtectedRoute allowedRoles={ADMIN_ROLES}>
                   <BackupDatabase />
                 </ProtectedRoute>
               }
@@ -300,7 +296,7 @@ function App() {
             <Route
               path="user-management"
               element={
-                <ProtectedRoute allowedRoles={SUPER_ADMIN_ROLES}>
+                <ProtectedRoute allowedRoles={ADMIN_ROLES}>
                   <UserManagement />
                 </ProtectedRoute>
               }
@@ -308,7 +304,7 @@ function App() {
             <Route
               path="auto-reminders"
               element={
-                <ProtectedRoute allowedRoles={SUPER_ADMIN_ROLES}>
+                <ProtectedRoute allowedRoles={ADMIN_ROLES}>
                   <AutoReminders />
                 </ProtectedRoute>
               }
@@ -316,7 +312,7 @@ function App() {
             <Route
               path="audit-trail"
               element={
-                <ProtectedRoute allowedRoles={SUPER_ADMIN_ROLES}>
+                <ProtectedRoute allowedRoles={ADMIN_ROLES}>
                   <AuditTrail />
                 </ProtectedRoute>
               }
@@ -324,7 +320,7 @@ function App() {
             <Route
               path="announcements"
               element={
-                <ProtectedRoute allowedRoles={ALUMNI_ADMIN_ROLES}>
+                <ProtectedRoute allowedRoles={ALUMNI_PRESIDENT_ROLES}>
                   <Announcements />
                 </ProtectedRoute>
               }

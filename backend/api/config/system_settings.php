@@ -323,7 +323,7 @@ if (!function_exists('gradtrack_system_feature_enabled')) {
 if (!function_exists('gradtrack_system_block_if_maintenance')) {
     function gradtrack_system_block_if_maintenance(PDO $db, string $role = ''): void
     {
-        if (!gradtrack_system_maintenance_enabled($db) || $role === 'super_admin') {
+        if (!gradtrack_system_maintenance_enabled($db) || $role === 'admin') {
             return;
         }
 

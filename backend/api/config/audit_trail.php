@@ -50,9 +50,9 @@ if (!function_exists('gradtrack_audit_allowed_role_map')) {
     function gradtrack_audit_allowed_role_map(): array
     {
         return [
-            'super_admin' => ['category' => 'system_administrator', 'label' => 'System Administrator'],
-            'admin' => ['category' => 'admin', 'label' => 'Admin'],
-            'alumni_admin' => ['category' => 'alumni_administrator', 'label' => 'Alumni Administrator'],
+            'admin' => ['category' => 'system_administrator', 'label' => 'Admin'],
+            'research_coordinator' => ['category' => 'research_coordinator', 'label' => 'Research Coordinator'],
+            'alumni_president' => ['category' => 'alumni_president', 'label' => 'Alumni President'],
             'registrar' => ['category' => 'registrar', 'label' => 'Registrar'],
             'dean_cs' => ['category' => 'dean', 'label' => 'Dean'],
             'dean_coed' => ['category' => 'dean', 'label' => 'Dean'],
@@ -65,9 +65,9 @@ if (!function_exists('gradtrack_audit_allowed_role_categories')) {
     function gradtrack_audit_allowed_role_categories(): array
     {
         return [
-            'system_administrator' => 'System Administrator',
-            'admin' => 'Admin',
-            'alumni_administrator' => 'Alumni Administrator',
+            'system_administrator' => 'Admin',
+            'research_coordinator' => 'Research Coordinator',
+            'alumni_president' => 'Alumni President',
             'dean' => 'Dean',
             'registrar' => 'Registrar',
         ];
@@ -91,7 +91,7 @@ if (!function_exists('gradtrack_audit_role_is_allowed')) {
 if (!function_exists('gradtrack_audit_viewer_role_is_allowed')) {
     function gradtrack_audit_viewer_role_is_allowed($role): bool
     {
-        return (string) $role === 'super_admin';
+        return (string) $role === 'admin';
     }
 }
 
@@ -114,15 +114,6 @@ if (!function_exists('gradtrack_audit_role_filter_roles')) {
 
         $normalized = preg_replace('/[^a-z0-9]+/', '_', $filter);
         $normalized = trim((string) $normalized, '_');
-        $aliases = [
-            'system_admin' => 'system_administrator',
-            'super_administrator' => 'system_administrator',
-            'super_admin' => 'super_admin',
-            'alumni_admin' => 'alumni_admin',
-            'alumni_administrator' => 'alumni_administrator',
-        ];
-        $normalized = $aliases[$normalized] ?? $normalized;
-
         $map = gradtrack_audit_allowed_role_map();
         if (isset($map[$normalized])) {
             return [$normalized];
@@ -175,8 +166,8 @@ if (!function_exists('gradtrack_audit_registrar_modules')) {
     }
 }
 
-if (!function_exists('gradtrack_audit_alumni_admin_modules')) {
-    function gradtrack_audit_alumni_admin_modules(): array
+if (!function_exists('gradtrack_audit_alumni_president_modules')) {
+    function gradtrack_audit_alumni_president_modules(): array
     {
         return ['Community Forum', 'Job Posting', 'Alumni Registered List'];
     }
@@ -481,9 +472,9 @@ if (!function_exists('gradtrack_audit_role_label_case_sql')) {
     function gradtrack_audit_role_label_case_sql(): string
     {
         return "CASE
-            WHEN user_role = 'super_admin' THEN 'System Administrator'
             WHEN user_role = 'admin' THEN 'Admin'
-            WHEN user_role = 'alumni_admin' THEN 'Alumni Administrator'
+            WHEN user_role = 'research_coordinator' THEN 'Research Coordinator'
+            WHEN user_role = 'alumni_president' THEN 'Alumni President'
             WHEN user_role = 'registrar' THEN 'Registrar'
             WHEN user_role IN ('dean_cs', 'dean_coed', 'dean_hm') THEN 'Dean'
             ELSE user_role
@@ -532,9 +523,9 @@ if (!function_exists('gradtrack_audit_build_conditions')) {
             }
             $where[] = '(' . implode(' OR ', $scopeParts) . ')';
             $scope = 'registrar_modules';
-        } elseif ($viewerRole === 'alumni_admin') {
+        } elseif ($viewerRole === 'alumni_president') {
             $scopeParts = [
-                gradtrack_audit_add_in_clause('module', gradtrack_audit_alumni_admin_modules(), $params, 'audit_alumni_module'),
+                gradtrack_audit_add_in_clause('module', gradtrack_audit_alumni_president_modules(), $params, 'audit_alumni_module'),
             ];
             if ($viewerUserId !== null) {
                 $scopeParts[] = '(user_id = :audit_viewer_user_id AND module IN (:audit_scope_auth_module, :audit_scope_export_module))';

@@ -73,10 +73,10 @@ ini_set('session.use_only_cookies', '0');
 ini_set('session.use_strict_mode', '0');
 session_cache_limiter('');
 
-$adminId = (int) ($db->query("SELECT id FROM admin_users WHERE role = 'alumni_admin' AND is_active = 1 ORDER BY id ASC LIMIT 1")
+$adminId = (int) ($db->query("SELECT id FROM admin_users WHERE role = 'alumni_president' AND is_active = 1 ORDER BY id ASC LIMIT 1")
     ->fetchColumn() ?: 0);
 if ($adminId <= 0) {
-    echo 'SKIP: An active Alumni Admin account is required.' . PHP_EOL;
+    echo 'SKIP: An active Alumni President account is required.' . PHP_EOL;
     ob_end_flush();
     exit(0);
 }
@@ -184,7 +184,7 @@ try {
 
     $otherStmt = $db->prepare("SELECT id FROM admin_users
                                WHERE id <> :id AND is_active = 1
-                                 AND role IN ('admin','super_admin','alumni_admin','registrar','dean_cs','dean_coed','dean_hm')
+                                 AND role IN ('research_coordinator','alumni_president','registrar','dean_cs','dean_coed','dean_hm')
                                ORDER BY id ASC LIMIT 1");
     $otherStmt->execute([':id' => $adminId]);
     $otherAdminId = (int) ($otherStmt->fetchColumn() ?: 0);

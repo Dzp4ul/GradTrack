@@ -91,7 +91,7 @@ export const API_ENDPOINTS = {
     DOCUMENTS: `${API_ROOT}/alumni-rating/documents.php`,
   },
   FORUM_AI_MODERATE: `${API_ROOT}/forum/ai-moderate.php`,
-  SUPER_ADMIN: {
-    AUTO_REMINDERS: `${API_ROOT}/super-admin/auto-reminders.php`,
+  RESEARCH_COORDINATOR: {
+    AUTO_REMINDERS: `${API_ROOT}/research-coordinator/auto-reminders.php`,
   },
 };

@@ -88,7 +88,7 @@ export default function AutoReminders() {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const response = await fetch(`${API_ENDPOINTS.SUPER_ADMIN.AUTO_REMINDERS}?action=status`, {
+      const response = await fetch(`${API_ENDPOINTS.RESEARCH_COORDINATOR.AUTO_REMINDERS}?action=status`, {
         credentials: 'include',
       });
       const data = await response.json();
@@ -103,7 +103,7 @@ export default function AutoReminders() {
 
   const fetchLogs = useCallback(async () => {
     try {
-      const response = await fetch(`${API_ENDPOINTS.SUPER_ADMIN.AUTO_REMINDERS}?action=logs&limit=50`, {
+      const response = await fetch(`${API_ENDPOINTS.RESEARCH_COORDINATOR.AUTO_REMINDERS}?action=logs&limit=50`, {
         credentials: 'include',
       });
       const data = await response.json();
@@ -117,7 +117,7 @@ export default function AutoReminders() {
 
   const fetchEligible = useCallback(async () => {
     try {
-      const response = await fetch(`${API_ENDPOINTS.SUPER_ADMIN.AUTO_REMINDERS}?action=eligible`, {
+      const response = await fetch(`${API_ENDPOINTS.RESEARCH_COORDINATOR.AUTO_REMINDERS}?action=eligible`, {
         credentials: 'include',
       });
       const data = await response.json();
@@ -137,7 +137,7 @@ export default function AutoReminders() {
   const handleSendReminders = async () => {
     setSending(true);
     try {
-      const response = await fetch(API_ENDPOINTS.SUPER_ADMIN.AUTO_REMINDERS, {
+      const response = await fetch(API_ENDPOINTS.RESEARCH_COORDINATOR.AUTO_REMINDERS, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -184,7 +184,7 @@ export default function AutoReminders() {
   const handleUpdateSettings = async () => {
     setSaving(true);
     try {
-      const response = await fetch(API_ENDPOINTS.SUPER_ADMIN.AUTO_REMINDERS, {
+      const response = await fetch(API_ENDPOINTS.RESEARCH_COORDINATOR.AUTO_REMINDERS, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',

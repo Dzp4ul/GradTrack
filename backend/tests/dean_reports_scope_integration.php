@@ -103,7 +103,7 @@ register_shutdown_function('dean_reports_cleanup');
 $db = (new Database())->getConnection();
 $csDean = dean_reports_admin_for_role($db, 'dean_cs');
 $coedDean = dean_reports_admin_for_role($db, 'dean_coed');
-$researchAdmin = dean_reports_admin_for_role($db, 'admin');
+$researchAdmin = dean_reports_admin_for_role($db, 'research_coordinator');
 
 dean_reports_assert($csDean !== null, 'a CCS Dean fixture account is available');
 dean_reports_assert($coedDean !== null, 'a COED Dean fixture account is available');

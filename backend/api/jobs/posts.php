@@ -7,6 +7,7 @@ require_once __DIR__ . '/../config/engagement_approval.php';
 require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../config/storage.php';
 require_once __DIR__ . '/../config/admin_auth.php';
+require_once __DIR__ . '/../config/admin_roles.php';
 require_once __DIR__ . '/../config/realtime.php';
 
 function gradtrack_jobs_request_data(): array
@@ -33,7 +34,7 @@ function gradtrack_jobs_current_actor(PDO $db): ?array
     }
 
     $admin = gradtrack_current_admin_user($db);
-    if ($admin && (string) ($admin['role'] ?? '') === 'alumni_admin') {
+    if ($admin && in_array((string) ($admin['role'] ?? ''), gradtrack_job_posting_admin_roles(), true)) {
         return ['type' => 'admin', 'id' => (int) $admin['id'], 'user' => $admin];
     }
 
@@ -44,11 +45,24 @@ function gradtrack_jobs_require_actor(PDO $db): array
 {
     $actor = gradtrack_jobs_current_actor($db);
     if (!$actor) {
-        http_response_code(401);
-        echo json_encode(['success' => false, 'error' => 'Graduate or Alumni Admin authentication required']);
+        $admin = gradtrack_current_admin_user($db);
+        $status = $admin === null ? 401 : 403;
+        http_response_code($status);
+        echo json_encode([
+            'success' => false,
+            'error' => $admin === null
+                ? 'Graduate or authorized personnel authentication required'
+                : 'Your personnel role is not authorized to manage job postings',
+        ]);
         exit;
     }
     return $actor;
+}
+
+function gradtrack_jobs_actor_can_auto_approve(array $actor): bool
+{
+    return $actor['type'] === 'admin'
+        && in_array((string) ($actor['user']['role'] ?? ''), gradtrack_job_posting_auto_approval_roles(), true);
 }
 
 function gradtrack_jobs_select_sql(): string
@@ -68,7 +82,7 @@ function gradtrack_jobs_select_sql(): string
                        NULLIF(TRIM(CONCAT_WS(' ', gp.first_name, gp.middle_name, gp.last_name)), ''),
                        NULLIF(TRIM(CONCAT_WS(' ', g.first_name, g.middle_name, g.last_name)), ''),
                        NULLIF(TRIM(admin.full_name), ''),
-                       'Alumni Admin'
+                       'GradTrack Personnel'
                    ) AS poster_full_name,
                    COALESCE(NULLIF(gp.program_course, ''), p.name) AS poster_program_name,
                    p.code AS poster_program_code, gpi.file_path AS poster_profile_image_path
@@ -563,6 +577,7 @@ try {
     if ($method === 'POST') {
         $actor = gradtrack_jobs_require_actor($db);
         $user = $actor['user'];
+        $autoApprove = gradtrack_jobs_actor_can_auto_approve($actor);
         if ($actor['type'] === 'graduate') {
             gradtrack_require_feature_access($db, $user, 'job_posting');
         }
@@ -627,9 +642,9 @@ try {
                 ':application_link' => $applicationLink,
                 ':application_method' => $applicationMethod,
                 ':is_active' => $isActive,
-                ':approval_status' => $actor['type'] === 'admin' ? 'approved' : 'pending',
-                ':approval_reviewed_by' => $actor['type'] === 'admin' ? $actor['id'] : null,
-                ':approval_reviewed_at' => $actor['type'] === 'admin' ? date('Y-m-d H:i:s') : null,
+                ':approval_status' => $autoApprove ? 'approved' : 'pending',
+                ':approval_reviewed_by' => $autoApprove ? $actor['id'] : null,
+                ':approval_reviewed_at' => $autoApprove ? date('Y-m-d H:i:s') : null,
             ]);
 
             $newJobId = (int) $db->lastInsertId();
@@ -686,24 +701,24 @@ try {
                 $auditUser['department'],
                 'Create',
                 'Job Posting',
-                "Created Alumni Admin job posting with record ID {$newJobId}.",
+                'Created ' . gradtrack_role_label((string) ($user['role'] ?? '')) . " job posting with record ID {$newJobId}.",
                 $newJobId
             );
         }
 
         $createdJob = gradtrack_jobs_find($db, $newJobId, true);
-        gradtrack_realtime_publish('job', $actor['type'] === 'admin' && $isActive === 1 ? 'created' : 'updated', $newJobId, [
+        gradtrack_realtime_publish('job', $autoApprove && $isActive === 1 ? 'created' : 'updated', $newJobId, [
             'actor_type' => $actor['type'],
             'actor_id' => (int) $actor['id'],
         ]);
 
         echo json_encode([
             'success' => true,
-            'message' => $actor['type'] === 'admin'
+            'message' => $autoApprove
                 ? ($isActive === 1 ? 'Job post published successfully' : 'Job post saved as inactive')
                 : 'Job post submitted for approval',
             'id' => $newJobId,
-            'approval_status' => $actor['type'] === 'admin' ? 'approved' : 'pending',
+            'approval_status' => $autoApprove ? 'approved' : 'pending',
             'data' => $createdJob,
         ]);
         exit;
@@ -712,6 +727,7 @@ try {
     if ($method === 'PUT') {
         $actor = gradtrack_jobs_require_actor($db);
         $user = $actor['user'];
+        $autoApprove = gradtrack_jobs_actor_can_auto_approve($actor);
         if ($actor['type'] === 'graduate') {
             gradtrack_require_feature_access($db, $user, 'job_posting');
         }
@@ -824,9 +840,9 @@ try {
             $updateStmt->bindParam(':application_link', $applicationLink);
             $updateStmt->bindParam(':application_method', $applicationMethod);
             $updateStmt->bindParam(':is_active', $isActive);
-            $approvalStatus = $actor['type'] === 'admin' ? 'approved' : 'pending';
-            $approvalReviewedBy = $actor['type'] === 'admin' ? (int) $actor['id'] : null;
-            $approvalReviewedAt = $actor['type'] === 'admin' ? date('Y-m-d H:i:s') : null;
+            $approvalStatus = $autoApprove ? 'approved' : 'pending';
+            $approvalReviewedBy = $autoApprove ? (int) $actor['id'] : null;
+            $approvalReviewedAt = $autoApprove ? date('Y-m-d H:i:s') : null;
             $updateStmt->bindParam(':approval_status', $approvalStatus);
             $updateStmt->bindParam(':approval_reviewed_by', $approvalReviewedBy);
             $updateStmt->bindParam(':approval_reviewed_at', $approvalReviewedAt);
@@ -904,7 +920,7 @@ try {
                 $auditUser['department'],
                 'Update',
                 'Job Posting',
-                "Updated Alumni Admin job posting with record ID {$jobId}.",
+                'Updated ' . gradtrack_role_label((string) ($user['role'] ?? '')) . " job posting with record ID {$jobId}.",
                 $jobId
             );
         }
@@ -917,10 +933,10 @@ try {
 
         echo json_encode([
             'success' => true,
-            'message' => $actor['type'] === 'admin'
+            'message' => $autoApprove
                 ? ($isActive === 1 ? 'Job post published successfully' : 'Job post archived successfully')
                 : 'Job post submitted for approval',
-            'approval_status' => $actor['type'] === 'admin' ? 'approved' : 'pending',
+            'approval_status' => $autoApprove ? 'approved' : 'pending',
             'data' => $updatedJob,
         ]);
         exit;
@@ -1002,7 +1018,7 @@ try {
                 $auditUser['department'],
                 'Delete',
                 'Job Posting',
-                "Deleted Alumni Admin job posting with record ID {$jobId}.",
+                "Deleted Alumni President job posting with record ID {$jobId}.",
                 $jobId
             );
         }

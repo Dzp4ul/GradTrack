@@ -1,5 +1,5 @@
 -- GRADTRACK Alumni Registered List registry tables.
--- Run against the GradTrack database before using the Alumni Admin import page.
+-- Run against the GradTrack database before using the Alumni President import page.
 
 INSERT INTO programs (name, code, description)
 SELECT 'Bachelor of Science in Computer Science', 'BSCS', 'Official alumni registry course mapping'

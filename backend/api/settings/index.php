@@ -4,15 +4,16 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/system_settings.php';
 require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../config/admin_auth.php';
+require_once __DIR__ . '/../config/admin_roles.php';
 
 $database = new Database();
 $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
 $scope = strtolower(trim((string) ($_GET['scope'] ?? $_GET['action'] ?? 'admin')));
 
-function gradtrack_settings_require_super_admin(PDO $db): array
+function gradtrack_settings_require_admin(PDO $db): array
 {
-    return gradtrack_require_admin_auth($db, ['super_admin'], 'Only super admin can manage system settings');
+    return gradtrack_require_admin_auth($db, gradtrack_system_admin_roles(), 'Only the Admin can manage system settings');
 }
 
 function gradtrack_settings_request_payload(): array
@@ -107,7 +108,7 @@ try {
         exit;
     }
 
-    $authUser = gradtrack_settings_require_super_admin($db);
+    $authUser = gradtrack_settings_require_admin($db);
 
     switch ($method) {
         case 'GET':
@@ -145,8 +146,8 @@ try {
 
             logAuditTrail(
                 (int) $authUser['id'],
-                trim((string) ($authUser['full_name'] ?? $authUser['username'] ?? 'Super Admin')),
-                'super_admin',
+                trim((string) ($authUser['full_name'] ?? $authUser['username'] ?? 'Admin')),
+                (string) $authUser['role'],
                 null,
                 'Update',
                 'System Settings',
@@ -184,8 +185,8 @@ try {
             $upload = gradtrack_save_system_branding_upload($db, $imageType, $file, (int) $authUser['id']);
             logAuditTrail(
                 (int) $authUser['id'],
-                trim((string) ($authUser['full_name'] ?? $authUser['username'] ?? 'Super Admin')),
-                'super_admin',
+                trim((string) ($authUser['full_name'] ?? $authUser['username'] ?? 'Admin')),
+                (string) $authUser['role'],
                 null,
                 'Upload',
                 'System Settings',

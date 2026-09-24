@@ -2,6 +2,8 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/admin_auth.php';
+require_once __DIR__ . '/../config/admin_roles.php';
+require_once __DIR__ . '/../config/audit_trail.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     http_response_code(405);
@@ -11,7 +13,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 
 $database = new Database();
 $db = $database->getConnection();
-$authUser = gradtrack_require_admin_auth($db, ['super_admin'], 'Only super admin can back up the database');
+$authUser = gradtrack_require_admin_auth($db, gradtrack_system_admin_roles(), 'Only the Admin can back up the database');
 $action = isset($_GET['action']) ? trim((string) $_GET['action']) : 'summary';
 
 function quoteIdentifier(string $identifier): string
@@ -158,6 +160,20 @@ try {
     $tables = getTableStats($db, $databaseName);
 
     if ($action === 'download') {
+        $auditUser = gradtrack_admin_audit_context($authUser);
+        logAuditTrail(
+            $auditUser['user_id'],
+            $auditUser['user_name'],
+            $auditUser['user_role'],
+            $auditUser['department'],
+            'Generate',
+            'Backup Database',
+            'Initiated a full database backup.',
+            null,
+            null,
+            null,
+            ['table_count' => count($tables)]
+        );
         streamDatabaseBackup($db, $databaseName, $tables);
         exit;
     }

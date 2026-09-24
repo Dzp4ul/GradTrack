@@ -542,7 +542,7 @@ function getSurveyResponseCount(PDO $db, ?int $surveyId): int
 
 if (!defined('GRADTRACK_REPORTS_INDEX_NO_RUN')) {
 try {
-    $reportRoles = array_merge(['admin'], gradtrack_dean_roles());
+    $reportRoles = array_merge(['research_coordinator'], gradtrack_dean_roles());
     $authUser = gradtrack_require_admin_auth($db, $reportRoles, 'Only authorized report accounts can access reports and analytics');
     $auditUser = gradtrack_admin_audit_context($authUser);
     $reportType = isset($_GET['type']) ? $_GET['type'] : 'overview';

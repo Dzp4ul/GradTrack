@@ -28,10 +28,10 @@ function gradtrack_genai_json_response(array $data): void
 
 function gradtrack_genai_role_policies(): array
 {
-    return [
-        'admin' => [
-            'label' => 'Admin',
-            'welcome' => 'I can help with the Admin dashboard, graduate survey participation, Survey Management, and Reports & Analytics.',
+    $policies = [
+        'research_coordinator_tracer' => [
+            'label' => 'Research Coordinator',
+            'welcome' => 'I can help with the Research Coordinator dashboard, graduate survey participation, Survey Management, and Reports & Analytics.',
             'features' => [
                 'dashboard' => [
                     'label' => 'Dashboard',
@@ -49,7 +49,7 @@ function gradtrack_genai_role_policies(): array
                         'Notify nonrespondents: set Status to Not Answered, select eligible graduates or click Select All No Response, edit Email Message if needed, then click Notify Selected.',
                     ],
                     'limitations' => [
-                        'Admins monitor participation here; they cannot submit a survey response on behalf of a graduate.',
+                        'Research Coordinators monitor participation here; they cannot submit a survey response on behalf of a graduate.',
                         'There is no control for deleting an individual submitted response on this page.',
                         'The survey selector shows the active survey and is not editable on this page.',
                     ],
@@ -85,15 +85,15 @@ function gradtrack_genai_role_policies(): array
                 'Create a PDF report',
             ],
         ],
-        'super_admin' => [
-            'label' => 'Super Admin',
-            'welcome' => 'I can help with Super Admin account, reminder, audit, backup, and system configuration workflows.',
+        'research_coordinator' => [
+            'label' => 'Research Coordinator',
+            'welcome' => 'I can help with Research Coordinator account, reminder, audit, backup, and system configuration workflows.',
             'features' => [
                 'user_management' => [
                     'label' => 'User Management',
                     'route' => '/admin/user-management',
-                    'description' => 'Search administrator accounts, create or edit an account, assign an available role, and activate or deactivate accounts.',
-                    'keywords' => ['user management', 'administrator account', 'admin account', 'manage account', 'role management', 'assign role', 'activate user', 'deactivate user'],
+                    'description' => 'Search personnel accounts, create or edit an account, assign an available role, and activate or deactivate accounts.',
+                    'keywords' => ['user management', 'personnel account', 'manage personnel', 'administrator account', 'admin account', 'manage account', 'role management', 'assign role', 'activate user', 'deactivate user'],
                     'data_scope' => 'system_user_summary',
                 ],
                 'auto_reminders' => [
@@ -122,15 +122,15 @@ function gradtrack_genai_role_policies(): array
                 ],
             ],
             'suggestions' => [
-                'How do I manage administrator accounts?',
+                'How do I manage personnel accounts?',
                 'How do I configure email reminders?',
                 'How do I review the audit trail?',
                 'How do I create a database backup?',
                 'Where are the system settings?',
             ],
         ],
-        'alumni_admin' => [
-            'label' => 'Alumni Admin',
+        'alumni_president' => [
+            'label' => 'Alumni President',
             'welcome' => 'I can help with alumni verification, announcements, forum moderation, and job approvals.',
             'features' => [
                 'alumni_verification' => [
@@ -281,6 +281,16 @@ function gradtrack_genai_role_policies(): array
             ],
         ],
     ];
+
+    $tracerPolicy = $policies['research_coordinator_tracer'];
+    $systemAdminPolicy = $policies['research_coordinator'];
+    $systemAdminPolicy['label'] = 'Admin';
+    $systemAdminPolicy['welcome'] = 'I can help with User Management, reminders, audit, backup, and system settings.';
+    $policies['admin'] = $systemAdminPolicy;
+    $policies['research_coordinator'] = $tracerPolicy;
+    unset($policies['research_coordinator_tracer']);
+
+    return $policies;
 }
 
 function gradtrack_genai_current_admin(PDO $db): array
@@ -346,9 +356,9 @@ function gradtrack_genai_authorized_role_context(
         : [];
     $role = (string)$admin['role'];
     $scopeNotes = [
-        'admin' => 'Institution-wide survey participation and tracer-study analytics, limited to the Admin pages and aggregate data tools.',
+        'research_coordinator' => 'Institution-wide tracer, survey, reporting, job-posting, and system-administration access for the Research Coordinator.',
         'registrar' => 'Institution-wide non-archived graduate records available through Manage Graduates.',
-        'alumni_admin' => 'Institution-wide alumni verification, registry, announcement, forum-moderation, and job-approval workflows.',
+        'alumni_president' => 'Institution-wide alumni verification, registry, announcement, forum-moderation, and job-approval workflows.',
         'dean_cs' => 'Active-survey participation is limited to the Dean role\'s assigned programs.',
         'dean_coed' => 'Active-survey participation is limited to the Dean role\'s assigned programs.',
         'dean_hm' => 'Active-survey participation is limited to the Dean role\'s assigned programs.',
@@ -425,7 +435,7 @@ function gradtrack_genai_special_workflow_response(string $message, array $admin
     $asksToCompleteSurvey = preg_match('/\b(answer|complete|fill\s*out|take|submit)\b.{0,35}\bsurvey\b|\bsurvey\b.{0,35}\b(answer|complete|fill\s*out|take|submit)\b/i', $text) === 1
         || preg_match('/\b(sagutan|sasagutan|sagutin|kumpletuhin)\b.{0,35}\bsurvey\b|\bsurvey\b.{0,35}\b(sagutan|sasagutan|sagutin|kumpletuhin)\b/ui', $text) === 1;
     if ($asksToCompleteSurvey) {
-        $hasMonitoring = in_array($admin['role'], ['admin', 'dean_cs', 'dean_coed', 'dean_hm'], true);
+        $hasMonitoring = in_array($admin['role'], ['research_coordinator', 'dean_cs', 'dean_coed', 'dean_hm'], true);
         if ($filipino) {
             $answer = 'Hindi nagsa-submit ng survey answer ang ' . $policy['label'] . ' mula sa admin page. Ang graduate ang magbubukas ng survey link, pipili ng Student Number o Email sa Verify Your Identity, ilalagay ang identifier, last name, at program, at iki-click ang Verify & Continue. Pagkatapos, sasagutan ang bawat section gamit ang Next at iki-click ang Submit Survey sa huling section.';
             if ($hasMonitoring) $answer .= ' Sa account mo, gamitin ang Survey Participation para tingnan ang status o View Answers at mag-notify ng nonrespondents.';
@@ -439,7 +449,7 @@ function gradtrack_genai_special_workflow_response(string $message, array $admin
     $asksToDeleteResponse = preg_match('/\b(delete|remove)\b.{0,35}\b(survey\s+)?(responses?|answers?|submissions?)\b|\b(survey\s+)?(responses?|answers?|submissions?)\b.{0,35}\b(delete|remove)\b/i', $text) === 1
         || preg_match('/\b(burahin|tanggalin)\b.{0,35}\b(response|sagot|submission)\b|\b(response|sagot|submission)\b.{0,35}\b(burahin|tanggalin)\b/ui', $text) === 1;
     if ($asksToDeleteResponse) {
-        if ($admin['role'] === 'admin') {
+        if ($admin['role'] === 'research_coordinator') {
             $answer = $filipino
                 ? 'Walang button sa GradTrack para burahin ang isang individual survey response. Kung kailangang alisin ang buong survey at lahat ng responses nito, pumunta sa Survey Management, i-archive ang survey, buksan ang Archive tab, piliin ang Delete permanently, at kumpirmahin. Permanent at hindi na mababawi ang aksiyong ito.'
                 : 'GradTrack has no button for deleting one individual survey response. To remove an entire survey and all of its responses, open Survey Management, archive the survey, open the Archive tab, choose Delete permanently, and confirm. This is irreversible.';
@@ -500,11 +510,10 @@ function gradtrack_genai_role_family(string $role): string
 function gradtrack_genai_detect_requested_role(string $message): ?string
 {
     $rolePatterns = [
-        'super_admin' => '/\bsuper[\s-]*admin(?:istrator)?\b/i',
-        'alumni_admin' => '/\balumni[\s-]*admin(?:istrator)?\b/i',
+        'research_coordinator' => '/\bresearch[\s-]*coordinator\b/i',
+        'alumni_president' => '/\balumni[\s-]*president\b/i',
         'registrar' => '/\bregistrar\b/i',
         'dean' => '/\bdean\b/i',
-        'admin' => '/\badmin(?:istrator)?(?:-only)?\s+(?:features?|permissions?|portal|functions?|chatbot|role)\b/i',
     ];
 
     foreach ($rolePatterns as $role => $pattern) {
@@ -519,7 +528,7 @@ function gradtrack_genai_detect_requested_role(string $message): ?string
 function gradtrack_genai_message_has_security_request(string $message): bool
 {
     return preg_match('/\b(ignore (?:all |my |the )?(?:previous |prior |current )?(?:instructions?|role|permissions?)|pretend (?:that )?i am|developer mode|bypass (?:my |the )?(?:role|permissions?)|override (?:my |the )?(?:role|permissions?))\b/i', $message) === 1
-        || preg_match('/\b(act as|simulate|impersonate)\b.{0,40}\b(super[\s-]*admin|alumni[\s-]*admin|admin(?:istrator)?|registrar|dean)\b/i', $message) === 1
+        || preg_match('/\b(act as|simulate|impersonate)\b.{0,40}\b(research[\s-]*coordinator|alumni[\s-]*president|registrar|dean)\b/i', $message) === 1
         || preg_match('/\b(system prompt|api secrets?|api keys?|environment variables?|env files?|authentication tokens?|database (?:credentials?|password|configuration)|server configuration)\b/i', $message) === 1
         || preg_match('/\b(?:give|show|list|tell)\b.{0,50}\b(?:all (?:gradtrack )?permissions?|restricted features?|hidden (?:features?|menus?|routes?|permissions?))\b/i', $message) === 1;
 }
@@ -559,13 +568,18 @@ function gradtrack_genai_classify_request(string $message, string $role, array $
         return ['type' => 'restricted'];
     }
 
-    if ($role !== 'super_admin'
+    if ($role !== 'research_coordinator'
         && preg_match('/\b(system\s+users?|admin(?:istrator)?\s+accounts?|user\s+accounts?|users?\s+by\s+role|overall\s+system\s+statistics)\b/i', $message) === 1) {
         return ['type' => 'restricted'];
     }
 
-    if ($role !== 'admin'
+    if ($role !== 'research_coordinator'
         && preg_match('/\b(employed|unemployed|employment(?:\s+rate|\s+status)?|salary|income|job[-\s]?align(?:ed|ment)|alignment\s+rate)\b/i', $message) === 1) {
+        return ['type' => 'restricted'];
+    }
+
+    if ($role !== 'registrar'
+        && preg_match('/\b(add|create|edit|update|delete|remove|import)\b.{0,40}\bgraduate\s+(?:record|profile)s?\b/i', $message) === 1) {
         return ['type' => 'restricted'];
     }
 
@@ -614,7 +628,7 @@ function gradtrack_genai_classify_request(string $message, string $role, array $
         return ['type' => 'profile_help'];
     }
 
-    if (preg_match('/\b(hello|hi|help|what can (?:you|i|the admin|the super admin|the alumni admin|the registrar|the dean) (?:do|access)|available to me|my features|my permissions|where do i start)\b/i', $message) === 1) {
+    if (preg_match('/\b(hello|hi|help|what can (?:you|i|the research coordinator|the alumni president|the registrar|the dean) (?:do|access)|available to me|my features|my permissions|where do i start)\b/i', $message) === 1) {
         return ['type' => 'role_help'];
     }
 

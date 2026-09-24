@@ -4,6 +4,7 @@ import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useLightOnlyTheme } from '../contexts/theme';
 import { useSystemSettings } from '../contexts/SystemSettingsContext';
+import { ROLES } from '../config/roles';
 
 function SignIn() {
   useLightOnlyTheme();
@@ -42,11 +43,11 @@ function SignIn() {
 
     try {
       const user = await login(email, password);
-      if (user.role === 'registrar') {
+      if (user.role === ROLES.REGISTRAR) {
         navigate('/admin/graduates');
-      } else if (user.role === 'alumni_admin') {
+      } else if (user.role === ROLES.ALUMNI_PRESIDENT) {
         navigate('/admin/forum-moderation');
-      } else if (['mis_staff', 'research_coordinator'].includes(user.role)) {
+      } else if ([ROLES.MIS_STAFF, ROLES.RESEARCH_COORDINATOR].includes(user.role as typeof ROLES.MIS_STAFF | typeof ROLES.RESEARCH_COORDINATOR)) {
         navigate('/admin');
       } else if (['dean_cs', 'dean_coed', 'dean_hm'].includes(user.role)) {
         navigate('/admin');

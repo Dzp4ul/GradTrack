@@ -82,11 +82,11 @@ function gradtrack_announcements_require_actor(PDO $db): array
     return $actor;
 }
 
-function gradtrack_announcements_require_alumni_admin(array $actor): void
+function gradtrack_announcements_require_alumni_president(array $actor): void
 {
     $role = $actor['type'] === 'admin' ? (string) ($actor['user']['user_role'] ?? '') : '';
-    if ($role !== 'alumni_admin') {
-        gradtrack_announcements_json_error(403, 'Only the Alumni Admin can manage announcements');
+    if ($role !== 'alumni_president') {
+        gradtrack_announcements_json_error(403, 'Only the Alumni President can manage announcements');
     }
 }
 
@@ -450,7 +450,7 @@ try {
     }
 
     if ($method === 'POST') {
-        gradtrack_announcements_require_alumni_admin($actor);
+        gradtrack_announcements_require_alumni_president($actor);
         $data = gradtrack_announcements_request_data();
         $payload = gradtrack_announcements_validate_payload($data, $actor);
         $publishedAt = $payload['status'] === 'published' ? date('Y-m-d H:i:s') : null;
@@ -507,7 +507,7 @@ try {
     }
 
     if ($method === 'PUT') {
-        gradtrack_announcements_require_alumni_admin($actor);
+        gradtrack_announcements_require_alumni_president($actor);
         $data = gradtrack_announcements_request_data();
         $announcementId = (int) ($data['id'] ?? 0);
         if ($announcementId <= 0) {
@@ -625,7 +625,7 @@ try {
     }
 
     if ($method === 'DELETE') {
-        gradtrack_announcements_require_alumni_admin($actor);
+        gradtrack_announcements_require_alumni_president($actor);
         $data = gradtrack_announcements_request_data();
         $announcementId = (int) ($data['id'] ?? 0);
         if ($announcementId <= 0) {

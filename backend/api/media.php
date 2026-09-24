@@ -4,6 +4,7 @@ require_once __DIR__ . '/config/cors.php';
 require_once __DIR__ . '/config/storage.php';
 require_once __DIR__ . '/config/database.php';
 require_once __DIR__ . '/config/admin_auth.php';
+require_once __DIR__ . '/config/admin_roles.php';
 require_once __DIR__ . '/config/graduate_auth.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
@@ -81,17 +82,21 @@ if ($isJobRequirementsFile) {
           AND requirements_file_path = :reference
           AND (
               (is_active = 1 AND approval_status = 'approved')
-              OR (:admin_id > 0 AND created_by_admin_id = :owner_admin_id)
+              OR (:owner_check_id > 0 AND created_by_admin_id = :owner_admin_id)
+              OR (:reviewer_check_id > 0 AND approval_status = 'pending')
           )
         LIMIT 1");
-    $adminId = ($adminUser && (string) ($adminUser['role'] ?? '') === 'alumni_admin')
+    $adminRole = (string) ($adminUser['role'] ?? '');
+    $adminId = ($adminUser && in_array($adminRole, gradtrack_job_posting_admin_roles(), true))
         ? (int) $adminUser['id']
         : 0;
+    $reviewerId = $adminRole === 'alumni_president' ? $adminId : 0;
     $jobStmt->execute([
         ':id' => (int) $jobMatches[1],
         ':reference' => $reference,
-        ':admin_id' => $adminId,
+        ':owner_check_id' => $adminId,
         ':owner_admin_id' => $adminId,
+        ':reviewer_check_id' => $reviewerId,
     ]);
     $jobFile = $jobStmt->fetch(PDO::FETCH_ASSOC);
     if ($jobFile) {

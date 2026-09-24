@@ -1253,7 +1253,7 @@ function Survey() {
         isOpen: true,
         type: 'success',
         title: 'Pending Alumni Verification',
-        message: result.message || 'Your account is currently pending alumni verification. Please wait for the Alumni Admin to review and approve your account.',
+        message: result.message || 'Your account is currently pending alumni verification. Please wait for the Alumni President to review and approve your account.',
       });
 
       setTimeout(() => {
@@ -2703,7 +2703,7 @@ function Survey() {
             <div className="bg-blue-50 border-b border-blue-100 px-4 py-5 sm:px-6">
               <h3 className="text-lg font-bold text-blue-900 sm:text-xl">{getSetting('survey_completion_message', 'Your survey has been submitted successfully.')}</h3>
               <p className="text-sm text-gray-600 mt-1">
-                Create a GradTrack account now and submit it for Alumni Admin verification using the information you already provided.
+                Create a GradTrack account now and submit it for Alumni President verification using the information you already provided.
               </p>
             </div>
 
@@ -2751,7 +2751,7 @@ function Survey() {
                         isOpen: true,
                         type: 'success',
                         title: 'Survey Submitted',
-                        message: getSetting('survey_completion_message', 'Your response was saved. You can create an account later, then wait for Alumni Admin verification before accessing the Graduate Portal.'),
+                        message: getSetting('survey_completion_message', 'Your response was saved. You can create an account later, then wait for Alumni President verification before accessing the Graduate Portal.'),
                       });
                       finishSurveyFlow(true);
                     }}
@@ -2778,7 +2778,7 @@ function Survey() {
             ) : (
               <div className="p-4 space-y-4 sm:p-6">
                 <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-gray-700">
-                  Set your password to submit your Graduate Portal account for Alumni Admin verification.
+                  Set your password to submit your Graduate Portal account for Alumni President verification.
                 </div>
 
                 <div className="grid sm:grid-cols-2 gap-4 text-sm">

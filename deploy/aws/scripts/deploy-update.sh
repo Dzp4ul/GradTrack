@@ -34,6 +34,8 @@ npm --prefix "$APP_ROOT/frontend" run typecheck
 npm --prefix "$APP_ROOT/frontend" run build
 
 install -m 0644 "$APP_ROOT/deploy/aws/nginx/gradtrack-internal.conf" /etc/nginx/conf.d/gradtrack-internal.conf
+install -m 0644 "$APP_ROOT/deploy/aws/systemd/gradtrack-account-status.service" /etc/systemd/system/gradtrack-account-status.service
+install -m 0644 "$APP_ROOT/deploy/aws/systemd/gradtrack-account-status.timer" /etc/systemd/system/gradtrack-account-status.timer
 
 if [[ -r "$MIGRATION_ENV" ]]; then
     GRADTRACK_MIGRATION_ENV="$MIGRATION_ENV" \
@@ -50,6 +52,8 @@ find "$APP_ROOT" -type d -exec chmod 0750 {} +
 find "$APP_ROOT" -type f -exec chmod 0640 {} +
 chmod 0750 "$APP_ROOT/deploy/aws/scripts/verify-production.sh" "$APP_ROOT/deploy/aws/scripts/deploy-update.sh"
 
+systemctl daemon-reload
+systemctl enable --now gradtrack-account-status.timer
 systemctl restart php8.3-fpm gradtrack-realtime.service
 nginx -t
 systemctl reload nginx

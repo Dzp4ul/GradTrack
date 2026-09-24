@@ -13,7 +13,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 $database = new Database();
 $db = $database->getConnection();
-$authUser = gradtrack_require_admin_auth($db, ['admin'], 'Only Admin accounts can archive surveys');
+$authUser = gradtrack_require_admin_auth($db, ['research_coordinator'], 'Only the Research Coordinator can archive surveys');
 $auditUser = gradtrack_admin_audit_context($authUser);
 
 try {

@@ -25,7 +25,7 @@ $database = new Database();
 $db = $database->getConnection();
 $authUser = gradtrack_require_admin_auth(
     $db,
-    array_merge(['admin'], array_keys($roleProgramScopes)),
+    array_merge(['research_coordinator'], array_keys($roleProgramScopes)),
     'Only admin and dean accounts can send graduate survey reminders'
 );
 $role = (string) $authUser['role'];

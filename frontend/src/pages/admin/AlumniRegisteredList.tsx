@@ -27,6 +27,7 @@ import { createXlsxBlob, readSpreadsheet, type SpreadsheetWorkbook } from '../..
 import { normalizeGraduationYears } from '../../utils/graduationYears';
 
 type RegistryStatus = 'Unclaimed' | 'Registered' | 'Verified' | 'Inactive';
+type AccountStatus = 'active' | 'inactive' | 'disabled';
 type VerificationStatus = 'pending' | 'approved' | 'rejected';
 type AccountReviewFilter = VerificationStatus | 'all';
 type SortKey = 'name' | 'course' | 'batch' | 'import_date';
@@ -52,6 +53,7 @@ interface RegisteredAlumni {
   updated_at: string;
   linked_email?: string | null;
   linked_account_status?: string | null;
+  account_status: AccountStatus;
   linked_verification_status?: VerificationStatus | null;
   linked_verification_reason?: string | null;
   linked_verification_reviewed_at?: string | null;
@@ -99,7 +101,8 @@ interface SummaryResponse {
     programs: ProgramOption[];
     course_codes: string[];
     batch_years: number[];
-    statuses: RegistryStatus[];
+    account_statuses: AccountStatus[];
+    registry_statuses: RegistryStatus[];
   };
 }
 
@@ -240,7 +243,21 @@ const DEFAULT_IMPORT_STATE: ImportState = {
   duplicate_behavior: 'skip',
 };
 
-const statusOptions: RegistryStatus[] = ['Unclaimed', 'Registered', 'Verified', 'Inactive'];
+const accountStatusOptions: Array<{ value: AccountStatus; label: string }> = [
+  { value: 'active', label: 'Active' },
+  { value: 'inactive', label: 'Inactive' },
+  { value: 'disabled', label: 'Disabled' },
+];
+
+function AccountStatusBadge({ status }: { status: AccountStatus }) {
+  const styles: Record<AccountStatus, string> = {
+    active: 'bg-emerald-100 text-emerald-700',
+    inactive: 'bg-gray-100 text-gray-700',
+    disabled: 'bg-red-100 text-red-700',
+  };
+  return <span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${styles[status]}`}>{status[0].toUpperCase() + status.slice(1)}</span>;
+}
+const registryStatusOptions: RegistryStatus[] = ['Unclaimed', 'Registered', 'Verified', 'Inactive'];
 const courseCodeOrder = ['BSCS', 'ACT', 'BSHM', 'BSED', 'BEED'];
 const maxImportSizeBytes = 10 * 1024 * 1024;
 const surveyAnswerTabs: Array<{ value: SurveyAnswerStatus; label: string; countKey: SurveyAnswerCountKey }> = [
@@ -445,7 +462,7 @@ export default function AlumniRegisteredList() {
     if (courseId) params.set('course_id', courseId);
     if (courseCode) params.set('course_code', courseCode);
     if (batchYear) params.set('batch_year', batchYear);
-    if (statusFilter) params.set('registration_status', statusFilter);
+    if (statusFilter) params.set('account_status', statusFilter);
     if (surveyAnswerStatus !== 'all') params.set('survey_answer_status', surveyAnswerStatus);
     return params;
   }, [archiveView, batchYear, courseCode, courseId, direction, limit, page, search, sort, statusFilter, surveyAnswerStatus]);
@@ -1289,8 +1306,8 @@ export default function AlumniRegisteredList() {
             className="w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
             <option value="">All Statuses</option>
-            {statusOptions.map((status) => (
-              <option key={status} value={status}>{status}</option>
+            {accountStatusOptions.map((status) => (
+              <option key={status.value} value={status.value}>{status.label}</option>
             ))}
           </select>
           <button
@@ -1342,6 +1359,7 @@ export default function AlumniRegisteredList() {
                     <p>{record.course_name}</p>
                     <p className="font-medium text-gray-700">Batch {record.batch_year}</p>
                   </div>
+                  <div><AccountStatusBadge status={record.account_status} /></div>
                   {archiveView === 'archived' && (
                     <p className="text-xs text-gray-500">Archived {formatDateTime(record.archived_at)} by {record.archived_by_name || 'Administrator'}</p>
                   )}
@@ -1382,6 +1400,7 @@ export default function AlumniRegisteredList() {
               <col className="w-[34%]" />
               <col />
               <col className="w-28" />
+              <col className="w-28" />
               {archiveView === 'archived' && <col className="w-44" />}
               {archiveView === 'archived' && <col className="w-40" />}
               <col className="w-40" />
@@ -1392,6 +1411,7 @@ export default function AlumniRegisteredList() {
                 <SortableTh label="Alumni Name" sortKey="name" currentSort={sort} direction={direction} onSort={toggleSort} />
                 <SortableTh label="Course" sortKey="course" currentSort={sort} direction={direction} onSort={toggleSort} />
                 <SortableTh label="Batch" sortKey="batch" currentSort={sort} direction={direction} onSort={toggleSort} />
+                <th className="px-4 py-3 text-left font-semibold text-gray-600">Account Status</th>
                 {archiveView === 'archived' && <th className="px-4 py-3 text-left font-semibold text-gray-600">Date Archived</th>}
                 {archiveView === 'archived' && <th className="px-4 py-3 text-left font-semibold text-gray-600">Archived By</th>}
                 <th className="px-4 py-3 text-right font-semibold text-gray-600">Actions</th>
@@ -1399,9 +1419,9 @@ export default function AlumniRegisteredList() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={archiveView === 'archived' ? 7 : 5}><LoadingBlock label="Loading alumni records..." /></td></tr>
+                <tr><td colSpan={archiveView === 'archived' ? 8 : 6}><LoadingBlock label="Loading alumni records..." /></td></tr>
               ) : records.length === 0 ? (
-                <tr><td colSpan={archiveView === 'archived' ? 7 : 5}><EmptyBlock label={archiveView === 'archived' ? 'No archived alumni records.' : 'No official alumni records match the current filters.'} /></td></tr>
+                <tr><td colSpan={archiveView === 'archived' ? 8 : 6}><EmptyBlock label={archiveView === 'archived' ? 'No archived alumni records.' : 'No official alumni records match the current filters.'} /></td></tr>
               ) : (
                 records.map((record, index) => (
                   <tr
@@ -1423,6 +1443,7 @@ export default function AlumniRegisteredList() {
                     </td>
                     <td className="px-4 py-3 text-gray-600">{record.course_name}</td>
                     <td className="px-4 py-3 text-gray-700">{record.batch_year}</td>
+                    <td className="px-4 py-3"><AccountStatusBadge status={record.account_status} /></td>
                     {archiveView === 'archived' && <td className="px-4 py-3 text-gray-600">{formatDateTime(record.archived_at)}</td>}
                     {archiveView === 'archived' && <td className="px-4 py-3 text-gray-600">{record.archived_by_name || '-'}</td>}
                     <td className="px-4 py-3">
@@ -2041,11 +2062,11 @@ function DetailModal({
           <Info label="Course" value={record.course_name} />
           <Info label="Course Code" value={record.course_code} />
           <Info label="Batch" value={record.batch_year} />
-          <Info label="Account Status" value={record.registration_status} />
+          <Info label="Account Status" value={record.account_status} />
+          <Info label="Registry Status" value={record.registration_status} />
           <Info label="Date Imported" value={formatDateTime(record.created_at)} />
           <Info label="Source File" value={record.source_file || '-'} />
           <Info label="Linked Account" value={record.linked_email || '-'} />
-          <Info label="Portal Status" value={record.linked_account_status || '-'} />
           <Info label="Verification Status" value={record.linked_verification_status || '-'} />
           <Info label="Linked Name" value={linkedName(record) || '-'} />
           {record.linked_user_id && <Info label="Student ID" value={record.linked_student_id || '-'} />}
@@ -2152,13 +2173,13 @@ function EditModal({
               />
             </Field>
           </div>
-          <Field label="Account Status">
+          <Field label="Registry Record Status">
             <select
               value={form.registration_status}
               onChange={(event) => onChange({ ...form, registration_status: event.target.value as RegistryStatus })}
               className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              {statusOptions.map((status) => (
+              {registryStatusOptions.map((status) => (
                 <option key={status} value={status}>{status}</option>
               ))}
             </select>

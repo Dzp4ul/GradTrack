@@ -177,7 +177,7 @@ try {
     http_response_code(201);
     echo json_encode([
         'success' => true,
-        'message' => 'Your account is currently pending alumni verification. Please wait for the Alumni Admin to review and approve your account.',
+        'message' => 'Your account is currently pending alumni verification. Please wait for the Alumni President to review and approve your account.',
         'account_status' => 'pending_verification',
         'alumni_verification_status' => 'pending',
         'data' => [

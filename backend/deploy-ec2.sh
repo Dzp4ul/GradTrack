@@ -56,6 +56,8 @@ rm -f /etc/nginx/sites-enabled/default
 install -m 0644 deploy/aws/systemd/gradtrack-realtime.service /etc/systemd/system/gradtrack-realtime.service
 install -m 0644 deploy/aws/systemd/gradtrack-reminders.service /etc/systemd/system/gradtrack-reminders.service
 install -m 0644 deploy/aws/systemd/gradtrack-reminders.timer /etc/systemd/system/gradtrack-reminders.timer
+install -m 0644 deploy/aws/systemd/gradtrack-account-status.service /etc/systemd/system/gradtrack-account-status.service
+install -m 0644 deploy/aws/systemd/gradtrack-account-status.timer /etc/systemd/system/gradtrack-account-status.timer
 
 composer install --working-dir=backend --no-dev --no-interaction --prefer-dist --optimize-autoloader
 npm ci --omit=dev --no-audit
@@ -80,9 +82,10 @@ chmod 0750 deploy/aws/scripts/*.sh backend/deploy-ec2.sh
 systemctl daemon-reload
 systemctl enable --now php8.3-fpm nginx gradtrack-realtime.service
 systemctl enable gradtrack-reminders.timer
+systemctl enable --now gradtrack-account-status.timer
 nginx -t
 systemctl restart php8.3-fpm gradtrack-realtime.service
 systemctl reload nginx
 deploy/aws/scripts/verify-production.sh
 
-echo "Software setup, migrations, and verification complete. Obtain TLS, run a reminder dry run, then start gradtrack-reminders.timer."
+echo "Software setup, migrations, account-status scheduling, and verification complete. Obtain TLS, run a reminder dry run, then start gradtrack-reminders.timer."

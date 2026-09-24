@@ -392,7 +392,7 @@ async function main() {
 
     const [adminInsert] = await pool.query(
       `INSERT INTO admin_users (username, email, password, full_name, role, is_active)
-       VALUES (?, ?, ?, 'Realtime Test Alumni Admin', 'alumni_admin', 1)`,
+       VALUES (?, ?, ?, 'Realtime Test Alumni President', 'alumni_president', 1)`,
       [`rt_admin_${suffix}`, `rt_admin_${suffix}@example.test`, crypto.randomBytes(24).toString('hex')],
     );
     fixtureIds.admin = Number(adminInsert.insertId);
@@ -408,7 +408,7 @@ async function main() {
     const announcementEvent = waitForEvent(viewerSocket, 'announcements:created', (payload) => Number(payload?.announcement?.id) === fixtureIds.announcement);
     await publishMutation(mutation('announcement', 'created', fixtureIds.announcement, { actor_type: 'admin', actor_id: fixtureIds.admin }));
     const announcementPayload = await announcementEvent;
-    assert(announcementPayload.announcement.title === `Realtime Announcement ${suffix}` && Number(announcementPayload.total) > 0, 'a published Alumni Admin announcement reaches logged-in graduates with list counters');
+    assert(announcementPayload.announcement.title === `Realtime Announcement ${suffix}` && Number(announcementPayload.total) > 0, 'a published Alumni President announcement reaches logged-in graduates with list counters');
     await pool.query("UPDATE announcements SET status = 'archived' WHERE id = ?", [fixtureIds.announcement]);
     const announcementRemoved = waitForEvent(viewerSocket, 'announcements:removed', (payload) => Number(payload?.announcement_id) === fixtureIds.announcement);
     await publishMutation(mutation('announcement', 'updated', fixtureIds.announcement, { actor_type: 'admin', actor_id: fixtureIds.admin }));
@@ -443,7 +443,7 @@ async function main() {
         && createdJobPayload.job.title === `Realtime Job ${suffix}`
         && createdJobPayload.job.company === 'GradTrack Test Company'
         && createdJobPayload.job.required_skills === 'React, TypeScript, PHP',
-      'the Alumni Admin API saves and publishes a job to connected Browse Jobs clients',
+      'the Alumni President API saves and publishes a job to connected Browse Jobs clients',
     );
     const jobUpdated = waitForEvent(viewerSocket, 'jobs:updated', (payload) => Number(payload?.job?.id) === fixtureIds.job);
     const updateJobResponse = await apiRequest(jobsUrl, adminSession, 'PUT', {
@@ -456,7 +456,7 @@ async function main() {
       updateJobResponse.response.ok
         && Number(updateJobResponse.result?.data?.id) === fixtureIds.job
         && updatedJobPayload.job.title === `Realtime Job Updated ${suffix}`,
-      'editing through the Alumni Admin API broadcasts an update for the existing job ID',
+      'editing through the Alumni President API broadcasts an update for the existing job ID',
     );
     const jobRemoved = waitForEvent(viewerSocket, 'jobs:removed', (payload) => Number(payload?.job_id) === fixtureIds.job);
     const archiveJobResponse = await apiRequest(jobsUrl, adminSession, 'PUT', {
@@ -466,10 +466,10 @@ async function main() {
       is_active: false,
     });
     await jobRemoved;
-    assert(archiveJobResponse.response.ok && Number(archiveJobResponse.result?.data?.is_active) === 0, 'archiving through the Alumni Admin API removes the job from connected Browse Jobs clients');
+    assert(archiveJobResponse.response.ok && Number(archiveJobResponse.result?.data?.is_active) === 0, 'archiving through the Alumni President API removes the job from connected Browse Jobs clients');
     const deleteJobResponse = await apiRequest(jobsUrl, adminSession, 'DELETE', { id: fixtureIds.job });
     const [[deletedJob]] = await pool.query('SELECT COUNT(*) AS total FROM job_posts WHERE id = ?', [fixtureIds.job]);
-    assert(deleteJobResponse.response.ok && Number(deletedJob.total) === 0, 'the Alumni Admin can permanently remove an owned job posting');
+    assert(deleteJobResponse.response.ok && Number(deletedJob.total) === 0, 'the Alumni President can permanently remove an owned job posting');
     fixtureIds.job = 0;
 
     await pool.query('DELETE FROM forum_comments WHERE id = ?', [fixtureIds.comment]);

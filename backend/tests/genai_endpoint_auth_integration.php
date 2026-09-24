@@ -47,7 +47,7 @@ function genai_auth_test_request(string $endpoint, ?string $sessionId = null): a
             'timeout' => 15,
         ],
     ]);
-    $body = @file_get_contents($endpoint . '?role=super_admin', false, $context);
+    $body = @file_get_contents($endpoint . '?role=research_coordinator', false, $context);
     $status = 0;
     foreach (($http_response_header ?? []) as $header) {
         if (preg_match('/^HTTP\/\S+\s+(\d{3})/', $header, $matches) === 1) {
@@ -80,15 +80,14 @@ genai_auth_test_assert($unauthenticated['status'] === 401, 'unauthenticated endp
 
 $graduateSession = genai_auth_test_session([
     'graduate_account_id' => 1,
-    'role' => 'super_admin',
+    'role' => 'research_coordinator',
 ]);
 $graduateResponse = genai_auth_test_request($endpoint, $graduateSession);
 genai_auth_test_assert($graduateResponse['status'] === 401, 'graduate-only session cannot access the chatbot endpoint');
 
 $expectedLabels = [
-    'admin' => 'Admin',
-    'super_admin' => 'Super Admin',
-    'alumni_admin' => 'Alumni Admin',
+    'research_coordinator' => 'Research Coordinator',
+    'alumni_president' => 'Alumni President',
     'registrar' => 'Registrar',
     'dean_cs' => 'Dean - CCS',
     'dean_coed' => 'Dean - COED',
@@ -104,7 +103,7 @@ foreach ($expectedLabels as $role => $expectedLabel) {
     foreach ($userIds as $userId) {
         $sessionId = genai_auth_test_session([
             'admin_user_id' => (int)$userId,
-            'role' => $role === 'super_admin' ? 'admin' : 'super_admin',
+            'role' => $role === 'research_coordinator' ? 'registrar' : 'research_coordinator',
         ]);
         $response = genai_auth_test_request($endpoint, $sessionId);
         $label = $response['json']['data']['assistantConfig']['roleLabel'] ?? null;

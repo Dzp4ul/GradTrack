@@ -125,7 +125,7 @@ const definitionsByTab: Record<SettingsTab, SettingDefinition[]> = {
     { key: 'community_allow_media_uploads', label: 'Allow Forum Media Uploads', description: 'Allow graduates to attach images or videos to community posts.', type: 'boolean' },
   ],
   maintenance: [
-    { key: 'maintenance_mode', label: 'Maintenance Mode', description: 'Block regular users from normal pages while preserving Super Admin access.', type: 'boolean' },
+    { key: 'maintenance_mode', label: 'Maintenance Mode', description: 'Block regular users from normal pages while preserving Research Coordinator access.', type: 'boolean' },
     { key: 'maintenance_page_title', label: 'Maintenance Page Title', description: 'Heading shown to blocked users.', type: 'text' },
     { key: 'maintenance_message', label: 'Maintenance Message', description: 'Main message shown while maintenance mode is enabled.', type: 'textarea', rows: 4 },
     { key: 'maintenance_expected_availability_message', label: 'Expected Availability Message', description: 'Optional timing or follow-up note for blocked users.', type: 'text' },
@@ -279,7 +279,7 @@ export default function Settings() {
         isOpen: true,
         type: 'confirm',
         title: 'Enable Maintenance Mode?',
-        message: 'Regular users may temporarily lose access to GradTrack. Super Admin access will remain available.',
+        message: 'Regular users may temporarily lose access to GradTrack. Research Coordinator access will remain available.',
         confirmText: 'Enable Maintenance Mode',
         cancelText: 'Cancel',
         onConfirm: () => updateDraft('maintenance_mode', 'true'),
@@ -624,7 +624,7 @@ export default function Settings() {
 
       {activeTab === 'maintenance' && isTruthySetting(draft.maintenance_mode, false) && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          Maintenance Mode is staged as ON. Save changes to apply it to regular users. Super Admin access remains available.
+          Maintenance Mode is staged as ON. Save changes to apply it to regular users. Research Coordinator access remains available.
         </div>
       )}
 

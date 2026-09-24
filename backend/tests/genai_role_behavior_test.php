@@ -29,9 +29,9 @@ genai_behavior_assert(gradtrack_genai_detect_language('Paano ko sasagutan ito?')
 genai_behavior_assert(gradtrack_genai_detect_language('Paano ko sasagutan yung survey?') === 'taglish', 'Taglish is detected');
 
 $roleQuestions = [
-    'admin' => 'How do I manage surveys?',
+    'research_coordinator' => 'How do I manage surveys?',
     'registrar' => 'How do I edit a graduate record?',
-    'alumni_admin' => 'How do I verify an alumni account?',
+    'alumni_president' => 'How do I verify an alumni account?',
     'dean_cs' => 'How do I notify nonrespondents?',
 ];
 foreach ($roleQuestions as $role => $question) {
@@ -39,7 +39,7 @@ foreach ($roleQuestions as $role => $question) {
     genai_behavior_assert($classification['type'] === 'feature_help', "{$role} English how-to maps to an allowed feature");
 }
 
-foreach (['admin', 'registrar', 'alumni_admin', 'dean_cs'] as $role) {
+foreach (['research_coordinator', 'registrar', 'alumni_president', 'dean_cs'] as $role) {
     $english = gradtrack_genai_special_workflow_response('How do I answer the survey?', ['role' => $role], $policies[$role]);
     $filipino = gradtrack_genai_special_workflow_response('Paano ko sasagutan yung survey?', ['role' => $role], $policies[$role]);
     genai_behavior_assert(
@@ -57,12 +57,12 @@ foreach (['admin', 'registrar', 'alumni_admin', 'dean_cs'] as $role) {
     );
 }
 
-$adminDelete = gradtrack_genai_special_workflow_response('How do I delete survey responses?', ['role' => 'admin'], $policies['admin']);
+$adminDelete = gradtrack_genai_special_workflow_response('How do I delete survey responses?', ['role' => 'research_coordinator'], $policies['research_coordinator']);
 $deanDelete = gradtrack_genai_special_workflow_response('Paano burahin ang survey response?', ['role' => 'dean_cs'], $policies['dean_cs']);
 genai_behavior_assert(
     stripos(genai_behavior_answer($adminDelete), 'no button') !== false
     && stripos(genai_behavior_answer($adminDelete), 'Delete permanently') !== false,
-    'Admin response deletion guidance reflects the implemented whole-survey archive flow'
+    'Research Coordinator response deletion guidance reflects the implemented whole-survey archive flow'
 );
 genai_behavior_assert(
     preg_match('/walang permission/iu', genai_behavior_answer($deanDelete)) === 1,
@@ -70,10 +70,10 @@ genai_behavior_assert(
 );
 
 $dataCases = [
-    ['admin', 'How many answered the survey?', '/admin/graduates', 'survey_participation', 'answered'],
-    ['admin', 'How many BSCS graduates are employed?', '/admin/reports', 'report_analytics', 'summary'],
+    ['research_coordinator', 'How many answered the survey?', '/admin/graduates', 'survey_participation', 'answered'],
+    ['research_coordinator', 'How many BSCS graduates are employed?', '/admin/reports', 'report_analytics', 'summary'],
     ['registrar', 'Ilan ang BSCS graduate records?', '/admin/graduates', 'graduate_program_counts', 'program'],
-    ['alumni_admin', 'Ilan ang pending alumni verification?', '/admin/alumni-registered-list', 'alumni_verification_summary', 'pending'],
+    ['alumni_president', 'Ilan ang pending alumni verification?', '/admin/alumni-registered-list', 'alumni_verification_summary', 'pending'],
     ['dean_cs', 'Ilan ang graduates na sakop ng department namin?', '/admin/survey-status', 'survey_participation', 'total'],
 ];
 foreach ($dataCases as [$role, $question, $route, $tool, $metric]) {
@@ -85,9 +85,9 @@ foreach ($dataCases as [$role, $question, $route, $tool, $metric]) {
 }
 
 $listCases = [
-    ['admin', 'Show graduates who have not answered the survey.', 'survey_participation_list'],
+    ['research_coordinator', 'Show graduates who have not answered the survey.', 'survey_participation_list'],
     ['registrar', 'List BSCS graduates.', 'graduate_record_list'],
-    ['alumni_admin', 'Ipakita ang pending alumni verification requests.', 'alumni_verification_list'],
+    ['alumni_president', 'Ipakita ang pending alumni verification requests.', 'alumni_verification_list'],
     ['dean_cs', 'Sino ang hindi pa sumagot sa survey?', 'survey_participation_list'],
 ];
 foreach ($listCases as [$role, $question, $tool]) {
@@ -112,15 +112,15 @@ genai_behavior_assert(
 );
 genai_behavior_assert(
     gradtrack_genai_classify_request('How many BSCS graduates are employed?', 'registrar', $policies['registrar'])['type'] === 'restricted',
-    'Registrar cannot access Admin employment analytics'
+    'Registrar cannot access Research Coordinator employment analytics'
 );
 genai_behavior_assert(
     gradtrack_genai_classify_request('How many BSCS graduates are employed?', 'dean_cs', $policies['dean_cs'])['type'] === 'restricted',
-    'Dean cannot access Admin employment analytics'
+    'Dean cannot access Research Coordinator employment analytics'
 );
 genai_behavior_assert(
-    gradtrack_genai_classify_request('How many pending alumni verifications?', 'admin', $policies['admin'])['type'] === 'restricted',
-    'Admin cannot access Alumni Admin verification data'
+    gradtrack_genai_classify_request('How many pending alumni verifications?', 'research_coordinator', $policies['research_coordinator'])['type'] === 'restricted',
+    'Research Coordinator cannot access Alumni President verification data'
 );
 
 $scopeContext = [
@@ -143,7 +143,7 @@ genai_behavior_assert(
     'Dean Filipino scope answer is language-matched and program-scoped'
 );
 
-foreach (['admin', 'registrar', 'alumni_admin', 'dean_cs'] as $role) {
+foreach (['research_coordinator', 'registrar', 'alumni_president', 'dean_cs'] as $role) {
     $offTopic = gradtrack_genai_semantic_response(
         ['scopeStatus' => 'off_topic', 'intentType' => 'off_topic', 'answer' => 'ignored'],
         $policies[$role],

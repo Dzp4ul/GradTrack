@@ -9,8 +9,8 @@ function assert_public_content(bool $condition, string $message): void
 
 $db = (new Database())->getConnection();
 gradtrack_public_content_ensure_schema($db);
-$adminId = (int) $db->query("SELECT id FROM admin_users WHERE role = 'super_admin' ORDER BY is_active DESC, id LIMIT 1")->fetchColumn();
-assert_public_content($adminId > 0, 'A Super Admin account is required for this test.');
+$adminId = (int) $db->query("SELECT id FROM admin_users WHERE role = 'research_coordinator' ORDER BY is_active DESC, id LIMIT 1")->fetchColumn();
+assert_public_content($adminId > 0, 'A Research Coordinator account is required for this test.');
 
 $about = gradtrack_public_content_about($db, true);
 $db->beginTransaction();

@@ -28,6 +28,7 @@ import NotificationBell from '../../components/NotificationBell';
 import ThemeToggle from '../../components/ThemeToggle';
 import GradTrackGenAIAssistant from '../../components/GradTrackGenAIAssistant';
 import { useSystemSettings } from '../../contexts/SystemSettingsContext';
+import { ROLE_LABELS, ROLES } from '../../config/roles';
 
 type NavItem = {
   to: string;
@@ -36,14 +37,15 @@ type NavItem = {
   end?: boolean;
 };
 
-const adminNavItems: NavItem[] = [
+const researchCoordinatorNavItems: NavItem[] = [
   { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true },
-  { to: '/admin/graduates', icon: GraduationCap, label: 'Graduates' },
+  { to: '/admin/graduates', icon: GraduationCap, label: 'Graduate Records' },
   { to: '/admin/surveys', icon: ClipboardList, label: 'Survey Management' },
   { to: '/admin/reports', icon: BarChart3, label: 'Reports & Analytics' },
+  { to: '/admin/job-postings', icon: Briefcase, label: 'Job Postings' },
 ];
 
-const superAdminNavItems: NavItem[] = [
+const adminNavItems: NavItem[] = [
   { to: '/admin/user-management', icon: Users, label: 'User Management' },
   { to: '/admin/auto-reminders', icon: Mail, label: 'Auto Email Reminders' },
   { to: '/admin/audit-trail', icon: History, label: 'Audit Trail' },
@@ -53,7 +55,7 @@ const superAdminNavItems: NavItem[] = [
 
 const registrarNavItems: NavItem[] = [];
 
-const alumniAdminNavItems: NavItem[] = [
+const alumniPresidentNavItems: NavItem[] = [
   { to: '/admin/alumni-registered-list', icon: Users, label: 'Alumni Verification' },
   { to: '/admin/announcements', icon: Megaphone, label: 'Announcements' },
   { to: '/admin/forum-moderation', icon: MessageSquareMore, label: 'Forum Moderation', end: true },
@@ -69,19 +71,8 @@ const deanNavItems: NavItem[] = [
   { to: '/admin', icon: LayoutDashboard, label: 'Dashboard', end: true },
   { to: '/admin/survey-status', icon: ClipboardCheck, label: 'Survey Participation' },
   { to: '/admin/reports', icon: BarChart3, label: 'Reports & Analytics' },
+  { to: '/admin/job-postings', icon: Briefcase, label: 'Job Postings' },
 ];
-
-const roleLabels: Record<string, string> = {
-  super_admin: 'Super Admin',
-  admin: 'Admin',
-  mis_staff: 'MIS Staff',
-  research_coordinator: 'Research Coordinator',
-  registrar: 'Registrar',
-  alumni_admin: 'Alumni Admin',
-  dean_cs: 'Dean-CCS',
-  dean_coed: 'Dean - COED',
-  dean_hm: 'Dean - HM',
-};
 
 function getInitials(name?: string, fallback?: string) {
   const source = (name || fallback || 'User').trim();
@@ -110,27 +101,37 @@ export default function AdminLayout() {
     onConfirm?: () => void;
   }>({ isOpen: false, type: 'confirm', message: '' });
   const navItems =
-    user?.role === 'super_admin'
-      ? superAdminNavItems
-      : user?.role === 'registrar'
+    user?.role === ROLES.ADMIN
+      ? adminNavItems
+      : user?.role === ROLES.RESEARCH_COORDINATOR
+      ? researchCoordinatorNavItems
+      : user?.role === ROLES.REGISTRAR
       ? registrarNavItems
-      : user?.role === 'alumni_admin'
-      ? alumniAdminNavItems
-      : ['mis_staff', 'research_coordinator'].includes(user?.role || '')
+      : user?.role === ROLES.ALUMNI_PRESIDENT
+      ? alumniPresidentNavItems
+      : user?.role === ROLES.MIS_STAFF
         ? staffNavItems
       : ['dean_cs', 'dean_coed', 'dean_hm'].includes(user?.role || '')
         ? deanNavItems
-        : adminNavItems;
+        : staffNavItems;
   const userInitials = useMemo(
     () => getInitials(user?.full_name, user?.username || user?.email),
     [user?.email, user?.full_name, user?.username]
   );
-  const userRoleLabel = user?.role ? roleLabels[user.role] || user.role : 'User';
-  const panelLabel = user?.role === 'registrar'
+  const userRoleLabel = user?.role ? ROLE_LABELS[user.role as keyof typeof ROLE_LABELS] || user.role : 'User';
+  const panelLabel = user?.role === ROLES.ADMIN
+    ? 'Admin'
+    : user?.role === ROLES.RESEARCH_COORDINATOR
+    ? 'Research Coordinator'
+    : user?.role === ROLES.ALUMNI_PRESIDENT
+      ? 'Alumni President'
+    : user?.role === ROLES.REGISTRAR
     ? 'Registrar Panel'
     : ['dean_cs', 'dean_coed', 'dean_hm'].includes(user?.role || '')
       ? 'Dean Panel'
-      : 'Admin Panel';
+      : user?.role === ROLES.MIS_STAFF
+        ? 'MIS Staff'
+        : 'Personnel Portal';
   const profileImageUrl = useMemo(() => {
     const path = user?.profile_image_path;
     if (!path) return '';
@@ -187,14 +188,14 @@ export default function AdminLayout() {
           </div>
 
           {/* Desktop Navigation Links */}
-          <nav className="hidden items-center gap-0.5 lg:flex">
+          <nav className="hidden min-w-0 flex-1 items-center justify-center gap-0.5 overflow-x-auto lg:flex">
             {navItems.map((item) => (
               <NavLink
                 key={item.to}
                 to={item.to}
                 end={item.end}
                 className={({ isActive }) =>
-                  `flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition-all ${
+                  `flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-2 text-xs font-medium transition-all 2xl:px-3 2xl:text-sm ${
                     isActive
                       ? 'gt-bg-primary text-white shadow-sm'
                       : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'

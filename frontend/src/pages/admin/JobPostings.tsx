@@ -309,9 +309,9 @@ export default function JobPostings() {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-700">Alumni Administration</p>
+          <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-700">Graduate Employment</p>
           <h1 className="mt-1 text-2xl font-bold text-[#1b2a4a]">Job Postings</h1>
-          <p className="mt-1 text-sm text-gray-500">Create and manage jobs published directly to Graduate Browse Jobs.</p>
+          <p className="mt-1 text-sm text-gray-500">Create and manage job postings for Graduate Browse Jobs.</p>
         </div>
         <button type="button" onClick={openCreate} className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-bold text-white hover:bg-blue-800">
           <Plus className="h-4 w-4" /> Create Job

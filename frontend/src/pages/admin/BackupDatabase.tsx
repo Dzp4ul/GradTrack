@@ -210,7 +210,7 @@ export default function BackupDatabase() {
                 <h2 className="text-sm font-semibold uppercase tracking-wide text-[#1b2a4a]">Restore Note</h2>
                 <p className="mt-3 text-sm leading-6 text-gray-600">
                   The downloaded file contains SQL statements for table creation and data insert. Keep it private because it may include
-                  graduate records, administrator accounts, survey responses, and contact details.
+                  graduate records, personnel accounts, survey responses, and contact details.
                 </p>
               </section>
             </aside>

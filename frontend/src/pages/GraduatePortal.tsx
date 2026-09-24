@@ -160,6 +160,23 @@ interface ReportTarget {
   label: string;
 }
 
+interface ForumReportDetail {
+  id: number;
+  target_type: 'post' | 'comment';
+  post_id: number;
+  comment_id: number | null;
+  reason: string;
+  description?: string | null;
+  status: 'pending' | 'resolved' | 'dismissed';
+  created_at: string;
+  reviewed_at?: string | null;
+  reviewed_by_name?: string | null;
+  viewer_relation: 'reporter' | 'reported_user';
+  post_title: string;
+  content: string;
+  content_status: ForumStatus;
+}
+
 type ChatParticipant = MessagingParticipant;
 type ChatRoom = MessagingRoom;
 type ChatMessage = MessagingMessage;
@@ -828,7 +845,7 @@ function getJobPosterName(job: JobPost) {
 }
 
 function getJobPosterProgram(job: JobPost) {
-  return job.poster_program_code || job.poster_program_name || (job.created_by_admin_id ? 'Alumni Administration' : 'Graduate');
+  return job.poster_program_code || job.poster_program_name || (job.created_by_admin_id ? 'GradTrack Personnel' : 'Graduate');
 }
 
 function getJobProgramFit(job: JobPost) {
@@ -1011,6 +1028,9 @@ export default function GraduatePortal() {
   const [reportReason, setReportReason] = useState('Inappropriate content');
   const [reportDescription, setReportDescription] = useState('');
   const [reportSubmitting, setReportSubmitting] = useState(false);
+  const [reportDetail, setReportDetail] = useState<ForumReportDetail | null>(null);
+  const [reportDetailLoading, setReportDetailLoading] = useState(false);
+  const [reportDetailError, setReportDetailError] = useState('');
 
   const [jobs, setJobs] = useState<JobPost[]>([]);
   const [myPostedJobs, setMyPostedJobs] = useState<JobPost[]>([]);
@@ -2007,6 +2027,37 @@ export default function GraduatePortal() {
     setHighlightedCommentId(commentId || null);
     void loadPostDetail(postId);
   }, [communityAvailable, loadPostDetail, searchParams]);
+
+  useEffect(() => {
+    const reportId = parsePositiveIntParam(searchParams.get('report_id'));
+    if (reportId <= 0) {
+      setReportDetail(null);
+      setReportDetailError('');
+      return;
+    }
+
+    let cancelled = false;
+    setActiveTab('community_forum');
+    setReportDetailLoading(true);
+    setReportDetailError('');
+    void authenticatedFetch(`${API_ENDPOINTS.FORUM.REPORTS}?id=${reportId}`)
+      .then((response) => {
+        if (!cancelled) setReportDetail(response.data as ForumReportDetail);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setReportDetail(null);
+          setReportDetailError(error instanceof Error ? error.message : 'Unable to load report details');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setReportDetailLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authenticatedFetch, searchParams]);
 
   useEffect(() => {
     if (!jobsAvailable) {
@@ -6478,6 +6529,81 @@ export default function GraduatePortal() {
               )}
             </div>
           </form>
+        </div>
+      )}
+
+      {(reportDetailLoading || reportDetail || reportDetailError) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-4 py-6">
+          <div className="w-full max-w-2xl overflow-hidden rounded-[28px] border border-slate-200 bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-5">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-amber-700">Community Moderation</p>
+                <h2 className="mt-1 text-2xl font-bold text-slate-900">Report Details</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = new URLSearchParams(searchParams);
+                  next.delete('report_id');
+                  setSearchParams(next, { replace: true });
+                }}
+                className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100"
+                aria-label="Close report details"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="space-y-4 px-6 py-5">
+              {reportDetailLoading && (
+                <div className="flex items-center justify-center gap-2 py-10 text-sm text-slate-500">
+                  <Loader2 className="h-5 w-5 animate-spin" /> Loading report details...
+                </div>
+              )}
+              {!reportDetailLoading && reportDetailError && (
+                <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {reportDetailError}
+                </div>
+              )}
+              {!reportDetailLoading && reportDetail && (
+                <>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-2xl bg-slate-50 p-4">
+                      <p className="text-xs font-semibold uppercase text-slate-500">Your involvement</p>
+                      <p className="mt-1 font-semibold text-slate-900">
+                        {reportDetail.viewer_relation === 'reporter' ? 'You submitted this report' : 'You own the reported content'}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl bg-slate-50 p-4">
+                      <p className="text-xs font-semibold uppercase text-slate-500">Moderation status</p>
+                      <p className="mt-1 font-semibold capitalize text-slate-900">{reportDetail.status}</p>
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-slate-200 p-4">
+                    <p className="text-xs font-semibold uppercase text-slate-500">Reported {reportDetail.target_type}</p>
+                    <p className="mt-1 font-semibold text-slate-900">{reportDetail.post_title || 'Forum discussion'}</p>
+                    <p className="mt-2 whitespace-pre-line text-sm text-slate-600">{reportDetail.content || 'Content unavailable'}</p>
+                    <p className="mt-3 text-xs font-medium capitalize text-slate-500">Content status: {reportDetail.content_status}</p>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <p className="text-xs font-semibold uppercase text-slate-500">Reason</p>
+                      <p className="mt-1 text-sm text-slate-800">{reportDetail.reason}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs font-semibold uppercase text-slate-500">Reviewed</p>
+                      <p className="mt-1 text-sm text-slate-800">{reportDetail.reviewed_at ? formatDateTime(reportDetail.reviewed_at) : 'Pending review'}</p>
+                    </div>
+                  </div>
+                  {reportDetail.description && (
+                    <div>
+                      <p className="text-xs font-semibold uppercase text-slate-500">Description</p>
+                      <p className="mt-1 whitespace-pre-line text-sm text-slate-700">{reportDetail.description}</p>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

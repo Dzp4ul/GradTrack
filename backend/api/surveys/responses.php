@@ -655,7 +655,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 
         $authUser = gradtrack_require_admin_auth(
             $conn,
-            array_merge(['admin'], array_keys($roleProgramScopes)),
+            array_merge(['research_coordinator'], array_keys($roleProgramScopes)),
             'Not authorized to view survey responses'
         );
         $role = (string) $authUser['role'];

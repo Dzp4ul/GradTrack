@@ -327,7 +327,7 @@ function SurveyVerification() {
         isOpen: true,
         type: 'success',
         title: 'Pending Alumni Verification',
-        message: result.message || 'Your account is currently pending alumni verification. Please wait for the Alumni Admin to review and approve your account.',
+        message: result.message || 'Your account is currently pending alumni verification. Please wait for the Alumni President to review and approve your account.',
       });
 
       setTimeout(() => {
@@ -534,7 +534,7 @@ function SurveyVerification() {
             </p>
           )}
           <p className="text-gray-600 text-center mb-6 text-sm">
-            You already answered the survey assigned to your graduation year. Set your password to submit your Graduate Portal account for Alumni Admin verification.
+            You already answered the survey assigned to your graduation year. Set your password to submit your Graduate Portal account for Alumni President verification.
           </p>
 
           <div className="bg-blue-50 rounded-lg p-4 mb-6 flex items-start space-x-3">

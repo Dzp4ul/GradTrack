@@ -6,6 +6,7 @@ require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../config/alumni_registry.php';
 require_once __DIR__ . '/../config/graduation_years.php';
 require_once __DIR__ . '/../config/permanent_delete.php';
+require_once __DIR__ . '/../config/graduate_account_status.php';
 
 function alumni_registry_json_error(int $statusCode, string $message): void
 {
@@ -78,13 +79,13 @@ function alumni_registry_filter_clause(array $input, array &$params): string
         $params[':batch_year'] = $batchYear;
     }
 
-    $status = gradtrack_alumni_registry_clean_text($input['registration_status'] ?? ($input['status'] ?? ''), 20);
-    if ($status !== '') {
-        $normalizedStatus = alumni_registry_normalize_status($status);
-        if (in_array($normalizedStatus, gradtrack_alumni_registry_statuses(), true)) {
-            $where[] = 'ra.registration_status = :registration_status';
-            $params[':registration_status'] = $normalizedStatus;
-        }
+    $accountStatus = strtolower(gradtrack_alumni_registry_clean_text($input['account_status'] ?? '', 20));
+    if ($accountStatus === 'active') {
+        $where[] = "ga.id IS NOT NULL AND ga.status = 'active'";
+    } elseif ($accountStatus === 'disabled') {
+        $where[] = "ga.id IS NOT NULL AND ga.status = 'disabled'";
+    } elseif ($accountStatus === 'inactive') {
+        $where[] = "(ga.id IS NULL OR ga.status NOT IN ('active', 'disabled'))";
     }
 
     $surveyAnswerStatus = strtolower(gradtrack_alumni_registry_clean_text($input['survey_answer_status'] ?? '', 30));
@@ -131,6 +132,7 @@ function alumni_registry_cast_record(array $row): array
     $row['course_id'] = $row['course_id'] !== null ? (int) $row['course_id'] : null;
     $row['batch_year'] = (int) $row['batch_year'];
     $row['linked_user_id'] = $row['linked_user_id'] !== null ? (int) $row['linked_user_id'] : null;
+    $row['account_status'] = strtolower((string) ($row['account_status'] ?? 'inactive'));
     $row['import_batch_id'] = $row['import_batch_id'] !== null ? (int) $row['import_batch_id'] : null;
     if (isset($row['linked_graduate_id'])) {
         $row['linked_graduate_id'] = $row['linked_graduate_id'] !== null ? (int) $row['linked_graduate_id'] : null;
@@ -228,6 +230,7 @@ function alumni_registry_base_select(): string
                    ra.archived_at, ra.archived_by, ra.restored_at, ra.restored_by,
                    archiver.full_name AS archived_by_name, restorer.full_name AS restored_by_name,
                    ga.email AS linked_email, ga.status AS linked_account_status,
+                   " . gradtrack_registry_account_status_sql('ga') . " AS account_status,
                    ga.alumni_verification_status AS linked_verification_status,
                    ga.alumni_verification_reason AS linked_verification_reason,
                    ga.alumni_verification_reviewed_at AS linked_verification_reviewed_at,
@@ -252,7 +255,10 @@ function alumni_registry_handle_list(PDO $db): void
     $offset = ($page - 1) * $limit;
     $sortClause = alumni_registry_sort_clause($_GET);
 
-    $countStmt = $db->prepare("SELECT COUNT(*) AS total FROM registered_alumni ra {$whereClause}");
+    $countStmt = $db->prepare("SELECT COUNT(*) AS total
+                               FROM registered_alumni ra
+                               LEFT JOIN graduate_accounts ga ON ga.id = ra.linked_user_id
+                               {$whereClause}");
     $countStmt->execute($params);
     $total = (int) ($countStmt->fetch(PDO::FETCH_ASSOC)['total'] ?? 0);
 
@@ -300,7 +306,8 @@ function alumni_registry_handle_summary(PDO $db): void
             'programs' => $programs,
             'course_codes' => array_keys(gradtrack_alumni_registry_canonical_courses()),
             'batch_years' => $batchYears,
-            'statuses' => gradtrack_alumni_registry_statuses(),
+            'account_statuses' => ['active', 'inactive', 'disabled'],
+            'registry_statuses' => gradtrack_alumni_registry_statuses(),
             'verification_statuses' => ['pending', 'approved', 'rejected'],
         ],
     ]);
@@ -341,11 +348,11 @@ function alumni_registry_handle_pending_accounts(PDO $db): void
     $where = [];
 
     if ($verificationStatus === 'pending') {
-        $where[] = "(ga.status = 'pending_verification' OR ga.alumni_verification_status = 'pending')";
+        $where[] = "ga.alumni_verification_status = 'pending'";
     } elseif ($verificationStatus === 'approved') {
-        $where[] = "(ga.status = 'active' AND ga.alumni_verification_status = 'approved')";
+        $where[] = "ga.alumni_verification_status = 'approved'";
     } elseif ($verificationStatus === 'rejected') {
-        $where[] = "(ga.status = 'rejected' OR ga.alumni_verification_status = 'rejected')";
+        $where[] = "ga.alumni_verification_status = 'rejected'";
     }
 
     $search = gradtrack_alumni_registry_clean_text($_GET['search'] ?? '', 120);
@@ -558,8 +565,10 @@ function alumni_registry_export_rows(PDO $db): array
     $params = [];
     $whereClause = alumni_registry_filter_clause($_GET, $params);
     $sortClause = alumni_registry_sort_clause($_GET);
-    $stmt = $db->prepare("SELECT ra.full_name, ra.course_name, ra.batch_year
+    $stmt = $db->prepare("SELECT ra.full_name, ra.course_name, ra.batch_year,
+                                 " . gradtrack_registry_account_status_sql('ga') . " AS account_status
                           FROM registered_alumni ra
+                          LEFT JOIN graduate_accounts ga ON ga.id = ra.linked_user_id
                           {$whereClause}
                           {$sortClause}
                           LIMIT 50000");
@@ -575,6 +584,7 @@ function alumni_registry_export_rows(PDO $db): array
             ),
             'Course' => gradtrack_alumni_registry_safe_export_value($row['course_name'] ?? ''),
             'Batch' => gradtrack_alumni_registry_safe_export_value($row['batch_year'] ?? ''),
+            'Account Status' => ucfirst((string) ($row['account_status'] ?? 'inactive')),
         ];
         $rowNumber++;
     }
@@ -608,7 +618,7 @@ function alumni_registry_handle_export(PDO $db, array $admin): void
         header('Content-Disposition: attachment; filename="' . $filename . '.csv"');
 
         $out = fopen('php://output', 'w');
-        fputcsv($out, ['No.', 'Alumni Name', 'Course', 'Batch']);
+        fputcsv($out, ['No.', 'Alumni Name', 'Course', 'Batch', 'Account Status']);
         foreach ($rows as $row) {
             fputcsv($out, array_values($row));
         }

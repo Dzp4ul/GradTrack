@@ -16,77 +16,79 @@ function genai_tool_test_assert(bool $condition, string $message): void
 
 $verification = gradtrack_genai_resolve_data_tool(
     'In alumni verification how many are approved and pending?',
-    'alumni_admin',
+    'alumni_president',
     null,
     ['route' => '/admin/alumni-registered-list']
 );
 genai_tool_test_assert(($verification['tool'] ?? null) === 'alumni_verification_summary', 'verification count question selects live verification summary');
 genai_tool_test_assert(($verification['metric'] ?? null) === 'summary', 'approved and pending requests retain all verification status counts');
 
-$verificationVariation = gradtrack_genai_resolve_data_tool('How many alumni are waiting for verification?', 'alumni_admin');
+$verificationVariation = gradtrack_genai_resolve_data_tool('How many alumni are waiting for verification?', 'alumni_president');
 genai_tool_test_assert(($verificationVariation['tool'] ?? null) === 'alumni_verification_summary', 'natural waiting-for-verification wording selects verification data');
 
-$followUp = gradtrack_genai_resolve_data_tool('What about rejected?', 'alumni_admin', 'alumni_verification_summary');
+$followUp = gradtrack_genai_resolve_data_tool('What about rejected?', 'alumni_president', 'alumni_verification_summary');
 genai_tool_test_assert(($followUp['tool'] ?? null) === 'alumni_verification_summary', 'verification follow-up uses server-owned prior tool context');
 genai_tool_test_assert(($followUp['metric'] ?? null) === 'rejected', 'verification follow-up selects rejected metric');
 
 $taglish = gradtrack_genai_resolve_data_tool(
     'ilan ang approved?',
-    'alumni_admin',
+    'alumni_president',
     null,
     ['route' => '/admin/alumni-registered-list']
 );
 genai_tool_test_assert(($taglish['tool'] ?? null) === 'alumni_verification_summary', 'Taglish count question uses page hint and live verification data');
 genai_tool_test_assert(($taglish['metric'] ?? null) === 'approved', 'Taglish approved question selects approved metric');
 
-$survey = gradtrack_genai_resolve_data_tool('How many alumni are done answering?', 'alumni_admin');
-genai_tool_test_assert(($survey['tool'] ?? null) === 'alumni_registry_summary', 'Alumni Admin survey completion uses registered-list summary');
+$survey = gradtrack_genai_resolve_data_tool('How many alumni are done answering?', 'alumni_president');
+genai_tool_test_assert(($survey['tool'] ?? null) === 'alumni_registry_summary', 'Alumni President survey completion uses registered-list summary');
 genai_tool_test_assert(($survey['metric'] ?? null) === 'answered', 'survey completion question selects answered metric');
 
-$surveyFollowUp = gradtrack_genai_resolve_data_tool('And not answered?', 'alumni_admin', 'alumni_registry_summary');
+$surveyFollowUp = gradtrack_genai_resolve_data_tool('And not answered?', 'alumni_president', 'alumni_registry_summary');
 genai_tool_test_assert(($surveyFollowUp['tool'] ?? null) === 'alumni_registry_summary', 'survey follow-up preserves prior data feature');
 genai_tool_test_assert(($surveyFollowUp['metric'] ?? null) === 'not_answered', 'survey follow-up selects not-answered metric');
 
-$registered = gradtrack_genai_resolve_data_tool('How many registered alumni are there?', 'alumni_admin');
+$registered = gradtrack_genai_resolve_data_tool('How many registered alumni are there?', 'alumni_president');
 genai_tool_test_assert(($registered['tool'] ?? null) === 'alumni_registry_summary', 'registered alumni total does not use verification-account counts');
 
-$programComparison = gradtrack_genai_resolve_data_tool('Which program has the most registered alumni?', 'alumni_admin');
+$programComparison = gradtrack_genai_resolve_data_tool('Which program has the most registered alumni?', 'alumni_president');
 genai_tool_test_assert(($programComparison['tool'] ?? null) === 'alumni_registry_summary' && ($programComparison['metric'] ?? null) === 'by_program', 'program comparison selects the registered-alumni program breakdown');
 
-$systemGraduates = gradtrack_genai_resolve_data_tool('How many graduates are in the system?', 'super_admin');
-genai_tool_test_assert(($systemGraduates['tool'] ?? null) === 'system_dashboard_statistics', 'Super Admin graduate total uses authorized system aggregates');
+$systemGraduates = gradtrack_genai_resolve_data_tool('How many graduates are in the system?', 'admin');
+genai_tool_test_assert(($systemGraduates['tool'] ?? null) === 'system_dashboard_statistics', 'Admin graduate total uses authorized system aggregates');
+$coordinatorSystemGraduates = gradtrack_genai_resolve_data_tool('How many graduates are in the system?', 'research_coordinator');
+genai_tool_test_assert($coordinatorSystemGraduates === null, 'Research Coordinator cannot select system administration aggregates');
 
-$restricted = gradtrack_genai_resolve_data_tool('How many system user accounts are active?', 'alumni_admin');
-genai_tool_test_assert($restricted === null, 'Alumni Admin cannot select Super Admin user statistics tool');
+$restricted = gradtrack_genai_resolve_data_tool('How many system user accounts are active?', 'alumni_president');
+genai_tool_test_assert($restricted === null, 'Alumni President cannot select Research Coordinator user statistics tool');
 
 $deanAllowed = gradtrack_genai_resolve_data_tool('How many BSCS graduates?', 'dean_cs');
 genai_tool_test_assert(($deanAllowed['tool'] ?? null) === 'survey_participation', 'CCS Dean graduate count uses the program-scoped active-survey aggregate exposed by the Dean page');
 $deanRestricted = gradtrack_genai_resolve_data_tool('How many BSHM graduates?', 'dean_cs');
 genai_tool_test_assert($deanRestricted === null, 'CCS Dean cannot select a BSHM aggregate');
-$currentSurvey = gradtrack_genai_resolve_data_tool('What is the current survey?', 'admin');
+$currentSurvey = gradtrack_genai_resolve_data_tool('What is the current survey?', 'research_coordinator');
 genai_tool_test_assert(
     ($currentSurvey['tool'] ?? null) === 'survey_participation' && ($currentSurvey['metric'] ?? null) === 'current_survey',
-    'Admin current-survey question selects the active survey data source'
+    'Research Coordinator current-survey question selects the active survey data source'
 );
 genai_tool_test_assert(
-    gradtrack_genai_resolve_data_tool('What is the current survey?', 'alumni_admin') === null,
-    'Alumni Admin cannot retrieve an active survey that its pages do not expose'
+    gradtrack_genai_resolve_data_tool('What is the current survey?', 'alumni_president') === null,
+    'Alumni President cannot retrieve an active survey that its pages do not expose'
 );
 
-$adminList = gradtrack_genai_resolve_data_tool('Show graduates who have not answered the survey.', 'admin');
+$adminList = gradtrack_genai_resolve_data_tool('Show graduates who have not answered the survey.', 'research_coordinator');
 genai_tool_test_assert(
     ($adminList['tool'] ?? null) === 'survey_participation_list' && ($adminList['metric'] ?? null) === 'not_answered',
-    'Admin natural-language list request selects the unanswered participation list'
+    'Research Coordinator natural-language list request selects the unanswered participation list'
 );
 $registrarList = gradtrack_genai_resolve_data_tool('List BSCS graduates.', 'registrar');
 genai_tool_test_assert(
     ($registrarList['tool'] ?? null) === 'graduate_record_list' && ($registrarList['program_code'] ?? null) === 'BSCS',
     'Registrar list request selects non-archived BSCS graduate records'
 );
-$alumniList = gradtrack_genai_resolve_data_tool('Ipakita ang pending alumni verification requests.', 'alumni_admin');
+$alumniList = gradtrack_genai_resolve_data_tool('Ipakita ang pending alumni verification requests.', 'alumni_president');
 genai_tool_test_assert(
     ($alumniList['tool'] ?? null) === 'alumni_verification_list' && ($alumniList['metric'] ?? null) === 'pending',
-    'Alumni Admin Filipino list request selects pending verification records'
+    'Alumni President Filipino list request selects pending verification records'
 );
 $deanList = gradtrack_genai_resolve_data_tool('Who has not answered the survey?', 'dean_cs');
 genai_tool_test_assert(

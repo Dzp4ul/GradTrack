@@ -6,21 +6,21 @@ import { useAuth } from '../../contexts/AuthContext';
 const PAGE_SIZE = 10;
 
 const ROLE_LABELS = {
-  super_admin: 'System Administrator',
   admin: 'Admin',
+  research_coordinator: 'Research Coordinator',
   registrar: 'Registrar',
-  alumni_admin: 'Alumni Administrator',
+  alumni_president: 'Alumni President',
   dean_cs: 'Dean',
   dean_coed: 'Dean',
   dean_hm: 'Dean',
 };
 
-const ALLOWED_ROLES = ['super_admin'];
+const ALLOWED_ROLES = ['admin'];
 
 const ROLE_OPTIONS = [
-  ['system_administrator', 'System Administrator'],
   ['admin', 'Admin'],
-  ['alumni_administrator', 'Alumni Administrator'],
+  ['research_coordinator', 'Research Coordinator'],
+  ['alumni_president', 'Alumni President'],
   ['dean', 'Dean'],
   ['registrar', 'Registrar'],
 ];
