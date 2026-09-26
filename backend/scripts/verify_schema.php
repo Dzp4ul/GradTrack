@@ -19,6 +19,7 @@ $requirements = [
     'graduate_accounts' => ['id', 'graduate_id', 'email', 'password_hash', 'status', 'alumni_verification_status', 'last_login_at'],
     'admin_password_resets' => ['id', 'admin_user_id', 'email', 'otp_hash', 'verified_token_hash', 'used_at'],
     'graduate_password_resets' => ['id', 'graduate_account_id', 'email', 'otp_hash', 'verified_token_hash', 'used_at'],
+    'email_notification_deliveries' => ['id', 'notification_type', 'entity_id', 'recipient_email', 'subject', 'status', 'error_message', 'sent_at'],
     'admin_profile_images' => ['id', 'admin_user_id', 'file_path'],
     'graduate_profile_images' => ['id', 'graduate_account_id', 'file_path'],
     'graduate_cover_images' => ['id', 'graduate_account_id', 'file_path'],
@@ -82,6 +83,7 @@ $requiredIndexes = [
     ['forum_chat_members', 'room_id,graduate_id', true],
     ['forum_chat_blocks', 'blocker_id,blocked_id', true],
     ['notification_reads', 'target_type,target_id,notification_key', true],
+    ['email_notification_deliveries', 'notification_type,entity_id', true],
 ];
 $indexRows = $db->query("SELECT TABLE_NAME, INDEX_NAME, NON_UNIQUE,
     GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX SEPARATOR ',') AS columns_list

@@ -7,6 +7,7 @@ require_once __DIR__ . '/../config/alumni_registry.php';
 require_once __DIR__ . '/../config/graduation_years.php';
 require_once __DIR__ . '/../config/permanent_delete.php';
 require_once __DIR__ . '/../config/graduate_account_status.php';
+require_once __DIR__ . '/../config/graduate_email_notifications.php';
 
 function alumni_registry_json_error(int $statusCode, string $message): void
 {
@@ -174,6 +175,7 @@ function alumni_registry_cast_account_review_row(array $row): array
         'first_name' => $firstName,
         'middle_name' => $middleName,
         'last_name' => $lastName,
+        'name_extension' => $row['name_extension'] ?? null,
         'phone' => $row['phone'],
         'year_graduated' => $row['year_graduated'] !== null ? (int) $row['year_graduated'] : null,
         'address' => $row['address'],
@@ -196,7 +198,7 @@ function alumni_registry_account_review_select(): string
                    ga.alumni_verification_status, ga.alumni_verification_reason,
                    ga.alumni_verification_submitted_at, ga.alumni_verification_reviewed_at,
                    ga.source_survey_response_id,
-                   g.id AS graduate_id, g.student_id, g.first_name, g.middle_name, g.last_name,
+                   g.id AS graduate_id, g.student_id, g.first_name, g.middle_name, g.last_name, g.name_extension,
                    g.phone, g.year_graduated, g.address,
                    p.id AS program_id, p.name AS program_name, p.code AS program_code,
                    sr.submitted_at AS survey_submitted_at,
@@ -213,9 +215,10 @@ function alumni_registry_account_review_select(): string
             LEFT JOIN admin_users reviewer ON reviewer.id = ga.alumni_verification_reviewed_by";
 }
 
-function alumni_registry_fetch_account_review(PDO $db, int $accountId): ?array
+function alumni_registry_fetch_account_review(PDO $db, int $accountId, bool $forUpdate = false): ?array
 {
-    $stmt = $db->prepare(alumni_registry_account_review_select() . ' WHERE ga.id = :account_id LIMIT 1');
+    $lockingClause = $forUpdate ? ' FOR UPDATE' : '';
+    $stmt = $db->prepare(alumni_registry_account_review_select() . ' WHERE ga.id = :account_id LIMIT 1' . $lockingClause);
     $stmt->execute([':account_id' => $accountId]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -467,17 +470,24 @@ function alumni_registry_handle_account_review(PDO $db, array $admin, string $de
         alumni_registry_json_error(400, 'Graduate account ID is required');
     }
 
-    $account = alumni_registry_fetch_account_review($db, $accountId);
-    if (!$account) {
-        alumni_registry_json_error(404, 'Graduate account not found');
-    }
-
     $decision = strtolower($decision);
     $isApproval = $decision === 'approve';
     $reason = alumni_registry_clean_review_reason($data['rejection_reason'] ?? ($data['reason'] ?? null));
+    $shouldSendApprovalEmail = false;
 
     try {
         $db->beginTransaction();
+
+        // Lock the account before reading its current state. Concurrent or retried
+        // approvals therefore observe the committed Approved state and cannot send twice.
+        $account = alumni_registry_fetch_account_review($db, $accountId, true);
+        if (!$account) {
+            $db->rollBack();
+            alumni_registry_json_error(404, 'Graduate account not found');
+        }
+
+        $wasApproved = gradtrack_graduate_account_is_approved($account);
+        $shouldSendApprovalEmail = $isApproval && !$wasApproved;
 
         $registry = null;
         if ($isApproval) {
@@ -517,6 +527,10 @@ function alumni_registry_handle_account_review(PDO $db, array $admin, string $de
                 'linked_registry_id' => $registry ? (int) $registry['id'] : ($account['linked_registry_id'] ?? null),
             ]
         );
+
+        if ($shouldSendApprovalEmail) {
+            gradtrack_send_registration_approved_notification($db, $account);
+        }
 
         echo json_encode([
             'success' => true,

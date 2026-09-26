@@ -2,10 +2,9 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/password_policy.php';
 require_once __DIR__ . '/../config/database.php';
-require_once __DIR__ . '/../../vendor/autoload.php';
+require_once __DIR__ . '/../config/email.php';
 
 use PHPMailer\PHPMailer\Exception as MailException;
-use PHPMailer\PHPMailer\PHPMailer;
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -16,45 +15,6 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 function admin_reset_clean_text($value): string
 {
     return trim((string) ($value ?? ''));
-}
-
-function admin_reset_frontend_url(): string
-{
-    return gradtrack_frontend_url();
-}
-
-function admin_reset_create_mailer(): PHPMailer
-{
-    $host = admin_reset_clean_text(getenv('MAIL_HOST') ?: 'smtp.gmail.com');
-    $username = admin_reset_clean_text(getenv('MAIL_USERNAME') ?: '');
-    $password = str_replace(' ', '', admin_reset_clean_text(getenv('MAIL_PASSWORD') ?: ''));
-    $fromAddress = admin_reset_clean_text(getenv('MAIL_FROM_ADDRESS') ?: $username);
-    $fromName = admin_reset_clean_text(getenv('MAIL_FROM_NAME') ?: 'GRADTRACK');
-
-    if ($host === '' || $username === '' || $password === '' || $fromAddress === '') {
-        throw new RuntimeException('Mail credentials are not configured.');
-    }
-
-    $mail = new PHPMailer(true);
-    $mail->isSMTP();
-    $mail->Host = $host;
-    $mail->SMTPAuth = true;
-    $mail->Username = $username;
-    $mail->Password = $password;
-    $mail->Port = (int) (getenv('MAIL_PORT') ?: 587);
-    $mail->CharSet = 'UTF-8';
-
-    $encryption = strtolower(admin_reset_clean_text(getenv('MAIL_ENCRYPTION') ?: 'tls'));
-    if ($encryption === 'ssl' || $encryption === 'smtps') {
-        $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
-    } elseif ($encryption === 'tls' || $encryption === 'starttls') {
-        $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-    }
-
-    $mail->setFrom($fromAddress, $fromName);
-    $mail->addReplyTo($fromAddress, $fromName);
-
-    return $mail;
 }
 
 function admin_reset_ensure_table(PDO $db): void
@@ -94,58 +54,13 @@ function admin_reset_account_by_email(PDO $db, string $email): ?array
 
 function admin_reset_send_otp_email(string $email, string $fullName, string $otpCode): void
 {
-    $safeName = htmlspecialchars($fullName, ENT_QUOTES, 'UTF-8');
-    $safeOtp = htmlspecialchars($otpCode, ENT_QUOTES, 'UTF-8');
-    $signinUrl = admin_reset_frontend_url() . '/admin/signin';
-    $safeSigninUrl = htmlspecialchars($signinUrl, ENT_QUOTES, 'UTF-8');
-
-    $subject = 'GradTrack Admin Password Reset OTP';
-    $html = <<<HTML
-<!doctype html>
-<html>
-  <body style="margin:0;padding:0;background:#f3f6fb;font-family:Arial,Helvetica,sans-serif;color:#14213d;">
-    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f3f6fb;padding:28px 12px;">
-      <tr>
-        <td align="center">
-          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;background:#ffffff;border:1px solid #dbe4f0;border-radius:8px;overflow:hidden;">
-            <tr>
-              <td style="background:#173b80;padding:22px 28px;border-bottom:4px solid #f4c400;">
-                <div style="font-size:24px;font-weight:800;color:#ffffff;">Grad<span style="color:#f4c400;">Track</span></div>
-                <div style="margin-top:8px;font-size:13px;color:#dce8ff;">Norzagaray College Graduate Tracer Study</div>
-              </td>
-            </tr>
-            <tr>
-              <td style="padding:30px 28px 10px;">
-                <h1 style="margin:0 0 14px;font-size:24px;line-height:1.3;color:#10213f;">Admin Password Reset Verification</h1>
-                <p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#41516d;">Hello {$safeName},</p>
-                <p style="margin:0 0 16px;font-size:15px;line-height:1.7;color:#41516d;">Use this OTP code to verify your admin password reset request:</p>
-                <div style="display:inline-block;font-size:28px;letter-spacing:4px;font-weight:800;color:#173b80;background:#eaf2ff;padding:14px 18px;border-radius:8px;">{$safeOtp}</div>
-                <p style="margin:18px 0 0;font-size:13px;line-height:1.7;color:#5d6b83;">This code expires in 10 minutes. If you did not request a password reset, you can ignore this email.</p>
-              </td>
-            </tr>
-            <tr>
-              <td style="padding:24px 28px 30px;">
-                <div style="border-top:1px solid #e4eaf3;padding-top:18px;font-size:13px;line-height:1.7;color:#6b778d;">
-                  Admin sign in: <a href="{$safeSigninUrl}" style="color:#173b80;">{$safeSigninUrl}</a><br>
-                  <strong style="color:#10213f;">GRADTRACK</strong>
-                </div>
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
-</html>
-HTML;
-
-    $mail = admin_reset_create_mailer();
-    $mail->addAddress($email, $fullName !== '' ? $fullName : 'Admin User');
-    $mail->Subject = $subject;
-    $mail->isHTML(true);
-    $mail->Body = $html;
-    $mail->AltBody = "Your GradTrack admin OTP code is {$otpCode}. It expires in 10 minutes.";
-    $mail->send();
+    $signinUrl = gradtrack_frontend_url() . '/admin/signin';
+    $recipientName = $fullName !== '' ? $fullName : 'Admin User';
+    gradtrack_email_send(
+        $email,
+        $recipientName,
+        gradtrack_email_password_reset_message($recipientName, $otpCode, $signinUrl, true)
+    );
 }
 
 function admin_reset_send_otp(PDO $db, string $email): void

@@ -433,6 +433,23 @@ CREATE TABLE `graduate_password_resets` (
     KEY `idx_graduate_password_resets_verified_token` (`verified_token_hash`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+CREATE TABLE `email_notification_deliveries` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `notification_type` VARCHAR(64) NOT NULL,
+    `entity_id` BIGINT UNSIGNED NOT NULL,
+    `recipient_email` VARCHAR(255) NOT NULL,
+    `recipient_name` VARCHAR(255) DEFAULT NULL,
+    `subject` VARCHAR(255) NOT NULL,
+    `status` ENUM('processing','sent','failed') NOT NULL DEFAULT 'processing',
+    `error_message` TEXT DEFAULT NULL,
+    `reserved_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `sent_at` DATETIME DEFAULT NULL,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_email_notification_entity` (`notification_type`, `entity_id`),
+    KEY `idx_email_notification_status` (`status`, `updated_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 CREATE TABLE `graduate_profile_images` (
     `id` INT NOT NULL AUTO_INCREMENT,
     `graduate_account_id` INT NOT NULL,

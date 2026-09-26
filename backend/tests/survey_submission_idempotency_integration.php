@@ -123,6 +123,23 @@ try {
         'token' => $token,
         'responses' => [(string) $graduationYearQuestionId => '2025'],
     ];
+    $failedSubmission = survey_idempotency_execute($endpoint, [
+        ...$payload,
+        'responses' => [],
+    ]);
+    survey_idempotency_assert(
+        $failedSubmission['status'] === 422 && ($failedSubmission['body']['success'] ?? true) === false,
+        'a failed survey validation does not report a successful submission'
+    );
+    $failedDeliveryStmt = $db->prepare("SELECT COUNT(*)
+        FROM email_notification_deliveries endelivery
+        JOIN survey_responses sr ON sr.id = endelivery.entity_id
+        WHERE endelivery.notification_type = 'graduate_survey_submitted'
+          AND sr.survey_id = :survey_id
+          AND sr.graduate_id = :graduate_id");
+    $failedDeliveryStmt->execute([':survey_id' => $surveyId, ':graduate_id' => $graduateId]);
+    survey_idempotency_assert((int) $failedDeliveryStmt->fetchColumn() === 0, 'a failed survey submission does not create an email delivery');
+
     $requests = [
         survey_idempotency_request($endpoint, $payload),
         survey_idempotency_request($endpoint, $payload),
@@ -171,6 +188,11 @@ try {
     $countStmt->execute([':survey_id' => $surveyId, ':graduate_id' => $graduateId]);
     survey_idempotency_assert((int) $countStmt->fetchColumn() === 1, 'rapid submission creates exactly one survey response row');
 
+    $deliveryCountStmt = $db->prepare("SELECT COUNT(*) FROM email_notification_deliveries
+        WHERE notification_type = 'graduate_survey_submitted' AND entity_id = :response_id");
+    $deliveryCountStmt->execute([':response_id' => $responseIds[0]]);
+    survey_idempotency_assert((int) $deliveryCountStmt->fetchColumn() === 1, 'rapid submission creates exactly one confirmation email delivery record');
+
     $submittedStmt = $db->prepare('SELECT submitted_at FROM survey_tokens WHERE token = :token LIMIT 1');
     $submittedStmt->execute([':token' => $token]);
     survey_idempotency_assert((string) $submittedStmt->fetchColumn() !== '', 'the survey token is consumed after the canonical response is committed');
@@ -210,6 +232,16 @@ try {
     $exitCode = 1;
 } finally {
     if ($surveyId > 0) {
+        if ($db->query("SHOW TABLES LIKE 'email_notification_deliveries'")->fetchColumn() !== false) {
+            $responseIdsForCleanup = array_values(array_filter($responseIds ?? [], static fn ($id): bool => (int) $id > 0));
+            if ($responseIdsForCleanup !== []) {
+                $placeholders = implode(',', array_fill(0, count($responseIdsForCleanup), '?'));
+                $db->prepare("DELETE FROM email_notification_deliveries
+                              WHERE notification_type = 'graduate_survey_submitted'
+                                AND entity_id IN ($placeholders)")
+                    ->execute($responseIdsForCleanup);
+            }
+        }
         $db->prepare('DELETE FROM graduate_accounts WHERE graduate_id = :graduate_id')
             ->execute([':graduate_id' => $graduateId]);
         $db->prepare(

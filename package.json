@@ -34,6 +34,8 @@
     "test:role-structure": "php backend/tests/role_permission_structure_test.php && php backend/tests/audit_trail_rules_test.php",
     "test:coordinator-auth": "php backend/tests/research_coordinator_authorization_http_integration.php",
     "test:account-status": "php backend/tests/graduate_account_status_test.php",
+    "test:email-notifications": "php backend/tests/graduate_email_notifications_test.php",
+    "test:approval-email": "php backend/tests/registration_approval_email_http_integration.php",
     "test:forum-report-access": "php backend/tests/forum_report_access_rules_test.php",
     "test:forum-report-notifications": "php backend/tests/forum_report_notifications_http_integration.php",
     "test:active-survey-years": "php backend/tests/active_survey_graduation_year_coverage_integration.php && cd frontend && npm run test:active-survey-years",
