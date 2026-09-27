@@ -347,6 +347,7 @@ function gradtrack_notifications_add_alumni_engagement(PDO $db, array &$notifica
         $jobStmt = $db->query("SELECT id, title, company, created_at
                               FROM job_posts
                               WHERE approval_status = 'pending'
+                                AND archived_at IS NULL
                               ORDER BY created_at DESC, id DESC
                               LIMIT 5");
 
@@ -584,6 +585,7 @@ function gradtrack_notifications_add_graduate(PDO $db, array &$notifications, ar
                                         FROM job_posts
                                         WHERE approval_status = 'approved'
                                           AND COALESCE(is_active, 1) = 1
+                                          AND archived_at IS NULL
                                           AND (posted_by_account_id IS NULL OR posted_by_account_id <> :account_id)
                                         ORDER BY COALESCE(approval_reviewed_at, created_at) DESC, id DESC
                                         LIMIT 10");

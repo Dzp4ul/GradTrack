@@ -232,7 +232,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
              ORDER BY sort_order ASC, id ASC'
         );
         $questionStmt->execute([':survey_id' => (int) $surveyId]);
-        $surveyQuestions = $questionStmt->fetchAll(PDO::FETCH_ASSOC);
+        $surveyQuestions = gradtrack_survey_attach_option_definitions(
+            $conn,
+            $questionStmt->fetchAll(PDO::FETCH_ASSOC)
+        );
         $psgcQuestionIds = array_values(survey_response_psgc_question_map($conn, (int) $surveyId));
         $surveyValidation = gradtrack_survey_validate_responses($surveyQuestions, $responses, $psgcQuestionIds);
 

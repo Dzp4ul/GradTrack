@@ -140,6 +140,103 @@ function gradtrack_survey_decode_options($options): array
     }, $options), static fn (string $option): bool => $option !== ''));
 }
 
+function gradtrack_survey_decode_option_definitions($options): array
+{
+    if (is_string($options)) {
+        $decoded = json_decode($options, true);
+        $options = is_array($decoded) ? $decoded : [];
+    }
+    if (!is_array($options)) {
+        return [];
+    }
+
+    $definitions = [];
+    foreach (array_values($options) as $index => $option) {
+        if (is_array($option)) {
+            $label = trim((string)($option['label'] ?? $option['value'] ?? ''));
+            $value = trim((string)($option['value'] ?? $option['option_value'] ?? $label));
+            if ($label === '' || $value === '') continue;
+            $definitions[] = [
+                'id' => isset($option['id']) ? (int)$option['id'] : null,
+                'key' => trim((string)($option['key'] ?? $option['option_key'] ?? '')) ?: null,
+                'value' => $value,
+                'label' => $label,
+                'sort_order' => $index + 1,
+            ];
+            continue;
+        }
+
+        if (is_scalar($option)) {
+            $label = trim((string)$option);
+            if ($label !== '') {
+                $definitions[] = [
+                    'id' => null,
+                    'key' => null,
+                    'value' => $label,
+                    'label' => $label,
+                    'sort_order' => $index + 1,
+                ];
+            }
+        }
+    }
+
+    return $definitions;
+}
+
+function gradtrack_survey_fetch_option_definitions(PDO $db, array $questionIds): array
+{
+    $questionIds = array_values(array_unique(array_filter(
+        array_map('intval', $questionIds),
+        static fn (int $id): bool => $id > 0
+    )));
+    if ($questionIds === []) return [];
+
+    $placeholders = implode(',', array_fill(0, count($questionIds), '?'));
+    $statement = $db->prepare(
+        "SELECT id, survey_question_id, option_key, option_value, label, sort_order
+         FROM survey_question_options
+         WHERE survey_question_id IN ($placeholders)
+         ORDER BY survey_question_id, sort_order, id"
+    );
+    $statement->execute($questionIds);
+
+    $byQuestion = [];
+    foreach ($statement->fetchAll(PDO::FETCH_ASSOC) as $option) {
+        $questionId = (int)$option['survey_question_id'];
+        $byQuestion[$questionId][] = [
+            'id' => (int)$option['id'],
+            'key' => (string)$option['option_key'],
+            'value' => (string)$option['option_value'],
+            'label' => (string)$option['label'],
+            'sort_order' => (int)$option['sort_order'],
+        ];
+    }
+    return $byQuestion;
+}
+
+function gradtrack_survey_attach_option_definitions(PDO $db, array $questions): array
+{
+    $byQuestion = gradtrack_survey_fetch_option_definitions($db, array_column($questions, 'id'));
+    foreach ($questions as &$question) {
+        $questionId = (int)($question['id'] ?? 0);
+        $definitions = $byQuestion[$questionId] ?? [];
+        if ($definitions === []) {
+            $definitions = gradtrack_survey_decode_option_definitions($question['options'] ?? null);
+        }
+        $question['option_definitions'] = $definitions;
+        if ($definitions !== []) {
+            // The legacy JSON column remains a display-label cache for older
+            // clients. Stable submitted values live in survey_question_options.
+            $question['options'] = json_encode(
+                array_column($definitions, 'label'),
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+            );
+        }
+    }
+    unset($question);
+    return $questions;
+}
+
 function gradtrack_survey_sync_sections(PDO $db, int $surveyId, array $questions): array
 {
     $existingStatement = $db->prepare(
@@ -228,7 +325,7 @@ function gradtrack_survey_sync_question_options(
         );
         $source->execute([':question_id' => $sourceQuestionId]);
         foreach ($source->fetchAll(PDO::FETCH_ASSOC) as $option) {
-            $existing[gradtrack_survey_normalize_metadata_text($option['label'])] = $option;
+            $existing[] = $option;
         }
     } else {
         $current = $db->prepare(
@@ -237,7 +334,7 @@ function gradtrack_survey_sync_question_options(
         );
         $current->execute([':question_id' => $questionId]);
         foreach ($current->fetchAll(PDO::FETCH_ASSOC) as $option) {
-            $existing[gradtrack_survey_normalize_metadata_text($option['label'])] = $option;
+            $existing[] = $option;
         }
     }
 
@@ -249,8 +346,10 @@ function gradtrack_survey_sync_question_options(
          VALUES (:question_id, :option_key, :option_value, :label, :sort_order)'
     );
     foreach (array_values($options) as $index => $label) {
-        $normalized = gradtrack_survey_normalize_metadata_text($label);
-        $prior = $existing[$normalized] ?? null;
+        // Position is used only while creating/cloning a structural definition.
+        // Once responses exist, the survey API updates labels in place by ID and
+        // never calls this destructive synchronizer.
+        $prior = $existing[$index] ?? null;
         $insert->execute([
             ':question_id' => $questionId,
             ':option_key' => $prior['option_key'] ?? gradtrack_survey_uuid(),

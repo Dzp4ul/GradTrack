@@ -73,7 +73,8 @@ function gradtrack_jobs_select_sql(): string
                    jp.application_link, jp.application_method, jp.requirements_file_path,
                    jp.requirements_file_name, jp.requirements_mime_type, jp.requirements_file_size_bytes,
                    jp.requirements_uploaded_at, jp.is_active, jp.approval_status, jp.approval_reviewed_at,
-                   jp.approval_notes, jp.created_at, jp.updated_at,
+                   jp.approval_notes, jp.archived_at, jp.archived_by, jp.restored_at, jp.restored_by,
+                   jp.created_at, jp.updated_at,
                    ga.id AS poster_account_id, ga.email AS poster_email, g.id AS poster_graduate_id,
                    COALESCE(NULLIF(gp.first_name, ''), g.first_name) AS first_name,
                    COALESCE(NULLIF(gp.middle_name, ''), g.middle_name) AS middle_name,
@@ -470,6 +471,11 @@ try {
                 ($actor['type'] === 'graduate' && (int) ($job['posted_by_account_id'] ?? 0) === (int) $actor['id'])
                 || ($actor['type'] === 'admin' && (int) ($job['created_by_admin_id'] ?? 0) === (int) $actor['id'])
             );
+            if (!empty($job['archived_at']) && (!$actor || $actor['type'] === 'graduate')) {
+                http_response_code(404);
+                echo json_encode(['success' => false, 'error' => 'Job not found']);
+                exit;
+            }
             if ((($job['approval_status'] ?? 'approved') !== 'approved' || (int) ($job['is_active'] ?? 0) !== 1) && !$isOwner) {
                 http_response_code(404);
                 echo json_encode(['success' => false, 'error' => 'Job not found']);
@@ -492,7 +498,7 @@ try {
             $activeOnly = false;
         }
 
-        $sql = gradtrack_jobs_select_sql() . ' WHERE 1=1';
+        $sql = gradtrack_jobs_select_sql() . ' WHERE jp.archived_at IS NULL';
 
         $params = [];
 
@@ -742,7 +748,7 @@ try {
 
         $ownerStmt = $db->prepare('SELECT posted_by_account_id, created_by_admin_id, requirements_file_path,
                                          requirements_file_name, requirements_mime_type,
-                                         requirements_file_size_bytes, requirements_uploaded_at
+                                         requirements_file_size_bytes, requirements_uploaded_at, archived_at
                                   FROM job_posts WHERE id = :id');
         $ownerStmt->bindParam(':id', $jobId);
         $ownerStmt->execute();
@@ -759,6 +765,11 @@ try {
         if (!$isOwner) {
             http_response_code(403);
             echo json_encode(['success' => false, 'error' => 'Only the job owner can update this job']);
+            exit;
+        }
+        if (!empty($owner['archived_at'])) {
+            http_response_code(409);
+            echo json_encode(['success' => false, 'error' => 'Restore this job post before editing it']);
             exit;
         }
 
@@ -954,7 +965,7 @@ try {
             exit;
         }
 
-        $ownerStmt = $db->prepare('SELECT posted_by_account_id, created_by_admin_id, title, company, requirements_file_path
+        $ownerStmt = $db->prepare('SELECT posted_by_account_id, created_by_admin_id, title, company, requirements_file_path, archived_at
                                   FROM job_posts WHERE id = :id');
         $ownerStmt->bindParam(':id', $jobId);
         $ownerStmt->execute();
@@ -971,6 +982,11 @@ try {
         if (!$isOwner) {
             http_response_code(403);
             echo json_encode(['success' => false, 'error' => 'Only the job owner can delete this job']);
+            exit;
+        }
+        if (!empty($owner['archived_at'])) {
+            http_response_code(409);
+            echo json_encode(['success' => false, 'error' => 'Archived job posts are retained for administrative history and cannot be deleted here']);
             exit;
         }
 

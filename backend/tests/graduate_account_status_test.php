@@ -5,12 +5,14 @@ require_once __DIR__ . '/../api/config/graduate_account_status.php';
 
 $db = new PDO('sqlite::memory:');
 $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-$db->exec('CREATE TABLE graduate_accounts (id INTEGER PRIMARY KEY, status TEXT NOT NULL, last_login_at TEXT NULL)');
-$insert = $db->prepare('INSERT INTO graduate_accounts (id, status, last_login_at) VALUES (?, ?, ?)');
-$insert->execute([1, 'active', '2025-09-24 12:00:00']);
-$insert->execute([2, 'active', '2025-09-24 12:00:01']);
-$insert->execute([3, 'inactive', '2020-01-01 00:00:00']);
-$insert->execute([4, 'active', null]);
+$db->exec('CREATE TABLE graduate_accounts (id INTEGER PRIMARY KEY, status TEXT NOT NULL, last_login_at TEXT NULL, reactivated_at TEXT NULL)');
+$insert = $db->prepare('INSERT INTO graduate_accounts (id, status, last_login_at, reactivated_at) VALUES (?, ?, ?, ?)');
+$insert->execute([1, 'active', '2025-09-24 12:00:00', null]);
+$insert->execute([2, 'active', '2025-09-24 12:00:01', null]);
+$insert->execute([3, 'inactive', '2020-01-01 00:00:00', null]);
+$insert->execute([4, 'active', null, null]);
+$insert->execute([5, 'active', '2020-01-01 00:00:00', '2026-09-01 00:00:00']);
+$insert->execute([6, 'active', '2026-01-01 00:00:00', null]);
 
 $changed = gradtrack_disable_inactive_graduate_accounts($db, new DateTimeImmutable('2026-09-24 12:00:00'));
 $rows = $db->query('SELECT id, status FROM graduate_accounts ORDER BY id')->fetchAll(PDO::FETCH_KEY_PAIR);
@@ -25,12 +27,23 @@ $assert = static function (bool $condition, string $message) use (&$failures): v
     echo "PASS: {$message}" . PHP_EOL;
 };
 
-$assert($changed === 1, 'only active accounts at least one year past last login are disabled');
-$assert(($rows[1] ?? null) === 'disabled', 'the exact one-year cutoff is inclusive');
-$assert(($rows[2] ?? null) === 'active', 'a login newer than one year remains active');
+$assert($changed === 1, 'only active accounts at least 365 days past their last activity are disabled');
+$assert(($rows[1] ?? null) === 'disabled', 'the exact 365-day cutoff is inclusive');
+$assert(($rows[2] ?? null) === 'active', 'a login newer than 365 days remains active');
 $assert(($rows[3] ?? null) === 'inactive', 'an existing non-active status is preserved');
 $assert(($rows[4] ?? null) === 'active', 'an account without a last-login timestamp is not guessed to be one year inactive');
+$assert(($rows[5] ?? null) === 'active', 'reactivation starts a new inactivity window without overwriting last login');
+$assert(gradtrack_disable_inactive_graduate_account($db, 6, new DateTimeImmutable('2027-01-01 00:00:00')), 'targeted API enforcement disables one account at the exact cutoff');
 $assert(str_contains(gradtrack_registry_account_status_sql('ga'), "THEN 'disabled'"), 'registry account status keeps Disabled distinct from Inactive');
+
+$legacyDb = new PDO('sqlite::memory:');
+$legacyDb->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+$legacyDb->exec('CREATE TABLE graduate_accounts (id INTEGER PRIMARY KEY, status TEXT NOT NULL, last_login_at TEXT NULL)');
+$legacyDb->exec("INSERT INTO graduate_accounts (id, status, last_login_at) VALUES (1, 'active', '2020-01-01 00:00:00')");
+$assert(
+    gradtrack_disable_inactive_graduate_accounts($legacyDb, new DateTimeImmutable('2026-09-24 12:00:00')) === 1,
+    'the inactivity rule remains migration-safe before reactivated_at exists'
+);
 
 if ($failures > 0) {
     echo PHP_EOL . "{$failures} graduate account status test(s) failed." . PHP_EOL;

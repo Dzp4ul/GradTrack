@@ -61,6 +61,10 @@ if (!function_exists('gradtrack_ensure_graduate_account_verification_schema')) {
             $db->exec("ALTER TABLE graduate_accounts ADD COLUMN alumni_verification_submitted_at DATETIME NULL AFTER alumni_verification_reviewed_at");
         }
 
+        if (!gradtrack_graduate_account_column($db, 'reactivated_at')) {
+            $db->exec("ALTER TABLE graduate_accounts ADD COLUMN reactivated_at DATETIME NULL AFTER last_login_at");
+        }
+
         if ($addedVerificationStatus) {
             $db->exec("UPDATE graduate_accounts
                        SET alumni_verification_status = CASE
@@ -100,7 +104,7 @@ if (!function_exists('gradtrack_graduate_account_access_error')) {
             return [
                 'code' => 'disabled',
                 'account_status' => 'disabled',
-                'error' => 'Your Graduate Portal account is disabled because it has not been used for at least one year. Please contact the Alumni President.',
+                'error' => 'Your account has been disabled due to prolonged inactivity. Please contact the Alumni Office for assistance.',
             ];
         }
 
@@ -238,8 +242,9 @@ if (!function_exists('gradtrack_current_graduate_user')) {
         gradtrack_ensure_graduate_account_verification_schema($db);
         gradtrack_ensure_graduate_profile_image_table($db);
         gradtrack_ensure_graduate_cover_image_table($db);
+        gradtrack_disable_inactive_graduate_account($db, $accountId);
 
-        $query = "SELECT ga.id AS account_id, ga.email, ga.status, ga.last_login_at,
+        $query = "SELECT ga.id AS account_id, ga.email, ga.status, ga.last_login_at, ga.reactivated_at,
                          ga.alumni_verification_status, ga.alumni_verification_reason,
                          ga.alumni_verification_reviewed_at, ga.alumni_verification_submitted_at,
                          g.id AS graduate_id, g.student_id,

@@ -324,7 +324,10 @@ try {
                     $qStmt = $db->prepare("SELECT * FROM survey_questions WHERE survey_id = :id AND is_active = 1 ORDER BY sort_order ASC");
                     $qStmt->bindParam(':id', $_GET['id']);
                     $qStmt->execute();
-                    $survey['questions'] = $qStmt->fetchAll(PDO::FETCH_ASSOC);
+                    $survey['questions'] = gradtrack_survey_attach_option_definitions(
+                        $db,
+                        $qStmt->fetchAll(PDO::FETCH_ASSOC)
+                    );
 
                     // Get response count
                     $rStmt = $db->prepare("SELECT COUNT(DISTINCT id) as count FROM survey_responses WHERE survey_id = :id AND submitted_at IS NOT NULL");
@@ -630,26 +633,48 @@ try {
 
             $responseCount = gradtrack_survey_response_count($db, $surveyId);
             $protectExistingQuestionDefinitions = $responseCount > 0 || ($editableSurvey['status'] ?? '') === 'active';
+            $protectedTextChanges = [];
+            $protectedOptionLabels = [];
+            $protectedSectionTitles = [];
             if (isset($data['questions']) && is_array($data['questions']) && $protectExistingQuestionDefinitions) {
                 $definitionStmt = $db->prepare(
                     'SELECT id, survey_id, section_id, question_key, analytics_key, section,
                             question_text, question_type, options, is_required, sort_order, is_active
                      FROM survey_questions
-                     WHERE survey_id = :survey_id AND is_active = 1'
+                     WHERE survey_id = :survey_id AND is_active = 1
+                     ORDER BY sort_order ASC, id ASC'
                 );
                 $definitionStmt->execute([':survey_id' => $surveyId]);
                 $storedDefinitions = [];
-                foreach ($definitionStmt->fetchAll(PDO::FETCH_ASSOC) as $storedQuestion) {
+                $storedQuestionOrder = [];
+                $storedQuestionRows = $definitionStmt->fetchAll(PDO::FETCH_ASSOC);
+                $storedOptionsByQuestion = gradtrack_survey_fetch_option_definitions(
+                    $db,
+                    array_column($storedQuestionRows, 'id')
+                );
+                foreach ($storedQuestionRows as $storedQuestion) {
                     $storedDefinitions[(int)$storedQuestion['id']] = $storedQuestion;
+                    $storedQuestionOrder[] = (int)$storedQuestion['id'];
                 }
 
                 $safeQuestions = [];
-                foreach (array_values($data['questions']) as $index => $submittedQuestion) {
+                $submittedQuestions = array_values($data['questions']);
+                $submittedQuestionOrder = array_map(
+                    static fn (array $question): int => (int)($question['id'] ?? 0),
+                    $submittedQuestions
+                );
+                if ($submittedQuestionOrder !== $storedQuestionOrder) {
+                    http_response_code(409);
+                    echo json_encode([
+                        'success' => false,
+                        'code' => 'SURVEY_STRUCTURE_LOCKED',
+                        'error' => 'Question additions, deletion, or reordering are locked while this survey is active or has responses.',
+                    ]);
+                    break;
+                }
+
+                foreach ($submittedQuestions as $index => $submittedQuestion) {
                     $submittedQuestionId = (int)($submittedQuestion['id'] ?? 0);
-                    if ($submittedQuestionId <= 0) {
-                        $safeQuestions[] = $submittedQuestion;
-                        continue;
-                    }
                     if (!isset($storedDefinitions[$submittedQuestionId])) {
                         http_response_code(422);
                         echo json_encode([
@@ -660,10 +685,178 @@ try {
                         break 2;
                     }
 
-                    // Historical answers keep their original meaning. Existing
-                    // definitions may only be reordered or retired after publishing.
                     $storedQuestion = $storedDefinitions[$submittedQuestionId];
-                    $storedQuestion['sort_order'] = $index + 1;
+                    if (
+                        (string)($submittedQuestion['question_type'] ?? '') !== (string)$storedQuestion['question_type']
+                        || (int)($submittedQuestion['is_required'] ?? 0) !== (int)$storedQuestion['is_required']
+                        || (int)($submittedQuestion['sort_order'] ?? ($index + 1)) !== (int)$storedQuestion['sort_order']
+                        || (int)($submittedQuestion['section_id'] ?? 0) !== (int)($storedQuestion['section_id'] ?? 0)
+                    ) {
+                        http_response_code(409);
+                        echo json_encode([
+                            'success' => false,
+                            'code' => 'SURVEY_STRUCTURE_LOCKED',
+                            'error' => 'Question type, requirement, order, and section placement are locked to protect existing response data.',
+                        ]);
+                        break 2;
+                    }
+
+                    $newQuestionText = trim((string)($submittedQuestion['question_text'] ?? ''));
+                    if ($newQuestionText === '') {
+                        http_response_code(422);
+                        echo json_encode(['success' => false, 'error' => 'Question text cannot be empty.']);
+                        break 2;
+                    }
+                    if ($newQuestionText !== (string)$storedQuestion['question_text']) {
+                        $protectedTextChanges[] = [
+                            'survey_id' => $surveyId,
+                            'question_id' => $submittedQuestionId,
+                            'field' => 'question_text',
+                            'old_text' => (string)$storedQuestion['question_text'],
+                            'new_text' => $newQuestionText,
+                        ];
+                    }
+
+                    $sectionId = (int)($storedQuestion['section_id'] ?? 0);
+                    $newSectionTitle = trim((string)($submittedQuestion['section'] ?? ''));
+                    if ($sectionId > 0) {
+                        if ($newSectionTitle === '') {
+                            http_response_code(409);
+                            echo json_encode([
+                                'success' => false,
+                                'code' => 'SURVEY_STRUCTURE_LOCKED',
+                                'error' => 'Removing or moving a section is locked to protect survey branching.',
+                            ]);
+                            break 2;
+                        }
+                        if (isset($protectedSectionTitles[$sectionId]) && $protectedSectionTitles[$sectionId] !== $newSectionTitle) {
+                            http_response_code(409);
+                            echo json_encode([
+                                'success' => false,
+                                'code' => 'SURVEY_STRUCTURE_LOCKED',
+                                'error' => 'A section title must be changed consistently for every question in that section.',
+                            ]);
+                            break 2;
+                        }
+                        $protectedSectionTitles[$sectionId] = $newSectionTitle;
+                        if ($newSectionTitle !== (string)($storedQuestion['section'] ?? '')) {
+                            $alreadyTracked = false;
+                            foreach ($protectedTextChanges as $change) {
+                                if (($change['field'] ?? '') === 'section_title' && (int)($change['section_id'] ?? 0) === $sectionId) {
+                                    $alreadyTracked = true;
+                                    break;
+                                }
+                            }
+                            if (!$alreadyTracked) {
+                                $protectedTextChanges[] = [
+                                    'survey_id' => $surveyId,
+                                    'question_id' => $submittedQuestionId,
+                                    'section_id' => $sectionId,
+                                    'field' => 'section_title',
+                                    'old_text' => (string)($storedQuestion['section'] ?? ''),
+                                    'new_text' => $newSectionTitle,
+                                ];
+                            }
+                        }
+                    } else {
+                        $storedLegacySectionTitle = trim((string)($storedQuestion['section'] ?? ''));
+                        if (($storedLegacySectionTitle === '') !== ($newSectionTitle === '')) {
+                            http_response_code(409);
+                            echo json_encode([
+                                'success' => false,
+                                'code' => 'SURVEY_STRUCTURE_LOCKED',
+                                'error' => 'Moving a question into or out of a section is locked to protect survey branching.',
+                            ]);
+                            break 2;
+                        }
+                        if ($newSectionTitle !== $storedLegacySectionTitle) {
+                            $protectedTextChanges[] = [
+                                'survey_id' => $surveyId,
+                                'question_id' => $submittedQuestionId,
+                                'field' => 'section_title',
+                                'old_text' => $storedLegacySectionTitle,
+                                'new_text' => $newSectionTitle,
+                            ];
+                        }
+                    }
+
+                    $storedOptions = $storedOptionsByQuestion[$submittedQuestionId] ?? [];
+                    $submittedOptionDefinitions = gradtrack_survey_decode_option_definitions(
+                        $submittedQuestion['option_definitions'] ?? []
+                    );
+                    $submittedLabels = gradtrack_survey_decode_options($submittedQuestion['options'] ?? null);
+                    if ($storedOptions !== []) {
+                        if ($submittedOptionDefinitions === []) {
+                            if ($submittedLabels !== array_column($storedOptions, 'label')) {
+                                http_response_code(409);
+                                echo json_encode([
+                                    'success' => false,
+                                    'code' => 'STABLE_OPTION_METADATA_REQUIRED',
+                                    'error' => 'Refresh the survey editor before changing option text so stable option identifiers can be verified.',
+                                ]);
+                                break 2;
+                            }
+                            $submittedOptionDefinitions = $storedOptions;
+                        }
+                        if (count($submittedOptionDefinitions) !== count($storedOptions)) {
+                            http_response_code(409);
+                            echo json_encode([
+                                'success' => false,
+                                'code' => 'SURVEY_STRUCTURE_LOCKED',
+                                'error' => 'Adding or removing options is locked because existing responses depend on them.',
+                            ]);
+                            break 2;
+                        }
+                        foreach ($storedOptions as $optionIndex => $storedOption) {
+                            $submittedOption = $submittedOptionDefinitions[$optionIndex] ?? [];
+                            if (
+                                (int)($submittedOption['id'] ?? 0) !== (int)$storedOption['id']
+                                || (string)($submittedOption['key'] ?? '') !== (string)$storedOption['key']
+                                || (string)($submittedOption['value'] ?? '') !== (string)$storedOption['value']
+                            ) {
+                                http_response_code(409);
+                                echo json_encode([
+                                    'success' => false,
+                                    'code' => 'SURVEY_STRUCTURE_LOCKED',
+                                    'error' => 'Option identifiers, values, and ordering are locked because existing responses depend on them.',
+                                ]);
+                                break 3;
+                            }
+                            $newLabel = trim((string)($submittedOption['label'] ?? ''));
+                            if ($newLabel === '') {
+                                http_response_code(422);
+                                echo json_encode(['success' => false, 'error' => 'Option display text cannot be empty.']);
+                                break 3;
+                            }
+                            $protectedOptionLabels[(int)$storedOption['id']] = $newLabel;
+                            if ($newLabel !== (string)$storedOption['label']) {
+                                $protectedTextChanges[] = [
+                                    'survey_id' => $surveyId,
+                                    'question_id' => $submittedQuestionId,
+                                    'option_id' => (int)$storedOption['id'],
+                                    'option_value' => (string)$storedOption['value'],
+                                    'field' => 'option_label',
+                                    'old_text' => (string)$storedOption['label'],
+                                    'new_text' => $newLabel,
+                                ];
+                            }
+                        }
+                    } elseif ($submittedLabels !== []) {
+                        http_response_code(409);
+                        echo json_encode([
+                            'success' => false,
+                            'code' => 'SURVEY_STRUCTURE_LOCKED',
+                            'error' => 'Adding options is locked while this survey is active or has responses.',
+                        ]);
+                        break 2;
+                    }
+
+                    $storedQuestion['question_text'] = $newQuestionText;
+                    $storedQuestion['section'] = $newSectionTitle !== '' ? $newSectionTitle : null;
+                    $storedQuestion['option_definitions'] = $submittedOptionDefinitions;
+                    $storedQuestion['options'] = $storedOptions !== []
+                        ? array_column($submittedOptionDefinitions, 'label')
+                        : null;
                     $safeQuestions[] = $storedQuestion;
                 }
                 $data['questions'] = $safeQuestions;
@@ -750,6 +943,58 @@ try {
             }
 
             if (isset($data['questions']) && is_array($data['questions'])) {
+                if ($protectExistingQuestionDefinitions) {
+                    $updateProtectedQuestion = $db->prepare(
+                        'UPDATE survey_questions
+                         SET question_text = :question_text,
+                             section = :section,
+                             options = :options
+                         WHERE id = :question_id AND survey_id = :survey_id AND is_active = 1'
+                    );
+                    $updateProtectedOption = $db->prepare(
+                        'UPDATE survey_question_options
+                         SET label = :label
+                         WHERE id = :option_id AND survey_question_id = :question_id'
+                    );
+                    $updateProtectedSection = $db->prepare(
+                        'UPDATE survey_sections SET title = :title
+                         WHERE id = :section_id AND survey_id = :survey_id'
+                    );
+
+                    foreach ($data['questions'] as $question) {
+                        $questionId = (int)$question['id'];
+                        $definitions = gradtrack_survey_decode_option_definitions(
+                            $question['option_definitions'] ?? []
+                        );
+                        $labels = [];
+                        foreach ($definitions as $definition) {
+                            $optionId = (int)($definition['id'] ?? 0);
+                            $label = $protectedOptionLabels[$optionId] ?? trim((string)$definition['label']);
+                            $labels[] = $label;
+                            $updateProtectedOption->execute([
+                                ':label' => $label,
+                                ':option_id' => $optionId,
+                                ':question_id' => $questionId,
+                            ]);
+                        }
+                        $updateProtectedQuestion->execute([
+                            ':question_text' => $question['question_text'],
+                            ':section' => $question['section'] ?? null,
+                            ':options' => $labels !== []
+                                ? json_encode($labels, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+                                : null,
+                            ':question_id' => $questionId,
+                            ':survey_id' => $surveyId,
+                        ]);
+                    }
+                    foreach ($protectedSectionTitles as $sectionId => $sectionTitle) {
+                        $updateProtectedSection->execute([
+                            ':title' => $sectionTitle,
+                            ':section_id' => (int)$sectionId,
+                            ':survey_id' => $surveyId,
+                        ]);
+                    }
+                } else {
                 $existingStmt = $db->prepare("SELECT id, question_key, analytics_key, is_active FROM survey_questions WHERE survey_id = :id");
                 $existingStmt->execute([':id' => $data['id']]);
                 $existingIds = [];
@@ -863,6 +1108,7 @@ try {
                      WHERE section_row.survey_id = :survey_id AND question_row.id IS NULL'
                 );
                 $deleteEmptySections->execute([':survey_id' => $surveyId]);
+                }
             }
 
             if ($status !== 'draft' && (int)($editableSurvey['template_id'] ?? 0) > 0) {
@@ -890,9 +1136,16 @@ try {
                 [
                     'status' => $status,
                     'question_count' => isset($data['questions']) && is_array($data['questions']) ? count($data['questions']) : 0,
+                    'text_changes' => $protectedTextChanges,
                 ]
             );
-            echo json_encode(["success" => true, "message" => "Survey updated"]);
+            echo json_encode([
+                "success" => true,
+                "message" => $protectedTextChanges !== []
+                    ? "Survey wording updated. Existing response values and statistics were preserved."
+                    : "Survey updated",
+                'text_changes' => count($protectedTextChanges),
+            ]);
             break;
 
         case 'DELETE':

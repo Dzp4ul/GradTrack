@@ -60,12 +60,18 @@ try {
             exit;
         }
 
-        $jobStmt = $db->prepare('SELECT posted_by_account_id, is_active, approval_status FROM job_posts WHERE id = :id');
+        $jobStmt = $db->prepare('SELECT posted_by_account_id, is_active, approval_status, archived_at FROM job_posts WHERE id = :id');
         $jobStmt->bindParam(':id', $jobPostId);
         $jobStmt->execute();
         $job = $jobStmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$job) {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'error' => 'Job post not found']);
+            exit;
+        }
+
+        if (!empty($job['archived_at'])) {
             http_response_code(404);
             echo json_encode(['success' => false, 'error' => 'Job post not found']);
             exit;

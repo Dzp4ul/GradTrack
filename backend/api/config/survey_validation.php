@@ -400,6 +400,15 @@ function gradtrack_survey_validate_text($value, string $fieldType, array $option
 
 function gradtrack_survey_question_options(array $question): array
 {
+    $definitions = $question['option_definitions'] ?? [];
+    if (is_array($definitions) && $definitions !== []) {
+        return array_values(array_filter(array_map(static function ($option): string {
+            return is_array($option)
+                ? trim((string)($option['value'] ?? $option['option_value'] ?? ''))
+                : '';
+        }, $definitions), static fn (string $value): bool => $value !== ''));
+    }
+
     $options = $question['options'] ?? [];
     if (is_string($options)) {
         $decoded = json_decode($options, true);
@@ -482,10 +491,23 @@ function gradtrack_survey_validate_question_answer(array $question, $answer): ar
     if (in_array($questionType, ['multiple_choice', 'radio', 'checkbox'], true)) {
         $options = gradtrack_survey_question_options($question);
         $otherOption = null;
-        foreach ($options as $option) {
-            if (gradtrack_survey_is_other_option($option)) {
-                $otherOption = $option;
+        $definitions = is_array($question['option_definitions'] ?? null)
+            ? $question['option_definitions']
+            : [];
+        foreach ($definitions as $definition) {
+            $value = trim((string)($definition['value'] ?? $definition['option_value'] ?? ''));
+            $label = trim((string)($definition['label'] ?? $value));
+            if ($value !== '' && (gradtrack_survey_is_other_option($value) || gradtrack_survey_is_other_option($label))) {
+                $otherOption = $value;
                 break;
+            }
+        }
+        if ($otherOption === null) {
+            foreach ($options as $option) {
+                if (gradtrack_survey_is_other_option($option)) {
+                    $otherOption = $option;
+                    break;
+                }
             }
         }
 
@@ -500,6 +522,22 @@ function gradtrack_survey_validate_question_answer(array $question, $answer): ar
                 return gradtrack_survey_validation_result(false, $answer, 'Please select a valid option.', 'option');
             }
             $submittedText = (string) $submittedValue;
+            foreach ($definitions as $definition) {
+                $stableValue = trim((string)($definition['value'] ?? $definition['option_value'] ?? ''));
+                $displayLabel = trim((string)($definition['label'] ?? $stableValue));
+                if ($stableValue === '' || $displayLabel === '') continue;
+                if ($submittedText === $displayLabel) {
+                    $submittedText = $stableValue;
+                    break;
+                }
+                if (
+                    gradtrack_survey_is_other_option($displayLabel)
+                    && preg_match('/^' . preg_quote(gradtrack_survey_other_option_label($displayLabel), '/') . '\s*:(.*)$/iu', $submittedText, $matches) === 1
+                ) {
+                    $submittedText = $stableValue . ': ' . trim((string)($matches[1] ?? ''));
+                    break;
+                }
+            }
             if ($otherOption !== null && gradtrack_survey_is_other_answer($submittedText, $otherOption)) {
                 $otherResult = gradtrack_survey_validate_other_detail($question, $otherOption, $submittedText);
                 if (!$otherResult['is_valid']) return $otherResult;

@@ -284,7 +284,7 @@ function gradtrack_analytics_fetch_questions(PDO $db, int $surveyId, bool $inclu
     $stmt->bindValue(':include_retired', $includeRetired ? 1 : 0, PDO::PARAM_INT);
     $stmt->execute();
 
-    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    return gradtrack_survey_attach_option_definitions($db, $stmt->fetchAll(PDO::FETCH_ASSOC));
 }
 
 function gradtrack_analytics_normalize_program_codes($values): array
@@ -388,6 +388,17 @@ function gradtrack_analytics_fetch_valid_responses(PDO $db, int $surveyId, array
         $bindings[':analytics_graduation_year'] = ['value' => (int)$graduationYear, 'type' => PDO::PARAM_INT];
     }
 
+    $dateFrom = trim((string)($options['date_from'] ?? ''));
+    if ($dateFrom !== '') {
+        $where[] = 'sr.submitted_at >= :analytics_date_from';
+        $bindings[':analytics_date_from'] = ['value' => $dateFrom . ' 00:00:00', 'type' => PDO::PARAM_STR];
+    }
+    $dateTo = trim((string)($options['date_to'] ?? ''));
+    if ($dateTo !== '') {
+        $where[] = 'sr.submitted_at < DATE_ADD(:analytics_date_to, INTERVAL 1 DAY)';
+        $bindings[':analytics_date_to'] = ['value' => $dateTo, 'type' => PDO::PARAM_STR];
+    }
+
     // The submission flow prevents duplicates per survey/graduate. MAX(id) is a
     // deterministic safeguard for legacy databases that predate that validation.
     $sql = '
@@ -398,6 +409,11 @@ function gradtrack_analytics_fetch_valid_responses(PDO $db, int $surveyId, array
             sr.responses,
             sr.submitted_at,
             g.year_graduated,
+            g.student_id,
+            g.first_name,
+            g.middle_name,
+            g.last_name,
+            g.email,
             g.program_id,
             p.code AS program_code,
             p.name AS program_name

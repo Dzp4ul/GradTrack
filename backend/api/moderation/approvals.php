@@ -201,33 +201,41 @@ function gradtrack_moderation_counts(PDO $db, array $reviewer): array
 {
     $params = [];
     $scopeClause = gradtrack_moderation_scope_clause($reviewer, 'p', $params, 'job_count_program');
-    $sql = "SELECT jp.approval_status, COUNT(*) AS total
+    $sql = "SELECT
+                SUM(CASE WHEN jp.approval_status = 'pending' AND jp.archived_at IS NULL THEN 1 ELSE 0 END) AS pending,
+                SUM(CASE WHEN jp.approval_status = 'approved' AND jp.archived_at IS NULL THEN 1 ELSE 0 END) AS approved,
+                SUM(CASE WHEN jp.approval_status = 'declined' AND jp.archived_at IS NULL THEN 1 ELSE 0 END) AS declined,
+                SUM(CASE WHEN jp.archived_at IS NOT NULL THEN 1 ELSE 0 END) AS archived
             FROM job_posts jp
             JOIN graduate_accounts ga ON jp.posted_by_account_id = ga.id
             JOIN graduates g ON ga.graduate_id = g.id
             LEFT JOIN programs p ON g.program_id = p.id
-            WHERE 1=1 {$scopeClause}
-            GROUP BY jp.approval_status";
+            WHERE 1=1 {$scopeClause}";
 
     $stmt = $db->prepare($sql);
     $stmt->execute($params);
 
-    $counts = ['pending' => 0, 'approved' => 0, 'declined' => 0];
-    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $status = (string) ($row['approval_status'] ?? '');
-        if (array_key_exists($status, $counts)) {
-            $counts[$status] = (int) $row['total'];
-        }
-    }
-
-    return $counts;
+    $row = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    return [
+        'pending' => (int) ($row['pending'] ?? 0),
+        'approved' => (int) ($row['approved'] ?? 0),
+        'declined' => (int) ($row['declined'] ?? 0),
+        'archived' => (int) ($row['archived'] ?? 0),
+    ];
 }
 
 function gradtrack_moderation_fetch_jobs(PDO $db, array $reviewer, string $status, string $search): array
 {
     $params = [];
     $scopeClause = gradtrack_moderation_scope_clause($reviewer, 'p', $params, 'job_program');
-    $statusClause = gradtrack_moderation_status_clause('jp.approval_status', $status, $params, 'job');
+    if ($status === 'archived') {
+        $statusClause = ' AND jp.archived_at IS NOT NULL';
+    } elseif ($status === 'all') {
+        $statusClause = '';
+    } else {
+        $statusClause = gradtrack_moderation_status_clause('jp.approval_status', $status, $params, 'job')
+            . ' AND jp.archived_at IS NULL';
+    }
     $searchClause = gradtrack_moderation_search_clause([
         'jp.title',
         'jp.company',
@@ -248,7 +256,10 @@ function gradtrack_moderation_fetch_jobs(PDO $db, array $reviewer, string $statu
                    jp.application_deadline, jp.contact_email, jp.application_link,
                    jp.application_method, jp.is_active, jp.created_at,
                    jp.approval_status, jp.approval_reviewed_at, jp.approval_notes,
+                   jp.archived_at, jp.archived_by, jp.restored_at, jp.restored_by,
                    reviewer.full_name AS approval_reviewed_by_name,
+                   archiver.full_name AS archived_by_name,
+                   restorer.full_name AS restored_by_name,
                    g.first_name, g.middle_name, g.last_name, g.year_graduated,
                    ga.email AS poster_email,
                    p.name AS poster_program_name, p.code AS poster_program_code
@@ -257,6 +268,8 @@ function gradtrack_moderation_fetch_jobs(PDO $db, array $reviewer, string $statu
             JOIN graduates g ON ga.graduate_id = g.id
             LEFT JOIN programs p ON g.program_id = p.id
             LEFT JOIN admin_users reviewer ON reviewer.id = jp.approval_reviewed_by
+            LEFT JOIN admin_users archiver ON archiver.id = jp.archived_by
+            LEFT JOIN admin_users restorer ON restorer.id = jp.restored_by
             WHERE 1=1 {$scopeClause} {$statusClause} {$searchClause}
             ORDER BY CASE jp.approval_status
                          WHEN 'pending' THEN 0
@@ -280,7 +293,8 @@ function gradtrack_moderation_fetch_jobs(PDO $db, array $reviewer, string $statu
 
 function gradtrack_moderation_item_program(PDO $db, int $id): ?array
 {
-    $sql = "SELECT jp.id, jp.approval_status, p.code AS program_code
+    $sql = "SELECT jp.id, jp.approval_status, jp.is_active, jp.application_deadline,
+                   jp.archived_at, jp.archived_by, p.code AS program_code
             FROM job_posts jp
             JOIN graduate_accounts ga ON jp.posted_by_account_id = ga.id
             JOIN graduates g ON ga.graduate_id = g.id
@@ -321,7 +335,7 @@ try {
     if ($method === 'GET') {
         $status = isset($_GET['status']) ? trim((string) $_GET['status']) : 'pending';
         $search = isset($_GET['search']) ? trim((string) $_GET['search']) : '';
-        $allowedStatuses = ['pending', 'approved', 'declined', 'all'];
+        $allowedStatuses = ['pending', 'approved', 'declined', 'archived', 'all'];
 
         if (!in_array($status, $allowedStatuses, true)) {
             $status = 'pending';
@@ -346,18 +360,88 @@ try {
         $itemType = isset($data['item_type']) ? trim((string) $data['item_type']) : '';
         $itemId = isset($data['id']) ? (int) $data['id'] : 0;
         $approvalStatus = isset($data['approval_status']) ? trim((string) $data['approval_status']) : '';
+        $action = isset($data['action']) ? strtolower(trim((string) $data['action'])) : 'review';
         $notes = isset($data['notes']) ? trim((string) $data['notes']) : null;
 
         if ($itemType !== 'job' || $itemId <= 0) {
             gradtrack_moderation_json_error(400, 'Only job approval items can be reviewed');
         }
 
+        $item = gradtrack_moderation_item_program($db, $itemId);
+        gradtrack_moderation_assert_can_review($reviewer, $item);
+
+        if (in_array($action, ['archive', 'restore'], true)) {
+            if (($item['approval_status'] ?? '') !== 'approved') {
+                gradtrack_moderation_json_error(409, 'Only approved job posts can be archived or restored');
+            }
+
+            if ($action === 'archive') {
+                if (!empty($item['archived_at'])) {
+                    gradtrack_moderation_json_error(409, 'This job post is already archived');
+                }
+                $archiveStmt = $db->prepare("UPDATE job_posts
+                                             SET archived_at = NOW(), archived_by = :reviewed_by,
+                                                 restored_at = NULL, restored_by = NULL
+                                             WHERE id = :id
+                                               AND approval_status = 'approved'
+                                               AND archived_at IS NULL");
+                $archiveStmt->execute([':reviewed_by' => $reviewer['id'], ':id' => $itemId]);
+                if ($archiveStmt->rowCount() !== 1) {
+                    gradtrack_moderation_json_error(409, 'The job post changed before it could be archived. Refresh and try again.');
+                }
+            } else {
+                if (empty($item['archived_at'])) {
+                    gradtrack_moderation_json_error(409, 'This job post is not archived');
+                }
+                if ((int) ($item['is_active'] ?? 0) !== 1) {
+                    gradtrack_moderation_json_error(409, 'Activate the job post before restoring it');
+                }
+                if (!empty($item['application_deadline']) && (string) $item['application_deadline'] < date('Y-m-d')) {
+                    gradtrack_moderation_json_error(409, 'This job post has expired. Update its deadline before restoring it.');
+                }
+                $restoreStmt = $db->prepare("UPDATE job_posts
+                                             SET archived_at = NULL, archived_by = NULL,
+                                                 restored_at = NOW(), restored_by = :reviewed_by
+                                             WHERE id = :id
+                                               AND approval_status = 'approved'
+                                               AND archived_at IS NOT NULL");
+                $restoreStmt->execute([':reviewed_by' => $reviewer['id'], ':id' => $itemId]);
+                if ($restoreStmt->rowCount() !== 1) {
+                    gradtrack_moderation_json_error(409, 'The job post changed before it could be restored. Refresh and try again.');
+                }
+            }
+
+            gradtrack_realtime_publish('job', 'updated', $itemId, [
+                'actor_type' => 'admin',
+                'actor_id' => (int) $reviewer['id'],
+            ]);
+            $auditUser = gradtrack_admin_audit_context($reviewer);
+            $label = $action === 'archive' ? 'Archive' : 'Restore';
+            logAuditTrail(
+                $auditUser['user_id'],
+                $auditUser['user_name'],
+                $auditUser['user_role'],
+                $item['program_code'] ?? null,
+                $label,
+                'Job Posting',
+                "{$label}d job posting with record ID {$itemId}.",
+                $itemId,
+                ['archived_at' => $item['archived_at'] ?? null],
+                ['archived' => $action === 'archive']
+            );
+            echo json_encode([
+                'success' => true,
+                'message' => $action === 'archive' ? 'Job post archived successfully' : 'Job post restored successfully',
+            ]);
+            exit;
+        }
+
         if (!in_array($approvalStatus, ['approved', 'declined'], true)) {
             gradtrack_moderation_json_error(400, 'approval_status must be approved or declined');
         }
-
-        $item = gradtrack_moderation_item_program($db, $itemId);
-        gradtrack_moderation_assert_can_review($reviewer, $item);
+        if (!empty($item['archived_at'])) {
+            gradtrack_moderation_json_error(409, 'Restore this job post before changing its approval status');
+        }
 
         $updateStmt = $db->prepare("UPDATE job_posts
                                     SET approval_status = :approval_status,

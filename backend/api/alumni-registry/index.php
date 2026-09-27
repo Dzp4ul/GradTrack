@@ -153,6 +153,55 @@ function alumni_registry_clean_review_reason($value): ?string
     return $reason !== '' ? $reason : null;
 }
 
+function alumni_registry_apply_portal_status(PDO $db, array $record, string $requestedStatus): array
+{
+    $requestedStatus = strtolower(trim($requestedStatus));
+    if (!in_array($requestedStatus, ['active', 'inactive', 'disabled'], true)) {
+        alumni_registry_json_error(400, 'Portal account status must be Active, Inactive, or Disabled');
+    }
+
+    $oldStatus = strtolower((string) ($record['account_status'] ?? 'inactive'));
+    $accountId = (int) ($record['linked_user_id'] ?? 0);
+    if ($accountId <= 0) {
+        if ($requestedStatus !== 'inactive') {
+            alumni_registry_json_error(409, 'This registry record has no portal account. It must remain Inactive until registration is completed.');
+        }
+        return ['changed' => false, 'old_status' => $oldStatus, 'new_status' => 'inactive'];
+    }
+
+    $verificationStatus = strtolower((string) ($record['linked_verification_status'] ?? 'pending'));
+    if ($verificationStatus !== 'approved') {
+        if ($requestedStatus !== 'inactive') {
+            alumni_registry_json_error(409, 'Only an approved portal account can be activated or disabled. Complete account verification first.');
+        }
+        return ['changed' => false, 'old_status' => $oldStatus, 'new_status' => 'inactive'];
+    }
+
+    if ($requestedStatus === 'inactive') {
+        alumni_registry_json_error(409, 'A registered portal account cannot be changed to Inactive. Use Disabled to revoke access without changing verification data.');
+    }
+
+    if ($requestedStatus === $oldStatus) {
+        return ['changed' => false, 'old_status' => $oldStatus, 'new_status' => $oldStatus];
+    }
+
+    $stmt = $db->prepare("UPDATE graduate_accounts
+                          SET status = :status,
+                              reactivated_at = CASE WHEN :reactivated_status = 'active' THEN NOW() ELSE reactivated_at END
+                          WHERE id = :account_id
+                            AND alumni_verification_status = 'approved'");
+    $stmt->execute([
+        ':status' => $requestedStatus,
+        ':reactivated_status' => $requestedStatus,
+        ':account_id' => $accountId,
+    ]);
+    if ($stmt->rowCount() < 1) {
+        alumni_registry_json_error(409, 'The portal account status changed before this request could be completed. Refresh and try again.');
+    }
+
+    return ['changed' => true, 'old_status' => $oldStatus, 'new_status' => $requestedStatus];
+}
+
 function alumni_registry_cast_account_review_row(array $row): array
 {
     $firstName = gradtrack_uppercase_name($row['first_name'] ?? '');
@@ -233,6 +282,7 @@ function alumni_registry_base_select(): string
                    ra.archived_at, ra.archived_by, ra.restored_at, ra.restored_by,
                    archiver.full_name AS archived_by_name, restorer.full_name AS restored_by_name,
                    ga.email AS linked_email, ga.status AS linked_account_status,
+                   ga.last_login_at AS linked_last_login_at, ga.reactivated_at AS linked_reactivated_at,
                    " . gradtrack_registry_account_status_sql('ga') . " AS account_status,
                    ga.alumni_verification_status AS linked_verification_status,
                    ga.alumni_verification_reason AS linked_verification_reason,
@@ -851,6 +901,9 @@ function alumni_registry_handle_update(PDO $db, array $admin): void
     }
 
     $status = alumni_registry_normalize_status($data['registration_status'] ?? $existing['registration_status']);
+    $requestedPortalStatus = array_key_exists('portal_account_status', $data)
+        ? strtolower(gradtrack_alumni_registry_clean_text($data['portal_account_status'], 20))
+        : null;
     $normalizedName = gradtrack_alumni_registry_normalize_name($fullName);
     $duplicate = gradtrack_alumni_registry_duplicate_lookup($db, $normalizedName, (string) $courseMatch['course_code'], $batchYear, $id);
     if ($duplicate) {
@@ -983,9 +1036,9 @@ function alumni_registry_handle_update(PDO $db, array $admin): void
                     ':account_id' => $accountId,
                 ]);
             }
-            if ($status === 'Verified') {
+            if ($status !== $existing['registration_status'] && $status === 'Verified') {
                 gradtrack_update_graduate_account_verification($db, $accountId, 'approved', (int) $admin['id']);
-            } elseif ($status === 'Inactive') {
+            } elseif ($status !== $existing['registration_status'] && $status === 'Inactive') {
                 gradtrack_update_graduate_account_verification(
                     $db,
                     $accountId,
@@ -996,6 +1049,14 @@ function alumni_registry_handle_update(PDO $db, array $admin): void
             }
         }
 
+        $portalChange = $requestedPortalStatus !== null
+            ? alumni_registry_apply_portal_status($db, $existing, $requestedPortalStatus)
+            : [
+                'changed' => false,
+                'old_status' => $existing['account_status'] ?? 'inactive',
+                'new_status' => $existing['account_status'] ?? 'inactive',
+            ];
+
         $db->commit();
     } catch (Throwable $e) {
         if ($db->inTransaction()) {
@@ -1005,20 +1066,31 @@ function alumni_registry_handle_update(PDO $db, array $admin): void
         throw $e;
     }
 
+    $auditAction = !empty($portalChange['changed'])
+        ? (($portalChange['new_status'] ?? '') === 'disabled' ? 'Disable' : 'Reactivate')
+        : 'Update';
+    $auditDescription = !empty($portalChange['changed'])
+        ? $auditAction . "d portal account linked to alumni record ID {$id}."
+        : "Updated alumni record with ID {$id}.";
     logAuditTrail(
         $admin['id'],
         $admin['full_name'] ?: $admin['email'],
         $admin['role'],
         $courseMatch['course_code'],
-        'Update',
+        $auditAction,
         'Alumni Registered List',
-        "Updated alumni record with ID {$id}.",
+        $auditDescription,
         $id,
-        null,
+        [
+            'account_status' => $existing['account_status'] ?? 'inactive',
+            'registration_status' => $existing['registration_status'] ?? null,
+        ],
         [
             'course_code' => $courseMatch['course_code'],
             'batch_year' => $batchYear,
             'registration_status' => $status,
+            'account_status' => $portalChange['new_status'],
+            'portal_status_changed' => $portalChange['changed'],
         ]
     );
 

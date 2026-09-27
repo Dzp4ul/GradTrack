@@ -32,8 +32,10 @@ try {
 
     gradtrack_ensure_graduate_account_verification_schema($db);
     gradtrack_ensure_archive_schema($db, 'graduates');
+    gradtrack_disable_inactive_graduate_accounts($db);
 
-    $query = "SELECT ga.id, ga.password_hash, ga.status, ga.alumni_verification_status, ga.alumni_verification_reason
+    $query = "SELECT ga.id, ga.password_hash, ga.status, ga.last_login_at, ga.reactivated_at,
+                     ga.alumni_verification_status, ga.alumni_verification_reason
               FROM graduate_accounts ga
               JOIN graduates g ON g.id = ga.graduate_id
               WHERE ga.email = :email

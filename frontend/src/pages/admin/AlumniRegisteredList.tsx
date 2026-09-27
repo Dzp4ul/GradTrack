@@ -57,6 +57,8 @@ interface RegisteredAlumni {
   linked_verification_status?: VerificationStatus | null;
   linked_verification_reason?: string | null;
   linked_verification_reviewed_at?: string | null;
+  linked_last_login_at?: string | null;
+  linked_reactivated_at?: string | null;
   linked_first_name?: string | null;
   linked_middle_name?: string | null;
   linked_last_name?: string | null;
@@ -200,6 +202,9 @@ interface EditForm {
   course_code: string;
   batch_year: string;
   registration_status: RegistryStatus;
+  portal_account_status: AccountStatus;
+  initial_account_status: AccountStatus;
+  linked_verification_status: VerificationStatus | null;
   linked_first_name: string;
   linked_middle_name: string;
   linked_last_name: string;
@@ -257,7 +262,6 @@ function AccountStatusBadge({ status }: { status: AccountStatus }) {
   };
   return <span className={`inline-flex rounded-full px-2 py-1 text-xs font-semibold ${styles[status]}`}>{status[0].toUpperCase() + status.slice(1)}</span>;
 }
-const registryStatusOptions: RegistryStatus[] = ['Unclaimed', 'Registered', 'Verified', 'Inactive'];
 const courseCodeOrder = ['BSCS', 'ACT', 'BSHM', 'BSED', 'BEED'];
 const maxImportSizeBytes = 10 * 1024 * 1024;
 const surveyAnswerTabs: Array<{ value: SurveyAnswerStatus; label: string; countKey: SurveyAnswerCountKey }> = [
@@ -607,6 +611,9 @@ export default function AlumniRegisteredList() {
       course_code: record.course_code,
       batch_year: String(record.batch_year),
       registration_status: record.registration_status,
+      portal_account_status: record.account_status,
+      initial_account_status: record.account_status,
+      linked_verification_status: record.linked_verification_status || null,
       linked_first_name: record.linked_first_name || '',
       linked_middle_name: record.linked_middle_name || '',
       linked_last_name: record.linked_last_name || '',
@@ -618,16 +625,14 @@ export default function AlumniRegisteredList() {
     });
   };
 
-  const saveEdit = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!editForm) return;
-    setActionKey(`edit-${editForm.id}`);
+  const persistEdit = async (form: EditForm) => {
+    setActionKey(`edit-${form.id}`);
     try {
       const response = await fetch(`${API_ENDPOINTS.ALUMNI_REGISTRY}?action=update`, {
         method: 'PUT',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(editForm),
+        body: JSON.stringify(form),
       });
       const data = await response.json();
       if (!response.ok || data.success === false) {
@@ -646,6 +651,27 @@ export default function AlumniRegisteredList() {
     } finally {
       setActionKey('');
     }
+  };
+
+  const saveEdit = (event: FormEvent) => {
+    event.preventDefault();
+    if (!editForm) return;
+    if (editForm.portal_account_status !== editForm.initial_account_status) {
+      const disabling = editForm.portal_account_status === 'disabled';
+      setMsgBox({
+        isOpen: true,
+        type: 'confirm',
+        title: disabling ? 'Disable Alumni Account?' : 'Reactivate Alumni Account?',
+        message: disabling
+          ? 'The alumni will no longer be able to access the Graduate Portal until the account is reactivated.'
+          : 'The alumni will regain access to the Graduate Portal. Existing account data and history will be preserved.',
+        confirmText: disabling ? 'Disable Account' : 'Reactivate Account',
+        destructive: disabling,
+        onConfirm: () => { void persistEdit(editForm); },
+      });
+      return;
+    }
+    void persistEdit(editForm);
   };
 
   const runRecordAction = async (record: RegisteredAlumni, action: 'verify' | 'inactive') => {
@@ -2136,6 +2162,7 @@ function EditModal({
   onChange: (form: EditForm) => void;
   onSubmit: (event: FormEvent) => void;
 }) {
+  const canControlPortalAccount = form.has_linked_account && form.linked_verification_status === 'approved';
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
       <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
@@ -2173,16 +2200,31 @@ function EditModal({
               />
             </Field>
           </div>
-          <Field label="Registry Record Status">
+          <Field label="Portal Account Status">
             <select
-              value={form.registration_status}
-              onChange={(event) => onChange({ ...form, registration_status: event.target.value as RegistryStatus })}
-              className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={form.portal_account_status}
+              onChange={(event) => onChange({ ...form, portal_account_status: event.target.value as AccountStatus })}
+              disabled={!canControlPortalAccount}
+              className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:bg-gray-100"
+              title={!canControlPortalAccount ? 'A portal account must exist and be approved before it can be activated or disabled.' : undefined}
             >
-              {registryStatusOptions.map((status) => (
-                <option key={status} value={status}>{status}</option>
+              {accountStatusOptions.map((status) => (
+                <option
+                  key={status.value}
+                  value={status.value}
+                  disabled={canControlPortalAccount && status.value === 'inactive'}
+                >
+                  {status.label}
+                </option>
               ))}
             </select>
+            <p className="mt-1 text-xs text-gray-500">
+              {!form.has_linked_account
+                ? 'Inactive: this registry record does not have a portal account yet.'
+                : form.linked_verification_status !== 'approved'
+                  ? 'Inactive until the linked portal account completes verification.'
+                  : 'Active and Disabled are access states. Verification and registry matching remain unchanged.'}
+            </p>
           </Field>
           {form.has_linked_account && (
             <section className="space-y-4 rounded-lg border border-blue-100 bg-blue-50 p-4">

@@ -20,7 +20,6 @@ import Graduates from './pages/admin/Graduates';
 import GraduateParticipation from './pages/admin/GraduateParticipation';
 import Surveys from './pages/admin/Surveys';
 import SurveyDetail from './pages/admin/SurveyDetail';
-import SurveyResponses from './pages/admin/SurveyResponses';
 import SurveyAnalytics from './pages/admin/SurveyAnalytics';
 import Reports from './pages/admin/Reports';
 import Settings from './pages/admin/Settings';
@@ -253,7 +252,7 @@ function App() {
               path="surveys/:surveyId/responses"
               element={
                 <ProtectedRoute allowedRoles={RESEARCH_COORDINATOR_ROLES}>
-                  <SurveyResponses />
+                  <SurveyAnalytics />
                 </ProtectedRoute>
               }
             />

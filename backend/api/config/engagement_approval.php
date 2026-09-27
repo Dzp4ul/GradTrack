@@ -122,6 +122,11 @@ if (!function_exists('gradtrack_ensure_engagement_approval_schema')) {
             'proof_uploaded_at',
             'proof_uploaded_at DATETIME NULL AFTER proof_file_size_bytes'
         );
+
+        gradtrack_engagement_add_column_if_missing($db, 'job_posts', 'archived_at', 'archived_at DATETIME NULL AFTER approval_notes');
+        gradtrack_engagement_add_column_if_missing($db, 'job_posts', 'archived_by', 'archived_by INT NULL AFTER archived_at');
+        gradtrack_engagement_add_column_if_missing($db, 'job_posts', 'restored_at', 'restored_at DATETIME NULL AFTER archived_by');
+        gradtrack_engagement_add_column_if_missing($db, 'job_posts', 'restored_by', 'restored_by INT NULL AFTER restored_at');
     }
 }
 

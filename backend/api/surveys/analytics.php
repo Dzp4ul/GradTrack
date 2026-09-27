@@ -62,6 +62,11 @@ try {
 
     if ($deanScope !== null) {
         $analyticsOptions['program_codes'] = $deanScope['program_codes'];
+    } else {
+        $selectedPrograms = getSelectedProgramFilters();
+        if ($selectedPrograms !== null) {
+            $analyticsOptions['program_codes'] = $selectedPrograms;
+        }
     }
 
     $selectedGraduationYear = null;
@@ -80,17 +85,72 @@ try {
         $analyticsOptions['graduation_year'] = $selectedGraduationYear;
     }
 
+    $selectedEmploymentStatus = strtolower(trim((string)($_GET['employment_status'] ?? '')));
+    if ($selectedEmploymentStatus !== '' && !in_array($selectedEmploymentStatus, ['employed', 'unemployed'], true)) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'error' => 'Employment status must be employed or unemployed.']);
+        exit;
+    }
+    if ($selectedEmploymentStatus !== '') {
+        $analyticsOptions['employment_status'] = $selectedEmploymentStatus;
+    }
+
+    foreach (['date_from', 'date_to'] as $dateFilter) {
+        $value = trim((string)($_GET[$dateFilter] ?? ''));
+        if ($value === '') continue;
+        $date = DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+        if (!$date || $date->format('Y-m-d') !== $value) {
+            http_response_code(400);
+            echo json_encode(['success' => false, 'error' => 'Date filters must use YYYY-MM-DD.']);
+            exit;
+        }
+        $analyticsOptions[$dateFilter] = $value;
+    }
+    if (
+        isset($analyticsOptions['date_from'], $analyticsOptions['date_to'])
+        && $analyticsOptions['date_from'] > $analyticsOptions['date_to']
+    ) {
+        http_response_code(400);
+        echo json_encode(['success' => false, 'error' => 'The start date cannot be later than the end date.']);
+        exit;
+    }
+
     // Current analytics intentionally exclude detached, inactive, and archived graduates.
     // The shared loader also selects one deterministic response per graduate.
     $responses = gradtrack_analytics_fetch_valid_responses($db, (int)$surveyId, $analyticsOptions);
-    $totalResponses = count($responses);
 
     // Get questions
     // Include retired questions in detailed analytics so removing a live-form
     // question never hides or destroys its historical results.
     $questions = gradtrack_analytics_fetch_questions($db, (int)$surveyId, true);
+    if ($selectedEmploymentStatus !== '') {
+        $rolesForFilter = gradtrack_analytics_question_roles($questions);
+        $responses = array_values(array_filter($responses, static function (array $response) use ($questions, $rolesForFilter, $selectedEmploymentStatus): bool {
+            $answers = gradtrack_survey_response_answer_map($questions, $response);
+            return gradtrack_analytics_first_classified_answer(
+                $answers,
+                $rolesForFilter['employment'] ?? [],
+                'gradtrack_analytics_classify_employment'
+            ) === $selectedEmploymentStatus;
+        }));
+    }
+    $totalResponses = count($responses);
     $questionResponseKeys = buildQuestionResponseKeys($questions, $responses);
     $roles = gradtrack_analytics_question_roles($questions);
+    $completion = calculateCompletionSummary($responses, $questions);
+    $latestResponseDate = null;
+    foreach ($responses as $response) {
+        $submittedAt = trim((string)($response['submitted_at'] ?? ''));
+        if ($submittedAt !== '' && ($latestResponseDate === null || $submittedAt > $latestResponseDate)) {
+            $latestResponseDate = $submittedAt;
+        }
+    }
+    $targetPopulation = $coverage['configured']
+        && $selectedEmploymentStatus === ''
+        && !isset($analyticsOptions['date_from'])
+        && !isset($analyticsOptions['date_to'])
+        ? calculateTargetPopulation($db, $analyticsOptions)
+        : null;
 
     // Analyze responses
     $analytics = [
@@ -99,9 +159,17 @@ try {
         'template_id' => isset($survey['template_id']) ? (int)$survey['template_id'] : null,
         'version_number' => (int)($survey['version_number'] ?? 1),
         'total_responses' => $totalResponses,
-        'response_rate' => calculateResponseRate($db, (int)$surveyId, $totalResponses, $analyticsOptions),
-        'completion_rate' => calculateCompletionRate($responses, $questions),
+        'completed_responses' => $completion['completed'],
+        'response_rate' => $targetPopulation !== null && $targetPopulation > 0
+            ? round(($totalResponses / $targetPopulation) * 100, 2)
+            : null,
+        'target_population' => $targetPopulation,
+        'completion_rate' => $completion['rate'],
+        'latest_response_date' => $latestResponseDate,
         'selected_graduation_year' => $selectedGraduationYear,
+        'selected_employment_status' => $selectedEmploymentStatus !== '' ? $selectedEmploymentStatus : null,
+        'selected_date_from' => $analyticsOptions['date_from'] ?? null,
+        'selected_date_to' => $analyticsOptions['date_to'] ?? null,
         'scope' => $deanScope,
         'questions_analytics' => [],
         'field_availability' => [
@@ -133,10 +201,12 @@ try {
             'question_type' => $question['question_type'],
             'section' => $question['section'] ?? '',
             'options' => decodeQuestionOptions($question['options'] ?? null),
+            'option_definitions' => $question['option_definitions'] ?? [],
             'total_answers' => 0,
             'skipped_answers' => 0,
             'applicable_responses' => 0,
-            'data' => []
+            'data' => [],
+            'chart_type' => determineQuestionChartType($question),
         ];
 
         $answers = [];
@@ -167,19 +237,77 @@ try {
             case 'multiple_choice':
             case 'radio':
             case 'rating':
-                $questionAnalytics['data'] = analyzeMultipleChoice($answers, $questionAnalytics['options'], $applicableResponses);
+                $questionAnalytics['data'] = analyzeMultipleChoice(
+                    $answers,
+                    $questionAnalytics['options'],
+                    count($answers),
+                    $questionAnalytics['option_definitions']
+                );
                 break;
             case 'checkbox':
-                $questionAnalytics['data'] = analyzeCheckbox($answers, $questionAnalytics['options'], $applicableResponses);
+                $questionAnalytics['data'] = analyzeCheckbox(
+                    $answers,
+                    $questionAnalytics['options'],
+                    count($answers),
+                    $questionAnalytics['option_definitions']
+                );
                 break;
             case 'text':
             case 'date':
-                $questionAnalytics['data'] = analyzeText($answers);
+                $questionAnalytics['data'] = $questionAnalytics['chart_type'] === 'numeric_summary'
+                    ? analyzeNumeric($answers)
+                    : analyzeText($answers);
                 break;
         }
 
         $analytics['questions_analytics'][] = $questionAnalytics;
     }
+
+    $questionLabels = [];
+    $questionsById = [];
+    foreach ($questions as $question) {
+        if (isDisplayOnlyQuestion($question)) continue;
+        $questionId = (string)$question['id'];
+        $questionLabels[$questionId] = (string)$question['question_text'];
+        $questionsById[$questionId] = $question;
+    }
+    $analytics['individual_responses'] = array_map(static function (array $response) use ($questions, $questionLabels, $questionsById): array {
+        $answers = gradtrack_survey_response_answer_map($questions, $response);
+        $displayAnswers = [];
+        foreach ($answers as $questionId => $answer) {
+            if (!hasAnswerValue($answer) || !isset($questionLabels[$questionId])) continue;
+            $question = $questionsById[$questionId] ?? [];
+            $definitions = $question['option_definitions'] ?? [];
+            if (is_array($answer)) {
+                $displayAnswer = array_map(
+                    static fn ($value): string => displayOptionAnswer($value, $definitions),
+                    $answer
+                );
+            } else {
+                $displayAnswer = displayOptionAnswer($answer, $definitions);
+            }
+            $displayAnswers[] = [
+                'question_id' => (int)$questionId,
+                'question' => $questionLabels[$questionId],
+                'answer' => $displayAnswer,
+            ];
+        }
+        return [
+            'response_id' => (int)($response['response_id'] ?? 0),
+            'graduate_id' => (int)($response['graduate_id'] ?? 0),
+            'respondent' => trim(implode(' ', array_filter([
+                $response['first_name'] ?? '',
+                $response['middle_name'] ?? '',
+                $response['last_name'] ?? '',
+            ], static fn ($part): bool => trim((string)$part) !== ''))),
+            'student_id' => $response['student_id'] ?? null,
+            'email' => $response['email'] ?? null,
+            'program_code' => $response['program_code'] ?? null,
+            'year_graduated' => isset($response['year_graduated']) ? (int)$response['year_graduated'] : null,
+            'submitted_at' => $response['submitted_at'] ?? null,
+            'answers' => $displayAnswers,
+        ];
+    }, array_reverse($responses));
 
     // Employment-specific analytics
     $employmentAnalytics = analyzeEmploymentData($responses, $questions, $questionResponseKeys);
@@ -192,6 +320,12 @@ try {
         : getSelectedProgramFilters();
     $analytics['selected_program'] = !empty($programFilters) ? $programFilters[0] : null;
     $analytics['selected_programs'] = $programFilters;
+    $programOptionStmt = $db->query('SELECT id, code, name FROM programs ORDER BY code ASC');
+    $analytics['filter_options'] = [
+        'programs' => $programOptionStmt->fetchAll(PDO::FETCH_ASSOC),
+        'graduation_years' => $coverage['configured'] ? $coverage['years'] : [],
+        'employment_statuses' => !empty($roles['employment']) ? ['employed', 'unemployed'] : [],
+    ];
     $tableYears = $selectedGraduationYear !== null
         ? [$selectedGraduationYear]
         : ($deanScope !== null && $coverage['configured'] ? $coverage['years'] : null);
@@ -215,6 +349,26 @@ try {
 function isDisplayOnlyQuestion($question) {
     $questionType = strtolower((string)($question['question_type'] ?? ''));
     return $questionType === 'header';
+}
+
+function calculateTargetPopulation(PDO $db, array $options = []): int
+{
+    $where = [gradtrack_analytics_active_graduate_condition('g')];
+    $bindings = [];
+    gradtrack_analytics_append_program_filters($where, $bindings, $options, 'g', 'p', 'survey_target');
+    gradtrack_analytics_append_graduation_year_coverage($where, $bindings, $options, 'g', 'survey_target_coverage');
+    $year = (int)($options['graduation_year'] ?? 0);
+    if ($year > 0) {
+        $where[] = 'g.year_graduated = :survey_target_year';
+        $bindings[':survey_target_year'] = ['value' => $year, 'type' => PDO::PARAM_INT];
+    }
+    $stmt = $db->prepare(
+        'SELECT COUNT(*) FROM graduates g LEFT JOIN programs p ON p.id = g.program_id WHERE '
+        . implode(' AND ', $where)
+    );
+    gradtrack_analytics_bind_values($stmt, $bindings);
+    $stmt->execute();
+    return (int)$stmt->fetchColumn();
 }
 
 function calculateResponseRate($db, $surveyId, $validResponseCount = null, array $options = []) {
@@ -260,8 +414,12 @@ function calculateResponseRate($db, $surveyId, $validResponseCount = null, array
 }
 
 function calculateCompletionRate(array $responses, array $questions): ?float {
+    return calculateCompletionSummary($responses, $questions)['rate'];
+}
+
+function calculateCompletionSummary(array $responses, array $questions): array {
     if ($responses === []) {
-        return null;
+        return ['completed' => 0, 'rate' => null];
     }
 
     $requiredQuestions = array_values(array_filter($questions, static function (array $question): bool {
@@ -270,7 +428,7 @@ function calculateCompletionRate(array $responses, array $questions): ?float {
             && !isDisplayOnlyQuestion($question);
     }));
     if ($requiredQuestions === []) {
-        return null;
+        return ['completed' => count($responses), 'rate' => null];
     }
 
     $complete = 0;
@@ -291,7 +449,10 @@ function calculateCompletionRate(array $responses, array $questions): ?float {
         }
     }
 
-    return gradtrack_survey_percentage($complete, count($responses), 1);
+    return [
+        'completed' => $complete,
+        'rate' => gradtrack_survey_percentage($complete, count($responses), 1),
+    ];
 }
 
 function surveyQuestionAppliesToResponse(array $question, array $response): bool
@@ -337,6 +498,73 @@ function decodeQuestionOptions($options) {
     }
 
     return array_values(array_unique($normalized));
+}
+
+function determineQuestionChartType(array $question): string
+{
+    $type = strtolower((string)($question['question_type'] ?? 'text'));
+    $analyticsKey = strtolower(trim((string)($question['analytics_key'] ?? '')));
+    $options = decodeQuestionOptions($question['options'] ?? null);
+
+    if ($type === 'checkbox') return 'horizontal_bar';
+    if ($type === 'rating') return 'likert';
+    if ($type === 'text' && in_array($analyticsKey, ['earned_units', 'examination_rating'], true)) {
+        return 'numeric_summary';
+    }
+    if (in_array($type, ['text', 'date'], true)) return 'text_list';
+    if (in_array($type, ['multiple_choice', 'radio'], true)) {
+        $normalized = array_map('gradtrack_survey_normalize_text', $options);
+        $isYesNo = count($normalized) === 2
+            && in_array('yes', $normalized, true)
+            && count(array_filter($normalized, static fn (string $value): bool => str_starts_with($value, 'no'))) === 1;
+        if ($isYesNo) return 'donut';
+        $longest = $options === [] ? 0 : max(array_map('strlen', $options));
+        return count($options) <= 5 && $longest <= 45 ? 'donut' : 'horizontal_bar';
+    }
+    return 'horizontal_bar';
+}
+
+function optionValueLabelMap(array $definitions): array
+{
+    $map = [];
+    foreach ($definitions as $definition) {
+        if (!is_array($definition)) continue;
+        $value = trim((string)($definition['value'] ?? $definition['option_value'] ?? ''));
+        $label = trim((string)($definition['label'] ?? $value));
+        if ($value !== '') $map[$value] = $label !== '' ? $label : $value;
+    }
+    return $map;
+}
+
+function analyticsIsOtherOption(string $value): bool
+{
+    return preg_match('/^others?\b/i', trim($value)) === 1;
+}
+
+function analyticsIsOtherAnswer(string $value, string $option): bool
+{
+    $value = trim($value);
+    $option = trim($option);
+    return strcasecmp($value, $option) === 0
+        || (analyticsIsOtherOption($option) && preg_match('/^others?\s*:/i', $value) === 1);
+}
+
+function displayOptionAnswer($answer, array $definitions): string
+{
+    $value = answerLabel($answer);
+    if ($value === '') return '';
+    $map = optionValueLabelMap($definitions);
+    if (isset($map[$value])) return $map[$value];
+
+    foreach ($map as $stableValue => $label) {
+        if (
+            (analyticsIsOtherOption($stableValue) || analyticsIsOtherOption($label))
+            && analyticsIsOtherAnswer($value, $stableValue)
+        ) {
+            return $label;
+        }
+    }
+    return $value;
 }
 
 function hasAnswerValue($answer) {
@@ -393,7 +621,7 @@ function seedOptionDistribution($options) {
     return $distribution;
 }
 
-function analyzeMultipleChoice($answers, $options = [], $denominator = null) {
+function analyzeMultipleChoice($answers, $options = [], $denominator = null, $definitions = []) {
     $distribution = [];
     if (!empty($options)) {
         $distribution = seedOptionDistribution($options);
@@ -402,7 +630,7 @@ function analyzeMultipleChoice($answers, $options = [], $denominator = null) {
     $total = $denominator !== null ? (int)$denominator : count($answers);
     
     foreach ($answers as $answer) {
-        $option = answerLabel($answer);
+        $option = displayOptionAnswer($answer, is_array($definitions) ? $definitions : []);
         if ($option === '') {
             continue;
         }
@@ -416,7 +644,7 @@ function analyzeMultipleChoice($answers, $options = [], $denominator = null) {
     return distributionToRows($distribution, $total);
 }
 
-function analyzeCheckbox($answers, $options = [], $denominator = null) {
+function analyzeCheckbox($answers, $options = [], $denominator = null, $definitions = []) {
     $distribution = [];
     if (!empty($options)) {
         $distribution = seedOptionDistribution($options);
@@ -426,9 +654,9 @@ function analyzeCheckbox($answers, $options = [], $denominator = null) {
     
     foreach ($answers as $answer) {
         // Checkbox answers can be arrays or comma-separated strings
-        $options = is_array($answer) ? $answer : explode(',', $answer);
-        foreach ($options as $option) {
-            $option = trim($option);
+        $answerOptions = is_array($answer) ? $answer : explode(',', $answer);
+        foreach ($answerOptions as $option) {
+            $option = displayOptionAnswer($option, is_array($definitions) ? $definitions : []);
             if ($option === '') {
                 continue;
             }
@@ -448,7 +676,7 @@ function analyzeText($answers) {
     $nonEmpty = array_values(array_filter($answers, function($a) { return hasAnswerValue($a); }));
     $samples = array_map(function($answer) {
         return answerLabel($answer);
-    }, array_slice($nonEmpty, 0, 5));
+    }, $nonEmpty);
     
     return [
         'total_responses' => count($nonEmpty),
@@ -456,6 +684,32 @@ function analyzeText($answers) {
         'avg_length' => count($nonEmpty) > 0 ? round(array_sum(array_map(function($answer) {
             return strlen(answerLabel($answer));
         }, $nonEmpty)) / count($nonEmpty), 2) : 0
+    ];
+}
+
+function analyzeNumeric(array $answers): array
+{
+    $values = [];
+    foreach ($answers as $answer) {
+        if (is_array($answer)) continue;
+        $text = str_replace(',', '', trim((string)$answer));
+        if ($text !== '' && is_numeric($text)) $values[] = (float)$text;
+    }
+    sort($values, SORT_NUMERIC);
+    $count = count($values);
+    if ($count === 0) {
+        return ['n' => 0, 'mean' => null, 'median' => null, 'min' => null, 'max' => null];
+    }
+    $middle = intdiv($count, 2);
+    $median = $count % 2 === 1
+        ? $values[$middle]
+        : ($values[$middle - 1] + $values[$middle]) / 2;
+    return [
+        'n' => $count,
+        'mean' => round(array_sum($values) / $count, 2),
+        'median' => round($median, 2),
+        'min' => $values[0],
+        'max' => $values[$count - 1],
     ];
 }
 

@@ -177,9 +177,22 @@ if (!function_exists('gradtrack_prepare_survey_questions')) {
                 $errors[] = 'Year Graduated must use the Multiple Choice question type.';
             }
 
-            $analysis = gradtrack_analyze_graduation_year_options($question['options'] ?? []);
+            $optionDefinitions = is_array($question['option_definitions'] ?? null)
+                ? $question['option_definitions']
+                : [];
+            $stableValues = array_values(array_filter(array_map(
+                static fn ($option): string => is_array($option)
+                    ? trim((string)($option['value'] ?? $option['option_value'] ?? ''))
+                    : '',
+                $optionDefinitions
+            ), static fn (string $value): bool => $value !== ''));
+            $analysis = gradtrack_analyze_graduation_year_options(
+                $stableValues !== [] ? $stableValues : ($question['options'] ?? [])
+            );
             $errors = array_merge($errors, $analysis['errors']);
-            $prepared[$index]['options'] = $analysis['options'];
+            if ($stableValues === []) {
+                $prepared[$index]['options'] = $analysis['options'];
+            }
         }
 
         return [
@@ -238,7 +251,15 @@ if (!function_exists('gradtrack_get_survey_graduation_year_coverage')) {
             return $base;
         }
 
-        $analysis = gradtrack_analyze_graduation_year_options($question['options'] ?? null);
+        $stableOptionsStmt = $db->prepare(
+            'SELECT option_value FROM survey_question_options
+             WHERE survey_question_id = :question_id ORDER BY sort_order ASC, id ASC'
+        );
+        $stableOptionsStmt->execute([':question_id' => (int)$question['id']]);
+        $stableOptions = $stableOptionsStmt->fetchAll(PDO::FETCH_COLUMN);
+        $analysis = gradtrack_analyze_graduation_year_options(
+            $stableOptions !== [] ? $stableOptions : ($question['options'] ?? null)
+        );
         if ($analysis['errors'] !== []) {
             $base['error'] = implode(' ', $analysis['errors']);
             return $base;

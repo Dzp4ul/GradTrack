@@ -21,11 +21,19 @@ import {
 } from '../utils/surveyValidation';
 import MaintenancePage from './MaintenancePage';
 
+interface QuestionOption {
+  id?: number | null;
+  key?: string | null;
+  value: string;
+  label: string;
+}
+
 interface Question {
   id?: number;
   question_text: string;
   question_type: string;
   options: string[] | null;
+  option_definitions?: QuestionOption[];
   is_required: number;
   sort_order: number;
   section?: string;
@@ -330,8 +338,21 @@ const isChoiceQuestion = (question: Question) =>
 const isOtherOption = isOtherSurveyOption;
 const isOtherStoredValue = isOtherSurveyAnswer;
 
-const getOtherOption = (question: Question) =>
-  question.options?.find(isOtherOption) || null;
+const getQuestionOptions = (question: Question): QuestionOption[] => {
+  if (Array.isArray(question.option_definitions) && question.option_definitions.length > 0) {
+    return question.option_definitions.map((option) => ({
+      ...option,
+      value: String(option.value),
+      label: String(option.label),
+    }));
+  }
+  return (question.options || []).map((option) => ({ value: option, label: option }));
+};
+
+const getOtherOption = (question: Question) => {
+  const option = getQuestionOptions(question).find((item) => isOtherOption(item.label) || isOtherOption(item.value));
+  return option?.value || null;
+};
 
 const buildOtherAnswer = buildOtherSurveyAnswer;
 const getOtherTextFromValue = getOtherSurveyAnswerText;
@@ -405,7 +426,7 @@ const extractAddressParts = (profile: TokenProfileData) => {
 };
 
 const matchQuestionOption = (question: Question, candidates: string[]) => {
-  const options = question.options || [];
+  const options = getQuestionOptions(question);
   if (options.length === 0) {
     return candidates.find(Boolean) || '';
   }
@@ -414,14 +435,17 @@ const matchQuestionOption = (question: Question, candidates: string[]) => {
     const normalizedCandidate = normalizeComparable(candidate);
     if (!normalizedCandidate) continue;
 
-    const exactMatch = options.find((option) => normalizeComparable(option) === normalizedCandidate);
-    if (exactMatch) return exactMatch;
+    const exactMatch = options.find((option) => (
+      normalizeComparable(option.label) === normalizedCandidate
+      || normalizeComparable(option.value) === normalizedCandidate
+    ));
+    if (exactMatch) return exactMatch.value;
 
     const closeMatch = options.find((option) => {
-      const normalizedOption = normalizeComparable(option);
+      const normalizedOption = normalizeComparable(option.label);
       return normalizedOption.includes(normalizedCandidate) || normalizedCandidate.includes(normalizedOption);
     });
-    if (closeMatch) return closeMatch;
+    if (closeMatch) return closeMatch.value;
   }
 
   return '';
@@ -910,6 +934,7 @@ function Survey() {
           survey.questions = (survey.questions || []).map((q: Question) => ({
             ...q,
             options: typeof q.options === 'string' ? JSON.parse(q.options) : q.options,
+            option_definitions: Array.isArray(q.option_definitions) ? q.option_definitions : [],
           }));
           setActiveSurvey(survey);
         }
@@ -933,6 +958,7 @@ function Survey() {
             survey.questions = (survey.questions || []).map((q: Question) => ({
               ...q,
               options: typeof q.options === 'string' ? JSON.parse(q.options) : q.options,
+              option_definitions: Array.isArray(q.option_definitions) ? q.option_definitions : [],
             }));
             setActiveSurvey(survey);
           }
@@ -1778,8 +1804,8 @@ function Survey() {
               disabled={disabled}
             >
               <option value="">Select an option</option>
-              {question.options?.map((option, idx) => (
-                <option key={idx} value={option}>{option}</option>
+              {getQuestionOptions(question).map((option, idx) => (
+                <option key={option.key || option.id || idx} value={option.value}>{option.label}</option>
               ))}
             </select>
             {showOtherInput && (
@@ -1805,14 +1831,14 @@ function Survey() {
 
         return (
           <div className="space-y-2">
-            {question.options?.map((option, idx) => {
-              const isOther = isOtherOption(option);
+            {getQuestionOptions(question).map((option, idx) => {
+              const isOther = isOtherOption(option.label) || isOtherOption(option.value);
               const checked = isOther
-                ? typeof value === 'string' && isOtherStoredValue(value, option)
-                : value === option;
+                ? typeof value === 'string' && isOtherStoredValue(value, option.value)
+                : value === option.value;
 
               return (
-                <div key={idx}>
+                <div key={option.key || option.id || idx}>
                   <label className={`flex items-center space-x-3 text-sm p-2 rounded-lg transition ${
                     disabled
                       ? 'text-gray-500 cursor-not-allowed'
@@ -1822,7 +1848,7 @@ function Survey() {
                       {...getQuestionValidationProps(question)}
                       type="radio"
                       name={`question-${question.id}`}
-                      value={option}
+                      value={option.value}
                       checked={checked}
                       onClick={() => {
                         if (checked) {
@@ -1831,14 +1857,14 @@ function Survey() {
                       }}
                       onChange={() => {
                         if (!checked) {
-                          handleResponseChange(question.id!, option);
+                          handleResponseChange(question.id!, option.value);
                         }
                       }}
                       className="w-4 h-4 text-blue-600 focus:ring-blue-500"
                       required={Number(question.is_required) === 1}
                       disabled={disabled}
                     />
-                    <span>{option}</span>
+                    <span>{option.label}</span>
                   </label>
                   {isOther && checked && otherOption && (
                     <div className="ml-7 mt-2">
@@ -1868,14 +1894,14 @@ function Survey() {
 
         return (
           <div className="space-y-2">
-            {question.options?.map((option, idx) => {
-              const isOther = isOtherOption(option);
+            {getQuestionOptions(question).map((option, idx) => {
+              const isOther = isOtherOption(option.label) || isOtherOption(option.value);
               const checked = isOther
-                ? selectedValues.some((selectedValue) => isOtherStoredValue(selectedValue, option))
-                : selectedValues.includes(option);
+                ? selectedValues.some((selectedValue) => isOtherStoredValue(selectedValue, option.value))
+                : selectedValues.includes(option.value);
 
               return (
-                <div key={idx}>
+                <div key={option.key || option.id || idx}>
                   <label className={`flex items-center space-x-2 text-sm ${
                     disabled ? 'text-gray-500 cursor-not-allowed' : 'text-gray-700 cursor-pointer'
                   }`}>
@@ -1883,11 +1909,11 @@ function Survey() {
                       {...getQuestionValidationProps(question)}
                       type="checkbox"
                       checked={checked}
-                      onChange={() => handleCheckboxChange(question.id!, option)}
+                      onChange={() => handleCheckboxChange(question.id!, option.value)}
                       className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                       disabled={disabled}
                     />
-                    <span>{option}</span>
+                    <span>{option.label}</span>
                   </label>
                   {isOther && checked && otherOption && (
                     <div className="ml-6 mt-2">

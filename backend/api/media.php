@@ -81,9 +81,9 @@ if ($isJobRequirementsFile) {
         WHERE id = :id
           AND requirements_file_path = :reference
           AND (
-              (is_active = 1 AND approval_status = 'approved')
+              (archived_at IS NULL AND is_active = 1 AND approval_status = 'approved')
               OR (:owner_check_id > 0 AND created_by_admin_id = :owner_admin_id)
-              OR (:reviewer_check_id > 0 AND approval_status = 'pending')
+              OR (:reviewer_check_id > 0)
           )
         LIMIT 1");
     $adminRole = (string) ($adminUser['role'] ?? '');

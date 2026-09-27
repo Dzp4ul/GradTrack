@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
+  Archive,
   Briefcase,
   CheckCircle2,
   Clock3,
   Eye,
   Loader2,
+  RotateCcw,
   Search,
   XCircle,
 } from 'lucide-react';
@@ -12,12 +14,14 @@ import MessageBox from '../../components/MessageBox';
 import { API_ENDPOINTS } from '../../config/api';
 
 type ApprovalStatus = 'pending' | 'approved' | 'declined';
+type ApprovalFilter = ApprovalStatus | 'archived' | 'all';
 type MessageType = 'confirm' | 'success' | 'error' | 'info' | 'warning';
 
 interface ApprovalSummary {
   pending: number;
   approved: number;
   declined: number;
+  archived: number;
 }
 
 interface JobApproval {
@@ -48,6 +52,10 @@ interface JobApproval {
   approval_reviewed_at?: string | null;
   approval_reviewed_by_name?: string | null;
   approval_notes?: string | null;
+  archived_at?: string | null;
+  archived_by_name?: string | null;
+  restored_at?: string | null;
+  restored_by_name?: string | null;
 }
 
 interface ApprovalResponse {
@@ -65,10 +73,11 @@ type ViewedApproval =
   | { type: 'job'; item: JobApproval }
   | null;
 
-const statusOptions: Array<{ value: ApprovalStatus | 'all'; label: string }> = [
+const statusOptions: Array<{ value: ApprovalFilter; label: string }> = [
   { value: 'pending', label: 'Pending' },
   { value: 'approved', label: 'Approved' },
   { value: 'declined', label: 'Declined' },
+  { value: 'archived', label: 'Archived' },
   { value: 'all', label: 'All' },
 ];
 
@@ -85,7 +94,7 @@ const statusIcons = {
 };
 
 export default function EngagementApprovals() {
-  const [statusFilter, setStatusFilter] = useState<ApprovalStatus | 'all'>('pending');
+  const [statusFilter, setStatusFilter] = useState<ApprovalFilter>('pending');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [approvingKey, setApprovingKey] = useState('');
@@ -95,7 +104,7 @@ export default function EngagementApprovals() {
     program_scope: [],
     can_review_all: false,
     summary: {
-      jobs: { pending: 0, approved: 0, declined: 0 },
+      jobs: { pending: 0, approved: 0, declined: 0, archived: 0 },
     },
     data: {
       jobs: [],
@@ -108,6 +117,7 @@ export default function EngagementApprovals() {
     message: string;
     confirmText?: string;
     onConfirm?: () => void;
+    destructive?: boolean;
   }>({ isOpen: false, type: 'info', message: '' });
 
   const activeSummary = approvalData.summary.jobs;
@@ -115,6 +125,7 @@ export default function EngagementApprovals() {
   const pendingTotal = activeSummary.pending;
   const approvedTotal = activeSummary.approved;
   const declinedTotal = activeSummary.declined;
+  const archivedTotal = activeSummary.archived;
   const pageTitle = 'Job Approval';
   const pendingLabel = 'job post';
   const searchPlaceholder = 'Search by graduate, program, company, skills, or job title';
@@ -124,7 +135,8 @@ export default function EngagementApprovals() {
       return activeItems.length;
     }
 
-    return activeItems.filter((item) => item.approval_status === statusFilter).length;
+    if (statusFilter === 'archived') return activeItems.filter((item) => !!item.archived_at).length;
+    return activeItems.filter((item) => item.approval_status === statusFilter && !item.archived_at).length;
   }, [activeItems, statusFilter]);
 
   const fetchApprovals = async () => {
@@ -147,7 +159,7 @@ export default function EngagementApprovals() {
         program_scope: data.program_scope || [],
         can_review_all: !!data.can_review_all,
         summary: data.summary || {
-          jobs: { pending: 0, approved: 0, declined: 0 },
+          jobs: { pending: 0, approved: 0, declined: 0, archived: 0 },
         },
         data: data.data || { jobs: [] },
       });
@@ -226,6 +238,41 @@ export default function EngagementApprovals() {
     });
   };
 
+  const changeArchiveState = async (job: JobApproval, action: 'archive' | 'restore') => {
+    setApprovingKey(`job-${job.id}-${action}`);
+    try {
+      const response = await fetch(API_ENDPOINTS.ENGAGEMENT_APPROVALS, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_type: 'job', id: job.id, action }),
+      });
+      const data = await response.json();
+      if (!response.ok || data.success === false) throw new Error(data.error || `Unable to ${action} job post`);
+      await fetchApprovals();
+      setMsgBox({ isOpen: true, type: 'success', message: data.message || `Job post ${action}d successfully.` });
+    } catch (error) {
+      setMsgBox({ isOpen: true, type: 'error', message: error instanceof Error ? error.message : `Unable to ${action} job post` });
+    } finally {
+      setApprovingKey('');
+    }
+  };
+
+  const confirmArchiveState = (job: JobApproval, action: 'archive' | 'restore') => {
+    const archiving = action === 'archive';
+    setMsgBox({
+      isOpen: true,
+      type: 'confirm',
+      title: archiving ? 'Archive Job Post?' : 'Restore Job Post?',
+      message: archiving
+        ? 'This job post will no longer be visible to graduates, but its record will remain available for administrative history.'
+        : 'This job post will become visible to graduates again if it is still approved, active, and not expired.',
+      confirmText: archiving ? 'Archive Job' : 'Restore Job',
+      destructive: archiving,
+      onConfirm: () => { void changeArchiveState(job, action); },
+    });
+  };
+
   const scopeLabel = approvalData.can_review_all
     ? 'All programs'
     : approvalData.program_scope.length > 0
@@ -244,10 +291,11 @@ export default function EngagementApprovals() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryCard label="Pending" value={pendingTotal} className="border-amber-200 bg-amber-50 text-amber-800" />
         <SummaryCard label="Approved" value={approvedTotal} className="border-green-200 bg-green-50 text-green-800" />
         <SummaryCard label="Declined" value={declinedTotal} className="border-red-200 bg-red-50 text-red-800" />
+        <SummaryCard label="Archived" value={archivedTotal} className="border-gray-200 bg-gray-50 text-gray-700" />
       </div>
 
       <div className="rounded-xl border bg-white p-4 shadow-sm">
@@ -302,6 +350,7 @@ export default function EngagementApprovals() {
                 onNotesChange={(value) => setNotesByItem((prev) => ({ ...prev, [`job-${job.id}`]: value }))}
                 onView={() => setViewedApproval({ type: 'job', item: job })}
                 onReview={(approvalStatus) => confirmReview(job.id, approvalStatus, job.title || 'job post')}
+                onArchiveState={(action) => confirmArchiveState(job, action)}
               />
             ))}
           </ApprovalSection>
@@ -322,6 +371,7 @@ export default function EngagementApprovals() {
         title={msgBox.title}
         message={msgBox.message}
         confirmText={msgBox.confirmText}
+        destructive={msgBox.destructive}
       />
 
       {viewedApproval && (
@@ -381,6 +431,7 @@ function JobCard({
   onNotesChange,
   onView,
   onReview,
+  onArchiveState,
 }: {
   job: JobApproval;
   notes: string;
@@ -388,6 +439,7 @@ function JobCard({
   onNotesChange: (value: string) => void;
   onView: () => void;
   onReview: (status: ApprovalStatus) => void;
+  onArchiveState: (action: 'archive' | 'restore') => void;
 }) {
   const posterName = `${job.first_name || ''} ${job.last_name || ''}`.trim() || 'Graduate';
 
@@ -398,6 +450,7 @@ function JobCard({
         subtitle={`${job.company || 'No company'} - Posted by ${posterName}`}
         status={job.approval_status}
         isActive={job.is_active}
+        archivedAt={job.archived_at}
       />
 
       <div className="mt-4 space-y-2 text-sm text-gray-700">
@@ -422,6 +475,8 @@ function JobCard({
         onNotesChange={onNotesChange}
         onView={onView}
         onReview={onReview}
+        archivedAt={job.archived_at}
+        onArchiveState={onArchiveState}
       />
     </div>
   );
@@ -432,11 +487,13 @@ function CardHeader({
   subtitle,
   status,
   isActive,
+  archivedAt,
 }: {
   title: string;
   subtitle: string;
   status: ApprovalStatus;
   isActive: number;
+  archivedAt?: string | null;
 }) {
   const StatusIcon = statusIcons[status];
 
@@ -447,6 +504,11 @@ function CardHeader({
         <p className="text-sm text-gray-500">{subtitle}</p>
       </div>
       <div className="flex flex-wrap gap-2">
+        {archivedAt && (
+          <span className="inline-flex items-center gap-1 rounded-full border border-gray-300 bg-gray-100 px-2.5 py-1 text-xs font-semibold text-gray-700">
+            <Archive className="h-3.5 w-3.5" /> Archived
+          </span>
+        )}
         <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${statusStyles[status]}`}>
           <StatusIcon className="h-3.5 w-3.5" />
           {capitalize(status)}
@@ -467,6 +529,8 @@ function ReviewControls({
   onNotesChange,
   onView,
   onReview,
+  archivedAt,
+  onArchiveState,
 }: {
   itemKey: string;
   status: ApprovalStatus;
@@ -475,10 +539,12 @@ function ReviewControls({
   onNotesChange: (value: string) => void;
   onView: () => void;
   onReview: (status: ApprovalStatus) => void;
+  archivedAt?: string | null;
+  onArchiveState: (action: 'archive' | 'restore') => void;
 }) {
   if (status !== 'pending') {
     return (
-      <div className="mt-4 border-t pt-4">
+      <div className="mt-4 flex flex-wrap gap-2 border-t pt-4">
         <button
           type="button"
           onClick={onView}
@@ -487,6 +553,27 @@ function ReviewControls({
           <Eye className="h-4 w-4" />
           View
         </button>
+        {status === 'approved' && (archivedAt ? (
+          <button
+            type="button"
+            onClick={() => onArchiveState('restore')}
+            disabled={approvingKey !== ''}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-60"
+          >
+            {approvingKey === `${itemKey}-restore` ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+            Restore
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onArchiveState('archive')}
+            disabled={approvingKey !== ''}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-60"
+          >
+            {approvingKey === `${itemKey}-archive` ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
+            Archive
+          </button>
+        ))}
       </div>
     );
   }
@@ -557,7 +644,7 @@ function ApprovalDetailModal({
         </div>
 
         <div className="space-y-3 overflow-y-auto px-5 py-4 text-sm text-gray-700">
-          <CardHeader title={title} subtitle={subtitle} status={item.approval_status} isActive={item.is_active} />
+          <CardHeader title={title} subtitle={subtitle} status={item.approval_status} isActive={item.is_active} archivedAt={item.archived_at} />
 
           <InfoRow label="Poster" value={`${viewedApproval.item.first_name || ''} ${viewedApproval.item.last_name || ''}`.trim()} />
           <InfoRow label="Poster Email" value={viewedApproval.item.poster_email} />
@@ -573,6 +660,11 @@ function ApprovalDetailModal({
           )}
 
           <ReviewMeta item={item} />
+          {item.archived_at && (
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600">
+              Archived: {formatDateTime(item.archived_at)}{item.archived_by_name ? ` by ${item.archived_by_name}` : ''}
+            </div>
+          )}
         </div>
 
         <div className="border-t px-5 py-4 text-right">

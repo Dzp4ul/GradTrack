@@ -9,6 +9,14 @@ import { analyzeGraduationYearOptions, isGraduationYearQuestion } from '../../ut
 
 const API_BASE = API_ROOT;
 
+interface SurveyOption {
+  id: number | null;
+  key: string | null;
+  value: string;
+  label: string;
+  sort_order: number;
+}
+
 interface Question {
   id?: number;
   question_key?: string;
@@ -17,6 +25,7 @@ interface Question {
   question_text: string;
   question_type: string;
   options: string[] | null;
+  option_definitions?: SurveyOption[];
   is_required: number;
   sort_order: number;
   section?: string;
@@ -138,6 +147,7 @@ export default function Surveys() {
                           questions: (d.questions || []).map((q: Question) => ({
                             ...q,
                             options: typeof q.options === 'string' ? JSON.parse(q.options) : q.options,
+                            option_definitions: Array.isArray(q.option_definitions) ? q.option_definitions : [],
                           })),
                         }
                         : s
@@ -328,6 +338,15 @@ export default function Surveys() {
                 ...q,
                 question_type: q.question_type || 'text',
                 options: typeof q.options === 'string' ? JSON.parse(q.options) : q.options,
+                option_definitions: Array.isArray(q.option_definitions)
+                  ? q.option_definitions.map((option: any, optionIndex: number) => ({
+                    id: option.id ? Number(option.id) : null,
+                    key: option.key || option.option_key || null,
+                    value: String(option.value ?? option.option_value ?? option.label ?? ''),
+                    label: String(option.label ?? option.value ?? ''),
+                    sort_order: Number(option.sort_order || optionIndex + 1),
+                  }))
+                  : [],
               };
               if (isProfessionalExamHeader(parsedQuestion)) {
                 parsedQuestion.question_text = getQuestionDisplayText(parsedQuestion);
@@ -394,9 +413,12 @@ export default function Surveys() {
       if (question.question_type !== 'multiple_choice') {
         coverageErrors.push('Year Graduated must use the Multiple Choice question type.');
       }
-      const analysis = analyzeGraduationYearOptions(question.options || []);
+      const stableYearOptions = (question.option_definitions || [])
+        .map((option) => option.value)
+        .filter((value) => value.trim() !== '');
+      const analysis = analyzeGraduationYearOptions(stableYearOptions.length > 0 ? stableYearOptions : (question.options || []));
       coverageErrors.push(...analysis.errors);
-      return { ...question, options: analysis.years };
+      return stableYearOptions.length > 0 ? question : { ...question, options: analysis.years };
     });
 
     if (coverageErrors.length > 0) {
@@ -409,30 +431,48 @@ export default function Surveys() {
       return;
     }
 
-    const method = isEditing ? 'PUT' : 'POST';
-    fetch(`${API_BASE}/surveys/index.php`, {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ ...formData, questions: normalizedQuestions }),
-    })
-      .then((r) => r.json())
-      .then((res) => {
-        console.log('Server response:', res);
-        if (res.success) {
-          setShowModal(false);
-          fetchSurveys();
-        } else if (res.active_survey) {
-          setMsgBox({
-            isOpen: true,
-            type: 'warning',
-            title: 'Active Survey Notice',
-            message: res.error || 'Set the active survey to inactive before continuing.',
-          });
-        } else {
-          setMsgBox({ isOpen: true, type: 'error', message: res.error || 'Unable to save survey' });
-        }
+    const saveSurvey = () => {
+      const method = isEditing ? 'PUT' : 'POST';
+      fetch(`${API_BASE}/surveys/index.php`, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ ...formData, questions: normalizedQuestions }),
+      })
+        .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
+        .then(({ ok, body: res }) => {
+          if (ok && res.success) {
+            setShowModal(false);
+            fetchSurveys();
+            setMsgBox({ isOpen: true, type: 'success', message: res.message || 'Survey updated.' });
+          } else if (res.active_survey) {
+            setMsgBox({
+              isOpen: true,
+              type: 'warning',
+              title: 'Active Survey Notice',
+              message: res.error || 'Set the active survey to inactive before continuing.',
+            });
+          } else {
+            setMsgBox({ isOpen: true, type: 'error', message: res.error || 'Unable to save survey' });
+          }
+        })
+        .catch(() => setMsgBox({ isOpen: true, type: 'error', message: 'Unable to save survey.' }));
+    };
+
+    if (isEditing && formData.question_definitions_locked) {
+      setMsgBox({
+        isOpen: true,
+        type: 'confirm',
+        title: 'Save text changes?',
+        message: 'This will update the wording shown in the survey. Existing response values and statistics will remain unchanged.',
+        confirmText: 'Save Changes',
+        cancelText: 'Cancel',
+        onConfirm: saveSurvey,
       });
+      return;
+    }
+
+    saveSurvey();
   };
 
   const handleArchive = (id: number) => {
@@ -537,6 +577,20 @@ export default function Surveys() {
     });
   };
 
+  const updateQuestionSection = (index: number, value: string) => {
+    setFormData((prev) => {
+      const source = prev.questions[index];
+      const questions = prev.questions.map((question, questionIndex) => {
+        const sameProtectedSection = Boolean(prev.question_definitions_locked)
+          && Boolean(source.id)
+          && Number(source.section_id || 0) > 0
+          && Number(question.section_id || 0) === Number(source.section_id || 0);
+        return questionIndex === index || sameProtectedSection ? { ...question, section: value } : question;
+      });
+      return { ...prev, questions };
+    });
+  };
+
   const addQuestion = () => {
     setFormData((prev) => {
       const questions = [...prev.questions, {
@@ -595,9 +649,17 @@ export default function Surveys() {
   };
 
   const updateOption = (questionIndex: number, optionIndex: number, value: string) => {
-    const options = [...(formData.questions[questionIndex].options || [])];
-    options[optionIndex] = value;
-    updateQuestion(questionIndex, 'options', options);
+    setFormData((prev) => {
+      const questions = [...prev.questions];
+      const options = [...(questions[questionIndex].options || [])];
+      options[optionIndex] = value;
+      const definitions = [...(questions[questionIndex].option_definitions || [])];
+      if (definitions[optionIndex]) {
+        definitions[optionIndex] = { ...definitions[optionIndex], label: value };
+      }
+      questions[questionIndex] = { ...questions[questionIndex], options, option_definitions: definitions };
+      return { ...prev, questions };
+    });
   };
 
   const addOption = (questionIndex: number) => {
@@ -715,6 +777,9 @@ export default function Surveys() {
                       <Info className="w-5 h-5" />
                     </button>
                     {archiveView === 'active' ? <>
+                       <button onClick={() => navigate(`/admin/surveys/${s.id}/analytics`)} className="p-2 rounded-lg hover:bg-emerald-50 text-emerald-600 transition-colors font-medium" title="View responses">
+                         <BarChart3 className="w-5 h-5" />
+                       </button>
                       <button onClick={() => openEdit(s)} className="p-2 rounded-lg hover:bg-yellow-50 text-yellow-600 transition-colors font-medium" title="Edit survey">
                         <Edit2 className="w-5 h-5" />
                       </button>
@@ -916,7 +981,9 @@ export default function Surveys() {
                     <button
                       type="button"
                       onClick={addQuestion}
-                      className="inline-flex items-center gap-2 rounded-lg bg-blue-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-800"
+                       disabled={Boolean(formData.question_definitions_locked)}
+                       title={formData.question_definitions_locked ? 'Adding questions is locked to protect existing response mappings.' : 'Add question'}
+                       className="inline-flex items-center gap-2 rounded-lg bg-blue-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-gray-300"
                     >
                       <Plus className="h-4 w-4" /> Add Question
                     </button>
@@ -926,7 +993,7 @@ export default function Surveys() {
                   {isEditing && formData.question_definitions_locked ? (
                     <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
                       <p className="mb-2 text-sm font-semibold text-amber-900">Existing answers are protected</p>
-                      <p className="text-xs text-amber-800">You can add, reorder, or remove questions. Removing a saved question only hides it from future forms; past answers remain stored. Existing question wording, type, and choices are locked to keep those answers accurate.</p>
+                       <p className="text-xs text-amber-800">This survey already has responses or is active. You may correct question, section, and option display text, but structural changes are locked to protect existing response data.</p>
                     </div>
                   ) : (
                     <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
@@ -971,7 +1038,7 @@ export default function Surveys() {
                                 <button
                                   type="button"
                                   onClick={(event) => { event.stopPropagation(); moveQuestion(i, -1); }}
-                                  disabled={i === 0}
+                                 disabled={i === 0 || Boolean(formData.question_definitions_locked)}
                                   className="rounded-md p-1.5 text-blue-700 hover:bg-white disabled:cursor-not-allowed disabled:opacity-30"
                                   aria-label="Move question up"
                                   title="Move up"
@@ -981,7 +1048,7 @@ export default function Surveys() {
                                 <button
                                   type="button"
                                   onClick={(event) => { event.stopPropagation(); moveQuestion(i, 1); }}
-                                  disabled={i === formData.questions.length - 1}
+                                 disabled={i === formData.questions.length - 1 || Boolean(formData.question_definitions_locked)}
                                   className="rounded-md p-1.5 text-blue-700 hover:bg-white disabled:cursor-not-allowed disabled:opacity-30"
                                   aria-label="Move question down"
                                   title="Move down"
@@ -991,7 +1058,8 @@ export default function Surveys() {
                                 <button
                                   type="button"
                                   onClick={(event) => { event.stopPropagation(); removeQuestion(i); }}
-                                  className="rounded-md p-1.5 text-red-600 hover:bg-red-50"
+                                 disabled={Boolean(formData.question_definitions_locked)}
+                                 className="rounded-md p-1.5 text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-30"
                                   aria-label="Delete question"
                                   title="Delete question"
                                 >
@@ -1002,13 +1070,10 @@ export default function Surveys() {
                             </div>
 
                             {expandedQ === i && (
-                              <fieldset
-                                disabled={questionDefinitionLocked}
-                                className={`p-4 space-y-4 bg-gray-50 ${questionDefinitionLocked ? 'opacity-75' : ''}`}
-                              >
+                              <fieldset className="p-4 space-y-4 bg-gray-50">
                                 {questionDefinitionLocked && (
-                                  <p className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-600">
-                                    This saved question is read-only because the survey is active or already has responses.
+                                  <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                                    Text fields remain editable. Type, required setting, IDs, option values, ordering, additions, and deletions are locked.
                                   </p>
                                 )}
                                 <div>
@@ -1017,7 +1082,7 @@ export default function Surveys() {
                                   </label>
                                   <select
                                     value={q.section || ''}
-                                    onChange={(e) => updateQuestion(i, 'section', e.target.value)}
+                                    onChange={(e) => updateQuestionSection(i, e.target.value)}
                                     className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition bg-white mb-2"
                                   >
                                     <option value="">-- No Section --</option>
@@ -1030,7 +1095,7 @@ export default function Surveys() {
                                   <input
                                     type="text"
                                     value={q.section || ''}
-                                    onChange={(e) => updateQuestion(i, 'section', e.target.value)}
+                                    onChange={(e) => updateQuestionSection(i, e.target.value)}
                                     placeholder="Or type a custom section name"
                                     className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
                                   />
@@ -1050,6 +1115,8 @@ export default function Surveys() {
                                     <label className="block text-sm font-semibold text-gray-700 mb-2">Type</label>
                                     <select
                                       value={q.question_type || 'text'}
+                                     disabled={questionDefinitionLocked}
+                                     title={questionDefinitionLocked ? 'Question type is locked to protect existing responses.' : undefined}
                                       onChange={(e) => {
                                         const newType = e.target.value;
                                         updateQuestion(i, 'question_type', newType);
@@ -1066,7 +1133,7 @@ export default function Surveys() {
                                           updateQuestion(i, 'options', []);
                                         }
                                       }}
-                                      className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition bg-white"
+                                      className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition bg-white disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500"
                                     >
                                       <option value="header">Header</option>
                                       <option value="text">Text</option>
@@ -1086,6 +1153,8 @@ export default function Surveys() {
                                     ) : (
                                       <select
                                         value={q.is_required}
+                                       disabled={questionDefinitionLocked}
+                                       title={questionDefinitionLocked ? 'Required/optional status is locked to protect existing responses.' : undefined}
                                         onChange={(e) => updateQuestion(i, 'is_required', parseInt(e.target.value))}
                                         className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition bg-white"
                                       >
@@ -1115,7 +1184,8 @@ export default function Surveys() {
                                           <button
                                             type="button"
                                             onClick={() => removeOption(i, optionIndex)}
-                                            className="rounded-lg p-2 text-red-600 hover:bg-red-50"
+                                           disabled={questionDefinitionLocked}
+                                           className="rounded-lg p-2 text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-30"
                                             aria-label={`Remove option ${optionIndex + 1}`}
                                           >
                                             <Trash2 className="h-4 w-4" />
@@ -1125,7 +1195,9 @@ export default function Surveys() {
                                       <button
                                         type="button"
                                         onClick={() => addOption(i)}
-                                        className="inline-flex items-center gap-2 rounded-lg border border-blue-300 px-3 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-50"
+                                       disabled={questionDefinitionLocked}
+                                       title={questionDefinitionLocked ? 'Adding options is locked because submitted responses depend on stable option values.' : undefined}
+                                       className="inline-flex items-center gap-2 rounded-lg border border-blue-300 px-3 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400"
                                       >
                                         <Plus className="h-4 w-4" /> Add Option
                                       </button>
