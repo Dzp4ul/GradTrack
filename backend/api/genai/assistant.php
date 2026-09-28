@@ -7,6 +7,7 @@ require_once __DIR__ . '/../config/admin_roles.php';
 require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/genai_conversations.php';
 require_once __DIR__ . '/../config/genai_data_tools.php';
+require_once __DIR__ . '/../config/groq_client.php';
 
 if (!defined('GRADTRACK_GENAI_ASSISTANT_NO_RUN')) {
     gradtrack_ensure_archive_schema($db, 'graduates');
@@ -1961,122 +1962,27 @@ function gradtrack_genai_user_prompt(string $message, array $dataset, array $eff
 
 function gradtrack_genai_candidate_models(): array
 {
-    $configured = getenv('GROQ_MODEL');
-    $models = [
-        $configured && trim($configured) !== '' ? trim($configured) : null,
+    return gradtrack_groq_candidate_models([
         'openai/gpt-oss-120b',
         'openai/gpt-oss-20b',
         'qwen/qwen3.6-27b',
-    ];
-
-    $unique = [];
-    foreach ($models as $model) {
-        if ($model !== null && !in_array($model, $unique, true)) {
-            $unique[] = $model;
-        }
-    }
-
-    return $unique;
+    ]);
 }
 
 function gradtrack_genai_call_groq(string $systemPrompt, string $userPrompt): array
 {
-    $apiKey = getenv('GROQ_API_KEY');
-    if ($apiKey === false || trim($apiKey) === '') {
-        return ['content' => null, 'model' => null, 'error' => 'GROQ_API_KEY is not configured.', 'error_type' => 'configuration', 'http_code' => null];
-    }
-
-    $lastError = null;
-    $lastErrorType = 'service_unavailable';
-    $lastHttpCode = null;
-    foreach (gradtrack_genai_candidate_models() as $model) {
-        $body = [
-            'model' => $model,
-            'messages' => [
-                ['role' => 'system', 'content' => $systemPrompt],
-                ['role' => 'user', 'content' => $userPrompt],
-            ],
-            'temperature' => 0.2,
-            'max_tokens' => 3200,
-        ];
-
-        $ch = curl_init('https://api.groq.com/openai/v1/chat/completions');
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => json_encode($body, JSON_UNESCAPED_UNICODE),
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'Authorization: Bearer ' . $apiKey,
-            ],
-            CURLOPT_TIMEOUT => 45,
-            CURLOPT_CONNECTTIMEOUT => 8,
-        ]);
-
-        $response = curl_exec($ch);
-        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        $curlError = curl_error($ch);
-        curl_close($ch);
-
-        if ($curlError === '' && $httpCode === 200 && is_string($response)) {
-            $decoded = json_decode($response, true);
-            $content = $decoded['choices'][0]['message']['content'] ?? null;
-            if (is_string($content) && trim($content) !== '') {
-                return ['content' => $content, 'model' => $model, 'error' => null, 'error_type' => null, 'http_code' => 200];
-            }
-            $lastError = 'Groq returned an empty AI message.';
-            $lastErrorType = 'empty_response';
-            $lastHttpCode = 200;
-        } else {
-            $lastError = $curlError !== ''
-                ? $curlError
-                : 'Groq request failed with HTTP ' . $httpCode . '.';
-            $lastHttpCode = $httpCode > 0 ? $httpCode : null;
-            $lastErrorType = $curlError !== '' || $httpCode === 0
-                ? 'network'
-                : ($httpCode === 429
-                    ? 'rate_limit'
-                    : (in_array($httpCode, [401, 403], true) ? 'configuration' : 'service_unavailable'));
-        }
-
-        if (!in_array($httpCode, [400, 403, 404, 429, 500, 502, 503, 504], true)) {
-            break;
-        }
-    }
-
-    return [
-        'content' => null,
-        'model' => null,
-        'error' => $lastError ?: 'Groq request failed.',
-        'error_type' => $lastErrorType,
-        'http_code' => $lastHttpCode,
-    ];
+    return gradtrack_groq_chat($systemPrompt, $userPrompt, [
+        'models' => gradtrack_genai_candidate_models(),
+        'temperature' => 0.2,
+        'max_tokens' => 3200,
+        'timeout' => 45,
+        'connect_timeout' => 8,
+    ]);
 }
 
 function gradtrack_genai_decode_ai_json(?string $content): ?array
 {
-    if ($content === null) {
-        return null;
-    }
-
-    $candidate = trim($content);
-    $candidate = preg_replace('/^```(?:json)?\s*/i', '', $candidate) ?? $candidate;
-    $candidate = preg_replace('/\s*```$/', '', $candidate) ?? $candidate;
-    $decoded = json_decode($candidate, true);
-    if (is_array($decoded)) {
-        return $decoded;
-    }
-
-    $start = strpos($candidate, '{');
-    $end = strrpos($candidate, '}');
-    if ($start !== false && $end !== false && $end > $start) {
-        $decoded = json_decode(substr($candidate, $start, $end - $start + 1), true);
-        if (is_array($decoded)) {
-            return $decoded;
-        }
-    }
-
-    return null;
+    return gradtrack_groq_decode_json($content);
 }
 
 function gradtrack_genai_semantic_user_prompt(

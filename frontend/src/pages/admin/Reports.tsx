@@ -11,6 +11,8 @@ import { API_ROOT } from '../../config/api';
 import { normalizeGraduationYears } from '../../utils/graduationYears';
 import { PROGRAM_COLORS } from '../../config/programColors';
 import { useAuth } from '../../contexts/AuthContext';
+import AIStatisticalInterpretation from '../../components/reports/AIStatisticalInterpretation';
+import type { StatisticalInterpretationContext } from '../../services/analyticsAiService';
 
 const API_BASE = API_ROOT;
 
@@ -254,6 +256,7 @@ interface InferentialAnalysisResult {
     warnings: string[];
   };
   interpretation: string;
+  aiInterpretation: StatisticalInterpretationContext;
 }
 
 interface InferentialSettings {
@@ -395,9 +398,6 @@ const formatInferentialPValue = (value: number | null | undefined): string => {
 
 interface InferentialComparisonCopy {
   question: string;
-  differentResult: string;
-  similarResult: string;
-  differenceLabel: string;
 }
 
 const getInferentialPairKey = (result: InferentialAnalysisResult): string => (
@@ -409,79 +409,46 @@ const getInferentialComparisonCopy = (result: InferentialAnalysisResult): Infere
     case 'employment_status|graduation_year':
       return {
         question: 'Do employment rates differ across graduation years?',
-        differentResult: 'Employment rates differ across graduation years.',
-        similarResult: 'Employment rates are similar across graduation years.',
-        differenceLabel: 'Employment-rate difference between graduation years',
       };
     case 'employment_status|program':
       return {
         question: 'Do programs have different employment rates?',
-        differentResult: 'Employment rates differ across programs.',
-        similarResult: 'Employment rates are similar across programs.',
-        differenceLabel: 'Employment-rate difference between programs',
       };
     case 'employment_status|job_course_alignment':
       return {
         question: 'Can job alignment be compared by employment status?',
-        differentResult: 'Job-alignment results differ by employment status.',
-        similarResult: 'Job-alignment results are similar by employment status.',
-        differenceLabel: 'Job-alignment difference between employment groups',
       };
     case 'employment_status|work_location':
       return {
         question: 'Can work location be compared by employment status?',
-        differentResult: 'Work-location results differ by employment status.',
-        similarResult: 'Work-location results are similar by employment status.',
-        differenceLabel: 'Work-location difference between employment groups',
       };
     case 'graduation_year|job_course_alignment':
       return {
         question: 'Does the percentage working in course-aligned jobs change across graduation years?',
-        differentResult: 'Job-alignment rates differ across graduation years.',
-        similarResult: 'Job-alignment rates are similar across graduation years.',
-        differenceLabel: 'Job-alignment difference between graduation years',
       };
     case 'graduation_year|program':
       return {
         question: 'Does the mix of program graduates change across graduation years?',
-        differentResult: 'The mix of program graduates differs across graduation years.',
-        similarResult: 'The mix of program graduates is similar across graduation years.',
-        differenceLabel: 'Program-mix difference between graduation years',
       };
     case 'graduation_year|work_location':
       return {
         question: 'Do local and overseas work percentages change across graduation years?',
-        differentResult: 'Local and overseas work percentages differ across graduation years.',
-        similarResult: 'Local and overseas work percentages are similar across graduation years.',
-        differenceLabel: 'Work-location difference between graduation years',
       };
     case 'job_course_alignment|program':
       return {
         question: 'Do programs differ in how often graduates work in course-aligned jobs?',
-        differentResult: 'Job-alignment rates differ across programs.',
-        similarResult: 'Job-alignment rates are similar across programs.',
-        differenceLabel: 'Job-alignment difference between programs',
       };
     case 'job_course_alignment|work_location':
       return {
         question: 'Are local and overseas workers equally likely to have course-aligned jobs?',
-        differentResult: 'Job-alignment rates differ between local and overseas workers.',
-        similarResult: 'Job-alignment rates are similar for local and overseas workers.',
-        differenceLabel: 'Job-alignment difference between local and overseas workers',
       };
     case 'program|work_location':
       return {
         question: 'Do local and overseas work percentages differ across programs?',
-        differentResult: 'Local and overseas work percentages differ across programs.',
-        similarResult: 'Local and overseas work percentages are similar across programs.',
-        differenceLabel: 'Work-location difference between programs',
       };
     default:
       return {
         question: `Do the results differ between ${result.analysis.variable1.label} and ${result.analysis.variable2.label}?`,
-        differentResult: 'The groups have different results.',
-        similarResult: 'The groups have similar results.',
-        differenceLabel: 'Difference between the selected categories',
       };
   }
 };
@@ -499,51 +466,25 @@ const getInferentialUnavailableResult = (result: InferentialAnalysisResult): str
 
 const getInferentialPlainOutcome = (result: InferentialAnalysisResult): string => {
   if (!result.analysis.canCalculate) return getInferentialUnavailableResult(result);
-  const copy = getInferentialComparisonCopy(result);
-  return result.analysis.significant ? copy.differentResult : copy.similarResult;
+  const { variable1, variable2 } = result.analysis;
+  return result.analysis.significant
+    ? `The available data provide sufficient statistical evidence of an association between ${variable1.label} and ${variable2.label}.`
+    : `The available data did not provide sufficient statistical evidence of an association between ${variable1.label} and ${variable2.label}.`;
 };
 
 const getInferentialGroupResult = (result: InferentialAnalysisResult): string => {
   if (!result.analysis.canCalculate) return 'Cannot compare';
-  return result.analysis.significant ? 'Different' : 'Similar';
+  return result.analysis.significant ? 'Evidence found' : 'Insufficient evidence';
 };
 
 const getInferentialDifferenceLabel = (strength: string | null): string => {
   switch (strength) {
-    case 'Very Weak': return 'Almost no difference';
-    case 'Weak': return 'Small difference';
-    case 'Moderate': return 'Noticeable difference';
-    case 'Strong': return 'Large difference';
+    case 'Very Weak': return 'Very weak association';
+    case 'Weak': return 'Weak association';
+    case 'Moderate': return 'Moderate association';
+    case 'Strong': return 'Strong association';
     default: return 'Cannot be measured';
   }
-};
-
-const getInferentialStrengthExplanation = (strength: string | null): string => {
-  switch (strength) {
-    case 'Very Weak': return 'The measured difference is extremely small.';
-    case 'Weak': return 'The measured difference is small.';
-    case 'Moderate': return 'The measured difference is noticeable.';
-    case 'Strong': return 'The measured difference is large.';
-    default: return 'There is not enough comparable data to measure a difference.';
-  }
-};
-
-const buildPlainLanguageInferentialSummary = (result: InferentialAnalysisResult): string => {
-  const { analysis, assumptions } = result;
-  if (!analysis.canCalculate) {
-    return getInferentialUnavailableResult(result);
-  }
-
-  const strengthText = getInferentialStrengthExplanation(analysis.associationStrength);
-  const cautionText = assumptions.passed
-    ? ''
-    : ' Some groups contain only a small number of responses, so use this finding with caution.';
-
-  if (analysis.significant) {
-    return `${getInferentialPlainOutcome(result)} ${strengthText} This shows a pattern in the responses, but it does not mean that one factor caused the other.${cautionText}`;
-  }
-
-  return `${getInferentialPlainOutcome(result)} ${strengthText} Small differences visible in the chart are likely normal variation in the responses.${cautionText}`;
 };
 
 const getEmploymentStatusChartLabel = (status: string): string => {
@@ -2028,7 +1969,7 @@ export default function Reports() {
 
   const handleInferentialExcelExport = async () => {
     if (!inferentialResult) return;
-    const { analysis, contingencyTable, expectedFrequencies, assumptions } = inferentialResult;
+    const { analysis, contingencyTable, assumptions } = inferentialResult;
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'GradTrack';
     workbook.created = new Date();
@@ -2067,33 +2008,6 @@ export default function Reports() {
     observedTotalRow.font = { bold: true };
     observedSheet.columns.forEach((column, index) => { column.width = index === 0 ? 28 : 16; });
     observedSheet.views = [{ state: 'frozen', ySplit: 3 }];
-
-    const expectedSheet = workbook.addWorksheet('Expected Frequencies');
-    const expectedColumnCount = contingencyTable.columns.length + 2;
-    addInferentialWorksheetHeader(expectedSheet, 'Expected Frequencies', expectedColumnCount);
-    const expectedHeader = expectedSheet.addRow([
-      analysis.variable1.label,
-      ...contingencyTable.columns.map((column) => column.label),
-      'Total',
-    ]);
-    styleInferentialTableHeader(expectedHeader);
-    if (!Array.isArray(expectedFrequencies)) {
-      expectedFrequencies.rows.forEach((row) => expectedSheet.addRow([
-        row.label,
-        ...row.frequencies.map((value) => Number(value.toFixed(4))),
-        row.total,
-      ]));
-      const expectedTotalRow = expectedSheet.addRow([
-        'Total',
-        ...expectedFrequencies.columnTotals,
-        expectedFrequencies.grandTotal,
-      ]);
-      expectedTotalRow.font = { bold: true };
-    } else {
-      expectedSheet.addRow(['Expected frequencies were not calculated because the selected data had insufficient variation.']);
-    }
-    expectedSheet.columns.forEach((column, index) => { column.width = index === 0 ? 28 : 16; });
-    expectedSheet.views = [{ state: 'frozen', ySplit: 3 }];
 
     const resultsSheet = workbook.addWorksheet('Statistical Results');
     addInferentialWorksheetHeader(resultsSheet, 'Chi-Square Test Result', 2);
@@ -2136,7 +2050,7 @@ export default function Reports() {
 
   const handleInferentialPdfExport = async () => {
     if (!inferentialResult) return;
-    const { analysis, contingencyTable, expectedFrequencies, assumptions } = inferentialResult;
+    const { analysis, contingencyTable, assumptions } = inferentialResult;
     const pdf = new jsPDF('p', 'pt', 'a4');
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
@@ -2215,27 +2129,6 @@ export default function Reports() {
       columnStyles: { 0: { halign: 'left' } },
       margin: { left: margin, right: margin },
     });
-
-    if (!Array.isArray(expectedFrequencies)) {
-      pdf.addPage();
-      drawHeader('Expected Frequencies');
-      autoTable(pdf, {
-        startY: 105,
-        head: [[analysis.variable1.label, ...contingencyTable.columns.map((column) => column.label), 'Total']],
-        body: [
-          ...expectedFrequencies.rows.map((row) => [
-            row.label,
-            ...row.frequencies.map((value) => value.toFixed(3)),
-            row.total,
-          ]),
-          ['Total', ...expectedFrequencies.columnTotals, expectedFrequencies.grandTotal],
-        ],
-        styles: { fontSize: 8, cellPadding: 4, halign: 'center' },
-        headStyles: { fillColor: [27, 42, 74] },
-        columnStyles: { 0: { halign: 'left' } },
-        margin: { left: margin, right: margin },
-      });
-    }
 
     pdf.addPage();
     drawHeader('Chi-Square Test Result');
@@ -3981,7 +3874,6 @@ export default function Reports() {
 
 function InferentialResults({ result }: { result: InferentialAnalysisResult }) {
   const { analysis, contingencyTable, assumptions } = result;
-  const expectedFrequencies = Array.isArray(result.expectedFrequencies) ? null : result.expectedFrequencies;
   const comparisonCopy = getInferentialComparisonCopy(result);
   const groupResult = getInferentialGroupResult(result);
   const relationshipSummary = getInferentialPlainOutcome(result);
@@ -4019,9 +3911,9 @@ function InferentialResults({ result }: { result: InferentialAnalysisResult }) {
         />
         <InferentialStatCard
           icon={Target}
-          label="Size of Difference"
+          label="Association Strength"
           value={strengthLabel}
-          subtext={comparisonCopy.differenceLabel}
+          subtext="Cramer's V effect size"
           color="bg-purple-100 text-purple-700"
           compact
         />
@@ -4091,25 +3983,7 @@ function InferentialResults({ result }: { result: InferentialAnalysisResult }) {
             <h3 className="text-sm font-semibold text-[#1b2a4a]">Contingency Table</h3>
             <p className="mt-1 text-xs text-gray-500">Observed Frequencies</p>
           </div>
-          <InferentialFrequencyTable table={contingencyTable} expected={false} />
-          {expectedFrequencies && (
-            <details className="mt-4 rounded-lg border bg-gray-50">
-              <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-[#1b2a4a]">
-                View Expected Frequencies
-              </summary>
-              <div className="border-t bg-white p-4">
-                <InferentialFrequencyTable
-                  table={{
-                    ...contingencyTable,
-                    rows: expectedFrequencies.rows,
-                    columnTotals: expectedFrequencies.columnTotals,
-                    grandTotal: expectedFrequencies.grandTotal,
-                  }}
-                  expected
-                />
-              </div>
-            </details>
-          )}
+          <InferentialFrequencyTable table={contingencyTable} />
         </div>
 
         <div className="rounded-xl border p-5 xl:col-span-2">
@@ -4119,14 +3993,14 @@ function InferentialResults({ result }: { result: InferentialAnalysisResult }) {
             <p className="font-semibold">{relationshipSummary}</p>
             <p className="mt-1 text-xs opacity-90">
               {analysis.canCalculate
-                ? `${comparisonCopy.differenceLabel}: ${strengthLabel.toLowerCase()}.`
+                ? `Cramer's V effect size: ${strengthLabel.toLowerCase()}.`
                 : 'The selected answers do not contain enough variation for a reliable comparison.'}
             </p>
           </div>
           <dl className="divide-y text-sm">
             <InferentialDetail label="What was compared?" value={comparisonCopy.question} />
             <InferentialDetail label="What does the data show?" value={relationshipSummary} />
-            <InferentialDetail label={comparisonCopy.differenceLabel} value={strengthLabel} />
+            <InferentialDetail label="Association strength (Cramer's V)" value={strengthLabel} />
             <InferentialDetail label="Answers compared" value={analysis.validResponses.toLocaleString()} />
             <InferentialDetail label="Answers left out" value={analysis.excludedResponses.toLocaleString()} />
             <InferentialDetail label="Data check" value={dataCheckLabel} />
@@ -4152,29 +4026,7 @@ function InferentialResults({ result }: { result: InferentialAnalysisResult }) {
         </div>
       </div>
 
-      <div className="rounded-xl border-2 border-purple-200 bg-gradient-to-br from-purple-50 via-blue-50 to-slate-50 p-6 shadow-sm">
-        <div className="flex items-start gap-4">
-          <div className="rounded-lg bg-gradient-to-br from-purple-600 to-blue-600 p-3 shadow-md">
-            <Sparkles className="h-6 w-6 text-white" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h3 className="text-lg font-bold text-[#1b2a4a]">Plain-Language Interpretation</h3>
-            <p className="mt-3 text-sm leading-relaxed text-gray-700">
-              {buildPlainLanguageInferentialSummary(result)}
-            </p>
-            {result.interpretation && (
-              <details className="mt-4 rounded-lg border border-purple-200 bg-white/70">
-                <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-[#1b2a4a]">
-                  View full statistical explanation
-                </summary>
-                <p className="border-t border-purple-100 px-4 py-3 text-sm leading-relaxed text-gray-600">
-                  {result.interpretation}
-                </p>
-              </details>
-            )}
-          </div>
-        </div>
-      </div>
+      <AIStatisticalInterpretation context={result.aiInterpretation} />
 
       <div className={`rounded-xl border px-4 py-4 text-sm ${
         assumptions.passed
@@ -4239,8 +4091,8 @@ function InferentialDetail({ label, value }: { label: string; value: string }) {
   );
 }
 
-function InferentialFrequencyTable({ table, expected }: { table: InferentialTable; expected: boolean }) {
-  const formatCell = (value: number) => expected ? Number(value).toFixed(3) : Number(value).toLocaleString();
+function InferentialFrequencyTable({ table }: { table: InferentialTable }) {
+  const formatCell = (value: number) => Number(value).toLocaleString();
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-[520px] border-collapse text-sm">

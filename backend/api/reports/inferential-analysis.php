@@ -8,6 +8,7 @@ require_once __DIR__ . '/../config/dean_program_scope.php';
 require_once __DIR__ . '/../config/graduation_years.php';
 require_once __DIR__ . '/../config/survey_response_analytics.php';
 require_once __DIR__ . '/../config/inferential_analysis.php';
+require_once __DIR__ . '/../config/statistical_interpretation.php';
 
 class InferentialAnalysisValidationException extends Exception
 {
@@ -211,6 +212,22 @@ try {
         'programLabel' => $selectedProgram !== null
             ? $selectedProgram['code'] . ' - ' . $selectedProgram['name']
             : null,
+    ];
+
+    // Register only the verified aggregate result. The browser receives an
+    // opaque fingerprint and cannot replace the statistics sent to Groq.
+    $interpretationPayload = gradtrack_statistical_interpretation_payload($result);
+    $fallbackInterpretation = gradtrack_statistical_fallback($interpretationPayload);
+    $analysisFingerprint = gradtrack_statistical_register_context(
+        $authUser,
+        $interpretationPayload,
+        $fallbackInterpretation
+    );
+    $result['aiInterpretation'] = [
+        'fingerprint' => $analysisFingerprint,
+        'canGenerate' => !empty($result['analysis']['canCalculate']),
+        'hasWarnings' => empty($result['assumptions']['passed']),
+        'fallback' => $fallbackInterpretation,
     ];
 
     $auditUser = gradtrack_admin_audit_context($authUser);

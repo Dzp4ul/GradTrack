@@ -30,6 +30,7 @@
     "test:dean-reports": "php backend/tests/dean_reports_scope_integration.php",
     "test:inferential": "php backend/tests/inferential_analysis_test.php && php backend/tests/inferential_analysis_integration.php",
     "test:inferential-http": "php backend/tests/inferential_analysis_http_integration.php",
+    "test:statistical-ai": "php backend/tests/statistical_interpretation_test.php && node frontend/tests/ai-statistical-interpretation.test.mjs",
     "test:graduate-portal": "php backend/tests/graduate_profile_isolation_integration.php && php backend/tests/graduate_portal_access_integration.php",
     "test:role-structure": "php backend/tests/role_permission_structure_test.php && php backend/tests/audit_trail_rules_test.php",
     "test:coordinator-auth": "php backend/tests/research_coordinator_authorization_http_integration.php",

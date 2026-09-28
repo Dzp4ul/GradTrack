@@ -93,9 +93,12 @@ $adminId = (int)($db->query(
 $deanId = (int)($db->query(
     "SELECT id FROM admin_users WHERE role = 'dean_cs' AND COALESCE(is_active, 1) = 1 ORDER BY id LIMIT 1"
 )->fetchColumn() ?: 0);
-$surveyId = (int)($db->query(
-    "SELECT id FROM surveys WHERE archived_at IS NULL ORDER BY (status = 'active') DESC, id DESC LIMIT 1"
-)->fetchColumn() ?: 0);
+$requestedSurveyId = (int)(getenv('GRADTRACK_INFERENTIAL_TEST_SURVEY_ID') ?: 0);
+$surveyId = $requestedSurveyId > 0
+    ? (int)($db->query("SELECT id FROM surveys WHERE id = {$requestedSurveyId} LIMIT 1")->fetchColumn() ?: 0)
+    : (int)($db->query(
+        "SELECT id FROM surveys WHERE archived_at IS NULL ORDER BY (status = 'active') DESC, id DESC LIMIT 1"
+    )->fetchColumn() ?: 0);
 
 inferential_http_assert($adminId > 0, 'an authorized Reports account is available');
 inferential_http_assert($surveyId > 0, 'a survey is available for endpoint testing');
@@ -150,6 +153,40 @@ if ($adminId > 0 && $surveyId > 0) {
         )),
         'endpoint response contains safe counts and either complete statistics or an explicit non-calculable state'
     );
+    $aiContext = $analysisResponse['json']['data']['aiInterpretation'] ?? [];
+    inferential_http_assert(
+        preg_match('/^[a-f0-9]{64}$/', (string)($aiContext['fingerprint'] ?? '')) === 1
+        && is_array($aiContext['fallback'] ?? null),
+        'inferential endpoint registers a server-issued AI context with deterministic fallback'
+    );
+
+    if ((string)getenv('GRADTRACK_TEST_LIVE_GROQ') === '1'
+        && !empty($analysis['canCalculate'])
+        && !empty($aiContext['fingerprint'])) {
+        $liveInterpretation = inferential_http_request(
+            'POST',
+            '/reports/ai-statistical-interpretation.php',
+            $session,
+            ['analysisFingerprint' => $aiContext['fingerprint']]
+        );
+        inferential_http_assert(
+            $liveInterpretation['status'] === 200
+            && ($liveInterpretation['json']['data']['source'] ?? '') === 'ai',
+            'optional live Groq request returns a validated AI interpretation'
+        );
+
+        $repeatedInterpretation = inferential_http_request(
+            'POST',
+            '/reports/ai-statistical-interpretation.php',
+            $session,
+            ['analysisFingerprint' => $aiContext['fingerprint']]
+        );
+        inferential_http_assert(
+            $repeatedInterpretation['status'] === 200
+            && !empty($repeatedInterpretation['json']['data']['cached']),
+            'optional repeated HTTP request reuses the cached interpretation'
+        );
+    }
 
     $sameVariableResponse = inferential_http_request(
         'POST',
@@ -214,6 +251,19 @@ if ($adminId > 0 && $surveyId > 0) {
             inferential_http_assert(
                 $deanAttack['status'] === 403,
                 'a manipulated inferential program filter cannot escape the authenticated Dean scope'
+            );
+        }
+
+        if (!empty($aiContext['fingerprint'])) {
+            $crossScopeInterpretation = inferential_http_request(
+                'POST',
+                '/reports/ai-statistical-interpretation.php',
+                $deanSession,
+                ['analysisFingerprint' => $aiContext['fingerprint']]
+            );
+            inferential_http_assert(
+                $crossScopeInterpretation['status'] === 404,
+                'a Dean cannot reuse another authenticated account\'s AI analysis context'
             );
         }
     }

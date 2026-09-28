@@ -4,6 +4,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/public_content.php';
 require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../config/admin_auth.php';
+require_once __DIR__ . '/../config/admin_roles.php';
 
 function gradtrack_public_content_require_admin(PDO $db): array
 {
