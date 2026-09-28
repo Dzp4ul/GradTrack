@@ -1700,13 +1700,13 @@ function Survey() {
     const activeStep = isReviewing ? allSections.length : currentSection;
 
     return (
-      <div className="w-full max-w-5xl mx-auto mb-6 overflow-x-auto pb-2 sm:mb-10">
+      <div className="w-full max-w-5xl mx-auto mb-6 overflow-x-auto px-1 pt-1 pb-2 sm:mb-10">
         <div className="flex min-w-max items-start justify-between gap-2 px-1 sm:min-w-0 sm:gap-0">
           {progressSteps.map((section, i) => (
           <div key={i} className="relative flex w-24 flex-col items-center sm:flex-1">
             <div
               aria-current={i === activeStep ? 'step' : undefined}
-              className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm select-none z-10 ${
+              className={`w-10 h-10 shrink-0 rounded-full flex items-center justify-center font-bold text-sm select-none z-10 ${
                 i < activeStep
                   ? 'bg-green-500 text-white'
                   : i === activeStep
@@ -1716,7 +1716,7 @@ function Survey() {
             >
               {i < activeStep ? '✓' : i + 1}
             </div>
-            <span className={`text-xs mt-2 font-medium text-center max-w-[100px] truncate ${i === activeStep ? 'text-yellow-400' : 'text-blue-200'}`} title={section}>
+            <span className={`mt-2 min-h-8 w-full whitespace-normal break-words px-1 text-center text-xs font-medium leading-4 sm:max-w-[140px] ${i === activeStep ? 'text-yellow-400' : 'text-blue-200'}`} title={section}>
               {section}
             </span>
             {i < progressSteps.length - 1 && (
