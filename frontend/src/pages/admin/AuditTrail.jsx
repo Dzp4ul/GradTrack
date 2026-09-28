@@ -69,6 +69,22 @@ const MODULE_OPTIONS = [
 ];
 
 const SENSITIVE_KEY_PATTERN = /password|token|secret|authorization|cookie|session|csrf|otp|passcode|reset|verification|email|phone|mobile|contact|address|birth|student[_\s-]*(id|no|number)|national|ssn|first_name|middle_name|last_name|full_name/i;
+const IDENTIFIER_KEY_PATTERN = /(^id$|_id$|^id_|record[_\s-]*id|user[_\s-]*id)/i;
+
+const FIELD_LABELS = {
+  account_status: 'Account Status',
+  alumni_verification_status: 'Verification Status',
+  archived: 'Archived',
+  batch_year: 'Batch Year',
+  course_code: 'Course',
+  is_active: 'Account Status',
+  password_changed: 'Password Changed',
+  portal_status_changed: 'Portal Status Changed',
+  registration_status: 'Registration Status',
+  rejection_reason: 'Rejection Reason',
+  role: 'Role',
+  status: 'Status',
+};
 
 function formatDateTime(value) {
   if (!value) return '-';
@@ -132,11 +148,90 @@ function hasPayload(value) {
   return String(value).trim() !== '';
 }
 
-function formatPayloadValue(value) {
-  if (value === null || value === undefined || value === '') return '-';
+function humanizeFieldName(value) {
+  const key = String(value || '');
+  if (FIELD_LABELS[key]) return FIELD_LABELS[key];
+
+  return key
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (character) => character.toUpperCase());
+}
+
+function formatReadableValue(value) {
+  if (value === null || value === undefined || value === '') return 'Not set';
+  if (value === '[redacted]') return 'Hidden for privacy';
   if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-  if (typeof value === 'object') return JSON.stringify(value, null, 2);
-  return String(value);
+  if (Array.isArray(value)) {
+    return value.length > 0 ? value.map((item) => formatReadableValue(item)).join(', ') : 'None';
+  }
+  if (typeof value === 'object') {
+    return Object.values(value).map((item) => formatReadableValue(item)).join(', ');
+  }
+
+  const text = String(value);
+  if (ROLE_LABELS[text]) return ROLE_LABELS[text];
+  if (/^[a-z0-9]+(?:_[a-z0-9]+)+$/i.test(text)) {
+    return text
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (character) => character.toUpperCase());
+  }
+  return text;
+}
+
+function flattenPayload(payload, prefix = '') {
+  if (!hasPayload(payload)) return [];
+  if (Array.isArray(payload) || typeof payload !== 'object') {
+    return prefix ? [[prefix, payload]] : [];
+  }
+
+  return Object.entries(payload).flatMap(([key, value]) => {
+    if (IDENTIFIER_KEY_PATTERN.test(key)) return [];
+
+    const path = prefix ? `${prefix}.${key}` : key;
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      return flattenPayload(value, path);
+    }
+    return [[path, value]];
+  });
+}
+
+function buildChangeRows(previousValues, newValues) {
+  const previousEntries = new Map(flattenPayload(previousValues));
+  const newEntries = new Map(flattenPayload(newValues));
+  const keys = [...new Set([...previousEntries.keys(), ...newEntries.keys()])];
+
+  return keys.flatMap((key) => {
+    const previousValue = previousEntries.get(key);
+    const newValue = newEntries.get(key);
+    const previousHidden = previousValue === '[redacted]';
+    const newHidden = newValue === '[redacted]';
+    const bothEmpty = (previousValue === null || previousValue === undefined || previousValue === '')
+      && (newValue === null || newValue === undefined || newValue === '');
+
+    if ((previousHidden || previousValue === undefined) && (newHidden || newValue === undefined)) return [];
+    if (bothEmpty) return [];
+
+    return [{
+      key,
+      label: key.split('.').map(humanizeFieldName).join(' / '),
+      previousValue: formatReadableValue(previousValue),
+      newValue: formatReadableValue(newValue),
+    }];
+  });
+}
+
+function formatAuditDescription(log) {
+  const description = String(log?.description || '').trim();
+  const recordId = String(log?.record_id || '').trim();
+  if (!description || !recordId) return description || '-';
+
+  const escapedRecordId = recordId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return description
+    .replace(new RegExp(`\\s+with\\s+(?:record\\s+)?ID\\s*#?${escapedRecordId}\\b`, 'gi'), '')
+    .replace(new RegExp(`\\b(record|account|post|posting|survey|announcement|response|report)\\s+(?:ID\\s*)?#?${escapedRecordId}\\b`, 'gi'), '$1')
+    .replace(/\s+([.,])/g, '$1')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
 }
 
 function filenameFromResponse(response) {
@@ -154,15 +249,35 @@ function DetailField({ label, value }) {
   );
 }
 
-function PayloadBlock({ title, payload }) {
-  if (!hasPayload(payload)) return null;
+function ChangeSummary({ previousValues, newValues }) {
+  const changes = buildChangeRows(previousValues, newValues);
+  if (changes.length === 0) return null;
 
   return (
-    <div className="rounded-lg border bg-gray-50 p-3">
-      <h3 className="text-sm font-semibold text-[#1b2a4a]">{title}</h3>
-      <pre className="mt-2 max-h-52 overflow-auto whitespace-pre-wrap break-words text-xs leading-5 text-gray-700">
-        {formatPayloadValue(payload)}
-      </pre>
+    <div className="overflow-hidden rounded-lg border bg-white">
+      <div className="border-b bg-gray-50 px-4 py-3">
+        <h3 className="text-sm font-semibold text-[#1b2a4a]">Changes Made</h3>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[520px] text-sm">
+          <thead className="border-b bg-white text-left text-xs uppercase tracking-wide text-gray-500">
+            <tr>
+              <th className="px-4 py-2.5 font-semibold">Information</th>
+              <th className="px-4 py-2.5 font-semibold">Before</th>
+              <th className="px-4 py-2.5 font-semibold">After</th>
+            </tr>
+          </thead>
+          <tbody>
+            {changes.map((change) => (
+              <tr key={change.key} className="border-b last:border-0">
+                <th className="px-4 py-3 text-left font-medium text-gray-700">{change.label}</th>
+                <td className="px-4 py-3 text-gray-600">{change.previousValue}</td>
+                <td className="px-4 py-3 font-medium text-gray-800">{change.newValue}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
@@ -319,7 +434,6 @@ export default function AuditTrail() {
 
   const selectedPreviousValues = parsePayload(selectedLog?.previous_values);
   const selectedNewValues = parsePayload(selectedLog?.new_values);
-  const selectedMetadata = parsePayload(selectedLog?.metadata);
 
   if (!canAccess) {
     return (
@@ -511,7 +625,7 @@ export default function AuditTrail() {
                       </span>
                     </td>
                     <td className="px-4 py-3">{log.module || '-'}</td>
-                    <td className="max-w-md px-4 py-3 text-gray-700">{log.description || '-'}</td>
+                    <td className="max-w-md px-4 py-3 text-gray-700">{formatAuditDescription(log)}</td>
                     <td className="whitespace-nowrap px-4 py-3">
                       <button
                         type="button"
@@ -564,7 +678,7 @@ export default function AuditTrail() {
             <div className="flex items-center justify-between border-b bg-gray-50 px-5 py-4">
               <div>
                 <h2 className="text-lg font-bold text-[#1b2a4a]">Audit Details</h2>
-                <p className="text-xs text-gray-500">Record #{selectedLog.audit_id}</p>
+                <p className="text-xs text-gray-500">Administrative activity information</p>
               </div>
               <button
                 type="button"
@@ -578,24 +692,23 @@ export default function AuditTrail() {
 
             <div className="max-h-[78vh] space-y-5 overflow-y-auto p-5">
               <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                <DetailField label="Actor User ID" value={selectedLog.user_id || '-'} />
                 <DetailField label="Actor Name" value={selectedLog.user_name || '-'} />
                 <DetailField label="Role" value={selectedLog.role_label || ROLE_LABELS[selectedLog.user_role] || selectedLog.user_role || '-'} />
                 <DetailField label="Department" value={selectedLog.department || '-'} />
                 <DetailField label="Date and Time" value={formatDateTime(selectedLog.created_at)} />
-                <DetailField label="Affected Record ID" value={selectedLog.record_id || '-'} />
                 <DetailField label="Action" value={selectedLog.action || '-'} />
                 <DetailField label="Module" value={selectedLog.module || '-'} />
               </dl>
 
               <div className="rounded-lg border bg-white p-3">
                 <h3 className="text-sm font-semibold text-[#1b2a4a]">Description</h3>
-                <p className="mt-2 text-sm text-gray-700">{selectedLog.description || '-'}</p>
+                <p className="mt-2 text-sm text-gray-700">{formatAuditDescription(selectedLog)}</p>
               </div>
 
-              <PayloadBlock title="Previous Values" payload={selectedPreviousValues} />
-              <PayloadBlock title="New Values" payload={selectedNewValues} />
-              <PayloadBlock title="Additional Metadata" payload={selectedMetadata} />
+              <ChangeSummary
+                previousValues={selectedPreviousValues}
+                newValues={selectedNewValues}
+              />
             </div>
           </section>
         </div>
