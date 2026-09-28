@@ -524,19 +524,6 @@ export default function AutoReminders() {
               The system uses a cron job or scheduled task to process reminders based on this interval.
             </p>
 
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
-              <p className="text-sm text-amber-800 font-semibold flex items-center gap-2">
-                <AlertCircle className="w-4 h-4" />
-                Important
-              </p>
-              <p className="text-xs text-amber-700 mt-1">
-                For automatic reminders to work on a schedule, you need to set up a cron job or scheduled task
-                that runs <code className="bg-amber-100 px-1 rounded">backend/api/surveys/auto-reminders.php</code> with the
-                appropriate <code className="bg-amber-100 px-1 rounded">SURVEY_REMINDER_CRON_SECRET</code>.
-                This page allows you to manually send reminders and configure the interval.
-              </p>
-            </div>
-
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-3">Reminder Interval</label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
