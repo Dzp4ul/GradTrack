@@ -607,7 +607,7 @@ export default function AutoReminders() {
 
             <div>
               <label htmlFor="auto-reminder-end-date" className="block text-sm font-semibold text-gray-700 mb-2">
-                Until when? <span className="text-red-600" aria-hidden="true">*</span>
+                Reminder End Date <span className="text-red-600" aria-hidden="true">*</span>
               </label>
               <input
                 id="auto-reminder-end-date"

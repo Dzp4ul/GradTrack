@@ -12,7 +12,7 @@ The interval comes from:
 2. System Settings > Survey Operations > Reminder Interval.
 3. A fallback value of `3`.
 
-In Admin > Auto Email Reminders > Frequency, also set **Until when?**. The selected date is inclusive: the job may send reminders on that date, then every later run exits without sending. Existing installations with no saved end date continue using their previous unlimited schedule until an administrator saves one.
+In Admin > Auto Email Reminders > Frequency, also set the **Reminder End Date**. The selected date is inclusive: the job may send reminders on that date, then every later run exits without sending. Existing installations with no saved end date continue using their previous unlimited schedule until an administrator saves one.
 
 ## What The Job Does
 
