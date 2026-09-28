@@ -92,6 +92,7 @@ $expectedLabels = [
     'dean_cs' => 'Dean - CCS',
     'dean_coed' => 'Dean - COED',
     'dean_hm' => 'Dean - HM',
+    'admin' => 'Admin',
 ];
 
 $stmt = $db->prepare('SELECT id FROM admin_users WHERE role = :role ORDER BY id ASC');

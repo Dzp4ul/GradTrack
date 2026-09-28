@@ -75,6 +75,7 @@ $dataCases = [
     ['registrar', 'Ilan ang BSCS graduate records?', '/admin/graduates', 'graduate_program_counts', 'program'],
     ['alumni_president', 'Ilan ang pending alumni verification?', '/admin/alumni-registered-list', 'alumni_verification_summary', 'pending'],
     ['dean_cs', 'Ilan ang graduates na sakop ng department namin?', '/admin/survey-status', 'survey_participation', 'total'],
+    ['dean_cs', 'How many BSCS graduates are employed?', '/admin/reports', 'report_analytics', 'summary'],
 ];
 foreach ($dataCases as [$role, $question, $route, $tool, $metric]) {
     $resolution = gradtrack_genai_resolve_data_tool($question, $role, null, ['route' => $route]);
@@ -115,8 +116,8 @@ genai_behavior_assert(
     'Registrar cannot access Research Coordinator employment analytics'
 );
 genai_behavior_assert(
-    gradtrack_genai_classify_request('How many BSCS graduates are employed?', 'dean_cs', $policies['dean_cs'])['type'] === 'restricted',
-    'Dean cannot access Research Coordinator employment analytics'
+    (gradtrack_genai_resolve_data_tool('How many BSCS graduates are employed?', 'dean_cs', null, ['route' => '/admin/reports'])['tool'] ?? null) === 'report_analytics',
+    'Dean can access employment analytics through the actual program-scoped Reports route'
 );
 genai_behavior_assert(
     gradtrack_genai_classify_request('How many pending alumni verifications?', 'research_coordinator', $policies['research_coordinator'])['type'] === 'restricted',

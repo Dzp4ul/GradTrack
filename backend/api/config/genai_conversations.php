@@ -255,6 +255,7 @@ if (!function_exists('gradtrack_genai_recent_context')) {
         $tail = array_slice($messages, -max(1, $limit));
         $conversation = [];
         $lastDataTool = null;
+        $lastDataResolution = [];
         foreach ($tail as $message) {
             if (!is_array($message)) {
                 continue;
@@ -276,7 +277,15 @@ if (!function_exists('gradtrack_genai_recent_context')) {
                     $lastDataTool = $tool;
                 }
             }
+            $resolution = $metadata['response']['context']['dataResolution'] ?? null;
+            if (is_array($resolution) && is_string($resolution['tool'] ?? null)) {
+                $lastDataResolution = $resolution;
+            }
         }
-        return ['conversation' => $conversation, 'last_data_tool' => $lastDataTool];
+        return [
+            'conversation' => $conversation,
+            'last_data_tool' => $lastDataTool,
+            'last_data_resolution' => $lastDataResolution,
+        ];
     }
 }

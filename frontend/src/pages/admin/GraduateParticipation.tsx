@@ -234,6 +234,19 @@ export default function GraduateParticipation() {
   }, []);
 
   useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const requestedStatus = params.get('status');
+    setStatusFilter(requestedStatus === 'answered' || requestedStatus === 'not_answered' || requestedStatus === 'all'
+      ? requestedStatus
+      : 'not_answered');
+    const requestedProgram = (params.get('program') || '').toUpperCase();
+    const program = PROGRAM_OPTIONS.find((option) => option.code === requestedProgram);
+    setProgramFilter(program?.id || 'all');
+    const requestedYear = params.get('year_graduated') || '';
+    setYearFilter(/^(19|20)\d{2}$/.test(requestedYear) ? requestedYear : '');
+  }, [location.search]);
+
+  useEffect(() => {
     if (!surveysLoaded) return;
     void fetchGraduateStatus();
   }, [surveysLoaded, selectedSurveyId, page, search, statusFilter, programFilter, yearFilter]);
@@ -241,6 +254,23 @@ export default function GraduateParticipation() {
   useEffect(() => {
     setSelectedIds([]);
   }, [selectedSurveyId, search, statusFilter, programFilter, yearFilter]);
+
+  useEffect(() => {
+    const selectedProgramCode = PROGRAM_OPTIONS.find((option) => option.id === programFilter)?.code || '';
+    window.dispatchEvent(new CustomEvent('gradtrack:page-context', {
+      detail: {
+        route: location.pathname,
+        currentModule: 'Graduate Records',
+        currentFilters: {
+          survey_id: selectedSurveyId ? Number(selectedSurveyId) : 0,
+          survey_title: selectedSurvey?.title || '',
+          program_code: selectedProgramCode === 'All Programs' ? '' : selectedProgramCode,
+          year_graduated: yearFilter,
+          response_status: statusFilter,
+        },
+      },
+    }));
+  }, [location.pathname, programFilter, selectedSurvey?.title, selectedSurveyId, statusFilter, yearFilter]);
 
   const toggleRowSelection = (row: GraduateParticipationRow) => {
     if (row.has_answered || !row.has_email) return;

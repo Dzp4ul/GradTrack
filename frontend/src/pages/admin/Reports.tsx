@@ -774,6 +774,41 @@ export default function Reports() {
   const inferentialRequestSeqRef = useRef(0);
   const selectedSurvey = surveyItems.find((survey) => Number(survey.id) === selectedSurveyId);
 
+  useEffect(() => {
+    const reportYear = tab === 'overview' ? overviewFilters.graduationYear : selectedYear;
+    const reportProgram = tab === 'overview'
+      ? overviewFilterOptions.programs.find((program) => String(program.id) === overviewFilters.programId)?.code || 'all'
+      : selectedDepartment;
+    const context = {
+      surveyId: selectedSurveyId,
+      surveyTitle: selectedSurvey?.title || '',
+      reportType: tab,
+      tab,
+      selectedYear: reportYear,
+      selectedDepartment: reportProgram,
+      overviewFilters,
+      filterLabels: {
+        program: reportProgram === 'all' ? 'All Programs' : reportProgram,
+        graduationYear: reportYear === 'all' ? 'All Years' : reportYear,
+      },
+      contextLabel: `${tab.replace(/_/g, ' ')} - ${reportProgram === 'all' ? 'All Programs' : reportProgram} - ${reportYear === 'all' ? 'All Years' : reportYear}`,
+      source: 'reports-page',
+    };
+    window.dispatchEvent(new CustomEvent('gradtrack:report-context', { detail: context }));
+    window.dispatchEvent(new CustomEvent('gradtrack:page-context', {
+      detail: {
+        route: '/admin/reports',
+        currentModule: 'Reports & Analytics',
+        currentFilters: {
+          survey_id: selectedSurveyId || 0,
+          survey_title: selectedSurvey?.title || '',
+          program_code: reportProgram === 'all' ? '' : reportProgram,
+          year_graduated: reportYear === 'all' ? '' : reportYear,
+        },
+      },
+    }));
+  }, [overviewFilterOptions.programs, overviewFilters, selectedDepartment, selectedSurvey?.title, selectedSurveyId, selectedYear, tab]);
+
   const getReportCacheKey = (
     type: string,
     year: string,

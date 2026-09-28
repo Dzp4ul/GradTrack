@@ -1,17 +1,21 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import ExcelJS from 'exceljs';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import {
   AlertCircle,
   ArrowLeft,
+  ArrowRight,
+  BarChart3,
   Bot,
+  CheckCircle2,
   Clock3,
   Copy,
   Download,
   FileSpreadsheet,
   FileText,
   GraduationCap,
+  ListFilter,
   Loader2,
   MessageSquarePlus,
   Minus,
@@ -22,7 +26,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react';
-import { useLocation } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { API_ENDPOINTS } from '../config/api';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -71,9 +75,52 @@ interface AssistantPayload {
   visualizationSuggestion?: string | null;
 }
 
+interface PresentationStat {
+  label: string;
+  value: string;
+  tone?: 'primary' | 'positive' | 'warning' | 'danger' | 'neutral';
+}
+
+interface PresentationRecord {
+  title: string;
+  details?: Array<{ label: string; value: string }>;
+  status?: string;
+  tone?: PresentationStat['tone'];
+}
+
+interface ResponsePresentation {
+  kind: 'text' | 'statistics' | 'list' | 'comparison' | 'instructions' | 'navigation' | 'empty' | 'error';
+  title?: string;
+  summary?: string;
+  stats?: PresentationStat[];
+  records?: PresentationRecord[];
+  comparison?: Array<{ label: string; value: number; displayValue?: string }>;
+  steps?: string[];
+  progress?: { label: string; value: number };
+  pagination?: { from: number; to: number; total: number; hasMore?: boolean; nextPrompt?: string };
+  actions?: Array<{ label: string; route?: string; prompt?: string; variant?: 'primary' | 'secondary' }>;
+  footnote?: string;
+}
+
+interface GeneratedExportData {
+  title: string;
+  fileName: string;
+  formats: DownloadFormat[];
+  columns: string[];
+  rows: string[][];
+  filters?: Record<string, string>;
+  totalMatching: number;
+  recordsIncluded: number;
+  truncated?: boolean;
+  generatedAt: string;
+  footnote?: string;
+}
+
 interface GenAIResponseData {
   assistant: AssistantPayload;
   sourceMetrics: SourceMetric[];
+  presentation?: ResponsePresentation | null;
+  exportData?: GeneratedExportData | null;
   dataUsed: {
     filters?: Record<string, unknown>;
     generatedAt?: string;
@@ -88,6 +135,18 @@ interface GenAIResponseData {
   persistedMessages?: {
     user?: StoredAIMessage;
     assistant?: StoredAIMessage;
+  };
+}
+
+interface CurrentPageContext {
+  route?: string;
+  currentModule?: string;
+  currentFilters?: {
+    survey_id?: number;
+    survey_title?: string;
+    program_code?: string;
+    year_graduated?: string;
+    response_status?: string;
   };
 }
 
@@ -130,6 +189,12 @@ interface ChatMessage {
   error?: string;
 }
 
+interface DownloadFeedback {
+  status: 'preparing' | 'success' | 'error';
+  message: string;
+  updatedAt: number;
+}
+
 const REPORT_CONTEXT_STORAGE_KEY_PREFIX = 'gradtrack_genai_report_context';
 const makeMessageId = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
@@ -151,6 +216,7 @@ const currentModuleForRoute = (route: string, role?: string) => {
     ['/admin/announcements', 'Announcements'],
     ['/admin/forum-moderation', 'Forum Moderation'],
     ['/admin/job-approvals', 'Job Approval'],
+    ['/admin/job-postings', 'Job Postings'],
     ['/admin/user-management', 'User Management'],
     ['/admin/auto-reminders', 'Auto Email Reminders'],
     ['/admin/audit-trail', 'Audit Trail'],
@@ -203,6 +269,48 @@ const buildContextLabel = (context: ReportContext | null) => {
   return `${getReportTypeLabel(context)} - ${program} - ${year}`;
 };
 
+const suggestionsForModule = (module: string, fallback: string[]) => {
+  const suggestions: Record<string, string[]> = {
+    'Graduate Survey Participation': [
+      'Show graduates without survey responses',
+      'Compare responses by program',
+      'Show the response rate',
+      'What does this page do?',
+    ],
+    'Survey Participation': [
+      'Show graduates without survey responses',
+      'Show participation for my programs',
+      'Show the response rate',
+      'How do I notify nonrespondents?',
+    ],
+    'Survey Management': [
+      'What does Survey Management do?',
+      'How do I create a survey?',
+      'Can I edit an active survey?',
+      'Where can I review responses?',
+    ],
+    'Reports & Analytics': [
+      'Summarize employment statistics',
+      'Compare employment by program',
+      'Explain job-course alignment',
+      'Create a PDF report',
+    ],
+    'Manage Graduates': [
+      'Show graduate records',
+      'How do I import graduates from Excel?',
+      'How do I filter graduates by batch?',
+      'How do I archive a graduate record?',
+    ],
+    'Job Postings': [
+      'Show my job posting summary',
+      'How do I create a job post?',
+      'How do I archive a job post?',
+      'What happens when a job is archived?',
+    ],
+  };
+  return suggestions[module] || fallback;
+};
+
 const safeString = (value: unknown) => {
   if (value === null || value === undefined) {
     return '';
@@ -214,14 +322,20 @@ const safeString = (value: unknown) => {
 };
 
 const downloadBlob = (blob: Blob, filename: string) => {
+  if (blob.size === 0) {
+    throw new Error('The generated file is empty.');
+  }
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
   link.download = filename;
+  link.style.display = 'none';
   document.body.appendChild(link);
   link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => {
+    link.remove();
+    URL.revokeObjectURL(url);
+  }, 60_000);
 };
 
 const fileSafeName = (value: string) => value
@@ -229,6 +343,118 @@ const fileSafeName = (value: string) => value
   .toLowerCase()
   .replace(/[^a-z0-9]+/g, '_')
   .replace(/^_+|_+$/g, '') || 'gradtrack_genai_report';
+
+const generatedExportBaseName = (exportData: GeneratedExportData) => (
+  `${fileSafeName(exportData.fileName || exportData.title)}_${new Date(exportData.generatedAt).toISOString().slice(0, 10)}`
+);
+
+const downloadGeneratedExportPdf = (exportData: GeneratedExportData) => {
+  const pdf = new jsPDF('p', 'pt', 'a4');
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const pageHeight = pdf.internal.pageSize.getHeight();
+  const margin = 38;
+
+  pdf.setFillColor(27, 42, 74);
+  pdf.rect(0, 0, pageWidth, 88, 'F');
+  pdf.setTextColor(255, 255, 255);
+  pdf.setFontSize(17);
+  pdf.text('Norzagaray College - GradTrack', margin, 37);
+  pdf.setFontSize(11);
+  pdf.text(exportData.title, margin, 60);
+
+  let startY = 112;
+  pdf.setTextColor(55, 65, 81);
+  pdf.setFontSize(9);
+  pdf.text(`Generated: ${new Date(exportData.generatedAt).toLocaleString()}`, margin, startY);
+  startY += 14;
+  pdf.text(`Records included: ${exportData.recordsIncluded} of ${exportData.totalMatching}`, margin, startY);
+  startY += 14;
+  const filterText = Object.entries(exportData.filters || {}).map(([label, value]) => `${label}: ${value}`).join(' | ');
+  if (filterText) {
+    const filterLines = pdf.splitTextToSize(`Filters: ${filterText}`, pageWidth - margin * 2);
+    pdf.text(filterLines, margin, startY);
+    startY += filterLines.length * 11 + 8;
+  } else {
+    startY += 8;
+  }
+
+  autoTable(pdf, {
+    startY,
+    head: [exportData.columns],
+    body: exportData.rows,
+    margin: { left: margin, right: margin, bottom: 34 },
+    styles: { fontSize: 8, cellPadding: 4, overflow: 'linebreak' },
+    headStyles: { fillColor: [29, 78, 216], textColor: [255, 255, 255], fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: [248, 250, 252] },
+  });
+
+  const pageCount = (pdf as jsPDF & { internal: { getNumberOfPages: () => number } }).internal.getNumberOfPages();
+  for (let page = 1; page <= pageCount; page += 1) {
+    pdf.setPage(page);
+    pdf.setFontSize(8);
+    pdf.setTextColor(100, 116, 139);
+    pdf.text(`Page ${page} of ${pageCount}`, pageWidth - 86, pageHeight - 16);
+    pdf.text('Generated by GradTrack AI', margin, pageHeight - 16);
+  }
+  downloadBlob(pdf.output('blob'), `${generatedExportBaseName(exportData)}.pdf`);
+};
+
+const downloadGeneratedExportXlsx = async (exportData: GeneratedExportData) => {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = 'GradTrack AI';
+  workbook.created = new Date(exportData.generatedAt);
+  const worksheet = workbook.addWorksheet('GradTrack Records');
+  const columnCount = Math.max(1, exportData.columns.length);
+
+  worksheet.mergeCells(1, 1, 1, columnCount);
+  const titleCell = worksheet.getCell(1, 1);
+  titleCell.value = exportData.title;
+  titleCell.font = { bold: true, size: 16, color: { argb: 'FF1B2A4A' } };
+  worksheet.addRow(['Generated', new Date(exportData.generatedAt).toLocaleString()]);
+  worksheet.addRow(['Records Included', `${exportData.recordsIncluded} of ${exportData.totalMatching}`]);
+  Object.entries(exportData.filters || {}).forEach(([label, value]) => worksheet.addRow([label, value]));
+  worksheet.addRow([]);
+  const headerRow = worksheet.addRow(exportData.columns);
+  headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+  headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1D4ED8' } };
+  exportData.rows.forEach((row) => worksheet.addRow(row));
+  worksheet.views = [{ state: 'frozen', ySplit: headerRow.number }];
+  worksheet.autoFilter = {
+    from: { row: headerRow.number, column: 1 },
+    to: { row: headerRow.number, column: columnCount },
+  };
+  worksheet.columns.forEach((column, columnIndex) => {
+    const candidates = [exportData.columns[columnIndex] || '', ...exportData.rows.map((row) => row[columnIndex] || '')];
+    column.width = Math.max(12, Math.min(48, Math.max(...candidates.map((value) => String(value).length)) + 3));
+  });
+
+  const buffer = await workbook.xlsx.writeBuffer();
+  downloadBlob(
+    new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+    `${generatedExportBaseName(exportData)}.xlsx`,
+  );
+};
+
+const downloadGeneratedExportCsv = (exportData: GeneratedExportData) => {
+  const rows = [exportData.columns, ...exportData.rows];
+  const csv = rows.map((row) => row.map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
+  downloadBlob(
+    new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' }),
+    `${generatedExportBaseName(exportData)}.csv`,
+  );
+};
+
+const downloadGeneratedExport = async (exportData: GeneratedExportData, format: DownloadFormat) => {
+  if (format === 'xlsx') {
+    await downloadGeneratedExportXlsx(exportData);
+    return;
+  }
+  if (format === 'csv') {
+    downloadGeneratedExportCsv(exportData);
+    return;
+  }
+  downloadGeneratedExportPdf(exportData);
+};
 
 const assistantRequestErrorMessage = (
   response: Response,
@@ -287,9 +513,103 @@ const GradTrackAIMascot = ({ thinking = false, compact = false }: { thinking?: b
   </div>
 );
 
+const renderInlineMarkdown = (value: string, keyPrefix: string): ReactNode[] => (
+  value.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).filter(Boolean).map((part, index) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={`${keyPrefix}-strong-${index}`}>{part.slice(2, -2)}</strong>;
+    }
+    if (part.startsWith('`') && part.endsWith('`')) {
+      return <code key={`${keyPrefix}-code-${index}`} className="gt-ai-inline-code">{part.slice(1, -1)}</code>;
+    }
+    return <span key={`${keyPrefix}-text-${index}`}>{part}</span>;
+  })
+);
+
+const splitMarkdownRow = (line: string) => line
+  .trim()
+  .replace(/^\||\|$/g, '')
+  .split('|')
+  .map((cell) => cell.trim());
+
+const SafeMarkdown = ({ content }: { content: string }) => {
+  const lines = content.replace(/\r\n?/g, '\n').split('\n');
+  const blocks: ReactNode[] = [];
+  let index = 0;
+
+  while (index < lines.length) {
+    const line = lines[index];
+    if (!line.trim()) {
+      index += 1;
+      continue;
+    }
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      const level = heading[1].length;
+      const text = heading[2];
+      blocks.push(level === 1
+        ? <h3 key={`heading-${index}`} className="gt-ai-markdown-h1">{renderInlineMarkdown(text, `h-${index}`)}</h3>
+        : <h4 key={`heading-${index}`} className="gt-ai-markdown-h2">{renderInlineMarkdown(text, `h-${index}`)}</h4>);
+      index += 1;
+      continue;
+    }
+    if (line.includes('|') && index + 1 < lines.length && /^\s*\|?\s*:?-{3,}/.test(lines[index + 1])) {
+      const headers = splitMarkdownRow(line);
+      index += 2;
+      const rows: string[][] = [];
+      while (index < lines.length && lines[index].includes('|') && lines[index].trim()) {
+        rows.push(splitMarkdownRow(lines[index]));
+        index += 1;
+      }
+      blocks.push(
+        <div key={`table-${index}`} className="gt-ai-markdown-table-wrap" role="region" aria-label="Assistant table" tabIndex={0}>
+          <table className="gt-ai-markdown-table">
+            <thead><tr>{headers.map((header, cellIndex) => <th key={cellIndex}>{renderInlineMarkdown(header, `th-${index}-${cellIndex}`)}</th>)}</tr></thead>
+            <tbody>{rows.map((row, rowIndex) => (
+              <tr key={rowIndex}>{headers.map((_, cellIndex) => <td key={cellIndex}>{renderInlineMarkdown(row[cellIndex] || '', `td-${index}-${rowIndex}-${cellIndex}`)}</td>)}</tr>
+            ))}</tbody>
+          </table>
+        </div>,
+      );
+      continue;
+    }
+    if (/^\s*[-*]\s+/.test(line)) {
+      const items: string[] = [];
+      while (index < lines.length && /^\s*[-*]\s+/.test(lines[index])) {
+        items.push(lines[index].replace(/^\s*[-*]\s+/, ''));
+        index += 1;
+      }
+      blocks.push(<ul key={`ul-${index}`} className="gt-ai-markdown-list">{items.map((item, itemIndex) => <li key={itemIndex}>{renderInlineMarkdown(item, `uli-${index}-${itemIndex}`)}</li>)}</ul>);
+      continue;
+    }
+    if (/^\s*\d+[.)]\s+/.test(line)) {
+      const items: string[] = [];
+      while (index < lines.length && /^\s*\d+[.)]\s+/.test(lines[index])) {
+        items.push(lines[index].replace(/^\s*\d+[.)]\s+/, ''));
+        index += 1;
+      }
+      blocks.push(<ol key={`ol-${index}`} className="gt-ai-markdown-list gt-ai-markdown-list--ordered">{items.map((item, itemIndex) => <li key={itemIndex}>{renderInlineMarkdown(item, `oli-${index}-${itemIndex}`)}</li>)}</ol>);
+      continue;
+    }
+
+    const paragraph: string[] = [line.trim()];
+    index += 1;
+    while (index < lines.length && lines[index].trim()
+      && !/^(#{1,3})\s+/.test(lines[index])
+      && !/^\s*[-*]\s+/.test(lines[index])
+      && !/^\s*\d+[.)]\s+/.test(lines[index])) {
+      paragraph.push(lines[index].trim());
+      index += 1;
+    }
+    blocks.push(<p key={`p-${index}`} className="gt-ai-markdown-paragraph">{renderInlineMarkdown(paragraph.join(' '), `p-${index}`)}</p>);
+  }
+
+  return <div className="gt-ai-markdown">{blocks}</div>;
+};
+
 export default function GradTrackGenAIAssistant() {
   const { user } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [isMinimized, setIsMinimized] = useState(false);
   const [hasNewResult, setHasNewResult] = useState(false);
@@ -306,7 +626,10 @@ export default function GradTrackGenAIAssistant() {
   const [loading, setLoading] = useState(false);
   const [loadingStage, setLoadingStage] = useState('Thinking...');
   const [reportContext, setReportContext] = useState<ReportContext | null>(null);
+  const [currentPageContext, setCurrentPageContext] = useState<CurrentPageContext>({});
+  const [resetContextRequested, setResetContextRequested] = useState(false);
   const [assistantConfig, setAssistantConfig] = useState<AssistantConfig | null>(null);
+  const [downloadFeedback, setDownloadFeedback] = useState<Record<string, DownloadFeedback>>({});
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const messagesScrollRef = useRef<HTMLDivElement | null>(null);
   const submittingRef = useRef(false);
@@ -314,20 +637,33 @@ export default function GradTrackGenAIAssistant() {
 
   const isAdminPath = location.pathname.startsWith('/admin');
   const currentModule = useMemo(() => currentModuleForRoute(location.pathname, user?.role), [location.pathname, user?.role]);
+  const welcomeSuggestions = useMemo(
+    () => suggestionsForModule(currentModule, assistantConfig?.suggestions || []),
+    [assistantConfig?.suggestions, currentModule],
+  );
   const shouldShow = Boolean(assistantConfig) && isAdminPath;
   const reportContextStorageKey = useMemo(
     () => `${REPORT_CONTEXT_STORAGE_KEY_PREFIX}_${user?.id ?? 'anonymous'}`,
     [user?.id],
   );
   const contextLabel = useMemo(
-    () => assistantConfig?.supportsReportContext
-      ? buildContextLabel(reportContext)
-      : `Role scope: ${assistantConfig?.roleLabel || 'GradTrack'}`,
-    [assistantConfig, reportContext],
+    () => {
+      const filters = currentPageContext.currentFilters;
+      const activeFilters = [filters?.program_code, filters?.year_graduated]
+        .filter((value): value is string => Boolean(value));
+      if (filters?.response_status && filters.response_status !== 'all') {
+        activeFilters.push(toTitle(filters.response_status));
+      }
+      if (activeFilters.length > 0) return activeFilters.join(' · ');
+      return assistantConfig?.supportsReportContext
+        ? buildContextLabel(reportContext)
+        : `Role scope: ${assistantConfig?.roleLabel || 'GradTrack'}`;
+    },
+    [assistantConfig, currentPageContext.currentFilters, reportContext],
   );
   const contextIsAvailable = Boolean(
-    assistantConfig?.supportsReportContext
-      && (reportContext?.surveyId || reportContext?.reportType || reportContext?.tab),
+    activeConversation
+      || (assistantConfig?.supportsReportContext && (reportContext?.surveyId || reportContext?.reportType || reportContext?.tab)),
   );
 
   const clearLoadingTimers = useCallback(() => {
@@ -335,11 +671,13 @@ export default function GradTrackGenAIAssistant() {
     loadingTimersRef.current = [];
   }, []);
 
-  const startLoadingStages = useCallback((isReportRequest: boolean) => {
+  const startLoadingStages = useCallback((isReportRequest: boolean, isDataRequest = false) => {
     clearLoadingTimers();
     const stages = isReportRequest
       ? ['Thinking...', 'Preparing report data...', 'Generating AI summary...']
-      : ['Thinking...', 'Understanding your GradTrack question...', 'Generating response...'];
+      : isDataRequest
+        ? ['Understanding your question...', 'Checking authorized GradTrack data...', 'Preparing a verified response...']
+        : ['Thinking...', 'Understanding your GradTrack question...', 'Generating response...'];
     setLoadingStage(stages[0]);
     stages.slice(1).forEach((stage, index) => {
       loadingTimersRef.current.push(window.setTimeout(() => setLoadingStage(stage), (index + 1) * 900));
@@ -462,6 +800,7 @@ export default function GradTrackGenAIAssistant() {
   const clearContext = () => {
     setReportContext(null);
     sessionStorage.removeItem(reportContextStorageKey);
+    setResetContextRequested(true);
   };
 
   const updateStoredContext = useCallback((context: ReportContext | null) => {
@@ -524,7 +863,8 @@ export default function GradTrackGenAIAssistant() {
     }
     submittingRef.current = true;
 
-    const activeContext = explicitContext ?? reportContext;
+    const activeContext = explicitContext
+      ?? (location.pathname.startsWith('/admin/reports') ? reportContext : null);
     const userMessage: ChatMessage = {
       id: makeMessageId(),
       role: 'admin',
@@ -536,7 +876,10 @@ export default function GradTrackGenAIAssistant() {
     setView('conversation');
     setInput('');
     setLoading(true);
-    startLoadingStages(action === 'generate_report' || /\b(report|pdf|excel|xlsx|csv|download|export)\b/i.test(messageText));
+    startLoadingStages(
+      action === 'generate_report' || /\b(report|pdf|excel|xlsx|csv|download|export)\b/i.test(messageText),
+      /\b(how many|count|total|rate|statistics|compare|show|list|answered|response|employed|jobs?|graduates?|alumni)\b/i.test(messageText),
+    );
 
     try {
       let conversationId = activeConversation?.id || 0;
@@ -567,8 +910,10 @@ export default function GradTrackGenAIAssistant() {
           page_context: {
             route: location.pathname,
             current_module: currentModule,
+            current_filters: currentPageContext.currentFilters || {},
           },
           report_context: activeContext,
+          reset_context: resetContextRequested,
         }),
       });
       const result = await response.json().catch(() => null);
@@ -590,11 +935,21 @@ export default function GradTrackGenAIAssistant() {
       };
 
       setMessages((current) => [...current, assistantMessage]);
+      if (data.exportData?.formats?.length) {
+        try {
+          for (const format of data.exportData.formats) {
+            await downloadGeneratedExport(data.exportData, format);
+          }
+        } catch (exportError) {
+          console.error('GradTrack AI could not generate the requested local file.', exportError);
+        }
+      }
+      setResetContextRequested(false);
       if (data.conversation) {
         setActiveConversation(data.conversation);
       }
       void loadConversations(false);
-      if (data.context) {
+      if (data.context && location.pathname.startsWith('/admin/reports')) {
         updateStoredContext({
           ...(activeContext || {}),
           surveyId: Number(data.context.surveyId || activeContext?.surveyId || 0) || activeContext?.surveyId || null,
@@ -632,12 +987,27 @@ export default function GradTrackGenAIAssistant() {
       setLoading(false);
       setLoadingStage('Thinking...');
     }
-  }, [activeConversation?.id, clearLoadingTimers, contextLabel, currentModule, input, isMinimized, isOpen, loadConversations, loading, location.pathname, reportContext, startLoadingStages, updateStoredContext]);
+  }, [activeConversation?.id, clearLoadingTimers, contextLabel, currentModule, currentPageContext.currentFilters, input, isMinimized, isOpen, loadConversations, loading, location.pathname, reportContext, resetContextRequested, startLoadingStages, updateStoredContext]);
 
   const copyMessage = async (message: ChatMessage) => {
+    const presentation = message.response?.presentation;
+    const presentationLines = presentation
+      ? [
+          presentation.title || '',
+          presentation.summary || '',
+          ...(presentation.stats || []).map((stat) => `${stat.label}: ${stat.value}`),
+          ...(presentation.records || []).map((record) => [
+            record.title,
+            ...(record.details || []).map((detail) => detail.value),
+            record.status || '',
+          ].filter(Boolean).join(' - ')),
+          ...(presentation.comparison || []).map((item) => `${item.label}: ${item.displayValue || item.value}`),
+        ].filter(Boolean)
+      : [];
     const details = message.response
       ? [
           message.content,
+          ...presentationLines,
           ...(message.response.assistant.keyFindings || []),
           ...(message.response.assistant.areasForAttention || []),
         ].join('\n')
@@ -750,7 +1120,7 @@ export default function GradTrackGenAIAssistant() {
       pdf.text('Generated by GradTrack GenAI Assistant', margin, pageHeight - 18);
     }
 
-    pdf.save(`${fileSafeName(title)}_${new Date().toISOString().slice(0, 10)}.pdf`);
+    downloadBlob(pdf.output('blob'), `${fileSafeName(title)}_${new Date().toISOString().slice(0, 10)}.pdf`);
   };
 
   const downloadCsv = (response: GenAIResponseData) => {
@@ -838,6 +1208,47 @@ export default function GradTrackGenAIAssistant() {
     downloadPdf(response);
   };
 
+  const startReportDownload = async (
+    messageId: string,
+    format: DownloadFormat,
+    generate: () => void | Promise<void>,
+  ) => {
+    const key = `${messageId}:${format}`;
+    const formatLabel = format === 'xlsx' ? 'Excel' : format.toUpperCase();
+    setDownloadFeedback((current) => ({
+      ...current,
+      [key]: {
+        status: 'preparing',
+        message: `Preparing ${formatLabel} file...`,
+        updatedAt: Date.now(),
+      },
+    }));
+
+    try {
+      await generate();
+      setDownloadFeedback((current) => ({
+        ...current,
+        [key]: {
+          status: 'success',
+          message: `${formatLabel} download started. Check Chrome Downloads if it is not visible.`,
+          updatedAt: Date.now(),
+        },
+      }));
+    } catch (downloadError) {
+      console.error('GradTrack AI could not generate the requested local file.', downloadError);
+      setDownloadFeedback((current) => ({
+        ...current,
+        [key]: {
+          status: 'error',
+          message: downloadError instanceof Error
+            ? `Download failed: ${downloadError.message}`
+            : `Download failed. Please try the ${formatLabel} button again.`,
+          updatedAt: Date.now(),
+        },
+      }));
+    }
+  };
+
   useEffect(() => {
     if (!assistantConfig?.supportsReportContext) {
       setReportContext(null);
@@ -864,6 +1275,13 @@ export default function GradTrackGenAIAssistant() {
       }
     };
 
+    const handlePageContextUpdate = (event: Event) => {
+      const detail = (event as CustomEvent<CurrentPageContext>).detail;
+      if (detail && (!detail.route || detail.route === location.pathname)) {
+        setCurrentPageContext(detail);
+      }
+    };
+
     const handleOpen = (event: Event) => {
       const detail = (event as CustomEvent<{ prompt?: string; action?: GenAIAction; context?: ReportContext }>).detail || {};
       const nextContext = detail.context || reportContext;
@@ -882,11 +1300,19 @@ export default function GradTrackGenAIAssistant() {
 
     window.addEventListener('gradtrack:report-context', handleContextUpdate as EventListener);
     window.addEventListener('gradtrack:genai-open', handleOpen as EventListener);
+    window.addEventListener('gradtrack:page-context', handlePageContextUpdate as EventListener);
     return () => {
       window.removeEventListener('gradtrack:report-context', handleContextUpdate as EventListener);
       window.removeEventListener('gradtrack:genai-open', handleOpen as EventListener);
+      window.removeEventListener('gradtrack:page-context', handlePageContextUpdate as EventListener);
     };
-  }, [assistantConfig?.supportsReportContext, reportContext, sendMessage, updateStoredContext]);
+  }, [assistantConfig?.supportsReportContext, location.pathname, reportContext, sendMessage, updateStoredContext]);
+
+  useEffect(() => {
+    setCurrentPageContext((current) => current.route === location.pathname
+      ? current
+      : { route: location.pathname, currentModule });
+  }, [currentModule, location.pathname]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -916,6 +1342,121 @@ export default function GradTrackGenAIAssistant() {
 
   const lastMessage = messages.length > 0 ? messages[messages.length - 1] : undefined;
 
+  const renderPresentation = (presentation?: ResponsePresentation | null) => {
+    if (!presentation) return null;
+    const stats = presentation.stats || [];
+    const records = presentation.records || [];
+    const comparisons = presentation.comparison || [];
+    const maxComparison = Math.max(1, ...comparisons.map((item) => item.value));
+    const Icon = presentation.kind === 'list'
+      ? ListFilter
+      : presentation.kind === 'comparison'
+        ? BarChart3
+        : presentation.kind === 'empty'
+          ? AlertCircle
+          : CheckCircle2;
+
+    const runAction = (action: NonNullable<ResponsePresentation['actions']>[number]) => {
+      if (action.prompt) {
+        void sendMessage(action.prompt);
+        return;
+      }
+      if (action.route?.startsWith('/') && !action.route.startsWith('//')) {
+        navigate(action.route);
+        setIsMinimized(true);
+      }
+    };
+
+    return (
+      <section className={`gt-ai-presentation gt-ai-presentation--${presentation.kind}`}>
+        {(presentation.title || presentation.summary) && (
+          <div className="gt-ai-presentation-heading">
+            <span className="gt-ai-presentation-icon"><Icon className="h-4 w-4" /></span>
+            <div className="min-w-0">
+              {presentation.title && <h3>{presentation.title}</h3>}
+              {presentation.summary && <p>{presentation.summary}</p>}
+            </div>
+          </div>
+        )}
+
+        {stats.length > 0 && (
+          <div className="gt-ai-stat-grid">
+            {stats.map((stat) => (
+              <div key={`${stat.label}-${stat.value}`} className={`gt-ai-stat gt-ai-stat--${stat.tone || 'neutral'}`}>
+                <strong>{stat.value}</strong>
+                <span>{stat.label}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {presentation.progress && (
+          <div className="gt-ai-progress-block">
+            <div><span>{presentation.progress.label}</span><strong>{Math.max(0, Math.min(100, presentation.progress.value)).toFixed(1)}%</strong></div>
+            <div className="gt-ai-progress-track" role="progressbar" aria-label={presentation.progress.label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={presentation.progress.value}>
+              <span style={{ width: `${Math.max(0, Math.min(100, presentation.progress.value))}%` }} />
+            </div>
+          </div>
+        )}
+
+        {records.length > 0 && (
+          <div className="gt-ai-record-list">
+            {presentation.pagination && (
+              <p className="gt-ai-record-range">Showing {presentation.pagination.from}-{presentation.pagination.to} of {presentation.pagination.total}</p>
+            )}
+            {records.map((record, recordIndex) => (
+              <article key={`${record.title}-${recordIndex}`} className="gt-ai-record-row">
+                <div className="min-w-0 flex-1">
+                  <h4>{record.title}</h4>
+                  {(record.details || []).length > 0 && (
+                    <p>{record.details?.map((detail) => detail.value).filter(Boolean).join(' · ')}</p>
+                  )}
+                </div>
+                {record.status && <span className={`gt-ai-status-pill gt-ai-status-pill--${record.tone || 'neutral'}`}>{record.status}</span>}
+              </article>
+            ))}
+          </div>
+        )}
+
+        {comparisons.length > 0 && (
+          <div className="gt-ai-comparison-list">
+            {comparisons.map((item) => (
+              <div key={item.label} className="gt-ai-comparison-row">
+                <div><span>{item.label}</span><strong>{item.displayValue || item.value}</strong></div>
+                <div className="gt-ai-comparison-track"><span style={{ width: `${item.value <= 0 ? 0 : Math.max(3, (item.value / maxComparison) * 100)}%` }} /></div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {(presentation.steps || []).length > 0 && (
+          <ol className="gt-ai-step-list">
+            {presentation.steps?.map((step, stepIndex) => (
+              <li key={stepIndex}><span>{stepIndex + 1}</span><p>{step}</p></li>
+            ))}
+          </ol>
+        )}
+
+        {(presentation.pagination?.hasMore || (presentation.actions || []).length > 0) && (
+          <div className="gt-ai-action-row">
+            {presentation.pagination?.hasMore && (
+              <button type="button" onClick={() => void sendMessage(presentation.pagination?.nextPrompt || 'Show next 10')} className="gt-ai-action gt-ai-action--secondary">
+                Show next 10 <ArrowRight className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {presentation.actions?.map((action) => (
+              <button key={`${action.label}-${action.route || action.prompt}`} type="button" onClick={() => runAction(action)} className={`gt-ai-action gt-ai-action--${action.variant || 'secondary'}`}>
+                {action.label} <ArrowRight className="h-3.5 w-3.5" />
+              </button>
+            ))}
+          </div>
+        )}
+
+        {presentation.footnote && <p className="gt-ai-presentation-footnote">{presentation.footnote}</p>}
+      </section>
+    );
+  };
+
   const renderAssistantSections = (message: ChatMessage) => {
     const response = message.response;
     const assistant = response?.assistant;
@@ -923,7 +1464,8 @@ export default function GradTrackGenAIAssistant() {
     if (!assistant) {
       return (
         <div className="space-y-2">
-          <p>{message.content}</p>
+          <div className="gt-ai-message-identity"><Bot className="h-3.5 w-3.5" /><span>GradTrack AI</span></div>
+          <SafeMarkdown content={message.content} />
           {message.error && (
             <div className="gt-ai-error mt-3 flex items-start gap-2 rounded-lg border px-3 py-2 text-xs font-medium">
               <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -944,15 +1486,24 @@ export default function GradTrackGenAIAssistant() {
       { title: 'Data Limitations', items: assistant.dataLimitations || [] },
     ].filter((section) => section.items.length > 0);
 
-    const reportReady = assistant.reportRequest?.isReportRequest && response.dataset;
+    const reportReady = Boolean(assistant.reportRequest?.isReportRequest && (response.dataset || response.exportData));
     const preferredFormat = getFormatFromResponse(response);
     const isDirect = assistant.responseMode === 'direct';
+    const presentation = response.presentation;
+    const feedbackEntries = (['pdf', 'xlsx', 'csv'] as DownloadFormat[])
+      .map((format) => ({ format, feedback: downloadFeedback[`${message.id}:${format}`] }))
+      .filter((entry): entry is { format: DownloadFormat; feedback: DownloadFeedback } => Boolean(entry.feedback))
+      .sort((left, right) => right.feedback.updatedAt - left.feedback.updatedAt);
+    const activeDownload = feedbackEntries.find((entry) => entry.feedback.status === 'preparing');
+    const latestDownloadFeedback = activeDownload || feedbackEntries[0];
 
     return (
       <div className="space-y-4">
-        <p className="whitespace-pre-wrap">{assistant.answer}</p>
+        <div className="gt-ai-message-identity"><Bot className="h-3.5 w-3.5" /><span>GradTrack AI</span><small>{currentModule} Assistant</small></div>
+        {renderPresentation(presentation)}
+        {presentation?.kind !== 'list' && <SafeMarkdown content={assistant.answer} />}
 
-        {isDirect && response.sourceMetrics.length > 0 && (
+        {isDirect && !presentation && response.sourceMetrics.length > 0 && (
           <div className="gt-ai-data-summary rounded-md border px-3 py-2 text-[11px] leading-relaxed">
             <span className="font-semibold">Data used:</span>{' '}
             {response.sourceMetrics.map((metric, index) => (
@@ -975,7 +1526,7 @@ export default function GradTrackGenAIAssistant() {
           </section>
         ))}
 
-        {!isDirect && response.sourceMetrics.length > 0 && (
+        {!isDirect && !presentation && response.sourceMetrics.length > 0 && (
           <section className="gt-ai-data-section rounded-lg border p-3">
             <h4 className="mb-2 text-xs font-bold uppercase tracking-wide">Data Used For This Analysis</h4>
             <div className="space-y-2">
@@ -996,42 +1547,91 @@ export default function GradTrackGenAIAssistant() {
           <div className="gt-ai-report-ready rounded-lg border p-3">
             <div className="flex items-start gap-3">
               <div className="gt-ai-report-icon rounded-lg p-2 text-emerald-700 shadow-sm">
-                {preferredFormat === 'xlsx' ? <FileSpreadsheet className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
+                {response.exportData?.formats.includes('xlsx') ? <FileSpreadsheet className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="font-semibold text-emerald-950">{buildReportTitle(response)}</p>
-                <p className="text-xs text-emerald-700">{preferredFormat.toUpperCase()} - Generated by GradTrack GenAI</p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => void downloadReport(response, preferredFormat)}
-                    className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700"
+                <p className="font-semibold text-emerald-950">{response.exportData?.title || buildReportTitle(response)}</p>
+                {response.exportData ? (
+                  <>
+                    <p className="text-xs text-emerald-700">
+                      {response.exportData.formats.map((format) => format === 'xlsx' ? 'Excel' : format.toUpperCase()).join(' and ')} generated
+                      {' '}from {response.exportData.recordsIncluded} authorized record(s).
+                    </p>
+                    {response.exportData.truncated && (
+                      <p className="mt-1 text-[11px] font-medium text-amber-700">{response.exportData.footnote}</p>
+                    )}
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {response.exportData.formats.map((format) => (
+                        <button
+                          key={format}
+                          type="button"
+                          onClick={() => void startReportDownload(
+                            message.id,
+                            format,
+                            () => downloadGeneratedExport(response.exportData as GeneratedExportData, format),
+                          )}
+                          disabled={downloadFeedback[`${message.id}:${format}`]?.status === 'preparing'}
+                          className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-70"
+                        >
+                          {downloadFeedback[`${message.id}:${format}`]?.status === 'preparing'
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            : <Download className="h-3.5 w-3.5" />}
+                          {downloadFeedback[`${message.id}:${format}`]?.status === 'preparing'
+                            ? 'Preparing...'
+                            : `Download ${format === 'xlsx' ? 'Excel' : format.toUpperCase()}`}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-xs text-emerald-700">{preferredFormat.toUpperCase()} - Generated by GradTrack GenAI</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                          onClick={() => void startReportDownload(
+                            message.id,
+                            preferredFormat,
+                            () => downloadReport(response, preferredFormat),
+                          )}
+                          disabled={downloadFeedback[`${message.id}:${preferredFormat}`]?.status === 'preparing'}
+                          className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:cursor-wait disabled:opacity-70"
+                      >
+                          {downloadFeedback[`${message.id}:${preferredFormat}`]?.status === 'preparing'
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            : <Download className="h-3.5 w-3.5" />}
+                          {downloadFeedback[`${message.id}:${preferredFormat}`]?.status === 'preparing'
+                            ? 'Preparing...'
+                            : `Download ${preferredFormat === 'xlsx' ? 'Excel' : preferredFormat.toUpperCase()}`}
+                      </button>
+                      {(['pdf', 'xlsx', 'csv'] as DownloadFormat[])
+                        .filter((format) => format !== preferredFormat)
+                        .map((format) => (
+                          <button
+                            key={format}
+                            type="button"
+                            onClick={() => void startReportDownload(message.id, format, () => downloadReport(response, format))}
+                            disabled={downloadFeedback[`${message.id}:${format}`]?.status === 'preparing'}
+                            className="gt-ai-report-secondary inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold disabled:cursor-wait disabled:opacity-70"
+                          >
+                            {downloadFeedback[`${message.id}:${format}`]?.status === 'preparing'
+                              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              : null}
+                            {format === 'xlsx' ? 'Excel' : format.toUpperCase()}
+                          </button>
+                        ))}
+                    </div>
+                  </>
+                )}
+                {latestDownloadFeedback && (
+                  <p
+                    className={`mt-2 text-[11px] font-medium ${latestDownloadFeedback.feedback.status === 'error' ? 'text-red-700' : 'text-emerald-800'}`}
+                    role={latestDownloadFeedback.feedback.status === 'error' ? 'alert' : 'status'}
+                    aria-live="polite"
                   >
-                    <Download className="h-3.5 w-3.5" />
-                    Download
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void downloadReport(response, 'pdf')}
-                    className="gt-ai-report-secondary inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold"
-                  >
-                    PDF
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void downloadReport(response, 'xlsx')}
-                    className="gt-ai-report-secondary inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold"
-                  >
-                    Excel
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void downloadReport(response, 'csv')}
-                    className="gt-ai-report-secondary inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold"
-                  >
-                    CSV
-                  </button>
-                </div>
+                    {latestDownloadFeedback.feedback.message}
+                  </p>
+                )}
               </div>
             </div>
           </div>
@@ -1049,10 +1649,10 @@ export default function GradTrackGenAIAssistant() {
   return (
     <>
       {isOpen && !isMinimized && (
-        <div className="fixed inset-x-3 bottom-3 z-[70] sm:inset-x-auto sm:right-5 sm:w-[430px]">
+        <div className="fixed inset-x-3 bottom-3 z-[70] sm:inset-x-auto sm:right-5 sm:w-[480px] sm:max-w-[calc(100vw-2.5rem)]">
           <section
             className="gt-ai-chat-panel flex max-h-[calc(100vh-1.5rem)] flex-col overflow-hidden rounded-2xl border shadow-2xl"
-            aria-label="GradTrack GenAI Assistant chat panel"
+            aria-label="GradTrack AI Assistant chat panel"
           >
             <header className="flex items-center gap-3 border-b bg-[#1b2a4a] px-4 py-3 text-white">
               {view === 'conversation' && (
@@ -1071,9 +1671,9 @@ export default function GradTrackGenAIAssistant() {
               </div>
               <div className="min-w-0 flex-1">
                 <h2 className="truncate text-sm font-bold">
-                  {view === 'conversation' && activeConversation ? activeConversation.title : 'GradTrack GenAI Assistant'}
+                  {view === 'conversation' && activeConversation ? activeConversation.title : 'GradTrack AI Assistant'}
                 </h2>
-                <p className="truncate text-xs text-blue-100">{assistantConfig?.roleLabel} Assistant</p>
+                <p className="truncate text-xs text-blue-100">{currentModule} Assistant</p>
               </div>
               <div className="flex items-center gap-1">
                 <button
@@ -1271,7 +1871,7 @@ export default function GradTrackGenAIAssistant() {
                         <div className="mb-3 flex items-center gap-3">
                           <GradTrackAIMascot compact />
                           <div>
-                            <p className="gt-ai-primary-text font-bold">Hello! I'm the GradTrack GenAI Assistant.</p>
+                            <p className="gt-ai-primary-text font-bold">Hello! I'm GradTrack AI.</p>
                             <p className="gt-ai-muted-text text-xs font-medium">Assistance scoped to your authenticated {assistantConfig?.roleLabel} account.</p>
                           </div>
                         </div>
@@ -1280,7 +1880,7 @@ export default function GradTrackGenAIAssistant() {
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {(assistantConfig?.suggestions || []).map((prompt) => (
+                        {welcomeSuggestions.map((prompt) => (
                           <button
                             key={prompt}
                             type="button"
@@ -1327,7 +1927,7 @@ export default function GradTrackGenAIAssistant() {
                             <GradTrackAIMascot compact thinking />
                             <div>
                               <p className="gt-ai-primary-text font-semibold">{loadingStage}</p>
-                              <p className="gt-ai-muted-text text-xs">GradTrack AI is typing...</p>
+                              <p className="gt-ai-muted-text text-xs">GradTrack AI is analyzing...</p>
                             </div>
                             <Loader2 className="ml-auto h-4 w-4 animate-spin text-blue-600" />
                           </div>
@@ -1425,10 +2025,10 @@ export default function GradTrackGenAIAssistant() {
           type="button"
           onClick={openAssistant}
           className="sr-only"
-          aria-label="Open GradTrack GenAI Assistant"
+          aria-label="Open GradTrack AI Assistant"
         >
           <Bot className="h-4 w-4" />
-          Open GradTrack GenAI Assistant
+          Open GradTrack AI Assistant
         </button>
       )}
 

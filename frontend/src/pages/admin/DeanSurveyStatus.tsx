@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
+import { useLocation } from 'react-router-dom';
 import {
   Search,
   Filter,
@@ -78,6 +79,7 @@ const DEFAULT_EMAIL_MESSAGE =
   'Please complete the Graduate Tracer Study Survey. Your response helps Norzagaray College improve its programs and support graduates with better alumni services.';
 
 export default function DeanSurveyStatus() {
+  const location = useLocation();
   const statusRequestRef = useRef<{ id: number; key: string } | null>(null);
   const statusRequestSequenceRef = useRef(0);
   const [rows, setRows] = useState<DeanGraduateRow[]>([]);
@@ -217,6 +219,19 @@ export default function DeanSurveyStatus() {
   }, []);
 
   useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const requestedStatus = params.get('status');
+    setStatusFilter(requestedStatus === 'answered' || requestedStatus === 'not_answered' || requestedStatus === 'all'
+      ? requestedStatus
+      : 'not_answered');
+    const requestedYear = params.get('year_graduated') || '';
+    setYearFilter(/^(19|20)\d{2}$/.test(requestedYear) ? requestedYear : '');
+    const requestedSurveyId = params.get('survey_id');
+    const requestedSurvey = surveys.find((survey) => String(survey.id) === requestedSurveyId);
+    if (requestedSurvey) setSelectedSurveyId(String(requestedSurvey.id));
+  }, [location.search, surveys]);
+
+  useEffect(() => {
     if (!surveysLoaded) return;
     void fetchDeanSurveyStatus();
   }, [surveysLoaded, selectedSurveyId, page, search, statusFilter, yearFilter]);
@@ -224,6 +239,22 @@ export default function DeanSurveyStatus() {
   useEffect(() => {
     setSelectedIds([]);
   }, [selectedSurveyId, search, statusFilter, yearFilter]);
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('gradtrack:page-context', {
+      detail: {
+        route: location.pathname,
+        currentModule: 'Survey Participation',
+        currentFilters: {
+          survey_id: selectedSurveyId ? Number(selectedSurveyId) : 0,
+          survey_title: selectedSurvey?.title || '',
+          program_code: programScope.length === 1 ? programScope[0] : '',
+          year_graduated: yearFilter,
+          response_status: statusFilter,
+        },
+      },
+    }));
+  }, [location.pathname, programScope, selectedSurvey?.title, selectedSurveyId, statusFilter, yearFilter]);
 
   const toggleRowSelection = (row: DeanGraduateRow) => {
     if (row.has_answered || !row.has_email) return;

@@ -139,12 +139,50 @@ try {
             'Research Coordinator list uses authorized active-survey rows without sending names to Groq'
         );
 
+        foreach (['/admin', '/admin/graduates', '/admin/surveys', '/admin/reports', '/admin/job-postings'] as $employmentRoute) {
+            $employmentList = genai_four_role_chat(
+                'Research Coordinator',
+                $session,
+                'Give me the list of the graduates who are employed.',
+                $employmentRoute
+            );
+            genai_four_role_assert(
+                ($employmentList['json']['data']['context']['dataTool'] ?? '') === 'employment_status_list'
+                && ($employmentList['json']['data']['context']['metric'] ?? '') === 'employed'
+                && in_array(($employmentList['json']['data']['presentation']['kind'] ?? ''), ['list', 'empty'], true)
+                && genai_four_role_metric($employmentList, 'Records shown') !== null
+                && str_contains((string)($employmentList['json']['data']['dataUsed']['privacy'] ?? ''), 'not sent to Groq'),
+                "Research Coordinator employment list uses authorized response records from {$employmentRoute}"
+            );
+        }
+
+        $fileExport = genai_four_role_chat('Research Coordinator', $session, 'Give me the list of BSED graduates who have not answered in PDF and Excel.', '/admin/graduates');
+        $exportData = $fileExport['json']['data']['exportData'] ?? [];
+        genai_four_role_assert(
+            ($fileExport['json']['data']['assistant']['reportRequest']['isReportRequest'] ?? false) === true
+            && ($exportData['formats'] ?? []) === ['pdf', 'xlsx']
+            && ($exportData['recordsIncluded'] ?? -1) === ($exportData['totalMatching'] ?? -2)
+            && count($exportData['rows'] ?? []) === (int)($exportData['recordsIncluded'] ?? -1)
+            && str_contains((string)($fileExport['json']['data']['dataUsed']['privacy'] ?? ''), 'not sent to Groq'),
+            'Research Coordinator PDF and Excel request returns the complete authorized BSED export payload'
+        );
+
         $currentSurvey = genai_four_role_chat('Research Coordinator', $session, 'What is the current survey?', '/admin/graduates');
         genai_four_role_assert(
             $activeSurveyTitle !== ''
             && ($currentSurvey['json']['data']['context']['dataTool'] ?? '') === 'survey_participation'
             && str_contains((string)$currentSurvey['json']['data']['assistant']['answer'], $activeSurveyTitle),
             'Research Coordinator current-survey answer uses the active survey title from the database'
+        );
+
+        $comparison = genai_four_role_chat('Research Coordinator', $session, 'Compare BSCS and BSHM survey responses.', '/admin/graduates');
+        $comparisonLabels = array_column($comparison['json']['data']['presentation']['comparison'] ?? [], 'label');
+        sort($comparisonLabels);
+        genai_four_role_assert(
+            ($comparison['json']['data']['context']['dataTool'] ?? '') === 'survey_participation'
+            && ($comparison['json']['data']['presentation']['kind'] ?? '') === 'comparison'
+            && $comparisonLabels === ['BSCS', 'BSHM'],
+            'Research Coordinator named-program comparison keeps both requested programs and omits unrelated programs'
         );
 
         $restricted = genai_four_role_chat('Research Coordinator', $session, 'How many alumni verification requests are pending?', '/admin');

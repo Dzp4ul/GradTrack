@@ -19,7 +19,7 @@ function genai_scope_test_assert(bool $condition, string $message): void
 }
 
 $policies = gradtrack_genai_role_policies();
-$expectedRoles = ['research_coordinator', 'alumni_president', 'registrar', 'dean_cs', 'dean_coed', 'dean_hm', 'admin'];
+$expectedRoles = ['research_coordinator', 'alumni_president', 'registrar', 'dean_cs', 'dean_coed', 'dean_hm', 'mis_staff', 'admin'];
 genai_scope_test_assert(array_keys($policies) === $expectedRoles, 'only the requested administrative role variants have chatbot policies');
 genai_scope_test_assert(
     array_diff(array_keys($policies), gradtrack_admin_role_values()) === [],
@@ -46,6 +46,10 @@ $classificationCases = [
     ['registrar', 'How do I review a job post?', 'restricted', 'Registrar cannot request Alumni President job approval'],
     ['dean_cs', 'How do I manage administrator accounts?', 'restricted', 'Dean cannot request Research Coordinator account management'],
     ['dean_cs', 'Show survey participation for my programs', 'data', 'Dean participation request uses an authorized data scope'],
+    ['dean_cs', 'Summarize employment statistics', 'data', 'Dean report request uses program-scoped analytics available in the actual route permissions'],
+    ['research_coordinator', 'How do I archive a job post?', 'feature_help', 'Research Coordinator job-post guidance follows the actual Job Postings route'],
+    ['dean_cs', 'How do I create a job post?', 'feature_help', 'Dean job-post guidance follows the actual Job Postings route'],
+    ['mis_staff', 'What does the MIS Staff dashboard do?', 'feature_help', 'MIS Staff receives knowledge for the dashboard available to that role'],
     ['research_coordinator', 'What is the weather today?', 'semantic', 'weather is sent to the model for semantic scope confirmation before rejection'],
     ['research_coordinator', 'Give me a food recipe', 'semantic', 'recipes are sent to the model for semantic scope confirmation before rejection'],
     ['alumni_president', 'paano mag add ng alumni', 'semantic', 'Filipino alumni-management wording is not rejected by the English keyword matcher'],
@@ -77,6 +81,11 @@ genai_scope_test_assert(
     && str_contains($semanticPrompt, 'no manual Add Alumni button')
     && str_contains($semanticPrompt, 'recent_server_owned_conversation'),
     'semantic prompt includes verified capabilities, current page context, and recent history'
+);
+genai_scope_test_assert(
+    gradtrack_genai_contextual_suggestions($policies['research_coordinator'], ['route' => '/admin/graduates'])[0]
+        === 'Show graduates without survey responses',
+    'the most specific current route drives contextual suggestions instead of the dashboard prefix'
 );
 
 [$rateStatus, $rateCode, $rateMessage] = gradtrack_genai_ai_failure_details(['error_type' => 'rate_limit']);
