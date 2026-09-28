@@ -39,6 +39,7 @@
     "test:survey-live-edit": "php backend/tests/survey_live_question_editing_integration.php",
     "test:job-archive": "php backend/tests/job_archival_integration.php",
     "test:email-notifications": "php backend/tests/graduate_email_notifications_test.php",
+    "test:reminder-schedule": "php backend/tests/survey_reminder_schedule_test.php",
     "test:approval-email": "php backend/tests/registration_approval_email_http_integration.php",
     "test:forum-report-access": "php backend/tests/forum_report_access_rules_test.php",
     "test:forum-report-notifications": "php backend/tests/forum_report_notifications_http_integration.php",

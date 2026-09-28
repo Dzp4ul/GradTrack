@@ -43,6 +43,8 @@ interface StatusData {
   configuration_error?: string | null;
   eligible_count: number;
   interval_days: number;
+  end_date: string | null;
+  auto_reminders_ended: boolean;
   email_enabled: boolean;
   stats: ReminderStats;
 }
@@ -74,6 +76,7 @@ export default function AutoReminders() {
   const [sending, setSending] = useState(false);
   const [saving, setSaving] = useState(false);
   const [intervalDays, setIntervalDays] = useState(3);
+  const [endDate, setEndDate] = useState('');
   const [subject, setSubject] = useState('Reminder: Complete your Graduate Tracer Study Survey');
   const [message, setMessage] = useState('Please complete the Graduate Tracer Study Survey. Your response helps Norzagaray College improve its programs and support graduates with better alumni services.');
   const [showEligibleList, setShowEligibleList] = useState(false);
@@ -95,6 +98,7 @@ export default function AutoReminders() {
       if (data.success) {
         setStatusData(data.data);
         setIntervalDays(data.data.interval_days || 3);
+        setEndDate(data.data.end_date || '');
       }
     } catch (error) {
       console.error('Failed to fetch reminder status:', error);
@@ -182,6 +186,23 @@ export default function AutoReminders() {
   };
 
   const handleUpdateSettings = async () => {
+    if (!endDate) {
+      setMsgBox({
+        isOpen: true,
+        type: 'warning',
+        message: 'Please select when automatic reminder emails should end.',
+      });
+      return;
+    }
+    if (endDate < getLocalDateInputValue()) {
+      setMsgBox({
+        isOpen: true,
+        type: 'warning',
+        message: 'The auto-reminder end date cannot be earlier than today.',
+      });
+      return;
+    }
+
     setSaving(true);
     try {
       const response = await fetch(API_ENDPOINTS.RESEARCH_COORDINATOR.AUTO_REMINDERS, {
@@ -191,6 +212,7 @@ export default function AutoReminders() {
         body: JSON.stringify({
           action: 'update_settings',
           interval_days: intervalDays,
+          end_date: endDate,
         }),
       });
       const data = await response.json();
@@ -199,7 +221,7 @@ export default function AutoReminders() {
         setMsgBox({
           isOpen: true,
           type: 'success',
-          message: `Auto-reminder frequency updated to every ${intervalDays} day(s).`,
+          message: `Auto reminders will be sent every ${intervalDays} day(s) through ${formatScheduleDate(endDate)}.`,
         });
         await fetchStatus();
       } else {
@@ -346,7 +368,9 @@ export default function AutoReminders() {
               icon={<Clock className="w-5 h-5 text-amber-700" />}
               label="Reminder Frequency"
               value={statusData.interval_days === 1 ? 'Every Day' : `Every ${statusData.interval_days} Days`}
-              subtext={statusData.email_enabled ? 'Emails enabled' : 'Emails disabled'}
+              subtext={`${statusData.email_enabled ? 'Emails enabled' : 'Emails disabled'} · ${
+                statusData.end_date ? `Until ${formatScheduleDate(statusData.end_date)}` : 'End date not set'
+              }`}
               cardClass="bg-amber-50 border-amber-200"
             />
             <StatusCard
@@ -521,8 +545,15 @@ export default function AutoReminders() {
 
             <p className="text-sm text-gray-600">
               Configure how often automatic reminder emails are sent to graduates who haven't answered the survey.
-              The system uses a cron job or scheduled task to process reminders based on this interval.
+              The system uses a cron job or scheduled task to process reminders based on this interval and end date.
             </p>
+
+            {statusData?.auto_reminders_ended && (
+              <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                Automatic reminders ended on {statusData.end_date ? formatScheduleDate(statusData.end_date) : 'the saved end date'}. Choose a new date to resume them.
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-3">Reminder Interval</label>
@@ -574,6 +605,24 @@ export default function AutoReminders() {
               </div>
             </div>
 
+            <div>
+              <label htmlFor="auto-reminder-end-date" className="block text-sm font-semibold text-gray-700 mb-2">
+                Until when? <span className="text-red-600" aria-hidden="true">*</span>
+              </label>
+              <input
+                id="auto-reminder-end-date"
+                type="date"
+                min={getLocalDateInputValue()}
+                value={endDate}
+                onChange={(event) => setEndDate(event.target.value)}
+                className="w-full max-w-xs border-2 border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              />
+              <p className="mt-2 text-xs text-gray-500">
+                Automatic emails may still be sent on this date and will stop afterward.
+              </p>
+            </div>
+
             <div className="flex items-center gap-3 pt-2">
               <button
                 onClick={() => void handleUpdateSettings()}
@@ -588,7 +637,7 @@ export default function AutoReminders() {
                 ) : (
                   <>
                     <Settings2 className="w-4 h-4" />
-                    Save Frequency
+                    Save Schedule
                   </>
                 )}
               </button>
@@ -689,6 +738,23 @@ export default function AutoReminders() {
       />
     </div>
   );
+}
+
+function getLocalDateInputValue(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function formatScheduleDate(value: string): string {
+  const [year, month, day] = value.split('-').map(Number);
+  if (!year || !month || !day) return value;
+  return new Date(year, month - 1, day).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
 }
 
 function StatusCard({

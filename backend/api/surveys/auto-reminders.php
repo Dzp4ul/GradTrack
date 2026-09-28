@@ -220,9 +220,26 @@ try {
     }
 
     $intervalDays = auto_reminder_int_setting($db, 'survey_reminder_days', 3, 1, 365);
+    $endDate = gradtrack_survey_reminder_normalize_end_date(
+        auto_reminder_setting($db, 'survey_reminder_end_date', '')
+    );
     $limit = (int) auto_reminder_arg('limit', getenv('SURVEY_REMINDER_BATCH_LIMIT') ?: 100);
     $limit = max(1, min(5000, $limit));
     $dryRun = gradtrack_survey_reminder_bool(auto_reminder_arg('dry-run', auto_reminder_arg('dry_run', false)), false);
+
+    if ($endDate !== '' && gradtrack_survey_reminder_has_ended($endDate)) {
+        auto_reminder_response(200, [
+            'success' => true,
+            'code' => 'AUTO_REMINDER_END_DATE_REACHED',
+            'message' => 'Automatic survey reminders ended on ' . $endDate . '. No emails were sent.',
+            'settings' => [
+                'interval_days' => $intervalDays,
+                'end_date' => $endDate,
+                'limit' => $limit,
+            ],
+            'counts' => ['eligible' => 0, 'sent' => 0, 'failed' => 0, 'skipped' => 0],
+        ]);
+    }
 
     $subject = gradtrack_survey_reminder_clean_text(
         auto_reminder_arg('subject', getenv('SURVEY_REMINDER_SUBJECT') ?: 'Reminder: Complete your Graduate Tracer Study Survey')
@@ -265,6 +282,7 @@ try {
             'message' => 'Dry run finished. No emails were sent.',
             'settings' => [
                 'interval_days' => $intervalDays,
+                'end_date' => $endDate !== '' ? $endDate : null,
                 'limit' => $limit,
             ],
             'counts' => [
@@ -290,6 +308,7 @@ try {
             'message' => 'No graduates are due for an automatic survey reminder.',
             'settings' => [
                 'interval_days' => $intervalDays,
+                'end_date' => $endDate !== '' ? $endDate : null,
                 'limit' => $limit,
             ],
             'counts' => ['eligible' => 0, 'sent' => 0, 'failed' => 0, 'skipped' => 0],
@@ -355,6 +374,7 @@ try {
         'message' => 'Automatic survey reminder processing finished.',
         'settings' => [
             'interval_days' => $intervalDays,
+            'end_date' => $endDate !== '' ? $endDate : null,
             'limit' => $limit,
         ],
         'counts' => [

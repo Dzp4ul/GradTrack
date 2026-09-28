@@ -60,6 +60,7 @@ if (!function_exists('gradtrack_system_setting_definitions')) {
             'current_tracer_batch' => ['default' => 'Batch 2020', 'group' => 'legacy', 'type' => 'text', 'public' => false],
             'default_graduation_year' => ['default' => '2020', 'group' => 'legacy', 'type' => 'number', 'public' => false],
             'survey_reminder_days' => ['default' => '3', 'group' => 'legacy', 'type' => 'number', 'public' => false],
+            'survey_reminder_end_date' => ['default' => '', 'group' => 'legacy', 'type' => 'date', 'public' => false],
             'survey_token_expiry_days' => ['default' => '60', 'group' => 'legacy', 'type' => 'number', 'public' => false],
             'allow_late_survey_responses' => ['default' => 'true', 'group' => 'legacy', 'type' => 'boolean', 'public' => false],
             'auto_close_inactive_surveys' => ['default' => 'false', 'group' => 'legacy', 'type' => 'boolean', 'public' => false],
@@ -393,6 +394,18 @@ if (!function_exists('gradtrack_validate_system_setting')) {
 
         if ($type === 'number' && $normalized !== '' && !is_numeric($normalized)) {
             return "{$key} must be a number.";
+        }
+
+        if ($type === 'date' && $normalized !== '') {
+            $parsed = DateTimeImmutable::createFromFormat('!Y-m-d', $normalized);
+            $errors = DateTimeImmutable::getLastErrors();
+            if (
+                $parsed === false
+                || ($errors !== false && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))
+                || $parsed->format('Y-m-d') !== $normalized
+            ) {
+                return "{$key} must be a valid date in YYYY-MM-DD format.";
+            }
         }
 
         if (in_array($type, ['text', 'textarea'], true) && strlen($normalized) > 5000) {

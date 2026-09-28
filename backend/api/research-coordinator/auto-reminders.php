@@ -275,6 +275,12 @@ try {
             }
 
             $intervalDays = (int) coordinator_reminder_get_setting($db, 'survey_reminder_days', '3');
+            $endDate = coordinator_reminder_get_setting($db, 'survey_reminder_end_date', '');
+            try {
+                $endDate = gradtrack_survey_reminder_normalize_end_date($endDate);
+            } catch (InvalidArgumentException $ignored) {
+                $endDate = '';
+            }
             $emailEnabled = coordinator_reminder_get_setting($db, 'enable_email_notifications', 'true') === 'true';
 
             echo json_encode([
@@ -287,6 +293,8 @@ try {
                         : null,
                     'eligible_count' => $eligibleCount,
                     'interval_days' => $intervalDays,
+                    'end_date' => $endDate !== '' ? $endDate : null,
+                    'auto_reminders_ended' => $endDate !== '' && gradtrack_survey_reminder_has_ended($endDate),
                     'email_enabled' => $emailEnabled,
                     'stats' => coordinator_reminder_get_stats($db),
                 ],
@@ -506,32 +514,72 @@ try {
 
         if ($action === 'update_settings') {
             $intervalDays = isset($data['interval_days']) ? max(1, min(365, (int) $data['interval_days'])) : null;
-            if ($intervalDays !== null) {
-                $stmt = $db->prepare("
-                    INSERT INTO system_settings (setting_key, setting_value, setting_group)
-                    VALUES ('survey_reminder_days', :value, 'surveys')
-                    ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)
-                ");
-                $stmt->execute([':value' => (string) $intervalDays]);
-                logAuditTrail(
-                    $auditUser['user_id'],
-                    $auditUser['user_name'],
-                    $auditUser['user_role'],
-                    $auditUser['department'],
-                    'Update',
-                    'Auto Email Reminders',
-                    'Updated the survey reminder interval.',
-                    null,
-                    null,
-                    ['interval_days' => $intervalDays]
+            $hasEndDate = array_key_exists('end_date', $data);
+            try {
+                $endDate = gradtrack_survey_reminder_normalize_end_date(
+                    $hasEndDate
+                        ? $data['end_date']
+                        : coordinator_reminder_get_setting($db, 'survey_reminder_end_date', '')
                 );
+            } catch (InvalidArgumentException $exception) {
+                coordinator_reminder_json_response(422, ['success' => false, 'error' => $exception->getMessage()]);
             }
+            if ($hasEndDate && $endDate === '') {
+                coordinator_reminder_json_response(422, ['success' => false, 'error' => 'Please select when automatic reminder emails should end.']);
+            }
+            if ($hasEndDate && $endDate < date('Y-m-d')) {
+                coordinator_reminder_json_response(422, ['success' => false, 'error' => 'The auto-reminder end date cannot be earlier than today.']);
+            }
+
+            $stmt = $db->prepare("
+                INSERT INTO system_settings (setting_key, setting_value, setting_group)
+                VALUES (:setting_key, :setting_value, 'surveys')
+                ON DUPLICATE KEY UPDATE
+                    setting_value = VALUES(setting_value),
+                    setting_group = VALUES(setting_group)
+            ");
+            $settingsToSave = [
+                'survey_reminder_days' => (string) ($intervalDays ?? (int) coordinator_reminder_get_setting($db, 'survey_reminder_days', '3')),
+                'survey_reminder_end_date' => $endDate,
+            ];
+            $db->beginTransaction();
+            try {
+                foreach ($settingsToSave as $settingKey => $settingValue) {
+                    $stmt->execute([
+                        ':setting_key' => $settingKey,
+                        ':setting_value' => $settingValue,
+                    ]);
+                }
+                $db->commit();
+            } catch (Throwable $exception) {
+                if ($db->inTransaction()) {
+                    $db->rollBack();
+                }
+                throw $exception;
+            }
+
+            logAuditTrail(
+                $auditUser['user_id'],
+                $auditUser['user_name'],
+                $auditUser['user_role'],
+                $auditUser['department'],
+                'Update',
+                'Auto Email Reminders',
+                'Updated the automatic survey reminder schedule.',
+                null,
+                null,
+                [
+                    'interval_days' => (int) $settingsToSave['survey_reminder_days'],
+                    'end_date' => $endDate,
+                ]
+            );
 
             echo json_encode([
                 'success' => true,
                 'message' => 'Auto-reminder settings updated',
                 'data' => [
-                    'interval_days' => $intervalDays ?? (int) coordinator_reminder_get_setting($db, 'survey_reminder_days', '3'),
+                    'interval_days' => (int) $settingsToSave['survey_reminder_days'],
+                    'end_date' => $endDate,
                 ],
             ]);
             exit;

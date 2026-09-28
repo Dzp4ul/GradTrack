@@ -29,6 +29,41 @@ if (!function_exists('gradtrack_survey_reminder_bool')) {
     }
 }
 
+if (!function_exists('gradtrack_survey_reminder_normalize_end_date')) {
+    function gradtrack_survey_reminder_normalize_end_date($value): string
+    {
+        $endDate = gradtrack_survey_reminder_clean_text($value);
+        if ($endDate === '') {
+            return '';
+        }
+
+        $parsed = DateTimeImmutable::createFromFormat('!Y-m-d', $endDate);
+        $errors = DateTimeImmutable::getLastErrors();
+        if (
+            $parsed === false
+            || ($errors !== false && ($errors['warning_count'] > 0 || $errors['error_count'] > 0))
+            || $parsed->format('Y-m-d') !== $endDate
+        ) {
+            throw new InvalidArgumentException('The auto-reminder end date must be a valid date in YYYY-MM-DD format.');
+        }
+
+        return $endDate;
+    }
+}
+
+if (!function_exists('gradtrack_survey_reminder_has_ended')) {
+    function gradtrack_survey_reminder_has_ended($value, ?DateTimeInterface $now = null): bool
+    {
+        $endDate = gradtrack_survey_reminder_normalize_end_date($value);
+        if ($endDate === '') {
+            return false;
+        }
+
+        $currentDate = ($now ?? new DateTimeImmutable('now'))->format('Y-m-d');
+        return $currentDate > $endDate;
+    }
+}
+
 if (!function_exists('gradtrack_survey_reminder_frontend_url')) {
     function gradtrack_survey_reminder_frontend_url(): string
     {
