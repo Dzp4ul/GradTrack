@@ -5,6 +5,8 @@ import {
   AlertCircle,
   ArrowRight,
   Award,
+  BadgeCheck,
+  Banknote,
   Bookmark,
   Briefcase,
   Building2,
@@ -88,6 +90,7 @@ type PortalTab = 'announcements' | 'dashboard' | 'community_forum' | 'messages' 
 type ForumStatus = 'approved' | 'hidden';
 type ApprovalStatus = 'pending' | 'approved' | 'declined';
 type JobSortOption = 'recent' | 'oldest' | 'deadline';
+const JOBS_PER_PAGE = 10;
 
 interface AlumniBadge {
   code: string;
@@ -920,6 +923,22 @@ function uniqueJobValues(values: Array<string | null | undefined>) {
   return Array.from(entries.values()).sort((left, right) => left.localeCompare(right));
 }
 
+function getPaginationItems(currentPage: number, pageCount: number): Array<number | 'ellipsis'> {
+  if (pageCount <= 5) return Array.from({ length: pageCount }, (_, index) => index + 1);
+
+  const visiblePages = Array.from(new Set([1, currentPage - 1, currentPage, currentPage + 1, pageCount]))
+    .filter((page) => page >= 1 && page <= pageCount)
+    .sort((left, right) => left - right);
+  const items: Array<number | 'ellipsis'> = [];
+
+  visiblePages.forEach((page, index) => {
+    if (index > 0 && page - visiblePages[index - 1] > 1) items.push('ellipsis');
+    items.push(page);
+  });
+
+  return items;
+}
+
 function isJobDeadlinePast(value?: string | null) {
   if (!value) return false;
   const deadline = new Date(`${String(value).slice(0, 10)}T23:59:59`);
@@ -1124,6 +1143,7 @@ export default function GraduatePortal() {
   const [jobProgramFitFilters, setJobProgramFitFilters] = useState<string[]>([]);
   const [jobIndustryFilters, setJobIndustryFilters] = useState<string[]>([]);
   const [jobSort, setJobSort] = useState<JobSortOption>('recent');
+  const [jobPage, setJobPage] = useState(1);
   const [mobileJobFiltersOpen, setMobileJobFiltersOpen] = useState(false);
   const [highlightedJobId, setHighlightedJobId] = useState<number | null>(null);
   const [selectedJob, setSelectedJob] = useState<JobPost | null>(null);
@@ -1329,7 +1349,7 @@ export default function GraduatePortal() {
     programFits: uniqueJobValues([
       ...jobPrograms.map((program) => program.code),
       ...jobs.flatMap((job) => getJobProgramFitValues(job.course_program_fit)),
-    ]),
+    ]).filter((program) => program.trim().toUpperCase() !== 'BSN'),
     industries: uniqueJobValues(jobs.map((job) => job.industry)),
   }), [jobPrograms, jobs]);
 
@@ -1400,6 +1420,20 @@ export default function GraduatePortal() {
     + jobTypeFilters.length
     + jobProgramFitFilters.length
     + jobIndustryFilters.length;
+  const jobPageCount = Math.max(1, Math.ceil(filteredJobs.length / JOBS_PER_PAGE));
+  const paginatedJobs = useMemo(
+    () => filteredJobs.slice((jobPage - 1) * JOBS_PER_PAGE, jobPage * JOBS_PER_PAGE),
+    [filteredJobs, jobPage],
+  );
+  const jobPaginationItems = useMemo(() => getPaginationItems(jobPage, jobPageCount), [jobPage, jobPageCount]);
+
+  useEffect(() => {
+    setJobPage(1);
+  }, [jobIndustryFilters, jobLocationFilter, jobProgramFitFilters, jobSearch, jobSort, jobTypeFilters]);
+
+  useEffect(() => {
+    setJobPage((current) => Math.min(current, jobPageCount));
+  }, [jobPageCount]);
 
   const clearJobFilters = useCallback(() => {
     setJobSearch('');
@@ -1408,6 +1442,13 @@ export default function GraduatePortal() {
     setJobProgramFitFilters([]);
     setJobIndustryFilters([]);
   }, []);
+
+  const changeJobPage = useCallback((page: number) => {
+    setJobPage(Math.max(1, Math.min(page, jobPageCount)));
+    window.requestAnimationFrame(() => {
+      document.getElementById('job-results-summary')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }, [jobPageCount]);
 
   const savedJobIds = useMemo(() => new Set(savedJobs.map((job) => job.id)), [savedJobs]);
   const filteredShareDirectory = useMemo(() => {
@@ -2312,10 +2353,12 @@ export default function GraduatePortal() {
       clearJobFilters();
     }
 
-    if (activeTab !== 'jobs' || jobs.length === 0 || !jobs.some((job) => job.id === jobId)) {
+    const targetJobIndex = filteredJobs.findIndex((job) => job.id === jobId);
+    if (activeTab !== 'jobs' || targetJobIndex < 0) {
       return;
     }
 
+    setJobPage(Math.floor(targetJobIndex / JOBS_PER_PAGE) + 1);
     setHighlightedJobId(jobId);
     const scrollTimer = window.setTimeout(() => {
       jobCardRefs.current[jobId]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -2328,7 +2371,7 @@ export default function GraduatePortal() {
       window.clearTimeout(scrollTimer);
       window.clearTimeout(clearTimer);
     };
-  }, [activeTab, clearJobFilters, jobs, jobsAvailable, searchParams]);
+  }, [activeTab, clearJobFilters, filteredJobs, jobsAvailable, searchParams]);
 
   useEffect(() => {
     if (!messagingAvailable) {
@@ -6048,56 +6091,19 @@ export default function GraduatePortal() {
 
               {activeTab === 'jobs' && !unavailableForTab(activeTab) && (
                 <section className="min-w-0 space-y-4 sm:space-y-5" aria-labelledby="browse-jobs-title">
-                  <div className="relative min-h-[160px] min-w-0 overflow-hidden rounded-[28px] border border-blue-200 bg-blue-950 shadow-sm dark:border-blue-500/30">
+                  <div className="relative min-h-[140px] min-w-0 overflow-hidden rounded-[28px] border border-blue-200 bg-blue-950 shadow-sm dark:border-blue-500/30 sm:min-h-[160px]">
                     <img src="/browse-jobs-city.jpg" alt="" className="absolute inset-0 h-full w-full object-cover object-center" aria-hidden="true" />
                     <div className="absolute inset-0 bg-gradient-to-r from-slate-950/90 via-blue-950/70 to-blue-900/20" aria-hidden="true" />
-                    <div className="relative z-10 flex min-h-[160px] max-w-2xl flex-col justify-center px-5 py-6 sm:px-8 sm:py-7">
+                    <div className="relative z-10 flex min-h-[140px] max-w-2xl flex-col justify-center px-5 py-6 sm:min-h-[160px] sm:px-8 sm:py-7">
                       <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-200">Graduate opportunities</p>
                       <h1 id="browse-jobs-title" className="mt-2 text-2xl font-bold tracking-tight text-white sm:text-3xl">Browse Jobs</h1>
                       <p className="mt-2 text-sm leading-6 text-blue-50/90 sm:text-base">Find opportunities matched to your program and career goals.</p>
                     </div>
                   </div>
 
-                  <form onSubmit={(event) => event.preventDefault()} className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:p-4" role="search">
-                    <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(240px,2fr)_minmax(150px,1fr)_minmax(140px,1fr)_minmax(150px,1fr)_auto]">
-                      <label className="relative block min-w-0">
-                        <span className="sr-only">Search jobs, companies, or keywords</span>
-                        <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                        <input value={jobSearch} onChange={(event) => setJobSearch(event.target.value)} placeholder="Search jobs, companies, or keywords..." className="h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-blue-400 dark:focus:ring-blue-900" />
-                      </label>
-                      <div className="hidden lg:block">
-                        <label htmlFor="jobs-location-search" className="sr-only">Location</label>
-                        <JobLocationCombobox id="jobs-location-search" value={jobLocationFilter} options={searchableJobLocations} loading={jobLocationsLoading} onChange={setJobLocationFilter} placeholder="City, province, or remote" />
-                      </div>
-                      <label className="hidden lg:block">
-                        <span className="sr-only">Job type</span>
-                        <select value={jobTypeFilters.length === 1 ? jobTypeFilters[0] : ''} onChange={(event) => setJobTypeFilters(event.target.value ? [event.target.value] : [])} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">
-                          <option value="">All Types</option>
-                          {jobFilterOptions.jobTypes.map((jobType) => <option key={jobType} value={jobType}>{formatEmploymentType(jobType)}</option>)}
-                        </select>
-                      </label>
-                      <label className="hidden lg:block">
-                        <span className="sr-only">Program fit</span>
-                        <select value={jobProgramFitFilters.length === 1 ? jobProgramFitFilters[0] : ''} onChange={(event) => setJobProgramFitFilters(event.target.value ? [event.target.value] : [])} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">
-                          <option value="">All Graduates</option>
-                          {jobFilterOptions.programFits.map((program) => <option key={program} value={program}>{program}</option>)}
-                        </select>
-                      </label>
-                      <div className="flex min-w-0 gap-2">
-                        <button type="button" onClick={() => setMobileJobFiltersOpen(true)} className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 md:hidden dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
-                          <Filter className="h-4 w-4" /> Filters
-                          {activeJobFilterCount > 0 && <span className="rounded-full bg-blue-700 px-1.5 py-0.5 text-[10px] font-bold text-white">{activeJobFilterCount}</span>}
-                        </button>
-                        <button type="submit" className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-blue-700 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-800 focus-visible:ring-2 focus-visible:ring-blue-300 lg:flex-none">
-                          <Search className="h-4 w-4" /> Search
-                        </button>
-                      </div>
-                    </div>
-                  </form>
-
-                  <div className="grid min-w-0 gap-5 md:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[280px_minmax(0,1fr)]">
+                  <div className="grid min-w-0 gap-4 md:grid-cols-[220px_minmax(0,1fr)] lg:gap-5 lg:grid-cols-[248px_minmax(0,1fr)] xl:grid-cols-[264px_minmax(0,1fr)]">
                     <aside className="hidden md:block">
-                      <div className="sticky top-[calc(var(--graduate-portal-header-height)+var(--graduate-portal-sticky-gap))] rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                      <div className="sticky top-[calc(var(--graduate-portal-header-height)_+_var(--graduate-portal-sticky-gap))] max-h-[calc(100vh_-_var(--graduate-portal-header-height)_-_2rem)] overflow-y-auto overscroll-contain rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900 lg:p-5">
                         <JobFiltersPanel
                           options={jobFilterOptions}
                           locationOptions={searchableJobLocations}
@@ -6131,16 +6137,27 @@ export default function GraduatePortal() {
                         </div>
                       ) : (
                         <>
-                          <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:flex-row sm:items-center sm:justify-between">
-                            <p className="text-sm font-semibold text-slate-800 dark:text-slate-100" aria-live="polite"><span className="text-blue-700 dark:text-blue-300">{filteredJobs.length}</span> job{filteredJobs.length === 1 ? '' : 's'} found</p>
-                            <label className="flex items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
-                              <span className="shrink-0">Sort by:</span>
-                              <select value={jobSort} onChange={(event) => setJobSort(event.target.value as JobSortOption)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">
+                          <div id="job-results-summary" className="mb-4 scroll-mt-24 rounded-2xl border border-slate-200 bg-white px-4 py-4 shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:px-5">
+                            <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                              <div className="min-w-0">
+                                <p className="text-base font-bold text-slate-900 dark:text-slate-100" aria-live="polite"><span className="text-blue-700 dark:text-blue-300">{filteredJobs.length}</span> job{filteredJobs.length === 1 ? '' : 's'} found</p>
+                                <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400 sm:text-sm">Discover opportunities from our alumni and partner companies</p>
+                              </div>
+                              <div className="flex min-w-0 items-center gap-2 self-stretch sm:self-auto">
+                                <button type="button" onClick={() => setMobileJobFiltersOpen(true)} className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 md:hidden dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+                                  <Filter className="h-4 w-4" /> Filters
+                                  {activeJobFilterCount > 0 && <span className="rounded-full bg-blue-700 px-1.5 py-0.5 text-[10px] font-bold text-white">{activeJobFilterCount}</span>}
+                                </button>
+                                <label className="flex min-w-0 flex-1 items-center justify-end gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400 sm:flex-none">
+                                  <span className="hidden shrink-0 lg:inline">Sort by:</span>
+                                  <select aria-label="Sort jobs" value={jobSort} onChange={(event) => setJobSort(event.target.value as JobSortOption)} className="h-10 min-w-0 max-w-full flex-1 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200 dark:focus:ring-blue-900 sm:flex-none">
                                 <option value="recent">Most Recent</option>
                                 <option value="oldest">Oldest</option>
                                 <option value="deadline">Deadline Soonest</option>
-                              </select>
-                            </label>
+                                  </select>
+                                </label>
+                              </div>
+                            </div>
                           </div>
 
                           {filteredJobs.length === 0 ? (
@@ -6151,21 +6168,40 @@ export default function GraduatePortal() {
                               {activeJobFilterCount > 0 && <button type="button" onClick={clearJobFilters} className="mt-5 rounded-xl border border-blue-200 bg-blue-50 px-5 py-2.5 text-sm font-semibold text-blue-700 transition hover:bg-blue-100 dark:border-blue-500/40 dark:bg-blue-950/30 dark:text-blue-200">Clear Filters</button>}
                             </div>
                           ) : (
-                            <div className="grid min-w-0 gap-4 xl:grid-cols-2">
-                              {filteredJobs.map((job) => (
-                                <JobCard
-                                  key={job.id}
-                                  job={job}
-                                  saved={savedJobIds.has(job.id)}
-                                  saving={savingJobIds.includes(job.id)}
-                                  highlighted={highlightedJobId === job.id}
-                                  elementRef={(element) => { jobCardRefs.current[job.id] = element; }}
-                                  onOpenProfile={openCommunityProfile}
-                                  onToggleSave={toggleSavedJob}
-                                  onShare={openShareJob}
-                                  onViewDetails={openJobDetails}
-                                />
-                              ))}
+                            <div className="space-y-4">
+                              <div className="grid min-w-0 grid-cols-1 gap-4">
+                                {paginatedJobs.map((job) => (
+                                  <JobCard
+                                    key={job.id}
+                                    job={job}
+                                    saved={savedJobIds.has(job.id)}
+                                    saving={savingJobIds.includes(job.id)}
+                                    highlighted={highlightedJobId === job.id}
+                                    elementRef={(element) => { jobCardRefs.current[job.id] = element; }}
+                                    onOpenProfile={openCommunityProfile}
+                                    onToggleSave={toggleSavedJob}
+                                    onShare={openShareJob}
+                                    onViewDetails={openJobDetails}
+                                  />
+                                ))}
+                              </div>
+
+                              {jobPageCount > 1 && (
+                                <nav aria-label="Job results pagination" className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:flex-row sm:items-center sm:justify-between">
+                                  <p className="text-center text-xs font-medium text-slate-500 dark:text-slate-400 sm:text-left">
+                                    Showing {(jobPage - 1) * JOBS_PER_PAGE + 1}–{Math.min(jobPage * JOBS_PER_PAGE, filteredJobs.length)} of {filteredJobs.length} jobs
+                                  </p>
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    <button type="button" onClick={() => changeJobPage(jobPage - 1)} disabled={jobPage === 1} className="inline-flex h-9 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" aria-label="Previous page"><ChevronLeft className="h-4 w-4" /><span className="hidden sm:inline">Previous</span></button>
+                                    {jobPaginationItems.map((item, index) => item === 'ellipsis' ? (
+                                      <span key={`job-page-ellipsis-${index}`} className="flex h-9 w-7 items-center justify-center text-sm text-slate-400" aria-hidden="true">…</span>
+                                    ) : (
+                                      <button key={item} type="button" onClick={() => changeJobPage(item)} aria-current={item === jobPage ? 'page' : undefined} className={`flex h-9 min-w-9 items-center justify-center rounded-lg px-2 text-sm font-semibold transition ${item === jobPage ? 'bg-blue-700 text-white shadow-sm' : 'border border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800'}`}>{item}</button>
+                                    ))}
+                                    <button type="button" onClick={() => changeJobPage(jobPage + 1)} disabled={jobPage === jobPageCount} className="inline-flex h-9 items-center justify-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800" aria-label="Next page"><span className="hidden sm:inline">Next</span><ChevronRight className="h-4 w-4" /></button>
+                                  </div>
+                                </nav>
+                              )}
                             </div>
                           )}
                         </>
@@ -6238,7 +6274,7 @@ export default function GraduatePortal() {
                       <button type="button" onClick={() => selectTab('jobs')} className="mt-4 rounded-full bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-800">Browse Jobs</button>
                     </div>
                   ) : (
-                    <div className="grid min-w-0 gap-4 sm:gap-5 lg:grid-cols-2">
+                    <div className="grid min-w-0 grid-cols-1 gap-4 sm:gap-5">
                       {savedJobs.map((job) => (
                         <JobCard
                           key={job.id}
@@ -8666,16 +8702,16 @@ function JobFiltersPanel({
     onChange: (value: string[]) => void,
     formatValue: (value: string) => string = (value) => value,
   ) => values.length > 0 && (
-    <fieldset className="border-t border-slate-100 pt-5 dark:border-slate-800">
+    <fieldset className="border-t border-slate-100 pt-4 dark:border-slate-800">
       <legend className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">{title}</legend>
-      <div className="mt-3 max-h-44 space-y-2.5 overflow-y-auto pr-1">
+      <div className="mt-3 max-h-44 space-y-1 overflow-y-auto pr-1">
         {values.map((value) => (
-          <label key={value} className="flex cursor-pointer items-start gap-2.5 text-sm text-slate-700 dark:text-slate-200">
+          <label key={value} className="flex cursor-pointer items-start gap-2.5 rounded-lg px-1 py-1.5 text-sm text-slate-700 transition hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-slate-800/70">
             <input
               type="checkbox"
               checked={selectedValues.includes(value)}
               onChange={() => toggleValue(selectedValues, value, onChange)}
-              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-700 focus:ring-blue-500"
+              className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-blue-700 focus:ring-blue-500"
             />
             <span className="min-w-0 break-words leading-5 [overflow-wrap:anywhere]">{formatValue(value)}</span>
           </label>
@@ -8685,14 +8721,19 @@ function JobFiltersPanel({
   );
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       {showHeading && (
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <SlidersHorizontal className="h-4 w-4 text-blue-700 dark:text-blue-300" />
-            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Filters</h2>
+        <div className="flex items-start justify-between gap-3 border-b border-slate-100 pb-4 dark:border-slate-800">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300">
+              <SlidersHorizontal className="h-4 w-4" />
+            </span>
+            <div>
+              <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">Filters</h2>
+              <p className="mt-0.5 text-[11px] text-slate-400 dark:text-slate-500">Refine opportunities</p>
+            </div>
           </div>
-          <button type="button" onClick={onClear} disabled={activeFilterCount === 0} className="text-xs font-semibold text-blue-700 transition hover:text-blue-900 disabled:cursor-not-allowed disabled:text-slate-300 dark:text-blue-300 dark:hover:text-blue-200 dark:disabled:text-slate-600">Clear all</button>
+          <button type="button" onClick={onClear} disabled={activeFilterCount === 0} className="mt-1 text-xs font-semibold text-blue-700 transition hover:text-blue-900 disabled:cursor-not-allowed disabled:text-slate-300 dark:text-blue-300 dark:hover:text-blue-200 dark:disabled:text-slate-600">Clear all</button>
         </div>
       )}
 
@@ -8700,11 +8741,11 @@ function JobFiltersPanel({
         <span className="mb-2 block text-xs font-bold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">Keyword</span>
         <span className="relative block">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <input value={keyword} onChange={(event) => onKeywordChange(event.target.value)} placeholder="Title, company, or keyword" className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" />
+          <input value={keyword} onChange={(event) => onKeywordChange(event.target.value)} placeholder="Title, company, or keyword" className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:ring-blue-900" />
         </span>
       </label>
 
-      <div className="block border-t border-slate-100 pt-5 dark:border-slate-800">
+      <div className="block border-t border-slate-100 pt-4 dark:border-slate-800">
         <label htmlFor={locationInputId} className="mb-2 block text-xs font-bold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">Location</label>
         <JobLocationCombobox id={locationInputId} value={location} options={locationOptions} loading={locationsLoading} onChange={onLocationChange} placeholder="City, province, or remote" />
       </div>
@@ -8745,7 +8786,7 @@ function JobCard({
   const deadlinePassed = isJobDeadlinePast(job.application_deadline);
   const detailItems = [
     ...(job.location ? [{ icon: MapPin, label: 'Location', value: job.location }] : []),
-    ...(job.salary_range ? [{ icon: Briefcase, label: 'Salary', value: job.salary_range }] : []),
+    ...(job.salary_range ? [{ icon: Banknote, label: 'Salary', value: job.salary_range }] : []),
     ...(job.industry ? [{ icon: Building2, label: 'Industry', value: job.industry }] : []),
     ...(job.course_program_fit ? [{ icon: GraduationCap, label: 'Program Fit', value: job.course_program_fit }] : []),
   ];
@@ -8753,50 +8794,60 @@ function JobCard({
   return (
     <article
       ref={elementRef}
-      className={`group flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border bg-white p-4 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md dark:bg-slate-900 sm:p-5 ${highlighted ? 'border-blue-300 ring-2 ring-blue-100 dark:border-blue-500 dark:ring-blue-500/20' : 'border-slate-200 dark:border-slate-700'}`}
+      className={`group min-w-0 overflow-hidden rounded-2xl border bg-white p-4 shadow-sm transition duration-200 hover:border-blue-200 hover:shadow-md dark:bg-slate-900 sm:p-5 ${highlighted ? 'border-blue-300 ring-2 ring-blue-100 dark:border-blue-500 dark:ring-blue-500/20' : 'border-slate-200 dark:border-slate-700 dark:hover:border-blue-500/50'}`}
     >
       <div className="flex min-w-0 items-start justify-between gap-3">
         <button type="button" onClick={() => job.poster_graduate_id && onOpenProfile(job.poster_graduate_id)} disabled={!job.poster_graduate_id} className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left disabled:cursor-default">
-          <Avatar src={resolveAssetUrl(job.poster_profile_image_path)} label={posterName} size="md" />
+          <span className="shrink-0 rounded-full ring-2 ring-white shadow-sm dark:ring-slate-800">
+            <Avatar src={resolveAssetUrl(job.poster_profile_image_path)} label={posterName} size="md" />
+          </span>
           <span className="min-w-0">
             <span className="flex min-w-0 flex-wrap items-center gap-1.5">
-              <span className="max-w-full truncate text-sm font-bold text-slate-900 transition group-hover:text-blue-800 dark:text-slate-100 dark:group-hover:text-blue-300">{posterName}</span>
-              {officialPost && <span title="Official GradTrack personnel" className="inline-flex shrink-0 items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700 dark:bg-blue-950/40 dark:text-blue-200"><ShieldCheck className="h-3 w-3" /> Official</span>}
+              <span className="max-w-full truncate text-sm font-bold text-slate-900 transition group-hover:text-blue-800 dark:text-slate-100 dark:group-hover:text-blue-300 sm:text-[15px]">{posterName}</span>
+              {officialPost && (
+                <span title="Official GradTrack personnel" className="inline-flex shrink-0 items-center gap-1 text-[11px] font-bold text-blue-700 dark:text-blue-300">
+                  <BadgeCheck className="h-4 w-4 fill-blue-600 text-white drop-shadow-sm dark:fill-blue-500" aria-hidden="true" />
+                  Official
+                </span>
+              )}
             </span>
-            <span className="mt-0.5 block truncate text-xs text-slate-500 dark:text-slate-400">{posterProgram} · {getJobPostedLabel(job)}</span>
+            <span className="mt-0.5 block truncate text-xs text-slate-500 dark:text-slate-400">{posterProgram} <span aria-hidden="true">&bull;</span> {getJobPostedLabel(job)}</span>
           </span>
         </button>
-        <span className="max-w-[42%] shrink-0 break-words rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-center text-[11px] font-bold leading-4 text-blue-700 dark:border-blue-500/30 dark:bg-blue-950/30 dark:text-blue-200">{formatEmploymentType(job.job_type)}</span>
+        <span className="max-w-[42%] shrink-0 break-words rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-center text-[11px] font-bold leading-4 text-blue-700 dark:border-blue-500/30 dark:bg-blue-950/30 dark:text-blue-200">{formatEmploymentType(job.job_type)}</span>
       </div>
 
-      <div className="mt-5 min-w-0">
-        <p className="flex min-w-0 items-start gap-1.5 text-sm font-semibold text-slate-500 dark:text-slate-400"><Building2 className="mt-0.5 h-4 w-4 shrink-0 text-blue-600 dark:text-blue-300" /><span className="min-w-0 break-words [overflow-wrap:anywhere]">{job.company || 'Company not specified'}</span></p>
-        <h3 className="mt-2 break-words text-xl font-bold leading-snug tracking-tight text-slate-950 [overflow-wrap:anywhere] dark:text-white">{job.title}</h3>
+      <div className="mt-4 min-w-0">
+        <p className="flex min-w-0 items-center gap-2 text-sm font-semibold text-slate-600 dark:text-slate-300">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-blue-100 bg-blue-50 text-blue-600 dark:border-blue-500/30 dark:bg-blue-950/40 dark:text-blue-300"><Building2 className="h-4 w-4" /></span>
+          <span className="min-w-0 break-words [overflow-wrap:anywhere]">{job.company || 'Company not specified'}</span>
+        </p>
+        <h3 className="mt-2 overflow-hidden break-words text-lg font-bold leading-snug tracking-tight text-slate-950 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] [overflow-wrap:anywhere] dark:text-white sm:text-xl">{job.title}</h3>
       </div>
 
-      <p className="mt-3 min-h-[4.5rem] overflow-hidden whitespace-pre-line break-words text-sm leading-6 text-slate-600 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3] [overflow-wrap:anywhere] dark:text-slate-300">{job.description || 'No description provided yet.'}</p>
+      <p className="mt-2.5 overflow-hidden whitespace-pre-line break-words text-sm leading-6 text-slate-600 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:2] [overflow-wrap:anywhere] dark:text-slate-300">{job.description || 'No description provided yet.'}</p>
 
-      {detailItems.length > 0 && <div className="mt-4 flex flex-wrap gap-2">{detailItems.map((item) => <JobInfoChip key={`${job.id}-${item.label}`} icon={item.icon} label={item.label} value={item.value} />)}</div>}
+      {detailItems.length > 0 && <div className="mt-3.5 flex min-w-0 flex-wrap gap-2">{detailItems.map((item) => <JobInfoChip key={`${job.id}-${item.label}`} icon={item.icon} label={item.label} value={item.value} />)}</div>}
 
       {hasApplicationDetails && (
-        <p className="mt-4 inline-flex items-center gap-1.5 self-start text-xs font-semibold text-slate-500 dark:text-slate-400">
+        <p className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
           <FileText className="h-3.5 w-3.5 text-blue-600 dark:text-blue-300" />
           {externalApplication ? 'External application' : 'Application details available'}
         </p>
       )}
 
-      <div className="mt-auto pt-5">
-        <div className={`flex items-center gap-2 border-t border-slate-100 pt-4 text-xs font-semibold ${deadlinePassed ? 'text-rose-600 dark:text-rose-300' : 'text-slate-500 dark:text-slate-400'} dark:border-slate-800`}>
-          <CalendarDays className="h-4 w-4 shrink-0" />
-          <span>{job.application_deadline ? `Deadline: ${formatDate(job.application_deadline)}` : 'No deadline specified'}</span>
-          {deadlinePassed && <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase dark:bg-rose-950/40">Closed</span>}
+      <div className="mt-4 flex min-w-0 flex-col gap-3 border-t border-slate-100 pt-4 dark:border-slate-800 lg:flex-row lg:items-center lg:justify-between">
+        <div className={`flex min-w-0 items-center gap-2 text-xs font-semibold ${deadlinePassed ? 'text-rose-600 dark:text-rose-300' : 'text-slate-500 dark:text-slate-400'}`}>
+          <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${deadlinePassed ? 'bg-rose-50 dark:bg-rose-950/40' : 'bg-slate-50 dark:bg-slate-800'}`}><CalendarDays className="h-4 w-4" /></span>
+          <span className="min-w-0 break-words">{job.application_deadline ? `Deadline: ${formatDate(job.application_deadline)}` : 'No deadline specified'}</span>
+          {deadlinePassed && <span className="shrink-0 rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase dark:bg-rose-950/40">Closed</span>}
         </div>
-        <div className="mt-4 grid min-w-0 grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
-          <button type="button" onClick={() => void onToggleSave(job)} disabled={saving} aria-pressed={saved} aria-label={`${saved ? 'Remove' : 'Save'} ${job.title} ${saved ? 'from' : 'to'} Saved Jobs`} className={`inline-flex min-w-0 items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-semibold transition duration-200 disabled:cursor-wait disabled:opacity-60 ${saved ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-500/40 dark:bg-blue-950/30 dark:text-blue-200' : 'border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800'}`}>
+        <div className="grid min-w-0 grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end lg:shrink-0">
+          <button type="button" onClick={() => void onToggleSave(job)} disabled={saving} aria-pressed={saved} aria-label={`${saved ? 'Remove' : 'Save'} ${job.title} ${saved ? 'from' : 'to'} Saved Jobs`} className={`inline-flex h-11 min-w-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl border px-3 text-sm font-semibold transition duration-200 disabled:cursor-wait disabled:opacity-60 ${saved ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-500/40 dark:bg-blue-950/30 dark:text-blue-200' : 'border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800'}`}>
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bookmark className={`h-4 w-4 transition-transform duration-200 ${saved ? 'fill-current' : ''}`} />}{saved ? 'Saved' : 'Save'}
           </button>
-          <button type="button" onClick={() => onShare(job)} aria-label={`Share ${job.title}`} className="inline-flex min-w-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"><Share2 className="h-4 w-4" /> Share</button>
-          <button type="button" onClick={() => void onViewDetails(job)} className="col-span-2 inline-flex min-w-0 items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-800 sm:col-auto">View Details <ArrowRight className="h-4 w-4" /></button>
+          <button type="button" onClick={() => onShare(job)} aria-label={`Share ${job.title}`} className="inline-flex h-11 min-w-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"><Share2 className="h-4 w-4" /> Share</button>
+          <button type="button" onClick={() => void onViewDetails(job)} className="col-span-2 inline-flex h-11 min-w-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl bg-blue-700 px-4 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-800 focus-visible:ring-2 focus-visible:ring-blue-300 sm:col-auto">View Details <ArrowRight className="h-4 w-4" /></button>
         </div>
       </div>
     </article>
@@ -8805,26 +8856,25 @@ function JobCard({
 
 function JobCardSkeleton() {
   return (
-    <div className="animate-pulse rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900" aria-hidden="true">
+    <div className="animate-pulse rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:p-5" aria-hidden="true">
       <div className="flex items-center gap-3"><div className="h-11 w-11 rounded-full bg-slate-200 dark:bg-slate-700" /><div className="flex-1 space-y-2"><div className="h-3 w-32 rounded bg-slate-200 dark:bg-slate-700" /><div className="h-2.5 w-24 rounded bg-slate-100 dark:bg-slate-800" /></div><div className="h-6 w-20 rounded-full bg-blue-100 dark:bg-blue-950" /></div>
-      <div className="mt-6 h-3 w-36 rounded bg-slate-100 dark:bg-slate-800" /><div className="mt-3 h-6 w-3/4 rounded bg-slate-200 dark:bg-slate-700" />
-      <div className="mt-4 space-y-2"><div className="h-3 w-full rounded bg-slate-100 dark:bg-slate-800" /><div className="h-3 w-full rounded bg-slate-100 dark:bg-slate-800" /><div className="h-3 w-2/3 rounded bg-slate-100 dark:bg-slate-800" /></div>
-      <div className="mt-5 flex gap-2"><div className="h-8 w-28 rounded-full bg-blue-50 dark:bg-blue-950/40" /><div className="h-8 w-24 rounded-full bg-blue-50 dark:bg-blue-950/40" /></div>
-      <div className="mt-6 border-t border-slate-100 pt-4 dark:border-slate-800"><div className="h-3 w-36 rounded bg-slate-100 dark:bg-slate-800" /><div className="mt-4 grid grid-cols-3 gap-2"><div className="h-10 rounded-xl bg-slate-100 dark:bg-slate-800" /><div className="h-10 rounded-xl bg-slate-100 dark:bg-slate-800" /><div className="h-10 rounded-xl bg-blue-100 dark:bg-blue-950" /></div></div>
+      <div className="mt-4 h-8 w-44 rounded-lg bg-slate-100 dark:bg-slate-800" /><div className="mt-2.5 h-6 w-3/4 rounded bg-slate-200 dark:bg-slate-700" />
+      <div className="mt-3 space-y-2"><div className="h-3 w-full rounded bg-slate-100 dark:bg-slate-800" /><div className="h-3 w-4/5 rounded bg-slate-100 dark:bg-slate-800" /></div>
+      <div className="mt-4 flex flex-wrap gap-2"><div className="h-8 w-36 rounded-full bg-blue-50 dark:bg-blue-950/40" /><div className="h-8 w-40 rounded-full bg-blue-50 dark:bg-blue-950/40" /><div className="h-8 w-28 rounded-full bg-blue-50 dark:bg-blue-950/40" /></div>
+      <div className="mt-4 flex flex-col gap-3 border-t border-slate-100 pt-4 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between"><div className="h-9 w-40 rounded-lg bg-slate-100 dark:bg-slate-800" /><div className="flex gap-2"><div className="h-10 w-20 rounded-xl bg-slate-100 dark:bg-slate-800" /><div className="h-10 w-20 rounded-xl bg-slate-100 dark:bg-slate-800" /><div className="h-10 w-32 rounded-xl bg-blue-100 dark:bg-blue-950" /></div></div>
     </div>
   );
 }
 
 function JobResultsSkeleton() {
-  return <div className="grid min-w-0 gap-4 xl:grid-cols-2" aria-label="Loading job opportunities"><JobCardSkeleton /><JobCardSkeleton /><JobCardSkeleton /><JobCardSkeleton /></div>;
+  return <div className="grid min-w-0 grid-cols-1 gap-4" aria-label="Loading job opportunities"><JobCardSkeleton /><JobCardSkeleton /><JobCardSkeleton /></div>;
 }
 
 function JobsPageSkeleton() {
   return (
-    <section className="space-y-5" aria-label="Loading Browse Jobs">
-      <div className="animate-pulse rounded-[28px] border border-blue-100 bg-blue-50/60 px-6 py-7"><div className="h-3 w-36 rounded bg-blue-100" /><div className="mt-4 h-8 w-48 rounded bg-blue-200/70" /><div className="mt-3 h-4 w-full max-w-lg rounded bg-blue-100" /></div>
-      <div className="animate-pulse rounded-2xl border border-slate-200 bg-white p-4"><div className="h-11 rounded-xl bg-slate-100" /></div>
-      <div className="grid gap-5 md:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[280px_minmax(0,1fr)]"><div className="hidden h-96 animate-pulse rounded-2xl border border-slate-200 bg-white md:block" /><JobResultsSkeleton /></div>
+    <section className="min-w-0 space-y-5 animate-pulse" aria-label="Loading Browse Jobs">
+      <div className="flex min-h-[140px] items-center rounded-[28px] border border-blue-100 bg-blue-950 px-5 sm:min-h-[160px] sm:px-8"><div className="space-y-3"><div className="h-3 w-36 rounded bg-blue-700" /><div className="h-8 w-48 rounded bg-blue-800" /><div className="h-4 w-80 max-w-[70vw] rounded bg-blue-800" /></div></div>
+      <div className="grid gap-5 md:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[264px_minmax(0,1fr)]"><div className="hidden h-96 rounded-2xl border border-slate-200 bg-white md:block" /><div><div className="mb-4 h-20 rounded-2xl border border-slate-200 bg-white" /><JobResultsSkeleton /></div></div>
     </section>
   );
 }
@@ -8839,8 +8889,8 @@ function JobInfoChip({
   value: string;
 }) {
   return (
-    <div className="inline-flex min-w-0 max-w-full items-start gap-2 rounded-full border border-slate-200 bg-[#f8fbff] px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300">
-      <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500 dark:text-blue-300" />
+    <div className="inline-flex min-w-0 max-w-full items-start gap-1.5 rounded-2xl border border-slate-200 bg-[#f8fbff] px-2.5 py-1.5 text-xs leading-5 text-slate-600 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300">
+      <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-600 dark:text-blue-300" />
       <span className="shrink-0 font-semibold text-slate-500 dark:text-slate-400">{label}:</span>
       <span className="min-w-0 break-words font-medium text-slate-700 [overflow-wrap:anywhere] dark:text-slate-200">{value}</span>
     </div>
