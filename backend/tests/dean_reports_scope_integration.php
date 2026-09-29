@@ -291,10 +291,8 @@ if ($surveyId > 0) {
             || (int)($row['employed'] ?? -1) !== (int)$expected['employed']
             || (int)($row['unemployed'] ?? -1) !== (int)$expected['unemployed']
             || (int)($row['aligned'] ?? -1) !== (int)$expected['aligned']
-            || (int)($row['partially_aligned'] ?? -1) !== (int)$expected['partially_aligned']
-            || (int)($row['not_aligned'] ?? -1) !== (int)$expected['explicit_not_aligned']
+            || (int)($row['not_aligned'] ?? -1) !== (int)$expected['not_aligned']
             || (int)($row['aligned'] ?? 0)
-                + (int)($row['partially_aligned'] ?? 0)
                 + (int)($row['not_aligned'] ?? 0)
                 !== (int)($row['alignment_total'] ?? -1)
         ) {

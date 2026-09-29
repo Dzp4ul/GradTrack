@@ -483,6 +483,9 @@ function getReportResponseDetails(array $response, array $questions): array
     $isEmployed = $employmentStatus === 'employed';
     $isUnemployed = $employmentStatus === 'unemployed';
     $isAligned = $alignmentBucket === 'aligned';
+    $alignmentBinary = $alignmentBucket === null
+        ? null
+        : ($isAligned ? 'aligned' : 'not_aligned');
     $workLocation = $canonicalWorkLocation ?? '';
     $alignmentQuestionId = gradtrack_survey_question_id_by_analytics_key($questions, 'job_course_alignment');
     $jobRelated = $alignmentQuestionId !== null
@@ -499,7 +502,7 @@ function getReportResponseDetails(array $response, array $questions): array
         'work_location' => $workLocation,
         'job_related' => $jobRelated,
         'is_aligned' => $isAligned,
-        'alignment_bucket' => $alignmentBucket,
+        'alignment_binary' => $alignmentBinary,
         'salary_range' => $salaryRange,
     ];
 }
@@ -524,7 +527,7 @@ function responseMatchesOverviewFilters(array $details, array $filters): bool
         return false;
     }
     if ($programAlignment === 'not_aligned'
-        && !in_array($details['alignment_bucket'] ?? null, ['partially_aligned', 'not_aligned'], true)) {
+        && ($details['alignment_binary'] ?? null) !== 'not_aligned') {
         return false;
     }
 
@@ -677,8 +680,6 @@ try {
                 "total_employed_local" => (int)$summary['employed_local'],
                 "total_employed_abroad" => (int)$summary['employed_abroad'],
                 "total_aligned" => (int)$summary['aligned'],
-                "total_partially_aligned" => (int)$summary['partially_aligned'],
-                "total_explicit_not_aligned" => (int)$summary['explicit_not_aligned'],
                 "total_not_aligned" => (int)$summary['not_aligned'],
                 "total_alignment_known" => (int)$summary['alignment_total'],
                 "total_survey_responses" => (int)$summary['response_count'],
@@ -721,9 +722,7 @@ try {
                     'aligned' => (int)$program['aligned'],
                     'alignment_total' => (int)$program['alignment_total'],
                     'alignment_rate' => $program['alignment_rate'],
-                    'partially_aligned' => (int)$program['partially_aligned'],
                     'not_aligned' => (int)$program['not_aligned'],
-                    'explicit_not_aligned' => (int)$program['explicit_not_aligned'],
                     'avg_time_to_employment' => null,
                     'avg_salary' => null,
                 ];
@@ -825,10 +824,7 @@ try {
                     'employment_rate' => $year['employment_rate'],
                     'alignment_total' => (int)$year['alignment_total'],
                     'aligned' => (int)$year['aligned'],
-                    'partially_aligned' => (int)$year['partially_aligned'],
-                    // The three stacked series must be mutually exclusive. The canonical
-                    // not_aligned bucket also includes partially aligned responses.
-                    'not_aligned' => (int)$year['explicit_not_aligned'],
+                    'not_aligned' => (int)$year['not_aligned'],
                     'alignment_rate' => $year['alignment_rate'],
                 ];
             }, gradtrack_analytics_group_by_year($outcomeRecords, $yearDimensions));
@@ -837,70 +833,59 @@ try {
             break;
 
         case 'employment_status':
-            // Get survey responses and count each employment-status category.
             $questions = getSurveyQuestions($db, $selectedSurveyId);
-            
             $surveyResponses = getSurveyResponses($db, $selectedSurveyId, array_merge($overviewFilters, [
                 'program_codes' => $filterDepartment !== null ? [$filterDepartment] : $allowedProgramCodes,
                 'graduation_year' => $filterYear ?? ($overviewFilters['graduation_year'] ?? null),
             ]));
-            
+            $records = gradtrack_analytics_filter_records(
+                gradtrack_analytics_build_records($surveyResponses, $questions),
+                [
+                    'program_id' => $overviewFilters['program_id'] ?? null,
+                    'program_codes' => $filterDepartment !== null ? [$filterDepartment] : $allowedProgramCodes,
+                    'graduation_year' => $filterYear ?? ($overviewFilters['graduation_year'] ?? null),
+                    'employment_status' => $overviewFilters['employment_status'] ?? null,
+                    'alignment_status' => $overviewFilters['program_alignment'] ?? null,
+                ]
+            );
+
             $statusCount = [
                 'employed_local' => 0,
                 'employed_abroad' => 0,
-                'unemployed' => 0
+                'employed_location_unknown' => 0,
+                'unemployed' => 0,
+                'employment_unknown' => 0,
             ];
-            $seenResponses = [];
-            
-            foreach ($surveyResponses as $response) {
-                if (gradtrack_survey_is_duplicate_response($response, $seenResponses)) {
-                    continue;
-                }
-
-                $rowProgramCode = strtoupper((string)($response['program_code'] ?? ''));
-                if ($filterDepartment !== null && $rowProgramCode !== $filterDepartment) {
-                    continue;
-                }
-                if (is_array($allowedProgramCodes) && ($rowProgramCode === '' || !in_array($rowProgramCode, $allowedProgramCodes, true))) {
-                    continue;
-                }
-
-                $details = getReportResponseDetails($response, $questions);
-                if (!responseMatchesOverviewFilters($details, $overviewFilters)) {
-                    continue;
-                }
-
-                $isEmployed = (bool)$details['is_employed'];
-                $isUnemployed = (bool)$details['is_unemployed'];
-                $workLocation = (string)$details['work_location'];
-                $yearGraduated = (string)$details['year_graduated'];
-                
-                // Apply year filter if specified
-                if ($filterYear !== null && $yearGraduated !== $filterYear) {
-                    continue;
-                }
-                
-                // Categorize employed by location
-                if ($isEmployed) {
-                    if (strpos($workLocation, 'abroad') !== false || strpos($workLocation, 'overseas') !== false) {
+            foreach ($records as $record) {
+                $employmentStatus = $record['employment_status'] ?? null;
+                if ($employmentStatus === 'employed') {
+                    $workLocation = $record['work_location'] ?? null;
+                    if ($workLocation === 'abroad') {
                         $statusCount['employed_abroad']++;
-                    } else if (strpos($workLocation, 'local') !== false || !empty($workLocation)) {
+                    } elseif ($workLocation === 'local') {
                         $statusCount['employed_local']++;
                     } else {
-                        // Default to local if no location specified
-                        $statusCount['employed_local']++;
+                        $statusCount['employed_location_unknown']++;
                     }
-                } elseif ($isUnemployed) {
+                } elseif ($employmentStatus === 'unemployed') {
                     $statusCount['unemployed']++;
+                } else {
+                    $statusCount['employment_unknown']++;
                 }
             }
-            
+
             $data = [
                 ['employment_status' => 'Employed (Local)', 'count' => $statusCount['employed_local']],
                 ['employment_status' => 'Employed (Abroad)', 'count' => $statusCount['employed_abroad']],
-                ['employment_status' => 'Unemployed', 'count' => $statusCount['unemployed']]
+                ['employment_status' => 'Unemployed', 'count' => $statusCount['unemployed']],
             ];
-            
+            if ($statusCount['employed_location_unknown'] > 0) {
+                $data[] = ['employment_status' => 'Employed (Location Unknown)', 'count' => $statusCount['employed_location_unknown']];
+            }
+            if ($statusCount['employment_unknown'] > 0) {
+                $data[] = ['employment_status' => 'Employment Status Unknown', 'count' => $statusCount['employment_unknown']];
+            }
+
             echo json_encode(["success" => true, "data" => $data]);
             break;
 

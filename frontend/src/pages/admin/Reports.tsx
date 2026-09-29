@@ -6,13 +6,26 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
 } from 'recharts';
-import { Download, Users, Briefcase, Target, FileText, Sparkles, TrendingUp, CheckCircle2, BarChart3, Filter, RotateCcw, Check, ChevronDown, AlertTriangle } from 'lucide-react';
+import { Download, Users, Briefcase, Target, FileText, Sparkles, TrendingUp, CheckCircle2, BarChart3, Filter, RotateCcw, Check, ChevronDown, AlertTriangle, RefreshCw } from 'lucide-react';
 import { API_ROOT } from '../../config/api';
 import { normalizeGraduationYears } from '../../utils/graduationYears';
 import { PROGRAM_COLORS } from '../../config/programColors';
 import { useAuth } from '../../contexts/AuthContext';
 import AIStatisticalInterpretation from '../../components/reports/AIStatisticalInterpretation';
 import type { StatisticalInterpretationContext } from '../../services/analyticsAiService';
+import {
+  analyticsFingerprint,
+  buildPdfInterpretations,
+  buildPdfSectionNotes,
+  buildStructuredOverviewAnalysis,
+  formatPercentage,
+  mergeValidatedPdfInterpretations,
+  normalizeSalaryLabel,
+  safeCount,
+  type DescriptiveAnalyticsSnapshot,
+  type PdfInterpretations,
+  type StructuredDescriptiveAnalysis,
+} from '../../utils/descriptiveAnalytics';
 
 const API_BASE = API_ROOT;
 
@@ -25,8 +38,6 @@ interface Overview {
   total_employed_local: number;
   total_employed_abroad: number;
   total_aligned: number;
-  total_partially_aligned?: number;
-  total_explicit_not_aligned?: number;
   total_not_aligned?: number;
   total_alignment_known?: number;
   total_survey_responses: number;
@@ -63,9 +74,7 @@ interface ProgramReport {
   aligned: number;
   alignment_total?: number;
   alignment_rate?: number | null;
-  partially_aligned: number;
   not_aligned: number;
-  explicit_not_aligned?: number;
   avg_time_to_employment: number;
   avg_salary: number;
 }
@@ -93,7 +102,6 @@ interface BatchTrendReport {
   employment_rate: number | null;
   alignment_total: number;
   aligned: number;
-  partially_aligned: number;
   not_aligned: number;
   alignment_rate: number | null;
 }
@@ -142,7 +150,6 @@ interface SurveyEmploymentInsights {
   alignment_rate: number | null;
   aligned_count: number;
   alignment_total: number;
-  partially_aligned_count: number;
   not_aligned_count: number;
   binary_not_aligned_count: number;
   salary_distribution: Record<string, number>;
@@ -270,6 +277,14 @@ interface AiAnalyticsCacheEntry {
   analysis: string;
   summary: string;
   conclusion: string;
+  sections?: Partial<{
+    employmentInterpretation: string;
+    programAnalysis: string;
+    alignmentAnalysis: string;
+    summary: string;
+    dataNotes: string[];
+  }>;
+  source?: 'groq' | 'fallback';
 }
 
 interface SurveyQuestionTableRow {
@@ -578,10 +593,8 @@ const buildLocalDescriptiveAnalytics = (reportType: string, reportData: unknown)
     const abroad = analyticsCount(data.total_employed_abroad);
     const locationKnown = local + abroad;
     const aligned = analyticsCount(data.total_aligned);
-    const notAligned = data.total_not_aligned === undefined
-      ? analyticsCount(data.total_explicit_not_aligned) + analyticsCount(data.total_partially_aligned)
-      : analyticsCount(data.total_not_aligned);
-    const alignmentKnown = analyticsCount(data.total_alignment_known);
+    const notAligned = analyticsCount(data.total_not_aligned);
+    const alignmentKnown = aligned + notAligned;
     const batchRows = Array.isArray(payload.by_batch_trends)
       ? payload.by_batch_trends.slice().sort((a, b) => Number(a.year_graduated) - Number(b.year_graduated))
       : [];
@@ -591,8 +604,8 @@ const buildLocalDescriptiveAnalytics = (reportType: string, reportData: unknown)
       : '';
     const batchDetails = batchRows.map((row) => {
       const batchEmploymentKnown = analyticsCount(row.employment_total);
-      const batchAlignmentKnown = analyticsCount(row.alignment_total);
-      const batchNotAligned = analyticsCount(row.not_aligned) + analyticsCount(row.partially_aligned);
+      const batchNotAligned = analyticsCount(row.not_aligned);
+      const batchAlignmentKnown = analyticsCount(row.aligned) + batchNotAligned;
       return `Batch ${row.year_graduated} records ${analyticsCount(row.employed)} employed and ${analyticsCount(row.unemployed)} unemployed graduates among ${batchEmploymentKnown} classified employment responses, for an employment rate of ${formatNullableRate(row.employment_rate)}. Its job-alignment distribution contains ${analyticsCount(row.aligned)} aligned and ${batchNotAligned} not-aligned graduates among ${batchAlignmentKnown} classified alignment responses, with an alignment rate of ${formatNullableRate(row.alignment_rate)}.`;
     }).join('\n\n');
     const leadingEmploymentBatch = batchRows.length > 0
@@ -629,14 +642,22 @@ const buildLocalDescriptiveAnalytics = (reportType: string, reportData: unknown)
       0,
     );
     const aligned = rows.reduce((sum, row) => sum + analyticsCount(row.aligned), 0);
+    const alignmentKnown = rows.reduce((sum, row) => sum + analyticsCount(row.alignment_total), 0);
     const leading = rows.reduce((highest, row) => (
-      analyticsCount(row.employed) > analyticsCount(highest.employed) ? row : highest
+      analyticsCount(row.total_graduates) > analyticsCount(highest.total_graduates) ? row : highest
     ));
+    const detailed = buildPdfInterpretations({
+      overview: null,
+      programPerformance: rows,
+      yearlyTrend: [],
+      employmentStatus: [],
+      salaryDistribution: [],
+    }).programPerformance;
 
     return {
-      analysis: `The program report compares ${rows.length} programs containing ${total} graduate responses. Across the listed programs, ${employed} graduates are employed and ${Math.max(employmentKnown - employed, 0)} are not employed among responses with a classified employment status.`,
-      summary: `${leading.code || leading.name} has the highest employed count at ${analyticsCount(leading.employed)}. Across all displayed programs, ${aligned} graduates are classified as working in jobs aligned with their course.`,
-      conclusion: `Employed graduates represent ${analyticsPercentage(employed, employmentKnown)} of classified employment responses in the displayed programs. The program rows provide the comparison of graduate volume, employment, and alignment within the selected scope.`,
+      analysis: detailed,
+      summary: `${rows.length} programs; ${total} responses; ${employmentKnown} known employment classifications; ${employed} employed; ${Math.max(employmentKnown - employed, 0)} unemployed; ${aligned} aligned among ${alignmentKnown} valid alignment responses.`,
+      conclusion: `${leading.code || leading.name} contains the largest response sample (${analyticsCount(leading.total_graduates)}). Across all displayed programs, employment accounts for ${analyticsPercentage(employed, employmentKnown)} of known classifications; this pooled percentage and the raw program counts are descriptive and do not rank program quality.`,
     };
   }
 
@@ -651,20 +672,37 @@ const buildLocalDescriptiveAnalytics = (reportType: string, reportData: unknown)
       0,
     );
     const aligned = rows.reduce((sum, row) => sum + analyticsCount(row.aligned), 0);
+    const alignmentKnown = rows.reduce((sum, row) => sum + analyticsCount(row.alignment_total), 0);
     const leading = rows.reduce((highest, row) => (
-      analyticsCount(row.employed) > analyticsCount(highest.employed) ? row : highest
+      analyticsCount(row.total_graduates) > analyticsCount(highest.total_graduates) ? row : highest
     ));
+    const detailed = buildPdfInterpretations({
+      overview: null,
+      programPerformance: [],
+      yearlyTrend: rows,
+      employmentStatus: [],
+      salaryDistribution: [],
+    }).yearlyTrend;
 
     return {
-      analysis: `The yearly report covers ${rows.length} graduation ${rows.length === 1 ? 'year' : 'years'} and ${total} graduate responses. It records ${employed} employed and ${Math.max(employmentKnown - employed, 0)} not-employed graduates among classified employment responses.`,
-      summary: `Batch ${leading.year_graduated} has the highest displayed employed count at ${analyticsCount(leading.employed)}. The selected cohorts contain ${aligned} graduates classified as working in course-aligned jobs.`,
-      conclusion: `Employment accounts for ${analyticsPercentage(employed, employmentKnown)} of classified responses across the displayed cohorts. The year rows show how graduate responses, employment, and alignment are distributed within the selected batch filter.`,
+      analysis: detailed,
+      summary: `${rows.length} graduation ${rows.length === 1 ? 'year' : 'years'}; ${total} responses; ${employmentKnown} known employment classifications; ${employed} employed; ${aligned} aligned among ${alignmentKnown} valid alignment responses.`,
+      conclusion: `The largest response sample appears in ${leading.year_graduated} (${analyticsCount(leading.total_graduates)} responses). Across all displayed years, employment accounts for ${analyticsPercentage(employed, employmentKnown)} of known classifications; year-to-year counts remain descriptive because cohort response totals can differ.`,
     };
   }
 
   if (reportType === 'employment_status') {
     const payload = reportData && typeof reportData === 'object'
-      ? reportData as { statuses?: StatusData[] }
+      ? reportData as {
+          statuses?: StatusData[];
+          summary?: {
+            total_employed?: number;
+            local_count?: number;
+            abroad_count?: number;
+            location_unknown_count?: number;
+            unemployed_count?: number;
+          };
+        }
       : {};
     const rows = Array.isArray(payload.statuses) ? payload.statuses : [];
     if (rows.length === 0) return emptyLocalAnalytics();
@@ -674,14 +712,32 @@ const buildLocalDescriptiveAnalytics = (reportType: string, reportData: unknown)
     );
     const local = countFor('Employed (Local)');
     const abroad = countFor('Employed (Abroad)');
+    const locationUnknown = countFor('Employed (Location Unknown)');
+    const employmentUnknown = countFor('Employment Status Unknown');
     const unemployed = countFor('Unemployed');
-    const employed = local + abroad;
-    const total = employed + unemployed;
+    const employed = local + abroad + locationUnknown;
+    const employmentKnown = employed + unemployed;
+    const total = employmentKnown + employmentUnknown;
+    const detailed = buildPdfInterpretations({
+      overview: {
+        total_graduates: total,
+        total_employed: employed,
+        total_unemployed: unemployed,
+        total_employment_known: employmentKnown,
+        total_employment_unknown: employmentUnknown,
+        total_employed_local: local,
+        total_employed_abroad: abroad,
+      },
+      programPerformance: [],
+      yearlyTrend: [],
+      employmentStatus: rows,
+      salaryDistribution: [],
+    }).employmentStatus;
 
     return {
-      analysis: `The employment-status distribution contains ${total} classified responses: ${local} locally employed, ${abroad} employed abroad, and ${unemployed} unemployed.`,
-      summary: `The combined employed count is ${employed}, representing ${analyticsPercentage(employed, total)} of the classified responses. Local employment represents ${analyticsPercentage(local, total)}, while abroad employment represents ${analyticsPercentage(abroad, total)}.`,
-      conclusion: `Unemployment accounts for ${analyticsPercentage(unemployed, total)} of the displayed employment-status distribution. The local and abroad counts together describe the employed portion of the selected graduate responses.`,
+      analysis: detailed,
+      summary: `${employmentKnown} known employment responses; ${employed} employed; ${unemployed} unemployed; ${local} local; ${abroad} abroad${locationUnknown > 0 ? `; ${locationUnknown} employed with unknown location` : ''}.`,
+      conclusion: `Employment accounts for ${analyticsPercentage(employed, employmentKnown)} of known employment responses. Among employed respondents, local work represents ${analyticsPercentage(local, employed)} and overseas work represents ${analyticsPercentage(abroad, employed)}; these denominators differ from the unemployment denominator.`,
     };
   }
 
@@ -696,11 +752,18 @@ const buildLocalDescriptiveAnalytics = (reportType: string, reportData: unknown)
     const leading = rows.reduce((highest, row) => (
       analyticsCount(row.count) > analyticsCount(highest.count) ? row : highest
     ));
+    const detailed = buildPdfInterpretations({
+      overview: null,
+      programPerformance: [],
+      yearlyTrend: [],
+      employmentStatus: [],
+      salaryDistribution: rows,
+    }).salaryDistribution;
 
     return {
-      analysis: `The salary distribution contains ${total} classified responses across ${rows.length} salary brackets.`,
-      summary: `${leading.salary_range} is the largest displayed salary bracket with ${analyticsCount(leading.count)} graduates, representing ${analyticsPercentage(analyticsCount(leading.count), total)} of classified salary responses.`,
-      conclusion: 'The displayed counts describe the concentration of reported salary ranges for the current filters. The result is based on grouped salary categories rather than individual salary values.',
+      analysis: detailed,
+      summary: `${total} valid salary responses across ${rows.length} grouped ranges. ${normalizeSalaryLabel(leading.salary_range)} has ${analyticsCount(leading.count)} responses (${analyticsPercentage(analyticsCount(leading.count), total)} of valid salary responses).`,
+      conclusion: 'The salary distribution describes grouped valid responses only. Missing salary answers are not treated as zero, and the grouped ranges are not converted into an exact average salary.',
     };
   }
 
@@ -743,7 +806,10 @@ export default function Reports() {
   const [aiAnalysis, setAiAnalysis] = useState<string>('');
   const [aiSummary, setAiSummary] = useState<string>('');
   const [aiConclusion, setAiConclusion] = useState<string>('');
+  const [aiSections, setAiSections] = useState<AiAnalyticsCacheEntry['sections']>();
+  const [aiSource, setAiSource] = useState<'groq' | 'fallback'>('fallback');
   const [aiLoading, setAiLoading] = useState(true);
+  const [pdfExporting, setPdfExporting] = useState(false);
   const [surveyItems, setSurveyItems] = useState<SurveySummary[]>([]);
   const [surveyItemsLoaded, setSurveyItemsLoaded] = useState(false);
   const [surveyLoading, setSurveyLoading] = useState(false);
@@ -765,6 +831,7 @@ export default function Reports() {
   const reportCacheRef = useRef<Record<string, unknown>>({});
   const aiCacheRef = useRef<Record<string, AiAnalyticsCacheEntry>>({});
   const aiRequestCacheRef = useRef<Record<string, Promise<AiAnalyticsCacheEntry>>>({});
+  const pdfInterpretationCacheRef = useRef<Record<string, PdfInterpretations>>({});
   const surveyAnalyticsCacheRef = useRef<Record<string, SurveyAnalyticsData>>({});
   const activeReportLoadKeyRef = useRef<string | null>(null);
   const surveyAnalyticsRequestKeyRef = useRef<string | null>(null);
@@ -822,12 +889,12 @@ export default function Reports() {
     getReportCacheKey('overview_bundle', 'all', 'all', filters)
   );
 
-  const getAiCacheKey = (reportType: string, year: string, department: string) => {
+  const getAiCacheKey = (reportType: string, year: string, department: string, reportData: unknown) => {
     const reportYear = reportType === 'overview' && !isDean ? 'all' : year;
     const reportDepartment = isDean
       ? reportScope?.department_code || 'dean_scope'
       : reportType === 'overview' ? 'all' : department;
-    return ['ai-v3', getReportCacheKey(reportType, reportYear, reportDepartment, overviewFilters)].join('|');
+    return ['ai-v4', getReportCacheKey(reportType, reportYear, reportDepartment, overviewFilters), analyticsFingerprint(reportData)].join('|');
   };
 
   const getSurveyAnalyticsCacheKey = (surveyId: number, surveyDepartment: string, year: string) => (
@@ -893,7 +960,58 @@ export default function Reports() {
     return activeSurvey ? Number(activeSurvey.id) : null;
   };
 
-  const fetchReport = (type: string, year: string = 'all', department: string = selectedDepartment) => {
+  const buildAiPayload = (reportType: string, data: unknown) => {
+    if (reportType === 'overview' && data && typeof data === 'object') {
+      return {
+        overview: data,
+        by_program: overviewProgramData,
+        by_batch_trends: overviewBatchTrends,
+        scope: reportScope?.display_name || '',
+        selected_batch: selectedYear === 'all' ? 'All Batches' : selectedYear,
+      };
+    }
+
+    if (reportType === 'employment_status' && Array.isArray(data)) {
+      const localCount = Number((data as StatusData[]).find((status) => status.employment_status === 'Employed (Local)')?.count ?? 0);
+      const abroadCount = Number((data as StatusData[]).find((status) => status.employment_status === 'Employed (Abroad)')?.count ?? 0);
+      const locationUnknownCount = Number((data as StatusData[]).find((status) => status.employment_status === 'Employed (Location Unknown)')?.count ?? 0);
+      const unemployedCount = Number((data as StatusData[]).find((status) => status.employment_status === 'Unemployed')?.count ?? 0);
+      const totalEmployed = localCount + abroadCount + locationUnknownCount;
+
+      return {
+        statuses: data,
+        summary: {
+          total_employed: totalEmployed,
+          local_count: localCount,
+          abroad_count: abroadCount,
+          location_unknown_count: locationUnknownCount,
+          unemployed_count: unemployedCount,
+          local_share_percent: totalEmployed > 0 ? Number(((localCount / totalEmployed) * 100).toFixed(1)) : null,
+          abroad_share_percent: totalEmployed > 0 ? Number(((abroadCount / totalEmployed) * 100).toFixed(1)) : null,
+        },
+      };
+    }
+
+    if (reportType === 'salary_distribution' && Array.isArray(data)) {
+      const totalClassified = (data as SalaryData[]).reduce((sum, item) => sum + Number(item.count ?? 0), 0);
+      return {
+        salary_buckets: data,
+        summary: {
+          total_classified: totalClassified,
+          total_filtered_responses: overview?.total_graduates ?? null,
+        },
+      };
+    }
+
+    return data;
+  };
+
+  const fetchReport = (
+    type: string,
+    year: string = 'all',
+    department: string = selectedDepartment,
+    forceRefresh = false,
+  ) => {
     if (!surveyItemsLoaded) {
       setLoading(true);
       return;
@@ -902,56 +1020,11 @@ export default function Reports() {
     const reportYear = type === 'overview' ? 'all' : year;
     const reportDepartment = type === 'overview' ? 'all' : department;
 
-    const buildAiPayload = (reportType: string, data: unknown) => {
-      if (reportType === 'overview' && data && typeof data === 'object') {
-        return {
-          overview: data,
-          by_program: overviewProgramData,
-          visible_cards: [
-            'Total Graduate Responses',
-            'Employed (Total)',
-            'Employed (Local)',
-            'Employed (Abroad)',
-            'Aligned',
-          ],
-        };
-      }
-
-      if (reportType === 'employment_status' && Array.isArray(data)) {
-        const localCount = Number((data as StatusData[]).find((s) => s.employment_status === 'Employed (Local)')?.count ?? 0);
-        const abroadCount = Number((data as StatusData[]).find((s) => s.employment_status === 'Employed (Abroad)')?.count ?? 0);
-        const unemployedCount = Number((data as StatusData[]).find((s) => s.employment_status === 'Unemployed')?.count ?? 0);
-        const totalEmployed = localCount + abroadCount;
-
-        return {
-          statuses: data,
-          summary: {
-            total_employed: totalEmployed,
-            local_count: localCount,
-            abroad_count: abroadCount,
-            unemployed_count: unemployedCount,
-            local_vs_abroad_ratio: `${localCount}:${abroadCount}`,
-            local_share_percent: totalEmployed > 0 ? Math.round((localCount / totalEmployed) * 100) : 0,
-            abroad_share_percent: totalEmployed > 0 ? Math.round((abroadCount / totalEmployed) * 100) : 0,
-          },
-        };
-      }
-
-      if (reportType === 'salary_distribution' && Array.isArray(data)) {
-        const totalClassified = (data as SalaryData[]).reduce((sum, item) => sum + Number(item.count ?? 0), 0);
-        return {
-          salary_buckets: data,
-          summary: {
-            total_classified: totalClassified,
-          },
-        };
-      }
-
-      return data;
-    };
-
     const activeFilters = type === 'overview_filter_options' ? undefined : overviewFilters;
     const cacheKey = getReportCacheKey(type, reportYear, reportDepartment, activeFilters);
+    if (forceRefresh) {
+      delete reportCacheRef.current[cacheKey];
+    }
     const cachedData = reportCacheRef.current[cacheKey];
     activeReportLoadKeyRef.current = cacheKey;
     setReportError('');
@@ -991,6 +1064,7 @@ export default function Reports() {
       .catch(() => {
         if (requestId === reportRequestSeqRef.current && activeReportLoadKeyRef.current === cacheKey) {
           setReportError('Unable to load report data. Please try again.');
+          if (forceRefresh) setAiLoading(false);
         }
       })
       .finally(() => {
@@ -1379,7 +1453,10 @@ export default function Reports() {
     return data;
   };
 
-  const fetchOverviewReports = async (filters: OverviewFilters = overviewFilters) => {
+  const fetchOverviewReports = async (
+    filters: OverviewFilters = overviewFilters,
+    forceRefresh = false,
+  ) => {
     if (!surveyItemsLoaded) {
       setLoading(true);
       return;
@@ -1389,6 +1466,11 @@ export default function Reports() {
     const overviewProgramCacheKey = getReportCacheKey('by_program', 'all', 'all', filters);
     const overviewBatchTrendCacheKey = getReportCacheKey('by_batch_trends', 'all', 'all', filters);
     const overviewBundleCacheKey = getOverviewBundleCacheKey(filters);
+    if (forceRefresh) {
+      delete reportCacheRef.current[overviewCacheKey];
+      delete reportCacheRef.current[overviewProgramCacheKey];
+      delete reportCacheRef.current[overviewBatchTrendCacheKey];
+    }
     const cachedOverview = reportCacheRef.current[overviewCacheKey] as Overview | undefined;
     const cachedOverviewPrograms = reportCacheRef.current[overviewProgramCacheKey] as ProgramReport[] | undefined;
     const cachedOverviewBatchTrends = reportCacheRef.current[overviewBatchTrendCacheKey] as BatchTrendReport[] | undefined;
@@ -1460,6 +1542,7 @@ export default function Reports() {
       setOverviewProgramData([]);
       setOverviewBatchTrends([]);
       setOverviewFilterError(error instanceof Error ? error.message : 'Failed to load overview report.');
+      if (forceRefresh) setAiLoading(false);
     } finally {
       if (requestId === overviewRequestSeqRef.current && activeReportLoadKeyRef.current === overviewBundleCacheKey) {
         setLoading(false);
@@ -1667,12 +1750,15 @@ export default function Reports() {
     reportData: unknown,
     year: string = selectedYear,
     department: string = selectedDepartment,
+    force = false,
   ) => {
     if (!selectedSurveyId) {
       setAiLoading(false);
       setAiAnalysis('Select a survey to generate AI-powered analytics.');
       setAiSummary('');
       setAiConclusion('');
+      setAiSections(undefined);
+      setAiSource('fallback');
       return;
     }
 
@@ -1682,20 +1768,42 @@ export default function Reports() {
       ? reportScope?.department_code || 'dean_scope'
       : reportType === 'overview' ? 'all' : department;
     const requestId = ++aiRequestSeqRef.current;
-    const aiCacheKey = getAiCacheKey(reportType, reportYear, effectiveDepartment);
+    const aiCacheKey = getAiCacheKey(reportType, reportYear, effectiveDepartment, reportData);
     const cachedAi = aiCacheRef.current[aiCacheKey];
     const localAnalytics = buildLocalDescriptiveAnalytics(reportType, reportData);
+    const localOverviewSections = reportType === 'overview'
+      ? buildStructuredOverviewAnalysis(
+          (reportData as { overview?: Overview })?.overview ?? reportData as Overview,
+          (reportData as { by_program?: ProgramReport[] })?.by_program ?? [],
+        )
+      : null;
+    const localSections: AiAnalyticsCacheEntry['sections'] = localOverviewSections
+      ? {
+          employmentInterpretation: localOverviewSections.employmentInterpretation,
+          programAnalysis: localOverviewSections.programAnalysis,
+          alignmentAnalysis: localOverviewSections.alignmentAnalysis,
+          summary: localOverviewSections.summary,
+          dataNotes: localOverviewSections.dataNotes,
+        }
+      : undefined;
 
     const applyLocalAnalytics = () => {
       setAiAnalysis(localAnalytics.analysis);
       setAiSummary(localAnalytics.summary);
       setAiConclusion(localAnalytics.conclusion);
+      setAiSections(localSections);
+      setAiSource('fallback');
     };
 
-    if (cachedAi) {
+    if (force) {
+      delete aiCacheRef.current[aiCacheKey];
+      delete aiRequestCacheRef.current[aiCacheKey];
+    } else if (cachedAi) {
       setAiAnalysis(cachedAi.analysis);
       setAiSummary(cachedAi.summary);
       setAiConclusion(cachedAi.conclusion);
+      setAiSections(cachedAi.sections);
+      setAiSource(cachedAi.source ?? 'fallback');
       setAiLoading(false);
       return;
     }
@@ -1733,10 +1841,45 @@ export default function Reports() {
             throw new Error('The analytics response did not contain descriptive content.');
           }
 
+          if (result.data.ai_error || !result.data.ai_model) {
+            throw new Error('The AI provider response was unavailable or did not pass validation.');
+          }
+
+          const providerSections = result.data.ai_sections && typeof result.data.ai_sections === 'object'
+            ? result.data.ai_sections as Record<string, unknown>
+            : {};
+          const validSection = (value: unknown, fallback: string): string => {
+            if (typeof value !== 'string') return fallback;
+            const text = value.trim();
+            const wordCount = text.split(/\s+/).filter(Boolean).length;
+            if (wordCount < 20 || /\b(?:NaN|Infinity|undefined|null|statistically significant|caused?|proves?)\b/i.test(text)) {
+              return fallback;
+            }
+            return text;
+          };
+          const providerDataNotes = Array.isArray(providerSections.data_notes)
+            ? providerSections.data_notes.filter((note): note is string => typeof note === 'string' && note.trim() !== '')
+            : typeof providerSections.data_notes === 'string'
+              ? String(providerSections.data_notes).split(/\n+/).map((note) => note.trim()).filter(Boolean)
+              : localSections?.dataNotes ?? [];
+
           return {
             analysis: String(result.data.ai_analysis || ''),
             summary: String(result.data.ai_summary || ''),
             conclusion: String(result.data.ai_conclusion || ''),
+            sections: reportType === 'overview'
+              ? {
+                  employmentInterpretation: validSection(providerSections.employment_interpretation, localSections?.employmentInterpretation ?? ''),
+                  programAnalysis: validSection(providerSections.program_level_analysis, localSections?.programAnalysis ?? ''),
+                  alignmentAnalysis: validSection(providerSections.course_alignment_analysis, localSections?.alignmentAnalysis ?? ''),
+                  summary: validSection(providerSections.summary, localSections?.summary ?? localAnalytics.summary),
+                  dataNotes: providerDataNotes.length > 0 ? providerDataNotes : localSections?.dataNotes,
+                }
+              : {
+                  summary: validSection(providerSections.summary, localAnalytics.conclusion),
+                  dataNotes: providerDataNotes,
+                },
+            source: 'groq' as const,
           };
         });
       aiRequestCacheRef.current[aiCacheKey] = analyticsRequest;
@@ -1758,6 +1901,8 @@ export default function Reports() {
         setAiAnalysis(nextAi.analysis);
         setAiSummary(nextAi.summary);
         setAiConclusion(nextAi.conclusion);
+        setAiSections(nextAi.sections);
+        setAiSource(nextAi.source ?? 'fallback');
       })
       .catch((error) => {
         if (requestId !== aiRequestSeqRef.current) {
@@ -1771,6 +1916,26 @@ export default function Reports() {
           setAiLoading(false);
         }
       });
+  };
+
+  const handleRegenerateAiAnalytics = () => {
+    const reportType = tab === 'program'
+      ? 'by_program'
+      : tab === 'year'
+        ? 'by_year'
+        : tab === 'employment'
+          ? 'employment_status'
+          : tab === 'salary'
+            ? 'salary_distribution'
+            : 'overview';
+    aiCacheRef.current = {};
+    aiRequestCacheRef.current = {};
+    setAiLoading(true);
+    if (reportType === 'overview') {
+      void fetchOverviewReports(overviewFilters, true);
+      return;
+    }
+    fetchReport(reportType, selectedYear, selectedDepartment, true);
   };
 
   const getSelectedSurveyDepartmentLabel = () => getSurveyDepartmentOption(selectedSurveyDepartment).label;
@@ -2277,8 +2442,7 @@ export default function Reports() {
       Employed: item.employed,
       'Not Employed': getNotEmployedCount(item),
       Aligned: item.aligned,
-      'Partially Aligned': item.partially_aligned,
-      'Not Aligned (including partial)': item.not_aligned,
+      'Not Aligned': item.not_aligned,
       'Employment Rate (%)': item.employment_rate ?? 'No data',
       'Alignment Rate (%)': item.alignment_rate ?? 'No data',
     }));
@@ -2537,270 +2701,386 @@ export default function Reports() {
       await handleInferentialPdfExport();
       return;
     }
+    setPdfExporting(true);
+    try {
+      const pdf = new jsPDF('p', 'pt', 'a4');
+      const pageWidth = pdf.internal.pageSize.getWidth();
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      const marginLeft = 40;
+      const contentWidth = pageWidth - marginLeft * 2;
+      const contentBottom = pageHeight - 38;
+      const reportDepartment = tab === 'overview' ? 'all' : selectedDepartment;
+      const pdfOverviewFilters = overviewFilters;
+      const filterLabels = getOverviewFilterLabels();
+      const departmentLabel = isDean
+        ? getReportScopeLabel()
+        : reportDepartment === 'all' ? 'All Departments' : reportDepartment;
+      const batchLabel = tab === 'overview'
+        ? (isDean ? getBatchLabel() : filterLabels.graduationYear)
+        : getBatchLabel();
 
-    const pdf = new jsPDF('p', 'pt', 'a4');
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    const marginLeft = 40;
-    const reportDepartment = tab === 'overview' ? 'all' : selectedDepartment;
-    const pdfOverviewFilters = overviewFilters;
-    const pdfOverviewFilterLabels = tab === 'overview' ? getOverviewFilterLabels() : null;
-
-    const fetchReportData = async <T,>(
-      type: string,
-      year: string,
-    ): Promise<T | null> => {
-      try {
-        const exportYear = tab === 'overview' ? 'all' : year;
-        const response = await fetch(buildReportUrl(type, exportYear, reportDepartment, 'export_pdf', pdfOverviewFilters), {
-          credentials: 'include',
-        });
-        const result = await response.json();
-        return result.success ? (result.data as T) : null;
-      } catch {
-        return null;
-      }
-    };
-
-    const [overviewPdf, programPdf, yearPdf, statusPdf, salaryPdf] = await Promise.all([
-      fetchReportData<Overview>('overview', selectedYear),
-      fetchReportData<ProgramReport[]>('by_program', selectedYear),
-      fetchReportData<YearReport[]>('by_year', selectedYear),
-      fetchReportData<StatusData[]>('employment_status', selectedYear),
-      fetchReportData<SalaryData[]>('salary_distribution', selectedYear),
-    ]);
-
-    const overviewForPdf = overviewPdf ?? (tab === 'overview' ? overview : null);
-    const programForPdf = programPdf ?? (tab === 'overview' ? overviewProgramData : programData);
-    const yearForPdf = yearPdf ?? yearData;
-    const statusForPdf = statusPdf ?? statusData;
-    const salaryForPdf = salaryPdf ?? salaryData;
-
-    const sectionDescriptions = buildPdfSectionDescriptions(
-      overviewForPdf,
-      programForPdf,
-      yearForPdf,
-      statusForPdf,
-      salaryForPdf,
-      isDean ? getReportScopeLabel() : reportDepartment,
-      tab === 'overview' ? overviewFilters.graduationYear : selectedYear,
-    );
-
-    pdf.setFillColor(27, 42, 74);
-    pdf.rect(0, 0, pageWidth, 110, 'F');
-    pdf.setTextColor(255, 255, 255);
-    pdf.setFontSize(22);
-    pdf.text(isDean ? 'GradTrack Reports & Analytics' : 'Graduate Tracer Study Report', marginLeft, 52);
-    pdf.setFontSize(13);
-    pdf.text('Norzagaray College', marginLeft, 76);
-
-    pdf.setTextColor(30, 30, 30);
-    pdf.setFontSize(11);
-    pdf.text(`Generated: ${new Date().toLocaleString()}`, marginLeft, 144);
-    pdf.text(`${isDean ? 'Program Scope' : 'Department'}: ${isDean ? getReportScopeLabel() : reportDepartment === 'all' ? 'All Departments' : reportDepartment}`, marginLeft, 162);
-    pdf.text(`Batch: ${pdfOverviewFilterLabels ? (isDean ? getBatchLabel() : pdfOverviewFilterLabels.graduationYear) : getBatchLabel()}`, marginLeft, 180);
-    pdf.text(`Survey: ${selectedSurvey?.title || 'No survey selected'}`, marginLeft, 198);
-    let coverDescriptionY = 204;
-    if (pdfOverviewFilterLabels) {
-      pdf.text(`Employability Status: ${pdfOverviewFilterLabels.employmentStatus}`, marginLeft, 216);
-      pdf.text(`Program Alignment: ${pdfOverviewFilterLabels.programAlignment}`, marginLeft, 234);
-      if (!isDean) {
-        pdf.text(`Year Graduated: ${pdfOverviewFilterLabels.graduationYear}`, marginLeft, 252);
-        pdf.text(`Course: ${pdfOverviewFilterLabels.course}`, marginLeft, 270);
-      }
-      coverDescriptionY = isDean ? 264 : 298;
-    }
-    pdf.setFontSize(11);
-    const coverDescription = pdf.splitTextToSize(sectionDescriptions.cover, pageWidth - 80);
-    pdf.text(coverDescription, marginLeft, coverDescriptionY);
-
-    if (overviewForPdf) {
-      autoTable(pdf, {
-        startY: pdfOverviewFilterLabels ? (isDean ? 308 : 342) : 266,
-        head: [['Key Performance Indicator', 'Value']],
-        body: [
-          ['Total Graduates', overviewForPdf.total_graduates],
-          ['Total Employed', overviewForPdf.total_employed],
-          ['Employed (Local)', overviewForPdf.total_employed_local],
-          ['Employed (Abroad)', overviewForPdf.total_employed_abroad],
-          ['Total Aligned', overviewForPdf.total_aligned],
-          ['Employment Rate (%)', overviewForPdf.employment_rate ?? 'No data'],
-          ['Alignment Rate (%)', overviewForPdf.alignment_rate ?? 'No data'],
-        ],
-        styles: { fontSize: 10, cellPadding: 6 },
-        headStyles: { fillColor: [27, 42, 74] },
-      });
-    }
-
-    const splitAiText = (value: string) => value.trim().split(/\n+/).map((line) => line.trim()).filter(Boolean);
-    const aiAnalysisLines: string[] = [];
-    const aiSummaryLines: string[] = [];
-    const aiConclusionLines: string[] = [];
-    if (!isDean) {
-      try {
-        if (aiAnalysis.trim() || aiSummary.trim() || aiConclusion.trim()) {
-          aiAnalysisLines.push(...splitAiText(aiAnalysis));
-          aiSummaryLines.push(...splitAiText(aiSummary));
-          aiConclusionLines.push(...splitAiText(aiConclusion));
-        } else {
-          const aiResponse = await fetch(`${API_BASE}/reports/ai-analytics.php`, { credentials: 'include' });
-          const aiResult = await aiResponse.json();
-          if (aiResult.success && aiResult.data) {
-            aiAnalysisLines.push(...splitAiText(String(aiResult.data.ai_analysis || '')));
-            aiSummaryLines.push(...splitAiText(String(aiResult.data.ai_summary || '')));
-            aiConclusionLines.push(...splitAiText(String(aiResult.data.ai_conclusion || '')));
-          }
-        }
-      } catch {
-        // AI summary is optional in PDF.
-      }
-    }
-
-    if (aiAnalysisLines.length > 0 || aiSummaryLines.length > 0 || aiConclusionLines.length > 0) {
-      pdf.addPage();
-      pdf.setFontSize(16);
-      pdf.text('Descriptive Analytics', marginLeft, 48);
-      pdf.setFontSize(10);
-      const executiveDescription = pdf.splitTextToSize(sectionDescriptions.executive, pageWidth - 80);
-      pdf.text(executiveDescription, marginLeft, 70);
-
-      let contentY = 108;
-      const addAnalyticsBlock = (title: string, lines: string[]) => {
-        if (!lines.length) {
-          return;
-        }
-
-        if (contentY > pageHeight - 90) {
-          pdf.addPage();
-          contentY = 48;
-        }
-
-        pdf.setFontSize(12);
-        pdf.setTextColor(27, 42, 74);
-        pdf.text(title, marginLeft, contentY);
-        contentY += 16;
-
-        pdf.setFontSize(10);
-        pdf.setTextColor(30, 30, 30);
-        const wrapped = pdf.splitTextToSize(lines.join(' '), pageWidth - 80);
-        pdf.text(wrapped, marginLeft, contentY);
-        contentY += wrapped.length * 11 + 20;
-      };
-
-      addAnalyticsBlock('Descriptive Analysis', aiAnalysisLines);
-      addAnalyticsBlock('Summary', aiSummaryLines);
-      addAnalyticsBlock('Conclusion', aiConclusionLines);
-      pdf.setTextColor(30, 30, 30);
-    }
-
-    const addSection = async (
-      sectionTitle: string,
-      sectionTab: 'overview' | 'program' | 'year' | 'employment' | 'salary',
-    ) => {
-      const tableData = getPdfTableForTab(
-        sectionTab,
-        overviewForPdf,
-        programForPdf,
-        yearForPdf,
-        statusForPdf,
-        salaryForPdf,
-      );
-
-      if (!tableData.rows.length) {
-        return;
-      }
-
-      const chartConfig = getPdfChartConfig(
-        sectionTab,
-        overviewForPdf,
-        programForPdf,
-        yearForPdf,
-        statusForPdf,
-        salaryForPdf,
-      );
-
-      const sectionDescriptionText = sectionTab === 'overview'
-        ? sectionDescriptions.overview
-        : sectionTab === 'program'
-        ? sectionDescriptions.program
-        : sectionTab === 'year'
-        ? sectionDescriptions.year
-        : sectionTab === 'employment'
-        ? sectionDescriptions.employment
-        : sectionDescriptions.salary;
-
-      const drawSectionHeader = () => {
-        pdf.setFontSize(15);
-        pdf.setTextColor(30, 30, 30);
-        pdf.text(sectionTitle, marginLeft, 42);
-        pdf.setFontSize(9);
-        pdf.text(
-          `${isDean ? 'Program Scope' : 'Department'}: ${isDean ? getReportScopeLabel() : reportDepartment === 'all' ? 'All Departments' : reportDepartment} | Batch: ${getBatchLabel()}`,
-          marginLeft,
-          58,
-        );
-        pdf.setFontSize(10);
-        pdf.setTextColor(27, 42, 74);
-        pdf.text('Descriptive Summary', marginLeft, 76);
-        pdf.setTextColor(35, 35, 35);
-        const wrappedDescription = pdf.splitTextToSize(sectionDescriptionText, pageWidth - 80);
-        pdf.text(wrappedDescription, marginLeft, 92);
-      };
-
-      pdf.addPage();
-      drawSectionHeader();
-
-      let tableStartY = 138;
-
-      if (chartConfig) {
-        const chartUrl = `https://quickchart.io/chart?width=1000&height=380&format=png&c=${encodeURIComponent(JSON.stringify(chartConfig))}`;
+      const fetchReportData = async <T,>(type: string, year: string): Promise<T | null> => {
         try {
-          const response = await fetch(chartUrl);
-          if (response.ok) {
-            const imageBuffer = await response.arrayBuffer();
-            const imageBase64 = `data:image/png;base64,${arrayBufferToBase64(imageBuffer)}`;
-            pdf.addImage(imageBase64, 'PNG', marginLeft, 128, pageWidth - 80, 220);
-            tableStartY = 366;
+          const exportYear = tab === 'overview' ? 'all' : year;
+          const response = await fetch(buildReportUrl(type, exportYear, reportDepartment, 'export_pdf', pdfOverviewFilters), {
+            credentials: 'include',
+          });
+          const result = await response.json();
+          return result.success ? (result.data as T) : null;
+        } catch {
+          return null;
+        }
+      };
+
+      const [overviewPdf, programPdf, yearPdf, statusPdf, salaryPdf] = await Promise.all([
+        fetchReportData<Overview>('overview', selectedYear),
+        fetchReportData<ProgramReport[]>('by_program', selectedYear),
+        fetchReportData<YearReport[]>('by_year', selectedYear),
+        fetchReportData<StatusData[]>('employment_status', selectedYear),
+        fetchReportData<SalaryData[]>('salary_distribution', selectedYear),
+      ]);
+
+      const overviewForPdf = overviewPdf ?? (tab === 'overview' ? overview : null);
+      const programForPdf = programPdf ?? (tab === 'overview' ? overviewProgramData : programData);
+      const yearForPdf = yearPdf ?? yearData;
+      const statusForPdf = statusPdf ?? statusData;
+      const salaryForPdf = (salaryPdf ?? salaryData).map((row) => ({
+        ...row,
+        salary_range: normalizeSalaryLabel(row.salary_range),
+      }));
+      const snapshot: DescriptiveAnalyticsSnapshot = {
+        overview: overviewForPdf,
+        programPerformance: programForPdf,
+        yearlyTrend: yearForPdf,
+        employmentStatus: statusForPdf,
+        salaryDistribution: salaryForPdf,
+      };
+      const fallbackInterpretations = buildPdfInterpretations(snapshot);
+      const sectionNotes = buildPdfSectionNotes(snapshot);
+      const interpretationCacheKey = analyticsFingerprint({
+        surveyId: selectedSurveyId,
+        department: reportDepartment,
+        batch: batchLabel,
+        filters: pdfOverviewFilters,
+        snapshot,
+      });
+      let interpretations = pdfInterpretationCacheRef.current[interpretationCacheKey];
+
+      if (!interpretations) {
+        interpretations = fallbackInterpretations;
+        const params = new URLSearchParams({ type: 'formal_report' });
+        if (selectedSurveyId) params.set('survey_id', selectedSurveyId.toString());
+        if (batchLabel !== 'All Years' && batchLabel !== 'All Batches') params.set('year', batchLabel);
+        if (reportDepartment !== 'all') params.set('department', reportDepartment);
+        appendOverviewFilterParams(params, pdfOverviewFilters);
+        const controller = new AbortController();
+        const timeoutId = window.setTimeout(() => controller.abort(), 30000);
+        try {
+          const response = await fetch(`${API_BASE}/reports/ai-analytics.php?${params.toString()}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            signal: controller.signal,
+            body: JSON.stringify({
+              report_data: snapshot,
+              filters: {
+                department: departmentLabel,
+                batch: batchLabel,
+                survey: selectedSurvey?.title || 'No survey selected',
+                employmentStatus: filterLabels.employmentStatus,
+                programAlignment: filterLabels.programAlignment,
+                program: filterLabels.course,
+              },
+            }),
+          });
+          const result = await response.json().catch(() => null);
+          if (response.ok && result?.success && result.data?.ai_model && !result.data?.ai_error) {
+            interpretations = mergeValidatedPdfInterpretations(
+              result.data.pdf_interpretations,
+              fallbackInterpretations,
+              snapshot,
+            );
           }
         } catch {
-          tableStartY = 160;
+          interpretations = fallbackInterpretations;
+        } finally {
+          window.clearTimeout(timeoutId);
         }
+        pdfInterpretationCacheRef.current[interpretationCacheKey] = interpretations;
       }
 
-      autoTable(pdf, {
-        startY: tableStartY,
-        head: [tableData.headers],
-        body: tableData.rows,
-        styles: { fontSize: 8, cellPadding: 4 },
-        headStyles: { fillColor: [27, 42, 74] },
-        margin: { left: marginLeft, right: marginLeft, bottom: 24 },
-        didDrawPage: () => {
-          drawSectionHeader();
-        },
-      });
-    };
+      const wrapText = (text: string, maxWidth: number): string[] => {
+        const paragraphs = text.replace(/\r/g, '').split(/\n+/);
+        const lines: string[] = [];
+        paragraphs.forEach((paragraph, paragraphIndex) => {
+          const words = paragraph.trim().split(/\s+/).filter(Boolean);
+          let currentLine = '';
+          words.forEach((word) => {
+            const candidate = currentLine ? `${currentLine} ${word}` : word;
+            if (pdf.getTextWidth(candidate.replace(/₱/g, 'P')) <= maxWidth || currentLine === '') {
+              currentLine = candidate;
+            } else {
+              lines.push(currentLine);
+              currentLine = word;
+            }
+          });
+          if (currentLine) lines.push(currentLine);
+          if (paragraphIndex < paragraphs.length - 1) lines.push('');
+        });
+        return lines;
+      };
 
-    await addSection('Overview Analytics', 'overview');
-    await addSection('Program Performance', 'program');
-    await addSection('Yearly Employment Trend', 'year');
-    await addSection('Employment Status Analysis', 'employment');
-    await addSection('Salary Distribution Analysis', 'salary');
+      const drawPesoLine = (text: string, x: number, y: number) => {
+        let cursorX = x;
+        const parts = text.replace(/[–—]/g, '-').split('₱');
+        parts.forEach((part, index) => {
+          if (part) {
+            pdf.text(part, cursorX, y);
+            cursorX += pdf.getTextWidth(part);
+          }
+          if (index < parts.length - 1) {
+            const pesoWidth = pdf.getTextWidth('P');
+            pdf.text('P', cursorX, y);
+            pdf.setLineWidth(0.35);
+            pdf.line(cursorX, y - 4.4, cursorX + pesoWidth * 0.92, y - 4.4);
+            pdf.line(cursorX, y - 2.4, cursorX + pesoWidth * 0.92, y - 2.4);
+            cursorX += pesoWidth;
+          }
+        });
+      };
 
-    const pageCount = (pdf as jsPDF & { internal: { getNumberOfPages: () => number } }).internal.getNumberOfPages();
-    for (let page = 1; page <= pageCount; page += 1) {
-      pdf.setPage(page);
-      pdf.setFontSize(8);
-      pdf.setTextColor(110, 110, 110);
-      pdf.text(`Page ${page} of ${pageCount}`, pageWidth - 90, pageHeight - 16);
-      pdf.text('GradTrack - Confidential Department Report', marginLeft, pageHeight - 16);
+      const drawContinuationHeader = (title: string) => {
+        pdf.setFontSize(10);
+        pdf.setTextColor(27, 42, 74);
+        pdf.text(`${title} (continued)`, marginLeft, 34);
+        pdf.setDrawColor(220, 226, 235);
+        pdf.line(marginLeft, 42, pageWidth - marginLeft, 42);
+      };
+
+      const writePaginatedText = (text: string, startY: number, title: string, fontSize = 9.5) => {
+        pdf.setFontSize(fontSize);
+        pdf.setTextColor(45, 55, 70);
+        const lineHeight = fontSize + 3;
+        let y = startY;
+        wrapText(text, contentWidth).forEach((line) => {
+          if (line === '') {
+            y += 6;
+            return;
+          }
+          if (y + lineHeight > contentBottom) {
+            pdf.addPage();
+            drawContinuationHeader(title);
+            y = 62;
+          }
+          drawPesoLine(line, marginLeft, y);
+          y += lineHeight;
+        });
+        return y;
+      };
+
+      const coverSummary = buildStructuredOverviewAnalysis(overviewForPdf, programForPdf).summary;
+      pdf.setFillColor(27, 42, 74);
+      pdf.rect(0, 0, pageWidth, 110, 'F');
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFontSize(22);
+      pdf.text(isDean ? 'GradTrack Reports & Analytics' : 'Graduate Tracer Study Report', marginLeft, 52);
+      pdf.setFontSize(13);
+      pdf.text('Norzagaray College', marginLeft, 76);
+
+      pdf.setTextColor(30, 30, 30);
+      pdf.setFontSize(10);
+      const coverRows = [
+        `Generated: ${new Date().toLocaleString()}`,
+        `${isDean ? 'Program Scope' : 'Department'}: ${departmentLabel}`,
+        `Batch / Graduation Year: ${batchLabel}`,
+        `Survey: ${selectedSurvey?.title || 'No survey selected'}`,
+        `Employment Status: ${filterLabels.employmentStatus}`,
+        `Program Alignment: ${filterLabels.programAlignment}`,
+        `Course / Program: ${filterLabels.course}`,
+      ];
+      coverRows.forEach((row, index) => pdf.text(row, marginLeft, 142 + index * 17));
+      pdf.setFontSize(12);
+      pdf.setTextColor(27, 42, 74);
+      pdf.text('Descriptive Summary', marginLeft, 278);
+      let coverY = writePaginatedText(coverSummary, 296, 'Graduate Tracer Study Report', 10);
+
+      if (overviewForPdf) {
+        coverY += 10;
+        const coverCounts = [
+          ['Total Responses', overviewForPdf.total_graduates],
+          ['Known Employment Status', overviewForPdf.total_employment_known ?? safeCount(overviewForPdf.total_employed) + safeCount(overviewForPdf.total_unemployed)],
+          ['Employed', overviewForPdf.total_employed],
+          ['Unemployed', overviewForPdf.total_unemployed ?? 0],
+          ['Employment Rate', formatNullableRate(overviewForPdf.employment_rate)],
+          ['Valid Alignment Responses', overviewForPdf.total_alignment_known ?? 0],
+          ['Aligned', overviewForPdf.total_aligned],
+          ['Alignment Rate', formatNullableRate(overviewForPdf.alignment_rate)],
+        ];
+        if (coverY > contentBottom - 180) {
+          pdf.addPage();
+          drawContinuationHeader('Graduate Tracer Study Report');
+          coverY = 62;
+        }
+        autoTable(pdf, {
+          startY: coverY,
+          head: [['Key Performance Indicator', 'Value']],
+          body: coverCounts,
+          styles: { fontSize: 9, cellPadding: 5 },
+          headStyles: { fillColor: [27, 42, 74] },
+          margin: { left: marginLeft, right: marginLeft, bottom: 34 },
+        });
+      }
+
+      const sectionInterpretationKey: Record<'overview' | 'program' | 'year' | 'employment' | 'salary', keyof PdfInterpretations> = {
+        overview: 'overview',
+        program: 'programPerformance',
+        year: 'yearlyTrend',
+        employment: 'employmentStatus',
+        salary: 'salaryDistribution',
+      };
+
+      const addSection = async (
+        sectionTitle: string,
+        sectionTab: 'overview' | 'program' | 'year' | 'employment' | 'salary',
+      ) => {
+        const tableData = getPdfTableForTab(
+          sectionTab,
+          overviewForPdf,
+          programForPdf,
+          yearForPdf,
+          statusForPdf,
+          salaryForPdf,
+        );
+        if (!tableData.rows.length) return;
+
+        const interpretationKey = sectionInterpretationKey[sectionTab];
+        const chartConfig = getPdfChartConfig(
+          sectionTab,
+          overviewForPdf,
+          programForPdf,
+          yearForPdf,
+          statusForPdf,
+          salaryForPdf,
+        );
+        pdf.addPage();
+        pdf.setFontSize(15);
+        pdf.setTextColor(25, 35, 50);
+        pdf.text(sectionTitle, marginLeft, 36);
+        pdf.setFontSize(8.5);
+        pdf.setTextColor(75, 85, 100);
+        const sectionFilterRows = [
+          `${isDean ? 'Program Scope' : 'Department'}: ${departmentLabel} | Batch: ${batchLabel}`,
+          `Survey: ${selectedSurvey?.title || 'No survey selected'} | Employment: ${filterLabels.employmentStatus} | Alignment: ${filterLabels.programAlignment}`,
+          `Course / Program: ${filterLabels.course}`,
+        ];
+        sectionFilterRows.forEach((row, index) => pdf.text(row, marginLeft, 52 + index * 12));
+
+        let nextY = 92;
+        if (chartConfig) {
+          const chartUrl = `https://quickchart.io/chart?width=1000&height=380&format=png&devicePixelRatio=2&c=${encodeURIComponent(JSON.stringify(chartConfig))}`;
+          try {
+            const response = await fetch(chartUrl);
+            if (!response.ok) throw new Error('Chart image request failed');
+            const imageBuffer = await response.arrayBuffer();
+            const imageBase64 = `data:image/png;base64,${arrayBufferToBase64(imageBuffer)}`;
+            const chartHeight = contentWidth * (380 / 1000);
+            pdf.addImage(imageBase64, 'PNG', marginLeft, nextY, contentWidth, chartHeight);
+            nextY += chartHeight + 18;
+          } catch {
+            pdf.setDrawColor(205, 213, 224);
+            pdf.roundedRect(marginLeft, nextY, contentWidth, 68, 4, 4);
+            pdf.setFontSize(9);
+            pdf.setTextColor(100, 110, 125);
+            pdf.text('The chart image could not be loaded. The interpretation and complete data table remain available below.', marginLeft + 12, nextY + 36);
+            nextY += 84;
+          }
+        }
+
+        pdf.setFontSize(11);
+        pdf.setTextColor(27, 42, 74);
+        pdf.text('Descriptive Interpretation', marginLeft, nextY);
+        nextY = writePaginatedText(interpretations[interpretationKey], nextY + 16, sectionTitle);
+
+        if (nextY > contentBottom - 95) {
+          pdf.addPage();
+          drawContinuationHeader(sectionTitle);
+          nextY = 62;
+        } else {
+          nextY += 8;
+        }
+        pdf.setFontSize(10.5);
+        pdf.setTextColor(27, 42, 74);
+        pdf.text('Data Table', marginLeft, nextY);
+        nextY += 8;
+
+        autoTable(pdf, {
+          startY: nextY,
+          head: [tableData.headers],
+          body: tableData.rows,
+          styles: { fontSize: 7.5, cellPadding: 4, overflow: 'linebreak', valign: 'middle' },
+          headStyles: { fillColor: [27, 42, 74], fontSize: 7.5 },
+          alternateRowStyles: { fillColor: [247, 249, 252] },
+          margin: { top: 54, left: marginLeft, right: marginLeft, bottom: 34 },
+          didParseCell: (hookData) => {
+            if (sectionTab === 'salary' && hookData.section === 'body' && hookData.column.index === 0) {
+              hookData.cell.text = [''];
+            }
+          },
+          didDrawCell: (hookData) => {
+            if (sectionTab === 'salary' && hookData.section === 'body' && hookData.column.index === 0) {
+              const salaryLabel = normalizeSalaryLabel(salaryForPdf[hookData.row.index]?.salary_range ?? '');
+              pdf.setFontSize(7.5);
+              pdf.setTextColor(40, 50, 65);
+              drawPesoLine(salaryLabel, hookData.cell.x + 4, hookData.cell.y + hookData.cell.height / 2 + 2.5);
+            }
+          },
+          didDrawPage: (hookData) => {
+            if (hookData.pageNumber > 1) drawContinuationHeader(sectionTitle);
+          },
+        });
+
+        const tableEndY = (pdf as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? nextY;
+        const notes = sectionNotes[interpretationKey];
+        if (notes.length > 0) {
+          let notesY = tableEndY + 16;
+          if (notesY > contentBottom - 54) {
+            pdf.addPage();
+            drawContinuationHeader(sectionTitle);
+            notesY = 62;
+          }
+          pdf.setFontSize(10);
+          pdf.setTextColor(27, 42, 74);
+          pdf.text('Data Notes / Additional Observation', marginLeft, notesY);
+          writePaginatedText(notes.map((note) => `- ${note}`).join('\n'), notesY + 15, sectionTitle, 8.5);
+        }
+      };
+
+      await addSection('Overview Analytics', 'overview');
+      await addSection('Program Performance', 'program');
+      await addSection('Yearly Employment Trend', 'year');
+      await addSection('Employment Status Analysis', 'employment');
+      await addSection('Salary Distribution Analysis', 'salary');
+
+      const pageCount = (pdf as jsPDF & { internal: { getNumberOfPages: () => number } }).internal.getNumberOfPages();
+      for (let page = 1; page <= pageCount; page += 1) {
+        pdf.setPage(page);
+        pdf.setFillColor(255, 255, 255);
+        pdf.rect(0, pageHeight - 30, pageWidth, 30, 'F');
+        pdf.setFontSize(8);
+        pdf.setTextColor(105, 115, 130);
+        pdf.text(`Page ${page} of ${pageCount}`, pageWidth - 90, pageHeight - 16);
+        pdf.text('GradTrack - Confidential Department Report', marginLeft, pageHeight - 16);
+      }
+
+      const yearSuffix = batchLabel !== 'All Years' && batchLabel !== 'All Batches' ? `_${batchLabel}` : '_all_years';
+      const departmentSuffix = isDean
+        ? `_${toFileSafePart(reportScope?.department_code || 'dean_scope')}`
+        : reportDepartment !== 'all' ? `_${reportDepartment}` : '_all_departments';
+      const fileDate = new Date().toISOString().slice(0, 10);
+      pdf.save(`gradtrack_formal_report${departmentSuffix}${yearSuffix}_${fileDate}.pdf`);
+    } finally {
+      setPdfExporting(false);
     }
-
-    const yearSuffix = selectedYear !== 'all' ? `_${selectedYear}` : '_all_years';
-    const departmentSuffix = isDean
-      ? `_${toFileSafePart(reportScope?.department_code || 'dean_scope')}`
-      : reportDepartment !== 'all' ? `_${reportDepartment}` : '_all_departments';
-    const fileDate = new Date().toISOString().slice(0, 10);
-    pdf.save(`gradtrack_formal_report${departmentSuffix}${yearSuffix}_${fileDate}.pdf`);
   };
 
   const tabs = [
@@ -2814,49 +3094,117 @@ export default function Reports() {
   ] as const;
 
   const renderAiAnalyticsSection = () => {
+    const localStructured = buildStructuredOverviewAnalysis(overview, overviewProgramData);
+    const structured: StructuredDescriptiveAnalysis = {
+      ...localStructured,
+      employmentInterpretation: aiSections?.employmentInterpretation || localStructured.employmentInterpretation,
+      programAnalysis: aiSections?.programAnalysis || localStructured.programAnalysis,
+      alignmentAnalysis: aiSections?.alignmentAnalysis || localStructured.alignmentAnalysis,
+      summary: aiSections?.summary || localStructured.summary,
+      dataNotes: aiSections?.dataNotes?.length ? aiSections.dataNotes : localStructured.dataNotes,
+    };
+    const renderParagraphs = (content: string) => (
+      <div className="space-y-3 text-sm leading-6 text-slate-700">
+        {content
+          .split(/\n{2,}/)
+          .map((paragraph) => paragraph.trim())
+          .filter(Boolean)
+          .map((paragraph, index) => <p key={index}>{paragraph}</p>)}
+      </div>
+    );
+
     return (
-      <div className="rounded-xl border-2 border-purple-200 bg-gradient-to-br from-purple-50 via-blue-50 to-slate-50 p-6 shadow-lg dark:border-purple-400/30 dark:from-slate-950 dark:via-slate-900 dark:to-slate-800">
-      <div className="flex items-start gap-4">
-        <div className="p-3 bg-gradient-to-br from-purple-600 to-blue-600 rounded-lg shadow-md">
-          <Sparkles className="w-6 h-6 text-white" />
-        </div>
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-3">
-            <h3 className="text-lg font-bold text-[#1b2a4a]">AI-Powered Descriptive Analytics</h3>
-            <span className="px-2 py-0.5 bg-purple-100 text-purple-700 text-xs font-semibold rounded-full">Powered by AI</span>
+      <section aria-labelledby="ai-descriptive-heading" className="overflow-hidden rounded-xl border border-violet-200 bg-white shadow-sm">
+        <div className="border-b border-violet-100 bg-gradient-to-r from-violet-50 via-blue-50 to-white px-4 py-4 sm:px-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="shrink-0 rounded-lg bg-gradient-to-br from-violet-600 to-blue-600 p-2.5 shadow-sm">
+                <Sparkles className="h-5 w-5 text-white" aria-hidden="true" />
+              </div>
+              <div className="min-w-0">
+                <h3 id="ai-descriptive-heading" className="text-base font-bold text-[#1b2a4a] sm:text-lg">AI-Powered Descriptive Analytics</h3>
+                <p className="mt-0.5 text-xs font-medium text-slate-500">
+                  {aiSource === 'groq' ? 'Powered by GROQ AI' : 'Verified local analysis while GROQ AI is unavailable'}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleRegenerateAiAnalytics}
+              disabled={aiLoading || !selectedSurveyId}
+              className="inline-flex min-h-10 items-center justify-center gap-2 self-start rounded-lg border border-violet-200 bg-white px-3 py-2 text-xs font-semibold text-violet-700 transition-colors hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-60 sm:self-auto"
+              aria-label="Regenerate descriptive analytics"
+            >
+              <RefreshCw className={`h-4 w-4 ${aiLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
+              Regenerate analysis
+            </button>
           </div>
+        </div>
+
+        <div className="p-4 sm:p-6">
           {aiLoading ? (
-            <AiAnalyticsSkeleton />
+            <div role="status" aria-live="polite">
+              <p className="mb-3 text-sm font-semibold text-violet-800">Analyzing graduate tracer data...</p>
+              <AiAnalyticsSkeleton />
+            </div>
+          ) : tab === 'overview' ? (
+            <div className="space-y-6">
+              <section>
+                <h4 className="mb-3 text-sm font-bold text-[#1b2a4a]">Descriptive Analysis</h4>
+                {renderParagraphs(`${structured.employmentInterpretation}\n\n${structured.alignmentAnalysis}`)}
+              </section>
+
+              <section className="border-t border-slate-200 pt-5">
+                <h4 className="mb-3 text-sm font-bold text-[#1b2a4a]">Program-Level Analysis</h4>
+                {renderParagraphs(structured.programAnalysis)}
+              </section>
+
+              <section className="border-t border-slate-200 pt-5">
+                <h4 className="mb-3 text-sm font-bold text-[#1b2a4a]">Overall Summary</h4>
+                {renderParagraphs(structured.summary)}
+              </section>
+
+              {structured.dataNotes.length > 0 && (
+                <section className="border-t border-slate-200 pt-5">
+                  <h4 className="text-sm font-bold text-[#1b2a4a]">Data Notes</h4>
+                  <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6 text-slate-700">
+                    {structured.dataNotes.map((note) => <li key={note}>{note}</li>)}
+                  </ul>
+                </section>
+              )}
+            </div>
           ) : (
-            <div className="space-y-5 text-sm text-gray-700 leading-relaxed">
+            <div className="space-y-4">
               {[
                 {
                   title: 'Descriptive Analysis',
                   content: aiAnalysis || (aiSummary || aiConclusion ? '' : 'AI analysis temporarily unavailable.'),
                 },
-                { title: 'Summary', content: aiSummary },
-                { title: 'Conclusion', content: aiConclusion },
+                { title: 'Key Findings', content: aiSummary },
+                { title: 'Overall Summary', content: aiConclusion },
               ]
                 .filter((section) => section.content.trim() !== '')
-                .map((section, sectionIndex) => (
-                  <section key={section.title} className={sectionIndex > 0 ? 'border-t border-purple-100 pt-4 dark:border-purple-400/20' : ''}>
-                    <h4 className="mb-2 text-sm font-bold text-[#1b2a4a]">{section.title}</h4>
-                    <div className="space-y-3">
-                      {section.content
-                        .split(/\n{2,}/)
-                        .map((paragraph) => paragraph.trim())
-                        .filter(Boolean)
-                        .map((paragraph, idx) => (
-                          <p key={idx} className="text-justify">{paragraph}</p>
-                        ))}
-                    </div>
+                .map((section, index) => (
+                  <section key={section.title} className={index === 0 ? '' : 'border-t border-slate-200 pt-5'}>
+                    <h4 className="mb-3 text-sm font-bold text-[#1b2a4a]">{section.title}</h4>
+                    {renderParagraphs(section.content)}
                   </section>
                 ))}
+              {aiSections?.dataNotes && aiSections.dataNotes.length > 0 && (
+                <section className="border-t border-slate-200 pt-5">
+                  <h4 className="mb-3 text-sm font-bold text-[#1b2a4a]">Data Notes</h4>
+                  <ul className="list-disc space-y-2 pl-5 text-sm leading-6 text-slate-700">
+                    {aiSections.dataNotes.map((note) => <li key={note}>{note}</li>)}
+                  </ul>
+                </section>
+              )}
             </div>
           )}
+          <p className="mt-5 border-t border-slate-100 pt-4 text-xs text-slate-500">
+            AI-assisted interpretation is based only on the currently selected GradTrack data and remains descriptive, not inferential.
+          </p>
         </div>
-      </div>
-      </div>
+      </section>
     );
   };
 
@@ -2872,8 +3220,7 @@ export default function Reports() {
   const surveyReportGraphCount = buildSurveyReportCharts(visibleSurveyReportTables).length;
   const overviewUnemployed = overview?.total_unemployed
     ?? Math.max((overview?.total_employment_known ?? 0) - (overview?.total_employed ?? 0), 0);
-  const overviewNotAligned = overview?.total_not_aligned
-    ?? Math.max((overview?.total_alignment_known ?? 0) - (overview?.total_aligned ?? 0), 0);
+  const overviewNotAligned = safeCount(overview?.total_not_aligned);
   const overviewPrograms = overviewProgramData;
   const overviewActiveFilterChips = getOverviewActiveFilterChips();
   const overviewHasRecords = (overview?.total_graduates ?? 0) > 0;
@@ -2896,6 +3243,10 @@ export default function Reports() {
     ...year,
     not_employed: getNotEmployedCount(year),
   }));
+  const statusLocalCount = safeCount(statusData.find((status) => status.employment_status === 'Employed (Local)')?.count);
+  const statusAbroadCount = safeCount(statusData.find((status) => status.employment_status === 'Employed (Abroad)')?.count);
+  const statusLocationUnknownCount = safeCount(statusData.find((status) => status.employment_status === 'Employed (Location Unknown)')?.count);
+  const statusEmployedCount = statusLocalCount + statusAbroadCount + statusLocationUnknownCount;
   const departmentOptions = availableDepartments;
   const isSurveyExportDisabled = tab === 'surveys' && (
     surveyLoading || surveyAnalyticsLoading || !selectedSurveyId || !surveyAnalytics
@@ -2903,7 +3254,7 @@ export default function Reports() {
   const isInferentialExportDisabled = tab === 'inferential' && (
     inferentialMetadataLoading || inferentialAnalysisLoading || !inferentialResult
   );
-  const isExportDisabled = isSurveyExportDisabled || isInferentialExportDisabled;
+  const isExportDisabled = isSurveyExportDisabled || isInferentialExportDisabled || pdfExporting;
   const inferentialTestsGraduationYear = [inferentialSettings.variable1, inferentialSettings.variable2]
     .includes('graduation_year');
   const inferentialTestsProgram = [inferentialSettings.variable1, inferentialSettings.variable2]
@@ -3131,7 +3482,8 @@ export default function Reports() {
             disabled={isExportDisabled}
             className={exportButtonClass(isExportDisabled)}
           >
-            <FileText className="w-4 h-4" /> Export PDF
+            {pdfExporting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+            {pdfExporting ? 'Preparing PDF...' : 'Export PDF'}
           </button>
           <button
             onClick={handleExport}
@@ -3304,7 +3656,7 @@ export default function Reports() {
                           <OverviewChartEmptyState message="No job-alignment data for the selected filters." />
                         )}
                       </div>
-                      <div className="flex justify-center gap-4 mt-2">
+                      <div className="flex flex-wrap justify-center gap-4 mt-2">
                         <div className="flex items-center gap-2">
                           <div className="w-3 h-3 rounded-full bg-orange-500" />
                           <span className="text-xs text-gray-600">Aligned: {overview.total_aligned}</span>
@@ -3436,6 +3788,7 @@ export default function Reports() {
                   )}
 
                   {renderAiAnalyticsSection()}
+
                 </>
               ) : (
                 <div className="border rounded-xl p-8 text-center">
@@ -3619,18 +3972,13 @@ export default function Reports() {
                         <div className="flex justify-between items-center">
                           <span className="text-sm text-gray-600">Total Employed Locally</span>
                           <span className="text-2xl font-bold text-teal-900">
-                            {statusData.find(s => s.employment_status === 'Employed (Local)')?.count || 0}
+                            {statusLocalCount}
                           </span>
                         </div>
                         <div className="flex justify-between items-center pt-3 border-t">
                           <span className="text-sm text-gray-600">Percentage of Total Employed</span>
                           <span className="text-xl font-bold text-teal-700">
-                            {(() => {
-                              const localCount = statusData.find(s => s.employment_status === 'Employed (Local)')?.count || 0;
-                              const abroadCount = statusData.find(s => s.employment_status === 'Employed (Abroad)')?.count || 0;
-                              const totalEmployed = localCount + abroadCount;
-                              return totalEmployed > 0 ? Math.round((localCount / totalEmployed) * 100) : 0;
-                            })()}%
+                            {formatPercentage(statusLocalCount, statusEmployedCount)}
                           </span>
                         </div>
                         <div className="pt-3 border-t">
@@ -3638,12 +3986,7 @@ export default function Reports() {
                             <div 
                               className="h-full bg-teal-500 rounded-full transition-all duration-500" 
                               style={{ 
-                                width: `${(() => {
-                                  const localCount = statusData.find(s => s.employment_status === 'Employed (Local)')?.count || 0;
-                                  const abroadCount = statusData.find(s => s.employment_status === 'Employed (Abroad)')?.count || 0;
-                                  const totalEmployed = localCount + abroadCount;
-                                  return totalEmployed > 0 ? Math.round((localCount / totalEmployed) * 100) : 0;
-                                })()}%` 
+                                width: `${statusEmployedCount > 0 ? (statusLocalCount / statusEmployedCount) * 100 : 0}%`
                               }}
                             />
                           </div>
@@ -3666,18 +4009,13 @@ export default function Reports() {
                         <div className="flex justify-between items-center">
                           <span className="text-sm text-gray-600">Total Employed Abroad</span>
                           <span className="text-2xl font-bold text-indigo-900">
-                            {statusData.find(s => s.employment_status === 'Employed (Abroad)')?.count || 0}
+                            {statusAbroadCount}
                           </span>
                         </div>
                         <div className="flex justify-between items-center pt-3 border-t">
                           <span className="text-sm text-gray-600">Percentage of Total Employed</span>
                           <span className="text-xl font-bold text-indigo-700">
-                            {(() => {
-                              const localCount = statusData.find(s => s.employment_status === 'Employed (Local)')?.count || 0;
-                              const abroadCount = statusData.find(s => s.employment_status === 'Employed (Abroad)')?.count || 0;
-                              const totalEmployed = localCount + abroadCount;
-                              return totalEmployed > 0 ? Math.round((abroadCount / totalEmployed) * 100) : 0;
-                            })()}%
+                            {formatPercentage(statusAbroadCount, statusEmployedCount)}
                           </span>
                         </div>
                         <div className="pt-3 border-t">
@@ -3685,12 +4023,7 @@ export default function Reports() {
                             <div 
                               className="h-full bg-indigo-500 rounded-full transition-all duration-500" 
                               style={{ 
-                                width: `${(() => {
-                                  const localCount = statusData.find(s => s.employment_status === 'Employed (Local)')?.count || 0;
-                                  const abroadCount = statusData.find(s => s.employment_status === 'Employed (Abroad)')?.count || 0;
-                                  const totalEmployed = localCount + abroadCount;
-                                  return totalEmployed > 0 ? Math.round((abroadCount / totalEmployed) * 100) : 0;
-                                })()}%` 
+                                width: `${statusEmployedCount > 0 ? (statusAbroadCount / statusEmployedCount) * 100 : 0}%`
                               }}
                             />
                           </div>
@@ -4794,10 +5127,7 @@ function BatchTrendTooltip({ active, payload, mode }: {
 function DeanBatchTrendCharts({ data }: { data: BatchTrendReport[] }) {
   const chartData = data
     .filter((row) => Number.isFinite(Number(row.year_graduated)))
-    .map((row) => ({
-      ...row,
-      not_aligned: Number(row.not_aligned || 0) + Number(row.partially_aligned || 0),
-    }))
+    .map((row) => ({ ...row }))
     .slice()
     .sort((a, b) => Number(a.year_graduated) - Number(b.year_graduated));
   const employmentAxisMax = Math.max(
@@ -5677,46 +6007,62 @@ function getPdfTableForTab(
   salaryData: SalaryData[],
 ): { headers: string[]; rows: Array<Array<string | number>> } {
   if (tab === 'overview' && overview) {
+    const employmentKnown = safeCount(overview.total_employment_known)
+      || safeCount(overview.total_employed) + safeCount(overview.total_unemployed);
+    const unemployed = safeCount(overview.total_unemployed)
+      || Math.max(employmentKnown - safeCount(overview.total_employed), 0);
+    const alignmentKnown = safeCount(overview.total_aligned) + safeCount(overview.total_not_aligned);
     return {
       headers: ['Metric', 'Value'],
       rows: [
-        ['Total Graduates', overview.total_graduates],
+        ['Total Graduate Responses', overview.total_graduates],
+        ['Known Employment Responses', employmentKnown],
         ['Total Employed', overview.total_employed],
+        ['Total Unemployed', unemployed],
         ['Employed (Local)', overview.total_employed_local],
         ['Employed (Abroad)', overview.total_employed_abroad],
+        ['Valid Alignment Responses', alignmentKnown],
         ['Total Aligned', overview.total_aligned],
-        ['Survey Responses', overview.total_survey_responses],
-        ['Employment Rate (%)', overview.employment_rate ?? 'No data'],
-        ['Alignment Rate (%)', overview.alignment_rate ?? 'No data'],
+        ['Not Aligned', safeCount(overview.total_not_aligned)],
+        ['Employment Rate', formatNullableRate(overview.employment_rate)],
+        ['Alignment Rate', formatNullableRate(overview.alignment_rate)],
       ],
     };
   }
 
   if (tab === 'program') {
     return {
-      headers: ['Code', 'Program', 'Graduates', 'Employed', 'Not Employed', 'Aligned', 'Partially', 'Not Aligned (including partial)'],
+      headers: ['Code', 'Program', 'Responses', 'Known Employment', 'Employed', 'Unemployed', 'Employment Rate', 'Valid Alignment', 'Aligned', 'Not Aligned', 'Alignment Rate'],
       rows: programData.map((item) => [
         item.code,
         item.name,
         item.total_graduates,
+        item.employment_total ?? item.total_graduates,
         item.employed,
         getNotEmployedCount(item),
+        formatNullableRate(item.employment_rate),
+        safeCount(item.aligned) + safeCount(item.not_aligned),
         item.aligned,
-        item.partially_aligned,
         item.not_aligned,
+        formatNullableRate(item.alignment_rate),
       ]),
     };
   }
 
   if (tab === 'year') {
     return {
-      headers: ['Year', 'Graduates', 'Employed', 'Not Employed', 'Aligned'],
+      headers: ['Year', 'Responses', 'Known Employment', 'Employed', 'Unemployed', 'Employment Rate', 'Valid Alignment', 'Aligned', 'Not Aligned', 'Alignment Rate'],
       rows: yearData.map((item) => [
         item.year_graduated,
         item.total_graduates,
+        item.employment_total ?? item.total_graduates,
         item.employed,
         getNotEmployedCount(item),
+        formatNullableRate(item.employment_rate),
+        item.alignment_total ?? 0,
         item.aligned,
+        item.not_aligned ?? Math.max(safeCount(item.alignment_total) - safeCount(item.aligned), 0),
+        formatNullableRate(item.alignment_rate),
       ]),
     };
   }
@@ -5729,9 +6075,14 @@ function getPdfTableForTab(
   }
 
   if (tab === 'salary') {
+    const validSalaryResponses = salaryData.reduce((sum, item) => sum + safeCount(item.count), 0);
     return {
-      headers: ['Salary Range', 'Count'],
-      rows: salaryData.map((item) => [item.salary_range, item.count]),
+      headers: ['Salary Range', 'Count', 'Percentage of Valid Salary Responses'],
+      rows: salaryData.map((item) => [
+        normalizeSalaryLabel(item.salary_range),
+        item.count,
+        formatPercentage(item.count, validSalaryResponses),
+      ]),
     };
   }
 
@@ -5823,6 +6174,11 @@ function getPdfChartConfig(
             backgroundColor: '#f59e0b',
             data: yearData.map((item) => item.aligned),
           },
+          {
+            label: 'Not Aligned',
+            backgroundColor: '#8b5cf6',
+            data: yearData.map((item) => item.not_aligned ?? Math.max(safeCount(item.alignment_total) - safeCount(item.aligned), 0)),
+          },
         ],
       },
       options: { title: { display: true, text: 'Employment by Year' } },
@@ -5836,7 +6192,7 @@ function getPdfChartConfig(
         labels: statusData.map((item) => item.employment_status),
         datasets: [
           {
-            backgroundColor: ['#22c55e', '#3b82f6', '#ef4444', '#f59e0b'],
+            backgroundColor: ['#22c55e', '#3b82f6', '#ef4444', '#f59e0b', '#64748b'],
             data: statusData.map((item) => item.count),
           },
         ],
@@ -5849,7 +6205,7 @@ function getPdfChartConfig(
     return {
       type: 'bar',
       data: {
-        labels: salaryData.map((item) => item.salary_range),
+        labels: salaryData.map((item) => normalizeSalaryLabel(item.salary_range)),
         datasets: [
           {
             label: 'Count',
@@ -5863,60 +6219,4 @@ function getPdfChartConfig(
   }
 
   return null;
-}
-
-function buildPdfSectionDescriptions(
-  overview: Overview | null,
-  programData: ProgramReport[],
-  yearData: YearReport[],
-  statusData: StatusData[],
-  salaryData: SalaryData[],
-  selectedDepartment: string,
-  selectedYear: string,
-): Record<'cover' | 'executive' | 'overview' | 'program' | 'year' | 'employment' | 'salary', string> {
-  const departmentLabel = selectedDepartment === 'all' ? 'all departments' : `the ${selectedDepartment} department`;
-  const yearLabel = selectedYear === 'all' ? 'all graduation years' : `the ${selectedYear} graduation cohort`;
-
-  const topProgram = programData.reduce<ProgramReport | null>((best, current) => {
-    if (!best) {
-      return current;
-    }
-    return current.employed > best.employed ? current : best;
-  }, null);
-
-  const highestYear = yearData.reduce<YearReport | null>((best, current) => {
-    if (!best) {
-      return current;
-    }
-    return current.employed > best.employed ? current : best;
-  }, null);
-
-  const localCount = statusData.find((item) => item.employment_status === 'Employed (Local)')?.count ?? 0;
-  const abroadCount = statusData.find((item) => item.employment_status === 'Employed (Abroad)')?.count ?? 0;
-  const unemployedCount = statusData.find((item) => item.employment_status === 'Unemployed')?.count ?? 0;
-  const totalSalarySamples = salaryData.reduce((sum, item) => sum + item.count, 0);
-  const topSalaryRange = salaryData.reduce<SalaryData | null>((best, current) => {
-    if (!best) {
-      return current;
-    }
-    return current.count > best.count ? current : best;
-  }, null);
-
-  return {
-    cover: `This formal tracer report summarizes graduate outcomes for ${departmentLabel}, covering ${yearLabel}. It consolidates participation, employability, alignment, and salary indicators in one evidence set.`,
-    executive: `This page describes the observed counts and percentages from the selected analytics data. It focuses only on the visible totals, distributions, and category differences.`,
-    overview: overview
-      ? `The overview indicates ${overview.total_graduates} traced graduate responses with ${overview.total_employed} employed and ${overview.total_aligned} aligned to their field. This corresponds to an employment rate of ${formatNullableRate(overview.employment_rate)} and an alignment rate of ${formatNullableRate(overview.alignment_rate)}, using their respective valid-response denominators.`
-      : `The overview section provides a consolidated snapshot of traced graduates, employed graduates, and alignment outcomes for the selected department and year scope.`,
-    program: topProgram
-      ? `Program-level comparisons show the graduate totals, employed counts, and alignment counts within the selected scope. In this export, ${topProgram.code} records the highest employed count (${topProgram.employed}) among listed programs.`
-      : `Program-level comparisons in this section list each program by graduate total, employed count, and alignment count.`,
-    year: highestYear
-      ? `Yearly analysis lists graduate outcomes across time. The highest employed count in this scope appears in ${highestYear.year_graduated} with ${highestYear.employed} employed graduates.`
-      : `Yearly analysis lists employability and alignment counts across available graduation years.`,
-    employment: `Employment-status analysis shows ${localCount} locally employed graduates, ${abroadCount} employed abroad, and ${unemployedCount} unemployed. This distribution describes the local, abroad, and unemployed categories in the selected data.`,
-    salary: topSalaryRange
-      ? `Salary-distribution results indicate ${totalSalarySamples} recorded salary responses, with the largest concentration in '${topSalaryRange.salary_range}' (${topSalaryRange.count} graduates).`
-      : `Salary-distribution analysis summarizes compensation outcomes across reported income brackets.`,
-  };
 }

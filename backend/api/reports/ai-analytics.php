@@ -144,55 +144,14 @@ function getOverviewData(PDO $db, ?int $surveyId, array $analyticsOptions = []):
 
 function normalizeReportType(string $type): string
 {
-    $allowed = ['overview', 'by_program', 'by_year', 'employment_status', 'salary_distribution'];
+    $allowed = ['overview', 'by_program', 'by_year', 'employment_status', 'salary_distribution', 'formal_report'];
     return in_array($type, $allowed, true) ? $type : 'overview';
 }
 
 function normalizeDescriptiveAlignmentCategories(string $type, $reportData)
 {
-    if (!is_array($reportData)) {
-        return $reportData;
-    }
-
-    $removePartialCategory = static function (array $row, bool $notAlignedIsExplicit = false): array {
-        if ($notAlignedIsExplicit) {
-            $row['not_aligned'] = (int)($row['not_aligned'] ?? 0) + (int)($row['partially_aligned'] ?? 0);
-        }
-        unset(
-            $row['partially_aligned'],
-            $row['explicit_not_aligned'],
-            $row['total_partially_aligned'],
-            $row['total_explicit_not_aligned']
-        );
-        return $row;
-    };
-
-    if ($type === 'overview') {
-        if (isset($reportData['overview']) && is_array($reportData['overview'])) {
-            $reportData['overview'] = $removePartialCategory($reportData['overview']);
-        } else {
-            $reportData = $removePartialCategory($reportData);
-        }
-
-        if (isset($reportData['by_program']) && is_array($reportData['by_program'])) {
-            $reportData['by_program'] = array_map(static function ($row) use ($removePartialCategory) {
-                return is_array($row) ? $removePartialCategory($row) : $row;
-            }, $reportData['by_program']);
-        }
-        if (isset($reportData['by_batch_trends']) && is_array($reportData['by_batch_trends'])) {
-            $reportData['by_batch_trends'] = array_map(static function ($row) use ($removePartialCategory) {
-                return is_array($row) ? $removePartialCategory($row, true) : $row;
-            }, $reportData['by_batch_trends']);
-        }
-        return $reportData;
-    }
-
-    if ($type === 'by_program') {
-        return array_map(static function ($row) use ($removePartialCategory) {
-            return is_array($row) ? $removePartialCategory($row) : $row;
-        }, $reportData);
-    }
-
+    // Report analytics expose the same binary alignment contract used by the UI:
+    // aligned and not aligned.
     return $reportData;
 }
 
@@ -265,8 +224,9 @@ function buildProgramCountParts(array $programRows): array
         $notEmployed = max($employmentTotal - $employed, 0);
         $aligned = analyticsIntValue($row, 'aligned');
         $notAligned = analyticsIntValue($row, 'not_aligned');
+        $alignmentTotal = $aligned + $notAligned;
 
-        $parts[] = "{$label} - total {$total}, employed {$employed}, not employed {$notEmployed}, aligned {$aligned}, not aligned {$notAligned}";
+        $parts[] = "{$label} - total {$total}, employment classified {$employmentTotal}, employed {$employed}, unemployed {$notEmployed}, aligned {$aligned}, not aligned {$notAligned}, alignment classified {$alignmentTotal}";
     }
 
     return $parts;
@@ -284,9 +244,9 @@ function buildBatchTrendCountParts(array $batchRows): array
         $employmentTotal = analyticsIntValue($row, 'employment_total');
         $employed = analyticsIntValue($row, 'employed');
         $unemployed = analyticsIntValue($row, 'unemployed');
-        $alignmentTotal = analyticsIntValue($row, 'alignment_total');
         $aligned = analyticsIntValue($row, 'aligned');
         $notAligned = analyticsIntValue($row, 'not_aligned');
+        $alignmentTotal = $aligned + $notAligned;
         $parts[] = "batch {$year} - employment classified {$employmentTotal}, employed {$employed}, unemployed {$unemployed}, employment rate "
             . formatAnalyticsRate($row['employment_rate'] ?? null)
             . ", alignment classified {$alignmentTotal}, aligned {$aligned}, not aligned {$notAligned}, alignment rate "
@@ -319,7 +279,7 @@ function buildObservedDataSummary(string $type, $reportData): string
         $abroad = analyticsIntValue($overview, 'total_employed_abroad');
         $aligned = analyticsIntValue($overview, 'total_aligned');
         $notAligned = analyticsIntValue($overview, 'total_not_aligned');
-        $alignmentKnown = analyticsIntValue($overview, 'total_alignment_known');
+        $alignmentKnown = $aligned + $notAligned;
         $unknown = max($total - ($employmentKnown > 0 ? $employmentKnown : ($employed + $unemployed)), 0);
         $batchRows = isset($reportData['by_batch_trends']) && is_array($reportData['by_batch_trends'])
             ? $reportData['by_batch_trends']
@@ -369,10 +329,20 @@ function buildObservedDataSummary(string $type, $reportData): string
 
             $label = analyticsLabelValue($row, ['year_graduated'], 'Year ' . ((int)$index + 1));
             $total = analyticsIntValue($row, 'total_graduates');
+            $employmentTotal = array_key_exists('employment_total', $row)
+                ? analyticsIntValue($row, 'employment_total')
+                : $total;
             $employed = analyticsIntValue($row, 'employed');
-            $notEmployed = max($total - $employed, 0);
+            $notEmployed = array_key_exists('unemployed', $row)
+                ? analyticsIntValue($row, 'unemployed')
+                : max($employmentTotal - $employed, 0);
             $aligned = analyticsIntValue($row, 'aligned');
-            $parts[] = "{$label} - total {$total}, employed {$employed}, not employed {$notEmployed}, aligned {$aligned}";
+            $alignmentTotal = analyticsIntValue($row, 'alignment_total');
+            $notAligned = analyticsIntValue($row, 'not_aligned');
+            $parts[] = "{$label} - total {$total}, employment classified {$employmentTotal}, employed {$employed}, unemployed {$notEmployed}, employment rate "
+                . formatAnalyticsRate($row['employment_rate'] ?? null)
+                . ", alignment classified {$alignmentTotal}, aligned {$aligned}, not aligned {$notAligned}, alignment rate "
+                . formatAnalyticsRate($row['alignment_rate'] ?? null);
         }
 
         return $parts === []
@@ -814,21 +784,21 @@ function buildAnalyticsConclusion(string $type, $reportData): string
 function buildTypeSpecificPrompt(string $type, string $year, string $department, string $dataContext): string
 {
     $filterContext = "Filters applied - Year: {$year}, Department: {$department}.";
-    $descriptionRules = "Only analyze the data that is present. Include exact counts and percentages for the important metrics, categories, and rows in the provided data. Use only the binary job-alignment categories Aligned and Not Aligned; do not mention or create a partially aligned category. Do not give recommendations, suggestions, action items, interventions, advice, strategies, next steps, or improvement ideas. Do not predict future outcomes. Keep the wording observational, clear, and evidence-based.";
+    $descriptionRules = "Analyze only the supplied numerical data. Explain what the observed values show instead of repeating a list. Use counts and percentages where helpful and always identify the denominator. GradTrack reports use exactly two course-alignment categories: Aligned and Not Aligned. Never introduce another alignment category. Do not invent causes, perform inferential analysis, predict future outcomes, or call any difference statistically significant. Do not rank a program as better or worse from raw counts when sample sizes differ. Do not give recommendations or action plans. Use clear academic English suitable for undergraduate graduate-tracer research.";
 
     if ($type === 'by_program') {
-        $focus = 'Compare the listed programs using their exact totals, employed counts, not-employed counts, alignment counts, and visible differences between programs.';
+        $focus = 'Compare every listed program using response totals, known employment denominators, employed and unemployed counts, employment rates, valid alignment denominators, and alignment categories. Explain sample-size differences and concentrations without turning raw counts into performance rankings.';
     } elseif ($type === 'by_year') {
-        $focus = 'Compare the graduation years using their exact total, employed, not-employed, and aligned counts, and describe the pattern across cohorts.';
+        $focus = 'Describe every displayed graduation year, including response totals, employment counts and rates, alignment counts and rates, and visible increases or decreases. Note that cohort response totals may differ.';
     } elseif ($type === 'employment_status') {
-        $focus = 'Analyze the employment status distribution, including exact counts for local employed, abroad employed, unemployed, total employed, total classified, and the relative share of each category.';
+        $focus = 'Analyze local employment, overseas employment, unemployment, and any unknown classifications. Distinguish the employed denominator used for location shares from the known-employment denominator used for unemployment.';
     } elseif ($type === 'salary_distribution') {
-        $focus = 'Analyze every salary bracket and its exact count, including zero-count brackets, and describe where the responses are concentrated.';
+        $focus = 'Analyze every salary bracket, including zero-count brackets, percentages among valid salary responses, ties, concentrations, and the difference between all selected responses and valid salary responses. Never treat missing salary as zero or infer an exact average from grouped ranges.';
     } else {
-        $focus = 'Describe every visible overview element: report scope and batch selection when supplied; total responses; known and unknown employment status; employed and unemployed counts and rate; local and abroad counts and shares; aligned and not-aligned counts and rate; and every batch-trend row with its exact employment and binary alignment counts and rates. Compare batches when more than one row is supplied. Do not omit zero-count visible categories.';
+        $focus = 'Explain respondent coverage, known and unknown employment status, employment and unemployment, local and overseas work, program-level differences, course alignment, and any available yearly or salary pattern. State why applicable denominators can differ from total responses.';
     }
 
-    return "Generate a complete descriptive analytics write-up for this graduate outcomes dataset. {$filterContext} {$descriptionRules} {$focus} Return plain text only in exactly this section format: [DESCRIPTIVE_ANALYSIS] then 4 to 6 clear paragraphs, [SUMMARY] then 3 to 4 detailed analytical paragraphs, and [CONCLUSION] then 2 to 3 well-developed paragraphs that synthesize what the selected data indicates without giving advice. Do not use markdown, bullets, numbered lists, or JSON. Data: {$dataContext}";
+    return "Generate a research-oriented descriptive analytics write-up for this graduate outcomes dataset. {$filterContext} {$descriptionRules} {$focus} Return plain text using exactly these markers: [KEY_FINDINGS], [DESCRIPTIVE_ANALYSIS], [EMPLOYMENT_INTERPRETATION], [PROGRAM_LEVEL_ANALYSIS], [COURSE_ALIGNMENT_ANALYSIS], [SUMMARY], and [DATA_NOTES]. Keep each section distinct: descriptive analysis explains distributions, key findings contains only the most important numerical findings, summary synthesizes patterns without repeating paragraphs, and data notes explains missing or differing denominators. Use 2 to 4 readable paragraphs where the available data support them. Do not use markdown or numbered lists. Data: {$dataContext}";
 }
 
 function normalizeToParagraphs(string $text): string
@@ -881,24 +851,28 @@ function parseAiAnalyticsSections(string $text): ?array
     $candidate = preg_replace('/^```(?:json)?\s*/i', '', $candidate) ?? $candidate;
     $candidate = preg_replace('/\s*```$/', '', $candidate) ?? $candidate;
 
-    $markerSections = [
+    $sections = [
+        'key_findings' => '',
         'descriptive_analysis' => '',
+        'employment_interpretation' => '',
+        'program_level_analysis' => '',
+        'course_alignment_analysis' => '',
         'summary' => '',
-        'conclusion' => '',
+        'data_notes' => '',
     ];
+    foreach (array_keys($sections) as $key) {
+        $marker = strtoupper($key);
+        if (preg_match('/\[' . preg_quote($marker, '/') . '\]\s*(.*?)(?=\[[A-Z_]+\]|\z)/is', $candidate, $matches)) {
+            $sections[$key] = trim($matches[1]);
+        }
+    }
+    // Backward compatibility with a provider response using the previous conclusion marker.
+    if ($sections['data_notes'] === '' && preg_match('/\[CONCLUSION\]\s*(.*)$/is', $candidate, $matches)) {
+        $sections['data_notes'] = trim($matches[1]);
+    }
 
-    if (preg_match('/\[DESCRIPTIVE_ANALYSIS\]\s*(.*?)(?=\[SUMMARY\]|\z)/is', $candidate, $matches)) {
-        $markerSections['descriptive_analysis'] = trim($matches[1]);
-    }
-    if (preg_match('/\[SUMMARY\]\s*(.*?)(?=\[CONCLUSION\]|\z)/is', $candidate, $matches)) {
-        $markerSections['summary'] = trim($matches[1]);
-    }
-    if (preg_match('/\[CONCLUSION\]\s*(.*)$/is', $candidate, $matches)) {
-        $markerSections['conclusion'] = trim($matches[1]);
-    }
-
-    if (implode('', $markerSections) !== '') {
-        return $markerSections;
+    if (implode('', $sections) !== '') {
+        return $sections;
     }
 
     $decoded = json_decode($candidate, true);
@@ -912,27 +886,21 @@ function parseAiAnalyticsSections(string $text): ?array
     }
 
     if (is_array($decoded)) {
-        return [
-            'descriptive_analysis' => $decoded['descriptive_analysis'] ?? $decoded['analysis'] ?? $decoded['ai_analysis'] ?? '',
-            'summary' => $decoded['summary'] ?? $decoded['ai_summary'] ?? '',
-            'conclusion' => $decoded['conclusion'] ?? $decoded['ai_conclusion'] ?? '',
-        ];
+        $sections['key_findings'] = $decoded['key_findings'] ?? '';
+        $sections['descriptive_analysis'] = $decoded['descriptive_analysis'] ?? $decoded['analysis'] ?? $decoded['ai_analysis'] ?? '';
+        $sections['employment_interpretation'] = $decoded['employment_interpretation'] ?? '';
+        $sections['program_level_analysis'] = $decoded['program_level_analysis'] ?? $decoded['program_analysis'] ?? '';
+        $sections['course_alignment_analysis'] = $decoded['course_alignment_analysis'] ?? $decoded['alignment_analysis'] ?? '';
+        $sections['summary'] = $decoded['summary'] ?? $decoded['ai_summary'] ?? '';
+        $sections['data_notes'] = $decoded['data_notes'] ?? $decoded['conclusion'] ?? $decoded['ai_conclusion'] ?? '';
+        return $sections;
     }
 
-    $sections = [
-        'descriptive_analysis' => '',
-        'summary' => '',
-        'conclusion' => '',
-    ];
-
-    if (preg_match('/(?:^|\n)\s*(?:descriptive analysis|descriptive_analysis)\s*:?\s*(.*?)(?=\n\s*(?:summary)\s*:|\z)/is', $candidate, $matches)) {
-        $sections['descriptive_analysis'] = trim($matches[1]);
-    }
-    if (preg_match('/(?:^|\n)\s*summary\s*:?\s*(.*?)(?=\n\s*(?:conclusion)\s*:|\z)/is', $candidate, $matches)) {
-        $sections['summary'] = trim($matches[1]);
-    }
-    if (preg_match('/(?:^|\n)\s*conclusion\s*:?\s*(.*)$/is', $candidate, $matches)) {
-        $sections['conclusion'] = trim($matches[1]);
+    foreach (array_keys($sections) as $key) {
+        $label = str_replace('_', '[ _-]', preg_quote($key, '/'));
+        if (preg_match('/(?:^|\n)\s*' . $label . '\s*:?\s*(.*?)(?=\n\s*[A-Za-z _-]+\s*:|\z)/is', $candidate, $matches)) {
+            $sections[$key] = trim($matches[1]);
+        }
     }
 
     return implode('', $sections) === '' ? null : $sections;
@@ -945,7 +913,7 @@ function cleanAiSectionText($text, string $fallback): string
     }
 
     $cleaned = normalizeToParagraphs($text);
-    $cleaned = preg_replace('/^(descriptive analysis|descriptive_analysis|summary|conclusion)\s*:?\s*/i', '', $cleaned) ?? $cleaned;
+    $cleaned = preg_replace('/^(key findings|descriptive analysis|descriptive_analysis|employment interpretation|program level analysis|course alignment analysis|summary|data notes|conclusion)\s*:?\s*/i', '', $cleaned) ?? $cleaned;
     $cleaned = removeAdvisorySentences($cleaned);
 
     return $cleaned === '' ? $fallback : $cleaned;
@@ -954,6 +922,143 @@ function cleanAiSectionText($text, string $fallback): string
 function buildFallbackAnalysis(string $observedDataSummary, string $analyticsSummary): string
 {
     return $observedDataSummary . "\n\n" . $analyticsSummary;
+}
+
+function graduateTracerSystemPrompt(string $outputInstruction): string
+{
+    return 'You are a research data analyst specializing in graduate tracer studies and descriptive statistics. '
+        . 'Analyze only the numerical data supplied by GradTrack. Explain observed patterns clearly and academically without making unsupported assumptions. '
+        . 'Describe respondent coverage, employment status and rate, local and overseas employment, program-level differences, course alignment, yearly patterns, salary distribution, notable concentrations, and limitations when those data are available. '
+        . 'Use counts and percentages where helpful and always identify the correct denominator. Do not simply list values; explain what the values show. '
+        . 'Do not invent causes, claim causation, perform inferential analysis, predict future employment, or call a difference statistically significant unless a supplied inferential test established it. '
+        . 'Do not describe a program as better, worse, successful, or unsuccessful solely from raw counts, especially when sample sizes differ. '
+        . "Use evidence-based phrases such as 'the data show', 'within the selected responses', 'among the valid responses', and 'the observed distribution indicates'. "
+        . "Avoid phrases such as 'this proves', 'this caused', 'graduates prefer', and 'the program is more successful'. "
+        . 'Write clear academic English that undergraduate researchers can understand. '
+        . $outputInstruction;
+}
+
+function callGroqAnalytics(string $systemPrompt, string $userPrompt, int $maxTokens = 4200): array
+{
+    $apiKey = getenv('GROQ_API_KEY');
+    if (empty($apiKey)) {
+        return ['content' => null, 'model' => null, 'error' => 'GROQ_API_KEY not configured'];
+    }
+
+    $configuredModel = trim((string)getenv('GROQ_MODEL'));
+    $candidateModels = array_values(array_unique(array_filter([
+        $configuredModel !== '' ? $configuredModel : null,
+        'openai/gpt-oss-120b',
+        'qwen/qwen3.8-27b',
+        'openai/gpt-oss-20b',
+    ])));
+    $lastError = null;
+
+    foreach ($candidateModels as $model) {
+        $ch = curl_init('https://api.groq.com/openai/v1/chat/completions');
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Content-Type: application/json',
+            'Authorization: Bearer ' . $apiKey,
+        ]);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 8);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 28);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
+            'model' => $model,
+            'messages' => [
+                ['role' => 'system', 'content' => $systemPrompt],
+                ['role' => 'user', 'content' => $userPrompt],
+            ],
+            'temperature' => 0.15,
+            'max_tokens' => $maxTokens,
+        ]));
+
+        $response = curl_exec($ch);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+
+        if ($httpCode === 200 && is_string($response) && $response !== '') {
+            $decoded = json_decode($response, true);
+            $content = $decoded['choices'][0]['message']['content'] ?? null;
+            if (is_string($content) && trim($content) !== '') {
+                return ['content' => trim($content), 'model' => $model, 'error' => null];
+            }
+            $lastError = 'Groq AI returned an empty response.';
+        } else {
+            $lastError = $curlError !== ''
+                ? $curlError
+                : 'Groq AI request failed with HTTP status ' . $httpCode . '.';
+        }
+
+        // Try the next configured model when a model is unavailable, retired, or
+        // temporarily rate-limited. Authentication and request errors will not be
+        // fixed by changing models, so return those immediately.
+        if (!in_array($httpCode, [400, 404, 429], true)) {
+            break;
+        }
+    }
+
+    return ['content' => null, 'model' => null, 'error' => $lastError ?? 'Groq AI request failed.'];
+}
+
+function parseFormalReportInterpretations(string $content): ?array
+{
+    $candidate = trim($content);
+    $candidate = preg_replace('/^```(?:json)?\s*/i', '', $candidate) ?? $candidate;
+    $candidate = preg_replace('/\s*```$/', '', $candidate) ?? $candidate;
+    $decoded = json_decode($candidate, true);
+    if (!is_array($decoded)) {
+        $start = strpos($candidate, '{');
+        $end = strrpos($candidate, '}');
+        if ($start !== false && $end !== false && $end > $start) {
+            $decoded = json_decode(substr($candidate, $start, $end - $start + 1), true);
+        }
+    }
+    if (!is_array($decoded)) {
+        return null;
+    }
+
+    return [
+        'overview' => $decoded['overview'] ?? '',
+        'programPerformance' => $decoded['programPerformance'] ?? $decoded['program_performance'] ?? '',
+        'yearlyTrend' => $decoded['yearlyTrend'] ?? $decoded['yearly_trend'] ?? '',
+        'employmentStatus' => $decoded['employmentStatus'] ?? $decoded['employment_status'] ?? '',
+        'salaryDistribution' => $decoded['salaryDistribution'] ?? $decoded['salary_distribution'] ?? '',
+    ];
+}
+
+function validFormalReportInterpretation($value): bool
+{
+    if (!is_string($value) || trim($value) === '') {
+        return false;
+    }
+    $clean = trim($value);
+    $wordCount = count(preg_split('/\s+/', $clean) ?: []);
+    if ($wordCount < 35 || preg_match('/\b(?:NaN|Infinity|undefined|null)\b/i', $clean)) {
+        return false;
+    }
+    return preg_match('/\b(?:statistically significant|significant relationship|caused?|proves?|best program|worst program|more successful|less successful)\b/i', $clean) !== 1;
+}
+
+function buildFormalReportPrompt(array $reportData, array $filters): string
+{
+    $payload = json_encode([
+        'filters' => $filters,
+        'analytics' => $reportData,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    return 'Create five separate descriptive interpretations for a formal graduate tracer report. '
+        . 'Each interpretation must use only its matching dataset and the shared overview denominators. '
+        . 'For datasets with enough observations, target approximately 120 to 220 words in 2 to 4 short paragraphs; use a shorter explanation for very small or empty datasets. '
+        . 'Overview must cover total responses, known employment, employed, unemployed, local, abroad, valid alignment responses, aligned, not aligned, and denominator differences. GradTrack has exactly two alignment categories: Aligned and Not Aligned; do not introduce any other category. '
+        . 'Program performance must discuss every program, sample-size differences, employment rates, and alignment rates without ranking programs from raw counts. '
+        . 'Yearly trend must discuss every displayed year and visible count changes while noting different cohort sample sizes. '
+        . 'Employment status must distinguish local/abroad shares among employed respondents from unemployment among known employment responses. '
+        . 'Salary distribution must discuss every range, valid salary responses, percentages, ties, concentration, and missing salary responses without treating missing values as zero or estimating an exact mean. '
+        . 'Return valid JSON only, with exactly these string keys: overview, programPerformance, yearlyTrend, employmentStatus, salaryDistribution. '
+        . 'Do not include markdown, headings inside the strings, recommendations, causal claims, or inferential claims. Payload: ' . $payload;
 }
 
 try {
@@ -1024,6 +1129,41 @@ try {
 
     $reportData = normalizeDescriptiveAlignmentCategories($reportType, $reportData);
 
+    if ($reportType === 'formal_report') {
+        $filters = is_array($requestBody) && is_array($requestBody['filters'] ?? null)
+            ? $requestBody['filters']
+            : [];
+        $providerResult = callGroqAnalytics(
+            graduateTracerSystemPrompt('Return valid JSON only in the exact structure requested by the user prompt.'),
+            buildFormalReportPrompt(is_array($reportData) ? $reportData : [], $filters),
+            4600
+        );
+        $interpretations = is_string($providerResult['content'] ?? null)
+            ? parseFormalReportInterpretations((string)$providerResult['content'])
+            : null;
+        $valid = is_array($interpretations);
+        if ($valid) {
+            foreach ($interpretations as $interpretation) {
+                if (!validFormalReportInterpretation($interpretation)) {
+                    $valid = false;
+                    break;
+                }
+            }
+        }
+
+        echo json_encode([
+            'success' => true,
+            'data' => [
+                'report_type' => 'formal_report',
+                'ai_model' => $valid ? $providerResult['model'] : null,
+                'pdf_interpretations' => $valid ? $interpretations : [],
+                'ai_error' => $valid ? null : 'AI interpretation unavailable; use the verified local fallback.',
+            ],
+            'cached' => false,
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     $observedDataSummary = buildObservedDataSummary($reportType, $reportData);
     $analyticsSummary = buildAnalyticsSummary($reportType, $reportData);
     $analyticsConclusion = buildAnalyticsConclusion($reportType, $reportData);
@@ -1040,101 +1180,50 @@ try {
     ], JSON_UNESCAPED_UNICODE);
     
     $aiAnalysis = buildFallbackAnalysis($observedDataSummary, $analyticsSummary);
+    $aiKeyFindings = $analyticsSummary;
+    $aiOverallSummary = $analyticsConclusion;
     $aiError = null;
     $selectedModel = null;
-
-    // Get GROQ API key from environment. If AI is not available, keep the local fallback text.
-    $groqApiKey = getenv('GROQ_API_KEY');
-    if (empty($groqApiKey)) {
-        $aiError = 'GROQ_API_KEY not configured';
-    } else {
-        $prompt = buildTypeSpecificPrompt($reportType, $selectedYear, $selectedDepartment, (string)$dataContext);
-
-        $candidateModels = [
-            'llama-3.3-70b-versatile',
-            'llama-3.1-8b-instant',
-        ];
-
-        $response = null;
-        $httpCode = 0;
-
-        foreach ($candidateModels as $model) {
-            $ch = curl_init('https://api.groq.com/openai/v1/chat/completions');
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_POST, true);
-            curl_setopt($ch, CURLOPT_HTTPHEADER, [
-                'Content-Type: application/json',
-                'Authorization: Bearer ' . $groqApiKey
-            ]);
-            curl_setopt($ch, CURLOPT_TIMEOUT, 40);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
-                'model' => $model,
-                'messages' => [
-                    ['role' => 'system', 'content' => 'You are a descriptive data analyst for graduate employment outcomes. Analyze only what is visible in the supplied data, using exact counts and percentages. Do not provide recommendations, suggestions, action items, interventions, advice, strategies, next steps, or improvement ideas. Do not predict future results. Return plain text only with exactly these section markers: [DESCRIPTIVE_ANALYSIS], [SUMMARY], and [CONCLUSION]. Do not use markdown, bullets, numbered lists, or JSON.'],
-                    ['role' => 'user', 'content' => $prompt]
-                ],
-                'temperature' => 0.2,
-                'max_tokens' => 2600
-            ]));
-
-            $attemptResponse = curl_exec($ch);
-            $attemptCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            $curlError = curl_error($ch);
-            curl_close($ch);
-
-            $response = $attemptResponse;
-            $httpCode = (int)$attemptCode;
-            if ($httpCode === 200) {
-                $selectedModel = $model;
-                break;
-            }
-
-            $aiError = $curlError !== ''
-                ? $curlError
-                : 'Groq AI request failed (HTTP ' . (int)$httpCode . '). ' . (is_string($response) ? substr($response, 0, 240) : '');
-
-            // Retry with next Groq model when rate-limited.
-            if ($httpCode !== 429) {
-                break;
-            }
-        }
-
-        $aiContent = null;
-        if ($httpCode === 200 && is_string($response) && $response !== '') {
-            $result = json_decode($response, true);
-            $aiContent = $result['choices'][0]['message']['content'] ?? null;
-        }
-
-        if (is_string($aiContent) && trim($aiContent) !== '') {
-            if (preg_match('/partially[\s-]+aligned/i', $aiContent) === 1) {
-                // Keep the deterministic binary fallback if the model invents an
-                // alignment category that is not presented in these reports.
-                $aiError = 'AI response contained an unsupported alignment category.';
-            } else {
-                $aiSections = parseAiAnalyticsSections($aiContent);
-                if ($aiSections !== null) {
-                    $aiAnalysis = cleanAiSectionText(
-                        $aiSections['descriptive_analysis'] ?? '',
-                        $aiAnalysis
-                    );
-                    $analyticsSummary = cleanAiSectionText(
-                        $aiSections['summary'] ?? '',
-                        $analyticsSummary
-                    );
-                    $analyticsConclusion = cleanAiSectionText(
-                        $aiSections['conclusion'] ?? '',
-                        $analyticsConclusion
-                    );
-                } else {
-                    $cleanedAiContent = removeAdvisorySentences(normalizeToParagraphs($aiContent));
-                    if ($cleanedAiContent !== '') {
-                        $aiAnalysis = $observedDataSummary . "\n\n" . $cleanedAiContent;
-                    }
+    $aiSections = null;
+    $prompt = buildTypeSpecificPrompt($reportType, $selectedYear, $selectedDepartment, (string)$dataContext);
+    $providerResult = callGroqAnalytics(
+        graduateTracerSystemPrompt('Return plain text only with the exact section markers requested by the user prompt. Do not use markdown or JSON.'),
+        $prompt,
+        3200
+    );
+    $aiContent = $providerResult['content'] ?? null;
+    if (is_string($aiContent) && trim($aiContent) !== ''
+        && preg_match('/\b(?:statistically significant|significant relationship|caused?|proves?|best program|worst program|more successful|less successful)\b/i', $aiContent) !== 1) {
+        $parsedSections = parseAiAnalyticsSections($aiContent);
+        if ($parsedSections !== null) {
+            $requiredKeys = $reportType === 'overview'
+                ? ['descriptive_analysis', 'employment_interpretation', 'program_level_analysis', 'course_alignment_analysis', 'summary']
+                : ['descriptive_analysis', 'key_findings', 'summary'];
+            $hasRequiredSections = true;
+            foreach ($requiredKeys as $requiredKey) {
+                if (!is_string($parsedSections[$requiredKey] ?? null)
+                    || trim((string)$parsedSections[$requiredKey]) === '') {
+                    $hasRequiredSections = false;
+                    break;
                 }
             }
-        } elseif ($aiError === null) {
-            $aiError = 'Groq AI response was empty.';
+            if (!$hasRequiredSections) {
+                $aiError = 'GROQ AI output was incomplete; deterministic fallback used.';
+            } else {
+                $aiSections = [];
+                foreach ($parsedSections as $key => $value) {
+                    $aiSections[$key] = cleanAiSectionText($value, '');
+                }
+                $aiAnalysis = cleanAiSectionText($aiSections['descriptive_analysis'] ?? '', $aiAnalysis);
+                $aiKeyFindings = cleanAiSectionText($aiSections['key_findings'] ?? '', $aiKeyFindings);
+                $aiOverallSummary = cleanAiSectionText($aiSections['summary'] ?? '', $aiOverallSummary);
+                $selectedModel = $providerResult['model'] ?? null;
+            }
+        } else {
+            $aiError = 'GROQ AI output could not be validated; deterministic fallback used.';
         }
+    } else {
+        $aiError = 'GROQ AI unavailable or invalid; deterministic fallback used.';
     }
 
     $responseData = [
@@ -1144,9 +1233,13 @@ try {
         'selected_department' => $selectedDepartment,
         'ai_model' => $selectedModel,
         'ai_analysis' => $aiAnalysis,
-        'ai_summary' => $analyticsSummary,
-        'ai_conclusion' => $analyticsConclusion,
+        'ai_summary' => $aiKeyFindings,
+        'ai_conclusion' => $aiOverallSummary,
     ];
+
+    if (is_array($aiSections)) {
+        $responseData['ai_sections'] = $aiSections;
+    }
 
     if ($aiError !== null) {
         $responseData['ai_error'] = $aiError;
