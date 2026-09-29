@@ -86,7 +86,8 @@ function gradtrack_jobs_select_sql(): string
                        'GradTrack Personnel'
                    ) AS poster_full_name,
                    COALESCE(NULLIF(gp.program_course, ''), p.name) AS poster_program_name,
-                   p.code AS poster_program_code, gpi.file_path AS poster_profile_image_path
+                   p.code AS poster_program_code, gpi.file_path AS poster_profile_image_path,
+                   admin.role AS creator_role
             FROM job_posts jp
             LEFT JOIN graduate_accounts ga ON jp.posted_by_account_id = ga.id
             LEFT JOIN graduates g ON ga.graduate_id = g.id
@@ -476,7 +477,11 @@ try {
                 echo json_encode(['success' => false, 'error' => 'Job not found']);
                 exit;
             }
-            if ((($job['approval_status'] ?? 'approved') !== 'approved' || (int) ($job['is_active'] ?? 0) !== 1) && !$isOwner) {
+            $isExpired = !empty($job['application_deadline'])
+                && (string) $job['application_deadline'] < date('Y-m-d');
+            if ((($job['approval_status'] ?? 'approved') !== 'approved'
+                || (int) ($job['is_active'] ?? 0) !== 1
+                || $isExpired) && !$isOwner) {
                 http_response_code(404);
                 echo json_encode(['success' => false, 'error' => 'Job not found']);
                 exit;
@@ -508,6 +513,7 @@ try {
 
         if (!$mineOnly) {
             $sql .= " AND jp.approval_status = 'approved'";
+            $sql .= ' AND (jp.application_deadline IS NULL OR jp.application_deadline >= CURDATE())';
         }
 
         if ($mineOnly && $actor) {

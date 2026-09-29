@@ -64,10 +64,16 @@ function gradtrack_psgc_read_cached_collection(string $path): ?array
             return null;
         }
 
-        $items[] = [
+        $normalized = [
             'code' => trim((string) $item['code']),
             'name' => trim((string) $item['name']),
         ];
+        foreach (['type', 'region', 'province'] as $metadataKey) {
+            if (isset($item[$metadataKey]) && trim((string) $item[$metadataKey]) !== '') {
+                $normalized[$metadataKey] = trim((string) $item[$metadataKey]);
+            }
+        }
+        $items[] = $normalized;
     }
 
     return [
@@ -185,10 +191,16 @@ function gradtrack_psgc_fetch_collection(string $path): array
             continue;
         }
 
-        $locations[] = [
+        $normalized = [
             'code' => trim((string) $item['code']),
             'name' => trim((string) $item['name']),
         ];
+        foreach (['type', 'region', 'province'] as $metadataKey) {
+            if (isset($item[$metadataKey]) && trim((string) $item[$metadataKey]) !== '') {
+                $normalized[$metadataKey] = trim((string) $item[$metadataKey]);
+            }
+        }
+        $locations[] = $normalized;
     }
 
     $cache[$normalizedPath] = $locations;

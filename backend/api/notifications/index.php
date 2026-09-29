@@ -561,6 +561,46 @@ function gradtrack_notifications_add_graduate(PDO $db, array &$notifications, ar
         }
     }
 
+    if (gradtrack_forum_table_exists($db, 'forum_chat_messages')
+        && gradtrack_forum_column_exists($db, 'forum_chat_messages', 'reference_id')) {
+        try {
+            $sharedJobStmt = $db->prepare("SELECT message.id, message.room_id, message.created_at,
+                                                  sender.first_name, sender.last_name,
+                                                  job.title AS job_title
+                                           FROM forum_chat_messages message
+                                           JOIN forum_chat_members recipient
+                                             ON recipient.room_id = message.room_id
+                                            AND recipient.graduate_id = :recipient_graduate_id
+                                           JOIN graduates sender ON sender.id = message.graduate_id
+                                           LEFT JOIN job_posts job ON job.id = message.reference_id
+                                           WHERE message.message_type = 'job_share'
+                                             AND message.graduate_id <> :sender_graduate_id
+                                             AND message.deleted_at IS NULL
+                                             AND message.id > COALESCE(recipient.hidden_before_message_id, 0)
+                                           ORDER BY message.created_at DESC, message.id DESC
+                                           LIMIT 10");
+            $sharedJobStmt->execute([
+                ':recipient_graduate_id' => $graduateId,
+                ':sender_graduate_id' => $graduateId,
+            ]);
+            foreach ($sharedJobStmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+                $senderName = trim((string) ($row['first_name'] ?? '') . ' ' . (string) ($row['last_name'] ?? ''));
+                $jobTitle = trim((string) ($row['job_title'] ?? ''));
+                gradtrack_notifications_add(
+                    $notifications,
+                    'job-share:' . (int) $row['id'],
+                    'job_share',
+                    'Job Opportunity Shared',
+                    ($senderName !== '' ? $senderName : 'A graduate') . ' shared a job opportunity with you.'
+                        . ($jobTitle !== '' ? ' "' . $jobTitle . '"' : ''),
+                    $row['created_at'],
+                    '/graduate/portal?tab=messages&room_id=' . (int) $row['room_id'] . '&message_id=' . (int) $row['id']
+                );
+            }
+        } catch (Throwable $ignored) {
+        }
+    }
+
     $jobStmt = $db->prepare("SELECT id, title, company, approval_status, approval_reviewed_at, updated_at, created_at
                             FROM job_posts
                             WHERE posted_by_account_id = :account_id
@@ -586,6 +626,7 @@ function gradtrack_notifications_add_graduate(PDO $db, array &$notifications, ar
                                         WHERE approval_status = 'approved'
                                           AND COALESCE(is_active, 1) = 1
                                           AND archived_at IS NULL
+                                          AND (application_deadline IS NULL OR application_deadline >= CURDATE())
                                           AND (posted_by_account_id IS NULL OR posted_by_account_id <> :account_id)
                                         ORDER BY COALESCE(approval_reviewed_at, created_at) DESC, id DESC
                                         LIMIT 10");

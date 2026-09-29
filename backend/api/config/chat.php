@@ -179,8 +179,9 @@ if (!function_exists('gradtrack_chat_ensure_schema')) {
         }
 
         $messageColumns = [
-            'message_type' => "ALTER TABLE forum_chat_messages ADD message_type ENUM('text', 'image', 'file', 'mixed', 'system') NOT NULL DEFAULT 'text' AFTER message",
-            'client_message_id' => "ALTER TABLE forum_chat_messages ADD client_message_id VARCHAR(80) NULL AFTER message_type",
+            'message_type' => "ALTER TABLE forum_chat_messages ADD message_type ENUM('text', 'image', 'file', 'mixed', 'system', 'job_share') NOT NULL DEFAULT 'text' AFTER message",
+            'reference_id' => "ALTER TABLE forum_chat_messages ADD reference_id INT NULL AFTER message_type",
+            'client_message_id' => "ALTER TABLE forum_chat_messages ADD client_message_id VARCHAR(80) NULL AFTER reference_id",
             'delivered_at' => "ALTER TABLE forum_chat_messages ADD delivered_at DATETIME NULL AFTER client_message_id",
             'read_at' => "ALTER TABLE forum_chat_messages ADD read_at DATETIME NULL AFTER delivered_at",
             'updated_at' => "ALTER TABLE forum_chat_messages ADD updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at",
@@ -201,7 +202,9 @@ if (!function_exists('gradtrack_chat_ensure_schema')) {
         }
 
         if (!gradtrack_chat_enum_has_value($db, 'forum_chat_messages', 'message_type', 'system')) {
-            $db->exec("ALTER TABLE forum_chat_messages MODIFY message_type ENUM('text', 'image', 'file', 'mixed', 'system') NOT NULL DEFAULT 'text'");
+            $db->exec("ALTER TABLE forum_chat_messages MODIFY message_type ENUM('text', 'image', 'file', 'mixed', 'system', 'job_share') NOT NULL DEFAULT 'text'");
+        } elseif (!gradtrack_chat_enum_has_value($db, 'forum_chat_messages', 'message_type', 'job_share')) {
+            $db->exec("ALTER TABLE forum_chat_messages MODIFY message_type ENUM('text', 'image', 'file', 'mixed', 'system', 'job_share') NOT NULL DEFAULT 'text'");
         }
 
         $indexes = [
@@ -219,6 +222,7 @@ if (!function_exists('gradtrack_chat_ensure_schema')) {
                 'idx_forum_chat_messages_sender_created' => [['graduate_id', 'created_at'], false, "ALTER TABLE forum_chat_messages ADD INDEX idx_forum_chat_messages_sender_created (graduate_id, created_at)"],
                 'idx_forum_chat_messages_created' => [['created_at', 'id'], false, "ALTER TABLE forum_chat_messages ADD INDEX idx_forum_chat_messages_created (created_at, id)"],
                 'uniq_forum_chat_client_message' => [['room_id', 'graduate_id', 'client_message_id'], true, "ALTER TABLE forum_chat_messages ADD UNIQUE KEY uniq_forum_chat_client_message (room_id, graduate_id, client_message_id)"],
+                'idx_chat_messages_job_reference' => [['message_type', 'reference_id'], false, "ALTER TABLE forum_chat_messages ADD INDEX idx_chat_messages_job_reference (message_type, reference_id)"],
             ],
         ];
 
@@ -783,12 +787,31 @@ if (!function_exists('gradtrack_chat_format_message')) {
         $senderId = (int) $row['graduate_id'];
         $isDeleted = !empty($row['deleted_at']);
 
+        $messageType = (string) ($row['message_type'] ?? 'text');
+        $jobShare = null;
+        if ($messageType === 'job_share') {
+            $referenceId = isset($row['reference_id']) ? (int) $row['reference_id'] : 0;
+            $jobShare = [
+                'job_id' => $referenceId > 0 ? $referenceId : null,
+                'title' => $row['job_title'] ?? null,
+                'company' => $row['job_company'] ?? null,
+                'location' => $row['job_location'] ?? null,
+                'salary_range' => $row['job_salary_range'] ?? null,
+                'job_type' => $row['job_type'] ?? null,
+                'course_program_fit' => $row['job_course_program_fit'] ?? null,
+                'application_deadline' => $row['job_application_deadline'] ?? null,
+                'available' => (int) ($row['job_available'] ?? 0) === 1,
+            ];
+        }
+
         return [
             'id' => (int) $row['id'],
             'room_id' => (int) $row['room_id'],
             'graduate_id' => $senderId,
             'message' => $isDeleted ? 'This message was deleted' : (string) ($row['message'] ?? ''),
-            'message_type' => (string) ($row['message_type'] ?? 'text'),
+            'message_type' => $messageType,
+            'reference_id' => isset($row['reference_id']) ? (int) $row['reference_id'] : null,
+            'job_share' => $isDeleted ? null : $jobShare,
             'client_message_id' => $row['client_message_id'] ?? null,
             'created_at' => gradtrack_chat_datetime_iso($row['created_at'] ?? null),
             'updated_at' => gradtrack_chat_datetime_iso($row['updated_at'] ?? $row['created_at'] ?? null),
@@ -810,6 +833,10 @@ if (!function_exists('gradtrack_chat_format_message')) {
 if (!function_exists('gradtrack_chat_message_preview')) {
     function gradtrack_chat_message_preview(?string $message, ?string $messageType): string
     {
+        if ($messageType === 'job_share') {
+            return 'Shared a job opportunity';
+        }
+
         $clean = trim((string) ($message ?? ''));
         if ($clean !== '') {
             return $clean;

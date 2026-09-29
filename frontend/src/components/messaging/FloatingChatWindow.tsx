@@ -45,6 +45,7 @@ interface FloatingChatWindowProps {
   onRemoveAttachment: () => void;
   onRetryAttachment: () => void;
   onOpenProfile?: (graduateId?: number | null) => void;
+  onViewJob?: (jobId: number) => void;
 }
 
 export default function FloatingChatWindow({
@@ -77,6 +78,7 @@ export default function FloatingChatWindow({
   onRemoveAttachment,
   onRetryAttachment,
   onOpenProfile,
+  onViewJob,
 }: FloatingChatWindowProps) {
   const [previewAttachment, setPreviewAttachment] = useState<MessageAttachment | null>(null);
   const recipient = useMemo(() => room?.participants.find((participant) => participant.graduate_id !== currentGraduateId)
@@ -154,6 +156,7 @@ export default function FloatingChatWindow({
           onScrollToNewest={onScrollToNewest}
           onImageOpen={setPreviewAttachment}
           onOpenProfile={onOpenProfile}
+          onViewJob={onViewJob}
         />
         <MessageComposer
           draft={draft}

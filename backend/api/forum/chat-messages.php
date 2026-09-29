@@ -67,11 +67,21 @@ function gradtrack_forum_chat_messages_fetch(PDO $db, int $roomId, int $currentG
     }
 
     $stmt = $db->prepare("SELECT fcm.id, fcm.room_id, fcm.graduate_id, fcm.message, fcm.message_type,
-                                 fcm.client_message_id, fcm.delivered_at, fcm.read_at, fcm.created_at, fcm.updated_at,
+                                 fcm.reference_id, fcm.client_message_id, fcm.delivered_at, fcm.read_at, fcm.created_at, fcm.updated_at,
                                  fcm.deleted_at,
                                  g.first_name, g.last_name,
                                  p.code AS sender_program_code,
-                                 gpi.file_path AS sender_profile_image_path
+                                 gpi.file_path AS sender_profile_image_path,
+                                 job.title AS job_title, job.company AS job_company, job.location AS job_location,
+                                 job.salary_range AS job_salary_range, job.job_type,
+                                 job.course_program_fit AS job_course_program_fit,
+                                 job.application_deadline AS job_application_deadline,
+                                 CASE WHEN job.id IS NOT NULL
+                                           AND job.approval_status = 'approved'
+                                           AND job.is_active = 1
+                                           AND job.archived_at IS NULL
+                                           AND (job.application_deadline IS NULL OR job.application_deadline >= CURDATE())
+                                      THEN 1 ELSE 0 END AS job_available
                            FROM forum_chat_messages fcm
                            JOIN forum_chat_members visibility
                              ON visibility.room_id = fcm.room_id
@@ -80,6 +90,9 @@ function gradtrack_forum_chat_messages_fetch(PDO $db, int $roomId, int $currentG
                           LEFT JOIN graduate_accounts ga ON ga.graduate_id = g.id
                           LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
                           LEFT JOIN programs p ON p.id = g.program_id
+                          LEFT JOIN job_posts job
+                            ON fcm.message_type = 'job_share'
+                           AND job.id = fcm.reference_id
                           WHERE {$where}
                           ORDER BY {$order}
                           LIMIT " . ($limit + 1));
@@ -119,10 +132,20 @@ function gradtrack_forum_chat_messages_fetch(PDO $db, int $roomId, int $currentG
 function gradtrack_forum_chat_messages_fetch_one(PDO $db, int $messageId, int $currentGraduateId): ?array
 {
     $stmt = $db->prepare("SELECT fcm.id, fcm.room_id, fcm.graduate_id, fcm.message, fcm.message_type,
-                                 fcm.client_message_id, fcm.delivered_at, fcm.read_at, fcm.created_at, fcm.updated_at,
+                                 fcm.reference_id, fcm.client_message_id, fcm.delivered_at, fcm.read_at, fcm.created_at, fcm.updated_at,
                                  g.first_name, g.last_name,
                                  p.code AS sender_program_code,
-                                 gpi.file_path AS sender_profile_image_path
+                                 gpi.file_path AS sender_profile_image_path,
+                                 job.title AS job_title, job.company AS job_company, job.location AS job_location,
+                                 job.salary_range AS job_salary_range, job.job_type,
+                                 job.course_program_fit AS job_course_program_fit,
+                                 job.application_deadline AS job_application_deadline,
+                                 CASE WHEN job.id IS NOT NULL
+                                           AND job.approval_status = 'approved'
+                                           AND job.is_active = 1
+                                           AND job.archived_at IS NULL
+                                           AND (job.application_deadline IS NULL OR job.application_deadline >= CURDATE())
+                                      THEN 1 ELSE 0 END AS job_available
                           FROM forum_chat_messages fcm
                           JOIN forum_chat_members visibility
                             ON visibility.room_id = fcm.room_id
@@ -131,6 +154,9 @@ function gradtrack_forum_chat_messages_fetch_one(PDO $db, int $messageId, int $c
                           LEFT JOIN graduate_accounts ga ON ga.graduate_id = g.id
                           LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
                           LEFT JOIN programs p ON p.id = g.program_id
+                          LEFT JOIN job_posts job
+                            ON fcm.message_type = 'job_share'
+                           AND job.id = fcm.reference_id
                            WHERE fcm.id = :id
                              AND fcm.deleted_at IS NULL
                              AND fcm.id > COALESCE(visibility.hidden_before_message_id, 0)
@@ -503,6 +529,91 @@ function gradtrack_forum_chat_messages_insert(
     return $savedMessages;
 }
 
+function gradtrack_forum_chat_messages_share_job(
+    PDO $db,
+    int $currentGraduateId,
+    int $recipientGraduateId,
+    int $jobId,
+    string $message,
+    string $clientMessageId
+): array {
+    $message = gradtrack_chat_normalize_message($message);
+    $messageLength = function_exists('mb_strlen') ? mb_strlen($message, 'UTF-8') : strlen($message);
+    if ($messageLength > 500) {
+        gradtrack_forum_chat_messages_request_error(400, 'The optional message must be 500 characters or fewer');
+    }
+    if ($recipientGraduateId <= 0) {
+        gradtrack_forum_chat_messages_request_error(400, 'recipient_id is required');
+    }
+    if ($jobId <= 0) {
+        gradtrack_forum_chat_messages_request_error(400, 'job_id is required');
+    }
+    if ($clientMessageId === '' || strlen($clientMessageId) > 80 || !preg_match('/^[a-zA-Z0-9._:-]+$/', $clientMessageId)) {
+        gradtrack_forum_chat_messages_request_error(400, 'Valid client_message_id is required');
+    }
+
+    $jobStmt = $db->prepare("SELECT id FROM job_posts
+                             WHERE id = :job_id
+                               AND approval_status = 'approved'
+                               AND is_active = 1
+                               AND archived_at IS NULL
+                               AND (application_deadline IS NULL OR application_deadline >= CURDATE())
+                             LIMIT 1");
+    $jobStmt->execute([':job_id' => $jobId]);
+    if (!$jobStmt->fetchColumn()) {
+        gradtrack_forum_chat_messages_request_error(409, 'This job posting is no longer available to share');
+    }
+
+    $ownsTransaction = !$db->inTransaction();
+    if ($ownsTransaction) $db->beginTransaction();
+    try {
+        try {
+            $resolution = gradtrack_chat_resolve_direct_room($db, $currentGraduateId, $recipientGraduateId);
+        } catch (InvalidArgumentException $error) {
+            gradtrack_forum_chat_messages_request_error(400, $error->getMessage());
+        } catch (OutOfBoundsException $error) {
+            gradtrack_forum_chat_messages_request_error(404, $error->getMessage());
+        }
+        $roomId = (int) $resolution['room_id'];
+
+        try {
+            gradtrack_chat_assert_message_allowed($db, $roomId, $currentGraduateId);
+        } catch (DomainException $error) {
+            gradtrack_forum_chat_messages_request_error(403, $error->getMessage());
+        }
+
+        $existing = gradtrack_forum_chat_messages_fetch_client_batch($db, $roomId, $currentGraduateId, $clientMessageId);
+        if (count($existing) > 0) {
+            if ($ownsTransaction) $db->commit();
+            return $existing[0];
+        }
+
+        $insertStmt = $db->prepare("INSERT INTO forum_chat_messages
+                                    (room_id, graduate_id, message, message_type, reference_id, client_message_id)
+                                    VALUES (:room_id, :graduate_id, :message, 'job_share', :reference_id, :client_message_id)");
+        $insertStmt->execute([
+            ':room_id' => $roomId,
+            ':graduate_id' => $currentGraduateId,
+            ':message' => $message !== '' ? $message : null,
+            ':reference_id' => $jobId,
+            ':client_message_id' => $clientMessageId,
+        ]);
+        $messageId = (int) $db->lastInsertId();
+        $db->prepare('UPDATE forum_chat_rooms SET last_message_at = NOW(), updated_at = NOW() WHERE id = :room_id')
+            ->execute([':room_id' => $roomId]);
+        $db->prepare('UPDATE forum_chat_members SET hidden_at = NULL WHERE room_id = :room_id')
+            ->execute([':room_id' => $roomId]);
+        if ($ownsTransaction) $db->commit();
+    } catch (Throwable $error) {
+        if ($ownsTransaction && $db->inTransaction()) $db->rollBack();
+        throw $error;
+    }
+
+    $savedMessage = gradtrack_forum_chat_messages_fetch_one($db, $messageId, $currentGraduateId);
+    if (!$savedMessage) throw new RuntimeException('Unable to load the shared job message');
+    return $savedMessage;
+}
+
 function gradtrack_forum_chat_messages_mark_read(PDO $db, int $roomId, int $currentGraduateId, int $upToMessageId): array
 {
     if ($upToMessageId <= 0) {
@@ -715,6 +826,29 @@ try {
                 'message' => 'Messages marked as read',
                 'data' => [
                     'read_messages' => $readRows,
+                ],
+            ]);
+            exit;
+        }
+
+        if ($action === 'share_job') {
+            $savedMessage = gradtrack_forum_chat_messages_share_job(
+                $db,
+                $currentGraduateId,
+                $recipientGraduateId,
+                isset($data['job_id']) ? (int) $data['job_id'] : 0,
+                $message,
+                $clientMessageId
+            );
+            $resolvedRoomId = (int) $savedMessage['room_id'];
+            echo json_encode([
+                'success' => true,
+                'message' => 'Job shared successfully.',
+                'id' => (int) $savedMessage['id'],
+                'data' => [
+                    'message' => $savedMessage,
+                    'messages' => [$savedMessage],
+                    'conversation' => gradtrack_chat_conversation_for_viewer($db, $resolvedRoomId, $currentGraduateId),
                 ],
             ]);
             exit;

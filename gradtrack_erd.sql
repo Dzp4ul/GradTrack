@@ -663,7 +663,8 @@ CREATE TABLE `forum_chat_messages` (
     `room_id` INT NOT NULL,
     `graduate_id` INT NOT NULL,
     `message` TEXT DEFAULT NULL,
-    `message_type` ENUM('text','image','file','mixed','system') DEFAULT 'text',
+    `message_type` ENUM('text','image','file','mixed','system','job_share') DEFAULT 'text',
+    `reference_id` INT DEFAULT NULL,
     `file_url` VARCHAR(500) DEFAULT NULL,
     `file_name` VARCHAR(255) DEFAULT NULL,
     `file_size` INT DEFAULT NULL,
@@ -674,7 +675,8 @@ CREATE TABLE `forum_chat_messages` (
     PRIMARY KEY (`id`),
     KEY `idx_chat_messages_room_id` (`room_id`),
     KEY `idx_chat_messages_graduate_id` (`graduate_id`),
-    KEY `idx_chat_messages_created_at` (`created_at`)
+    KEY `idx_chat_messages_created_at` (`created_at`),
+    KEY `idx_chat_messages_job_reference` (`message_type`, `reference_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE `forum_chat_message_attachments` (
@@ -742,6 +744,16 @@ CREATE TABLE `job_applications` (
     UNIQUE KEY `uq_job_applications_post_applicant` (`job_post_id`, `applicant_account_id`),
     KEY `idx_job_applications_applicant` (`applicant_account_id`),
     KEY `idx_job_applications_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `saved_jobs` (
+    `id` INT NOT NULL AUTO_INCREMENT,
+    `graduate_account_id` INT NOT NULL,
+    `job_post_id` INT NOT NULL,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_saved_jobs_account_job` (`graduate_account_id`, `job_post_id`),
+    KEY `idx_saved_jobs_job` (`job_post_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE `mentors` (
@@ -1114,6 +1126,16 @@ ALTER TABLE `job_posts`
 
 ALTER TABLE `job_applications`
     ADD CONSTRAINT `fk_job_applications_post`
+    FOREIGN KEY (`job_post_id`) REFERENCES `job_posts` (`id`)
+    ON DELETE CASCADE;
+
+ALTER TABLE `saved_jobs`
+    ADD CONSTRAINT `fk_saved_jobs_account`
+    FOREIGN KEY (`graduate_account_id`) REFERENCES `graduate_accounts` (`id`)
+    ON DELETE CASCADE;
+
+ALTER TABLE `saved_jobs`
+    ADD CONSTRAINT `fk_saved_jobs_job`
     FOREIGN KEY (`job_post_id`) REFERENCES `job_posts` (`id`)
     ON DELETE CASCADE;
 

@@ -2,7 +2,10 @@ import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState
 import type { CSSProperties, Dispatch, ImgHTMLAttributes, SetStateAction } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
+  AlertCircle,
+  ArrowRight,
   Award,
+  Bookmark,
   Briefcase,
   Building2,
   CalendarDays,
@@ -14,6 +17,7 @@ import {
   Clock3,
   Contact,
   FileText,
+  Filter,
   Flag,
   GraduationCap,
   Heart,
@@ -32,6 +36,8 @@ import {
   Phone,
   Plus,
   Search,
+  Share2,
+  SlidersHorizontal,
   Settings,
   ShieldCheck,
   Trash2,
@@ -61,6 +67,10 @@ import type {
 } from '../components/messaging/types';
 import MessageBox from '../components/MessageBox';
 import FeatureUnavailable from '../components/FeatureUnavailable';
+import JobLocationCombobox from '../components/JobLocationCombobox';
+import type { JobLocationOption } from '../components/JobLocationCombobox';
+import JobProgramFitPicker from '../components/JobProgramFitPicker';
+import type { JobProgramOption } from '../components/JobProgramFitPicker';
 import MobileBottomNav from '../components/MobileBottomNav';
 import NotificationBell from '../components/NotificationBell';
 import type { NotificationSnapshot } from '../components/NotificationBell';
@@ -74,9 +84,10 @@ import { destroyRealtimeChatSocket, emitWithAck, getRealtimeChatSocket } from '.
 import type { RealtimeChatStatus } from '../services/realtimeChat';
 import { normalizeGraduationYears } from '../utils/graduationYears';
 
-type PortalTab = 'announcements' | 'dashboard' | 'community_forum' | 'messages' | 'jobs' | 'job_posting' | 'my_profile' | 'settings';
+type PortalTab = 'announcements' | 'dashboard' | 'community_forum' | 'messages' | 'jobs' | 'saved_jobs' | 'job_posting' | 'my_profile' | 'settings';
 type ForumStatus = 'approved' | 'hidden';
 type ApprovalStatus = 'pending' | 'approved' | 'declined';
+type JobSortOption = 'recent' | 'oldest' | 'deadline';
 
 interface AlumniBadge {
   code: string;
@@ -253,6 +264,15 @@ interface JobPost {
   is_active: number;
   created_at?: string | null;
   updated_at?: string | null;
+  creator_role?: string | null;
+  saved_at?: string | null;
+}
+
+interface JobFilterOptions {
+  locations: string[];
+  jobTypes: string[];
+  programFits: string[];
+  industries: string[];
 }
 
 interface JobForm {
@@ -412,7 +432,7 @@ interface MessageBoxState {
   onConfirm?: () => void;
 }
 
-const portalTabs: PortalTab[] = ['announcements', 'dashboard', 'community_forum', 'messages', 'jobs', 'job_posting', 'my_profile', 'settings'];
+const portalTabs: PortalTab[] = ['announcements', 'dashboard', 'community_forum', 'messages', 'jobs', 'saved_jobs', 'job_posting', 'my_profile', 'settings'];
 const graduatePortalLayoutStyle = {
   '--graduate-portal-header-height': '4rem',
   '--graduate-portal-sticky-gap': '1rem',
@@ -765,6 +785,7 @@ function sortChatRooms(roomList: ChatRoom[]) {
 }
 
 function getChatMessagePreview(message: ChatMessage) {
+  if (message.message_type === 'job_share') return 'Shared a job opportunity';
   const text = message.message.trim();
   if (text) return text;
   if (message.message_type === 'image') return 'Photo';
@@ -845,15 +866,64 @@ function getJobPosterName(job: JobPost) {
 }
 
 function getJobPosterProgram(job: JobPost) {
-  return job.poster_program_code || job.poster_program_name || (job.created_by_admin_id ? 'GradTrack Personnel' : 'Graduate');
+  if (job.poster_program_code || job.poster_program_name) return job.poster_program_code || job.poster_program_name || 'Graduate';
+  if (job.creator_role) {
+    const roleLabels: Record<string, string> = {
+      research_coordinator: 'Research Coordinator',
+      alumni_president: 'Alumni President',
+      dean_cs: 'Dean · Computer Studies',
+      dean_coed: 'Dean · Education',
+      dean_hm: 'Dean · Hospitality Management',
+      admin: 'GradTrack Administrator',
+    };
+    return roleLabels[job.creator_role] || job.creator_role.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+  }
+  return job.created_by_admin_id ? 'GradTrack Personnel' : 'Graduate';
 }
 
 function getJobProgramFit(job: JobPost) {
-  return job.course_program_fit || job.poster_program_code || job.poster_program_name || 'Open to eligible graduates';
+  return job.course_program_fit || 'Not specified';
 }
 
 function getJobPostedLabel(job: JobPost) {
   return job.created_at ? `Posted ${formatRelativeTime(job.created_at)}` : 'Recently posted';
+}
+
+function getJobProgramFitValues(value?: string | null) {
+  const rawValue = String(value || '').trim();
+  if (!rawValue) return [];
+  return rawValue
+    .split(/[,;|&/\n]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function normalizeJobLocation(value?: string | null) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase()
+    .replace(/\bcity of\b/g, ' ')
+    .replace(/\b(?:city|municipality|province)\b/g, ' ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function uniqueJobValues(values: Array<string | null | undefined>) {
+  const entries = new Map<string, string>();
+  values.forEach((value) => {
+    const cleanValue = String(value || '').trim();
+    if (!cleanValue) return;
+    const key = cleanValue.toLocaleLowerCase();
+    if (!entries.has(key)) entries.set(key, cleanValue);
+  });
+  return Array.from(entries.values()).sort((left, right) => left.localeCompare(right));
+}
+
+function isJobDeadlinePast(value?: string | null) {
+  if (!value) return false;
+  const deadline = new Date(`${String(value).slice(0, 10)}T23:59:59`);
+  return !Number.isNaN(deadline.getTime()) && deadline.getTime() < Date.now();
 }
 
 function normalizeDateInput(value?: string | null) {
@@ -926,6 +996,13 @@ function getPortalHeading(tab: PortalTab) {
     return {
       title: 'Browse Jobs',
       subtitle: 'Explore approved opportunities shared inside GradTrack.',
+    };
+  }
+
+  if (tab === 'saved_jobs') {
+    return {
+      title: 'Saved Jobs',
+      subtitle: 'Review the active opportunities you bookmarked for later.',
     };
   }
 
@@ -1033,14 +1110,32 @@ export default function GraduatePortal() {
   const [reportDetailError, setReportDetailError] = useState('');
 
   const [jobs, setJobs] = useState<JobPost[]>([]);
+  const [jobsLoading, setJobsLoading] = useState(true);
+  const [jobsError, setJobsError] = useState('');
+  const [jobPrograms, setJobPrograms] = useState<JobProgramOption[]>([]);
+  const [jobLocationOptions, setJobLocationOptions] = useState<JobLocationOption[]>([]);
+  const [jobLocationsLoading, setJobLocationsLoading] = useState(false);
+  const [savedJobs, setSavedJobs] = useState<JobPost[]>([]);
+  const [savingJobIds, setSavingJobIds] = useState<number[]>([]);
   const [myPostedJobs, setMyPostedJobs] = useState<JobPost[]>([]);
   const [jobSearch, setJobSearch] = useState('');
+  const [jobLocationFilter, setJobLocationFilter] = useState('');
+  const [jobTypeFilters, setJobTypeFilters] = useState<string[]>([]);
+  const [jobProgramFitFilters, setJobProgramFitFilters] = useState<string[]>([]);
+  const [jobIndustryFilters, setJobIndustryFilters] = useState<string[]>([]);
+  const [jobSort, setJobSort] = useState<JobSortOption>('recent');
+  const [mobileJobFiltersOpen, setMobileJobFiltersOpen] = useState(false);
   const [highlightedJobId, setHighlightedJobId] = useState<number | null>(null);
   const [selectedJob, setSelectedJob] = useState<JobPost | null>(null);
   const [selectedJobLoading, setSelectedJobLoading] = useState(false);
   const [showJobPostForm, setShowJobPostForm] = useState(false);
   const [jobSubmitting, setJobSubmitting] = useState(false);
   const [myJobForm, setMyJobForm] = useState<JobForm>(() => createDefaultJobForm(user));
+  const [shareJob, setShareJob] = useState<JobPost | null>(null);
+  const [shareSearch, setShareSearch] = useState('');
+  const [shareRecipientId, setShareRecipientId] = useState<number | null>(null);
+  const [shareMessage, setShareMessage] = useState('Check out this job opportunity!');
+  const [shareSubmitting, setShareSubmitting] = useState(false);
   const [notificationCategoryCounts, setNotificationCategoryCounts] = useState({
     browse_jobs: 0,
     job_posting: 0,
@@ -1132,6 +1227,7 @@ export default function GraduatePortal() {
   const bootStartedRef = useRef(false);
   const routePostTargetRef = useRef('');
   const routeJobTargetRef = useRef('');
+  const routeMessageTargetRef = useRef('');
   const viewedProfileRequestRef = useRef(0);
   const viewedProfilePostsRequestRef = useRef(0);
   const commentRefs = useRef<Record<number, HTMLElement | null>>({});
@@ -1227,28 +1323,116 @@ export default function GraduatePortal() {
       .includes(query);
   });
 
-  const filteredJobs = jobs.filter((job) => {
-    const query = jobSearch.trim().toLowerCase();
-    if (!query) return true;
+  const jobFilterOptions = useMemo<JobFilterOptions>(() => ({
+    locations: uniqueJobValues(jobs.map((job) => job.location)),
+    jobTypes: uniqueJobValues(jobs.map((job) => job.job_type)),
+    programFits: uniqueJobValues([
+      ...jobPrograms.map((program) => program.code),
+      ...jobs.flatMap((job) => getJobProgramFitValues(job.course_program_fit)),
+    ]),
+    industries: uniqueJobValues(jobs.map((job) => job.industry)),
+  }), [jobPrograms, jobs]);
 
-    return [
-      job.title,
-      job.company,
-      job.description,
-      job.location,
-      job.industry,
-      job.required_skills,
-      job.course_program_fit,
-      job.poster_full_name,
-      job.first_name,
-      job.last_name,
-      job.poster_program_code,
-      job.poster_program_name,
-    ]
-      .join(' ')
-      .toLowerCase()
-      .includes(query);
-  });
+  const searchableJobLocations = useMemo<JobLocationOption[]>(() => {
+    const values = new Map<string, JobLocationOption>();
+    jobs.forEach((job) => {
+      const name = String(job.location || '').trim();
+      if (!name) return;
+      values.set(name.toLocaleLowerCase(), { code: `job-${job.id}`, name });
+    });
+    jobLocationOptions.forEach((option) => {
+      const key = option.name.toLocaleLowerCase();
+      if (!values.has(key)) values.set(key, option);
+    });
+    return Array.from(values.values());
+  }, [jobLocationOptions, jobs]);
+
+  const filteredJobs = useMemo(() => {
+    const query = jobSearch.trim().toLocaleLowerCase();
+    const selectedJobTypes = new Set(jobTypeFilters.map((value) => value.toLocaleLowerCase()));
+    const selectedPrograms = new Set(jobProgramFitFilters.map((value) => value.toLocaleLowerCase()));
+    const selectedIndustries = new Set(jobIndustryFilters.map((value) => value.toLocaleLowerCase()));
+    const selectedLocationTerms = normalizeJobLocation(jobLocationFilter).split(' ').filter(Boolean);
+
+    const matchingJobs = jobs.filter((job) => {
+      const searchableText = [
+        job.title,
+        job.company,
+        job.description,
+        job.location,
+        job.industry,
+        job.required_skills,
+        job.qualifications,
+        job.course_program_fit,
+        job.job_type,
+      ].join(' ').toLocaleLowerCase();
+      if (query && !searchableText.includes(query)) return false;
+      if (selectedLocationTerms.length > 0) {
+        const jobLocation = normalizeJobLocation(job.location);
+        if (!selectedLocationTerms.every((term) => jobLocation.includes(term))) return false;
+      }
+      if (selectedJobTypes.size > 0 && !selectedJobTypes.has(String(job.job_type || '').toLocaleLowerCase())) return false;
+      if (selectedIndustries.size > 0 && !selectedIndustries.has(String(job.industry || '').trim().toLocaleLowerCase())) return false;
+      if (selectedPrograms.size > 0) {
+        const rawProgramFit = String(job.course_program_fit || '').toLocaleLowerCase();
+        const isOpenToAll = /\b(?:all|any)\s+(?:graduates?|programs?|courses?)\b|\bopen\s+to\s+all\b/.test(rawProgramFit);
+        const jobPrograms = getJobProgramFitValues(job.course_program_fit).map((value) => value.toLocaleLowerCase());
+        if (!isOpenToAll && !jobPrograms.some((value) => selectedPrograms.has(value))) return false;
+      }
+      return true;
+    });
+
+    return [...matchingJobs].sort((left, right) => {
+      if (jobSort === 'oldest') {
+        return (parseDate(left.created_at)?.getTime() || 0) - (parseDate(right.created_at)?.getTime() || 0) || left.id - right.id;
+      }
+      if (jobSort === 'deadline') {
+        const leftDeadline = parseDate(left.application_deadline)?.getTime() ?? Number.POSITIVE_INFINITY;
+        const rightDeadline = parseDate(right.application_deadline)?.getTime() ?? Number.POSITIVE_INFINITY;
+        return leftDeadline - rightDeadline || (parseDate(right.created_at)?.getTime() || 0) - (parseDate(left.created_at)?.getTime() || 0);
+      }
+      return (parseDate(right.created_at)?.getTime() || 0) - (parseDate(left.created_at)?.getTime() || 0) || right.id - left.id;
+    });
+  }, [jobIndustryFilters, jobLocationFilter, jobProgramFitFilters, jobSearch, jobSort, jobTypeFilters, jobs]);
+
+  const activeJobFilterCount = (jobSearch.trim() ? 1 : 0)
+    + (jobLocationFilter ? 1 : 0)
+    + jobTypeFilters.length
+    + jobProgramFitFilters.length
+    + jobIndustryFilters.length;
+
+  const clearJobFilters = useCallback(() => {
+    setJobSearch('');
+    setJobLocationFilter('');
+    setJobTypeFilters([]);
+    setJobProgramFitFilters([]);
+    setJobIndustryFilters([]);
+  }, []);
+
+  const savedJobIds = useMemo(() => new Set(savedJobs.map((job) => job.id)), [savedJobs]);
+  const filteredShareDirectory = useMemo(() => {
+    const query = shareSearch.trim().toLowerCase();
+    if (!query) return directory;
+    return directory.filter((participant) => [
+      participant.full_name,
+      participant.program_code,
+      participant.year_graduated ? `Batch ${participant.year_graduated}` : '',
+    ].join(' ').toLowerCase().includes(query));
+  }, [directory, shareSearch]);
+
+  useEffect(() => {
+    if (!mobileJobFiltersOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileJobFiltersOpen(false);
+    };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [mobileJobFiltersOpen]);
 
   const chatModalProgramOptions = useMemo(() => (
     Array.from(new Set(directory.map((participant) => participant.program_code?.trim()).filter(Boolean) as string[]))
@@ -1298,7 +1482,7 @@ export default function GraduatePortal() {
         };
       }
 
-      if (['jobs', 'job_posting'].includes(tab) && !jobsAvailable) {
+      if (['jobs', 'saved_jobs', 'job_posting'].includes(tab) && !jobsAvailable) {
         return {
           title: 'Alumni Job Support is currently unavailable.',
           message: 'This feature is currently unavailable.',
@@ -1415,8 +1599,54 @@ export default function GraduatePortal() {
   }, [authenticatedFetch]);
 
   const loadJobs = useCallback(async () => {
-    const response = await authenticatedFetch(API_ENDPOINTS.JOBS.POSTS);
-    setJobs(Array.isArray(response.data) ? (response.data as JobPost[]) : []);
+    setJobsLoading(true);
+    setJobsError('');
+    try {
+      const response = await authenticatedFetch(API_ENDPOINTS.JOBS.POSTS);
+      setJobs(Array.isArray(response.data) ? (response.data as JobPost[]) : []);
+    } catch (error) {
+      setJobsError('Unable to load job opportunities.');
+      throw error;
+    } finally {
+      setJobsLoading(false);
+    }
+  }, [authenticatedFetch]);
+
+  const loadJobPrograms = useCallback(async () => {
+    try {
+      const response = await authenticatedFetch(API_ENDPOINTS.SURVEY_PROGRAMS);
+      const programs = Array.isArray(response.data) ? response.data as Array<Partial<JobProgramOption>> : [];
+      setJobPrograms(programs
+        .map((program) => ({
+          id: Number(program.id || 0),
+          code: String(program.code || '').trim(),
+          name: String(program.name || '').trim(),
+        }))
+        .filter((program) => program.code !== '')
+        .sort((left, right) => left.code.localeCompare(right.code)));
+    } catch {
+      setJobPrograms([]);
+    }
+  }, [authenticatedFetch]);
+
+  const loadJobLocations = useCallback(async () => {
+    setJobLocationsLoading(true);
+    try {
+      const response = await authenticatedFetch(API_ENDPOINTS.JOBS.LOCATIONS);
+      const locations = Array.isArray(response.data) ? response.data as Array<Partial<JobLocationOption>> : [];
+      setJobLocationOptions(locations
+        .map((location) => ({ code: String(location.code || '').trim(), name: String(location.name || '').trim() }))
+        .filter((location) => location.code !== '' && location.name !== ''));
+    } catch {
+      setJobLocationOptions([]);
+    } finally {
+      setJobLocationsLoading(false);
+    }
+  }, [authenticatedFetch]);
+
+  const loadSavedJobs = useCallback(async () => {
+    const response = await authenticatedFetch(API_ENDPOINTS.JOBS.SAVED);
+    setSavedJobs(Array.isArray(response.data) ? (response.data as JobPost[]) : []);
   }, [authenticatedFetch]);
 
   const loadMyJobs = useCallback(async () => {
@@ -1856,6 +2086,9 @@ export default function GraduatePortal() {
         ] : []),
         ...(jobsAvailable ? [
           { key: 'jobs', label: 'jobs', run: loadJobs },
+          { key: 'job_programs', label: 'job programs', run: loadJobPrograms },
+          { key: 'job_locations', label: 'job locations', run: loadJobLocations },
+          { key: 'saved_jobs', label: 'saved jobs', run: loadSavedJobs },
           { key: 'my_jobs', label: 'my job posts', run: loadMyJobs },
         ] : []),
         ...(messagingAvailable ? [
@@ -1869,6 +2102,7 @@ export default function GraduatePortal() {
         community_forum: communityAvailable ? ['forum', 'my_forum'] : [],
         messages: messagingAvailable ? ['chats'] : [],
         jobs: jobsAvailable ? ['jobs', 'rating'] : [],
+        saved_jobs: jobsAvailable ? ['saved_jobs'] : [],
         job_posting: jobsAvailable ? ['my_jobs', 'rating'] : [],
         my_profile: communityAvailable ? ['rating', 'activity'] : ['rating'],
         settings: [],
@@ -1896,7 +2130,7 @@ export default function GraduatePortal() {
         void Promise.allSettled(backgroundTasks.map((task) => task.run()));
       }
     },
-    [communityAvailable, jobsAvailable, loadChats, loadForumFeed, loadJobs, loadMyForumPosts, loadMyJobs, loadRatingSummary, messagingAvailable, notify],
+    [communityAvailable, jobsAvailable, loadChats, loadForumFeed, loadJobLocations, loadJobPrograms, loadJobs, loadMyForumPosts, loadMyJobs, loadRatingSummary, loadSavedJobs, messagingAvailable, notify],
   );
 
   const closePostDetail = useCallback(() => {
@@ -2075,7 +2309,7 @@ export default function GraduatePortal() {
     if (routeJobTargetRef.current !== routeKey) {
       routeJobTargetRef.current = routeKey;
       setActiveTab('jobs');
-      setJobSearch('');
+      clearJobFilters();
     }
 
     if (activeTab !== 'jobs' || jobs.length === 0 || !jobs.some((job) => job.id === jobId)) {
@@ -2094,7 +2328,30 @@ export default function GraduatePortal() {
       window.clearTimeout(scrollTimer);
       window.clearTimeout(clearTimer);
     };
-  }, [activeTab, jobs, jobsAvailable, searchParams]);
+  }, [activeTab, clearJobFilters, jobs, jobsAvailable, searchParams]);
+
+  useEffect(() => {
+    if (!messagingAvailable) {
+      routeMessageTargetRef.current = '';
+      return;
+    }
+    const roomId = parsePositiveIntParam(searchParams.get('room_id'));
+    if (roomId <= 0) {
+      routeMessageTargetRef.current = '';
+      return;
+    }
+    const routeKey = `${roomId}:${parsePositiveIntParam(searchParams.get('message_id'))}`;
+    setActiveTab('messages');
+    const room = rooms.find((item) => item.id === roomId);
+    if (!room || routeMessageTargetRef.current === routeKey) return;
+    routeMessageTargetRef.current = routeKey;
+    temporaryChatRecipientRef.current = null;
+    setTemporaryChatRecipient(null);
+    selectedRoomIdRef.current = roomId;
+    setSelectedRoomId(roomId);
+    setActiveRoom(mergeKnownPresenceIntoRoom(room, chatPresenceByGraduateRef.current));
+    setChatMobileConversationOpen(true);
+  }, [messagingAvailable, rooms, searchParams]);
 
   useEffect(() => {
     if (!selectedPostOpen || !highlightedCommentId || postComments.length === 0) {
@@ -2449,6 +2706,9 @@ export default function GraduatePortal() {
         seenRealtimeMessageIdsRef.current.add(incoming.id);
       }
       if (isNewRealtimeMessage && !incoming.is_mine) {
+        if (incoming.message_type === 'job_share') {
+          window.dispatchEvent(new CustomEvent('gradtrack:notifications-updated', { detail: { audience: 'graduate' } }));
+        }
         const visibleAtNewest = selectedRoomIdRef.current === incoming.room_id
           && chatConversationSurfaceOpenRef.current
           && chatNearBottomRef.current;
@@ -2805,6 +3065,7 @@ export default function GraduatePortal() {
       if (!rememberEvent(eventName, payload) || !payload.job) return;
       const job = payload.job;
       setJobs((current) => upsertJobPost(current, job));
+      setSavedJobs((current) => current.some((item) => item.id === job.id) ? upsertJobPost(current, job) : current);
       setSelectedJob((current) => current?.id === job.id ? job : current);
       if (job.poster_graduate_id === currentGraduateId) {
         setMyPostedJobs((current) => upsertJobPost(current, job));
@@ -2821,6 +3082,7 @@ export default function GraduatePortal() {
       const jobId = Number(payload.job_id || 0);
       if (!jobId) return;
       setJobs((current) => current.filter((job) => job.id !== jobId));
+      setSavedJobs((current) => current.filter((job) => job.id !== jobId));
       setSelectedJob((current) => current?.id === jobId ? null : current);
     };
 
@@ -2894,6 +3156,7 @@ export default function GraduatePortal() {
       setPostComments((current) => current.map(patchComment));
       setMediaViewerComments((current) => current.map(patchComment));
       setJobs((current) => current.map(patchJob));
+      setSavedJobs((current) => current.map(patchJob));
       setMyPostedJobs((current) => current.map(patchJob));
       setSelectedJob((current) => current ? patchJob(current) : current);
       setDirectory((current) => current.map((participant) => participant.graduate_id === graduateId
@@ -3000,7 +3263,7 @@ export default function GraduatePortal() {
       disconnectedSinceLastConnect = false;
       const tasks: Array<Promise<unknown>> = [];
       if (communityAvailable) tasks.push(loadForumFeed(), loadMyForumPosts());
-      if (jobsAvailable) tasks.push(loadJobs(), loadMyJobs());
+      if (jobsAvailable) tasks.push(loadJobs(), loadSavedJobs(), loadMyJobs());
       if (
         profileTargetGraduateIdRef.current > 0
         && !profileSavingRef.current
@@ -3019,7 +3282,7 @@ export default function GraduatePortal() {
       socket.off('disconnect', handleDisconnect);
       socket.off('connect', handleReconnect);
     };
-  }, [communityAvailable, currentGraduateId, jobsAvailable, loadForumFeed, loadGraduateProfile, loadJobs, loadMyForumPosts, loadMyJobs]);
+  }, [communityAvailable, currentGraduateId, jobsAvailable, loadForumFeed, loadGraduateProfile, loadJobs, loadMyForumPosts, loadMyJobs, loadSavedJobs]);
 
   const sharedPresenceTargetKey = useMemo(() => {
     const ids = new Set<number>();
@@ -4028,6 +4291,8 @@ export default function GraduatePortal() {
     message: string;
     client_message_id: string;
     attachment_ids: number[];
+    action?: 'share_job';
+    job_id?: number;
   }) => {
     const response = await authenticatedFetch(API_ENDPOINTS.FORUM.CHAT_MESSAGES, {
       method: 'POST',
@@ -4607,6 +4872,97 @@ export default function GraduatePortal() {
       notify('error', error instanceof Error ? error.message : 'Unable to load job details', 'Browse Jobs');
     } finally {
       setSelectedJobLoading(false);
+    }
+  };
+
+  const openSharedJob = useCallback(async (jobId: number) => {
+    if (!jobsAvailable || jobId <= 0) return;
+    setSelectedJobLoading(true);
+    try {
+      const response = await authenticatedFetch(`${API_ENDPOINTS.JOBS.POSTS}?id=${jobId}`);
+      if (!response.data) throw new Error('This job posting is no longer available.');
+      setSelectedJob(response.data as JobPost);
+    } catch (error) {
+      notify('info', error instanceof Error ? error.message : 'This job posting is no longer available.', 'Shared Job');
+    } finally {
+      setSelectedJobLoading(false);
+    }
+  }, [authenticatedFetch, jobsAvailable, notify]);
+
+  const toggleSavedJob = async (job: JobPost) => {
+    if (savingJobIds.includes(job.id)) return;
+    const isSaved = savedJobIds.has(job.id);
+    setSavingJobIds((current) => [...current, job.id]);
+    try {
+      if (isSaved) {
+        await authenticatedFetch(`${API_ENDPOINTS.JOBS.SAVED}?job_id=${job.id}`, { method: 'DELETE' });
+        setSavedJobs((current) => current.filter((item) => item.id !== job.id));
+        notify('success', 'Job removed from Saved Jobs.', 'Saved Jobs');
+      } else {
+        await authenticatedFetch(API_ENDPOINTS.JOBS.SAVED, {
+          method: 'POST',
+          body: JSON.stringify({ job_id: job.id }),
+        });
+        setSavedJobs((current) => upsertJobPost(current, { ...job, saved_at: new Date().toISOString() }));
+        notify('success', 'Job saved successfully.', 'Saved Jobs');
+      }
+    } catch (error) {
+      notify('error', error instanceof Error ? error.message : 'Unable to update Saved Jobs.', 'Saved Jobs');
+      await loadSavedJobs().catch(() => undefined);
+    } finally {
+      setSavingJobIds((current) => current.filter((id) => id !== job.id));
+    }
+  };
+
+  const openShareJob = (job: JobPost) => {
+    if (!messagingAvailable) {
+      notify('info', 'Messages are currently unavailable.', 'Share Job');
+      return;
+    }
+    setShareJob(job);
+    setShareSearch('');
+    setShareRecipientId(null);
+    setShareMessage('Check out this job opportunity!');
+    if (directory.length === 0) void loadChats();
+  };
+
+  const closeShareJob = () => {
+    if (shareSubmitting) return;
+    setShareJob(null);
+    setShareSearch('');
+    setShareRecipientId(null);
+    setShareMessage('Check out this job opportunity!');
+  };
+
+  const handleShareJob = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!shareJob || !shareRecipientId) {
+      notify('warning', 'Select a graduate to share this job with.', 'Share Job');
+      return;
+    }
+
+    setShareSubmitting(true);
+    try {
+      const result = await sendMessageToServer({
+        recipient_id: shareRecipientId,
+        message: shareMessage.trim(),
+        client_message_id: createClientMessageId(currentGraduateId),
+        attachment_ids: [],
+        action: 'share_job',
+        job_id: shareJob.id,
+      });
+      if (result.conversation) upsertConversation(result.conversation);
+      await loadChats();
+      setShareJob(null);
+      setShareRecipientId(null);
+      setShareSearch('');
+      setShareMessage('Check out this job opportunity!');
+      notify('success', 'Job shared through GradTrack Messages.', 'Share Job');
+      window.dispatchEvent(new CustomEvent('gradtrack:notifications-updated', { detail: { audience: 'graduate' } }));
+    } catch (error) {
+      notify('error', error instanceof Error ? error.message : 'Unable to share this job.', 'Share Job');
+    } finally {
+      setShareSubmitting(false);
     }
   };
 
@@ -5215,6 +5571,7 @@ export default function GraduatePortal() {
           onRetryAttachment={handleRetryAttachment}
           onOpenNewConversation={() => openChatModal('direct')}
           onOpenProfile={openMiniProfile}
+          onViewJob={openSharedJob}
           conversationInfoOpen={conversationInfoOpen}
           conversationInfo={conversationInfo?.room.id === selectedRoomId ? conversationInfo : null}
           conversationInfoLoading={conversationInfoLoading}
@@ -5230,7 +5587,7 @@ export default function GraduatePortal() {
     );
   };
 
-  const ActiveNavIcon = activeTab === 'settings' ? Settings : (activeNavItem?.icon || Home);
+  const ActiveNavIcon = activeTab === 'settings' ? Settings : (activeTab === 'saved_jobs' ? Bookmark : (activeNavItem?.icon || Home));
   return (
     <div className="min-h-screen overflow-x-clip bg-[#f4f6fb] text-slate-900" style={graduatePortalLayoutStyle}>
       <header className="sticky top-0 z-50 border-b border-gray-200 bg-white shadow-sm">
@@ -5337,6 +5694,18 @@ export default function GraduatePortal() {
 
                   <button
                     type="button"
+                    onClick={() => {
+                      setProfileMenuOpen(false);
+                      selectTab('saved_jobs');
+                    }}
+                    className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50"
+                  >
+                    <Bookmark className="h-4 w-4" />
+                    Saved Jobs
+                  </button>
+
+                  <button
+                    type="button"
                     onClick={handleOpenProfileSettings}
                     className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50"
                   >
@@ -5362,8 +5731,8 @@ export default function GraduatePortal() {
 
       <MobileBottomNav items={mobileBottomNavItems} ariaLabel="Graduate portal mobile navigation" className="xl:hidden" />
 
-      <main className={`relative z-0 mx-auto max-w-screen-2xl px-3 py-4 sm:px-6 sm:py-6 xl:pb-10 ${activeTab === 'jobs' ? 'pb-[calc(7rem+env(safe-area-inset-bottom))]' : 'pb-[calc(6rem+env(safe-area-inset-bottom))]'}`}>
-        <section className="mb-4 flex flex-col gap-3 border-b border-slate-200 pb-4 sm:mb-5 sm:gap-4 sm:pb-5 lg:flex-row lg:items-center lg:justify-between">
+      <main className={`relative z-0 mx-auto max-w-screen-2xl px-3 py-4 sm:px-6 sm:py-6 xl:pb-10 ${['jobs', 'saved_jobs'].includes(activeTab) ? 'pb-[calc(7rem+env(safe-area-inset-bottom))]' : 'pb-[calc(6rem+env(safe-area-inset-bottom))]'}`}>
+        <section className={`${activeTab === 'jobs' ? 'hidden' : 'mb-4 flex'} flex-col gap-3 border-b border-slate-200 pb-4 sm:mb-5 sm:gap-4 sm:pb-5 lg:flex-row lg:items-center lg:justify-between`}>
           <div className="flex min-w-0 items-start gap-3">
             <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-700 text-white shadow-sm sm:h-12 sm:w-12 sm:rounded-2xl">
               <ActiveNavIcon className="h-5 w-5 sm:h-6 sm:w-6" />
@@ -5378,12 +5747,14 @@ export default function GraduatePortal() {
         </section>
 
           {loading ? (
-            <div className="flex min-h-[300px] items-center justify-center rounded-[32px] border border-slate-200 bg-white">
-              <div className="flex items-center gap-3 text-slate-500">
-                <Loader2 className="h-5 w-5 animate-spin" />
-                Loading your graduate portal...
-              </div>
-            </div>
+            activeTab === 'jobs'
+              ? <JobsPageSkeleton />
+              : <div className="flex min-h-[300px] items-center justify-center rounded-[32px] border border-slate-200 bg-white">
+                  <div className="flex items-center gap-3 text-slate-500">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Loading your graduate portal...
+                  </div>
+                </div>
           ) : (
             <>
               {activeTab === 'announcements' && (
@@ -5676,131 +6047,210 @@ export default function GraduatePortal() {
               )}
 
               {activeTab === 'jobs' && !unavailableForTab(activeTab) && (
-                <section className="min-w-0 space-y-4 sm:space-y-5">
-                  <div className="min-w-0 rounded-3xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:rounded-[32px] sm:p-5">
-                    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                      <div>
-                        <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Browse Jobs</h2>
-                        <p className="text-sm text-slate-500 dark:text-slate-400">Approved job opportunities stay separate from Community Forum discussions.</p>
-                      </div>
-                      <div className="rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200">
-                        {filteredJobs.length} job{filteredJobs.length === 1 ? '' : 's'}
-                      </div>
+                <section className="min-w-0 space-y-4 sm:space-y-5" aria-labelledby="browse-jobs-title">
+                  <div className="relative min-h-[160px] min-w-0 overflow-hidden rounded-[28px] border border-blue-200 bg-blue-950 shadow-sm dark:border-blue-500/30">
+                    <img src="/browse-jobs-city.jpg" alt="" className="absolute inset-0 h-full w-full object-cover object-center" aria-hidden="true" />
+                    <div className="absolute inset-0 bg-gradient-to-r from-slate-950/90 via-blue-950/70 to-blue-900/20" aria-hidden="true" />
+                    <div className="relative z-10 flex min-h-[160px] max-w-2xl flex-col justify-center px-5 py-6 sm:px-8 sm:py-7">
+                      <p className="text-xs font-bold uppercase tracking-[0.18em] text-blue-200">Graduate opportunities</p>
+                      <h1 id="browse-jobs-title" className="mt-2 text-2xl font-bold tracking-tight text-white sm:text-3xl">Browse Jobs</h1>
+                      <p className="mt-2 text-sm leading-6 text-blue-50/90 sm:text-base">Find opportunities matched to your program and career goals.</p>
                     </div>
-
-                    <label className="relative mt-4 block">
-                      <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
-                      <input value={jobSearch} onChange={(event) => setJobSearch(event.target.value)} placeholder="Search jobs by title, company, skills, location, or program fit" className="w-full rounded-2xl border border-slate-200 bg-[#fafbff] px-11 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:placeholder:text-slate-500" />
-                    </label>
                   </div>
 
-                  {filteredJobs.length === 0 ? (
-                    <div className="rounded-[32px] border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400">
-                      No approved jobs match your search right now.
+                  <form onSubmit={(event) => event.preventDefault()} className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:p-4" role="search">
+                    <div className="grid min-w-0 gap-3 lg:grid-cols-[minmax(240px,2fr)_minmax(150px,1fr)_minmax(140px,1fr)_minmax(150px,1fr)_auto]">
+                      <label className="relative block min-w-0">
+                        <span className="sr-only">Search jobs, companies, or keywords</span>
+                        <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                        <input value={jobSearch} onChange={(event) => setJobSearch(event.target.value)} placeholder="Search jobs, companies, or keywords..." className="h-11 w-full min-w-0 rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-blue-400 dark:focus:ring-blue-900" />
+                      </label>
+                      <div className="hidden lg:block">
+                        <label htmlFor="jobs-location-search" className="sr-only">Location</label>
+                        <JobLocationCombobox id="jobs-location-search" value={jobLocationFilter} options={searchableJobLocations} loading={jobLocationsLoading} onChange={setJobLocationFilter} placeholder="City, province, or remote" />
+                      </div>
+                      <label className="hidden lg:block">
+                        <span className="sr-only">Job type</span>
+                        <select value={jobTypeFilters.length === 1 ? jobTypeFilters[0] : ''} onChange={(event) => setJobTypeFilters(event.target.value ? [event.target.value] : [])} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">
+                          <option value="">All Types</option>
+                          {jobFilterOptions.jobTypes.map((jobType) => <option key={jobType} value={jobType}>{formatEmploymentType(jobType)}</option>)}
+                        </select>
+                      </label>
+                      <label className="hidden lg:block">
+                        <span className="sr-only">Program fit</span>
+                        <select value={jobProgramFitFilters.length === 1 ? jobProgramFitFilters[0] : ''} onChange={(event) => setJobProgramFitFilters(event.target.value ? [event.target.value] : [])} className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">
+                          <option value="">All Graduates</option>
+                          {jobFilterOptions.programFits.map((program) => <option key={program} value={program}>{program}</option>)}
+                        </select>
+                      </label>
+                      <div className="flex min-w-0 gap-2">
+                        <button type="button" onClick={() => setMobileJobFiltersOpen(true)} className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 md:hidden dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+                          <Filter className="h-4 w-4" /> Filters
+                          {activeJobFilterCount > 0 && <span className="rounded-full bg-blue-700 px-1.5 py-0.5 text-[10px] font-bold text-white">{activeJobFilterCount}</span>}
+                        </button>
+                        <button type="submit" className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-blue-700 px-5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-800 focus-visible:ring-2 focus-visible:ring-blue-300 lg:flex-none">
+                          <Search className="h-4 w-4" /> Search
+                        </button>
+                      </div>
+                    </div>
+                  </form>
+
+                  <div className="grid min-w-0 gap-5 md:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[280px_minmax(0,1fr)]">
+                    <aside className="hidden md:block">
+                      <div className="sticky top-[calc(var(--graduate-portal-header-height)+var(--graduate-portal-sticky-gap))] rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+                        <JobFiltersPanel
+                          options={jobFilterOptions}
+                          locationOptions={searchableJobLocations}
+                          locationsLoading={jobLocationsLoading}
+                          locationInputId="job-filter-location-desktop"
+                          keyword={jobSearch}
+                          location={jobLocationFilter}
+                          jobTypes={jobTypeFilters}
+                          programFits={jobProgramFitFilters}
+                          industries={jobIndustryFilters}
+                          activeFilterCount={activeJobFilterCount}
+                          onKeywordChange={setJobSearch}
+                          onLocationChange={setJobLocationFilter}
+                          onJobTypesChange={setJobTypeFilters}
+                          onProgramFitsChange={setJobProgramFitFilters}
+                          onIndustriesChange={setJobIndustryFilters}
+                          onClear={clearJobFilters}
+                        />
+                      </div>
+                    </aside>
+
+                    <div className="min-w-0">
+                      {jobsLoading ? (
+                        <JobResultsSkeleton />
+                      ) : jobsError ? (
+                        <div className="flex min-h-80 flex-col items-center justify-center rounded-2xl border border-rose-100 bg-white px-6 py-12 text-center shadow-sm dark:border-rose-500/30 dark:bg-slate-900">
+                          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-300"><AlertCircle className="h-6 w-6" /></span>
+                          <h2 className="mt-4 text-lg font-bold text-slate-900 dark:text-slate-100">Unable to load job opportunities.</h2>
+                          <p className="mt-2 max-w-md text-sm leading-6 text-slate-500 dark:text-slate-400">Please check your connection and try again. Your filters and saved jobs have not been changed.</p>
+                          <button type="button" onClick={() => void loadJobs()} className="mt-5 inline-flex items-center gap-2 rounded-xl bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800"><ArrowRight className="h-4 w-4" /> Try Again</button>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:flex-row sm:items-center sm:justify-between">
+                            <p className="text-sm font-semibold text-slate-800 dark:text-slate-100" aria-live="polite"><span className="text-blue-700 dark:text-blue-300">{filteredJobs.length}</span> job{filteredJobs.length === 1 ? '' : 's'} found</p>
+                            <label className="flex items-center gap-2 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                              <span className="shrink-0">Sort by:</span>
+                              <select value={jobSort} onChange={(event) => setJobSort(event.target.value as JobSortOption)} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200">
+                                <option value="recent">Most Recent</option>
+                                <option value="oldest">Oldest</option>
+                                <option value="deadline">Deadline Soonest</option>
+                              </select>
+                            </label>
+                          </div>
+
+                          {filteredJobs.length === 0 ? (
+                            <div className="flex min-h-80 flex-col items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center dark:border-slate-700 dark:bg-slate-900">
+                              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"><Briefcase className="h-7 w-7" /></span>
+                              <h2 className="mt-4 text-lg font-bold text-slate-900 dark:text-slate-100">No jobs found</h2>
+                              <p className="mt-2 max-w-md text-sm leading-6 text-slate-500 dark:text-slate-400">We couldn&apos;t find jobs matching your current filters.</p>
+                              {activeJobFilterCount > 0 && <button type="button" onClick={clearJobFilters} className="mt-5 rounded-xl border border-blue-200 bg-blue-50 px-5 py-2.5 text-sm font-semibold text-blue-700 transition hover:bg-blue-100 dark:border-blue-500/40 dark:bg-blue-950/30 dark:text-blue-200">Clear Filters</button>}
+                            </div>
+                          ) : (
+                            <div className="grid min-w-0 gap-4 xl:grid-cols-2">
+                              {filteredJobs.map((job) => (
+                                <JobCard
+                                  key={job.id}
+                                  job={job}
+                                  saved={savedJobIds.has(job.id)}
+                                  saving={savingJobIds.includes(job.id)}
+                                  highlighted={highlightedJobId === job.id}
+                                  elementRef={(element) => { jobCardRefs.current[job.id] = element; }}
+                                  onOpenProfile={openCommunityProfile}
+                                  onToggleSave={toggleSavedJob}
+                                  onShare={openShareJob}
+                                  onViewDetails={openJobDetails}
+                                />
+                              ))}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {mobileJobFiltersOpen && (
+                    <div className="fixed inset-0 z-[80] md:hidden">
+                      <button type="button" onClick={() => setMobileJobFiltersOpen(false)} className="absolute inset-0 bg-slate-950/45" aria-label="Close filters" />
+                      <div role="dialog" aria-modal="true" aria-labelledby="mobile-job-filters-title" className="job-filter-sheet-enter absolute inset-x-0 bottom-0 flex max-h-[88vh] flex-col rounded-t-[28px] border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+                      <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-700">
+                        <div>
+                          <p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-700 dark:text-blue-300">Refine results</p>
+                          <h2 id="mobile-job-filters-title" className="mt-1 text-xl font-bold text-slate-900 dark:text-slate-100">Filters</h2>
+                        </div>
+                        <button type="button" onClick={() => setMobileJobFiltersOpen(false)} className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Close filters"><X className="h-5 w-5" /></button>
+                      </div>
+                      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
+                        <JobFiltersPanel
+                          options={jobFilterOptions}
+                          locationOptions={searchableJobLocations}
+                          locationsLoading={jobLocationsLoading}
+                          locationInputId="job-filter-location-mobile"
+                          keyword={jobSearch}
+                          location={jobLocationFilter}
+                          jobTypes={jobTypeFilters}
+                          programFits={jobProgramFitFilters}
+                          industries={jobIndustryFilters}
+                          activeFilterCount={activeJobFilterCount}
+                          onKeywordChange={setJobSearch}
+                          onLocationChange={setJobLocationFilter}
+                          onJobTypesChange={setJobTypeFilters}
+                          onProgramFitsChange={setJobProgramFitFilters}
+                          onIndustriesChange={setJobIndustryFilters}
+                          onClear={clearJobFilters}
+                          showHeading={false}
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 border-t border-slate-100 bg-white px-5 pb-[calc(1rem+env(safe-area-inset-bottom))] pt-4 dark:border-slate-700 dark:bg-slate-900">
+                        <button type="button" onClick={clearJobFilters} disabled={activeJobFilterCount === 0} className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">Clear all</button>
+                        <button type="button" onClick={() => setMobileJobFiltersOpen(false)} className="rounded-xl bg-blue-700 px-4 py-3 text-sm font-semibold text-white transition hover:bg-blue-800">Show {filteredJobs.length} job{filteredJobs.length === 1 ? '' : 's'}</button>
+                      </div>
+                      </div>
+                    </div>
+                  )}
+                </section>
+              )}
+
+              {activeTab === 'saved_jobs' && unavailableForTab(activeTab) && (
+                <FeatureUnavailable compact {...unavailableForTab(activeTab)!} />
+              )}
+
+              {activeTab === 'saved_jobs' && !unavailableForTab(activeTab) && (
+                <section className="min-w-0 space-y-4 sm:space-y-5">
+                  <div className="flex flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100">Saved Jobs</h2>
+                      <p className="text-sm text-slate-500 dark:text-slate-400">Only active, approved, and unexpired saved opportunities appear here.</p>
+                    </div>
+                    <div className="self-start rounded-full bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-200 sm:self-auto">
+                      {savedJobs.length} saved job{savedJobs.length === 1 ? '' : 's'}
+                    </div>
+                  </div>
+
+                  {savedJobs.length === 0 ? (
+                    <div className="rounded-[32px] border border-dashed border-slate-300 bg-white p-10 text-center dark:border-slate-700 dark:bg-slate-900">
+                      <Bookmark className="mx-auto h-9 w-9 text-slate-300 dark:text-slate-600" />
+                      <p className="mt-3 text-sm font-semibold text-slate-700 dark:text-slate-200">No saved jobs yet.</p>
+                      <button type="button" onClick={() => selectTab('jobs')} className="mt-4 rounded-full bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-800">Browse Jobs</button>
                     </div>
                   ) : (
                     <div className="grid min-w-0 gap-4 sm:gap-5 lg:grid-cols-2">
-                      {filteredJobs.map((job) => {
-                        const applicationLink = normalizeApplicationLink(job.application_link);
-                        const posterName = getJobPosterName(job);
-                        const posterProgram = getJobPosterProgram(job);
-                        const hasApplyDetails = Boolean(job.contact_email || applicationLink || job.application_method);
-                        const detailItems = [
-                          { icon: MapPin, label: 'Location', value: job.location || 'Not specified' },
-                          { icon: GraduationCap, label: 'Program Fit', value: getJobProgramFit(job) },
-                          ...(job.industry ? [{ icon: Building2, label: 'Industry', value: job.industry }] : []),
-                          ...(job.salary_range ? [{ icon: Briefcase, label: 'Salary', value: job.salary_range }] : []),
-                        ];
-
-                        return (
-                          <article
-                            key={job.id}
-                            ref={(element) => { jobCardRefs.current[job.id] = element; }}
-                            className={`flex h-full w-full min-w-0 flex-col overflow-hidden rounded-3xl border p-4 shadow-sm transition sm:rounded-[28px] sm:p-6 ${
-                              highlightedJobId === job.id
-                                ? 'border-blue-300 bg-blue-50/50 ring-2 ring-blue-200 dark:border-blue-500/70 dark:bg-blue-950/30 dark:ring-blue-500/30'
-                                : 'border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900'
-                            }`}
-                          >
-                            <div className="flex min-w-0 flex-col items-start gap-3 sm:flex-row sm:justify-between sm:gap-4">
-                              <button
-                                type="button"
-                                onClick={() => job.poster_graduate_id && openCommunityProfile(job.poster_graduate_id)}
-                                className="flex w-full min-w-0 items-center gap-3 text-left sm:w-auto sm:flex-1"
-                                disabled={!job.poster_graduate_id}
-                              >
-                                <Avatar src={resolveAssetUrl(job.poster_profile_image_path)} label={posterName} size="md" />
-                                <span className="min-w-0">
-                                  <span className="block break-words text-sm font-semibold text-slate-900 transition [overflow-wrap:anywhere] hover:text-blue-700 dark:text-slate-100 dark:hover:text-blue-300 sm:truncate">{posterName}</span>
-                                  <span className="block break-words text-xs text-slate-500 [overflow-wrap:anywhere] dark:text-slate-400">
-                                    {posterProgram} - {getJobPostedLabel(job)}
-                                  </span>
-                                </span>
-                              </button>
-
-                              <span className="max-w-full self-start break-words rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700 [overflow-wrap:anywhere] dark:border-blue-500/40 dark:bg-blue-500/10 dark:text-blue-200 sm:shrink-0">
-                                {formatEmploymentType(job.job_type)}
-                              </span>
-                            </div>
-
-                            <div className="mt-5 min-w-0">
-                              <p className="flex min-w-0 items-start gap-1.5 text-sm font-semibold text-slate-500 dark:text-slate-400">
-                                <Building2 className="mt-0.5 h-4 w-4 shrink-0 text-blue-500 dark:text-blue-300" />
-                                <span className="min-w-0 break-words [overflow-wrap:anywhere]">{job.company || 'Company not specified'}</span>
-                              </p>
-                              <h3 className="mt-2 break-words text-lg font-bold leading-snug text-slate-950 [overflow-wrap:anywhere] dark:text-slate-50 sm:text-xl">{job.title}</h3>
-                            </div>
-
-                            <p className="mt-3 min-h-0 whitespace-pre-line break-words text-sm leading-6 text-slate-600 [overflow-wrap:anywhere] dark:text-slate-300 sm:min-h-[4.5rem]">
-                              {previewText(job.description || 'No description provided yet.', 180)}
-                            </p>
-
-                            <div className="mt-5 flex flex-wrap gap-2">
-                              {detailItems.map((item) => (
-                                <JobInfoChip key={`${job.id}-${item.label}`} icon={item.icon} label={item.label} value={item.value} />
-                              ))}
-                            </div>
-
-                            <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-700">
-                              <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">How to Apply</p>
-                              {hasApplyDetails ? (
-                                <div className="mt-2 flex min-w-0 flex-col items-start gap-2 text-sm text-slate-600 dark:text-slate-300 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4">
-                                  {job.contact_email && (
-                                    <a href={`mailto:${job.contact_email}`} className="inline-flex max-w-full min-w-0 items-start gap-1.5 font-medium text-blue-700 hover:underline dark:text-blue-300">
-                                      <Mail className="h-4 w-4 shrink-0" />
-                                      <span className="min-w-0 break-all">{job.contact_email}</span>
-                                    </a>
-                                  )}
-                                  {applicationLink && (
-                                    <a href={applicationLink} target="_blank" rel="noreferrer" className="inline-flex max-w-full min-w-0 items-start gap-1.5 font-medium text-blue-700 hover:underline dark:text-blue-300">
-                                      <FileText className="h-4 w-4 shrink-0" />
-                                      <span className="min-w-0 break-words [overflow-wrap:anywhere]">Application link</span>
-                                    </a>
-                                  )}
-                                  {job.application_method && <p className="w-full min-w-0 whitespace-pre-line break-words text-slate-600 [overflow-wrap:anywhere] dark:text-slate-300">{previewText(job.application_method, 120)}</p>}
-                                </div>
-                              ) : (
-                                <p className="mt-2 text-sm text-slate-500 dark:text-slate-400">Application details are not specified.</p>
-                              )}
-                            </div>
-
-                            <div className="mt-auto flex flex-col items-stretch gap-3 pt-5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-                              {job.application_deadline ? (
-                                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-500 dark:text-slate-400">
-                                  <CalendarDays className="h-4 w-4 text-slate-400 dark:text-slate-500" />
-                                  Deadline {formatDate(job.application_deadline)}
-                                </span>
-                              ) : (
-                                <span className="text-xs font-medium text-slate-400 dark:text-slate-500">No deadline specified</span>
-                              )}
-                              <button type="button" onClick={() => void openJobDetails(job)} className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-800 sm:w-auto">
-                                <FileText className="h-4 w-4" />
-                                View Details
-                              </button>
-                            </div>
-                          </article>
-                        );
-                      })}
+                      {savedJobs.map((job) => (
+                        <JobCard
+                          key={job.id}
+                          job={job}
+                          saved
+                          saving={savingJobIds.includes(job.id)}
+                          onOpenProfile={openCommunityProfile}
+                          onToggleSave={toggleSavedJob}
+                          onShare={openShareJob}
+                          onViewDetails={openJobDetails}
+                        />
+                      ))}
                     </div>
                   )}
                 </section>
@@ -5855,9 +6305,10 @@ export default function GraduatePortal() {
                       </div>
 
                       <div className="grid gap-4 md:grid-cols-3">
-                        <Field label="Location">
-                          <input value={myJobForm.location} onChange={(event) => setMyJobForm((current) => ({ ...current, location: event.target.value }))} className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-500" />
-                        </Field>
+                        <div className="min-w-0">
+                          <label htmlFor="graduate-job-location" className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">Location</label>
+                          <JobLocationCombobox id="graduate-job-location" value={myJobForm.location} options={searchableJobLocations} loading={jobLocationsLoading} onChange={(value) => setMyJobForm((current) => ({ ...current, location: value }))} placeholder="City, province, or remote" inputClassName="h-[46px] w-full rounded-2xl border border-slate-200 bg-white pl-10 pr-9 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+                        </div>
                         <Field label="Salary Range">
                           <input value={myJobForm.salary_range} onChange={(event) => setMyJobForm((current) => ({ ...current, salary_range: event.target.value }))} className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-500" />
                         </Field>
@@ -5866,7 +6317,7 @@ export default function GraduatePortal() {
                             <option value="full_time">Full time</option>
                             <option value="part_time">Part time</option>
                             <option value="contract">Contract</option>
-                            <option value="internship">Internship</option>
+                            {myJobForm.id && myJobForm.job_type === 'internship' && <option value="internship">Internship (legacy post)</option>}
                             <option value="remote">Remote</option>
                           </select>
                         </Field>
@@ -5880,9 +6331,7 @@ export default function GraduatePortal() {
                         <Field label="Required Skills">
                           <textarea value={myJobForm.required_skills} onChange={(event) => setMyJobForm((current) => ({ ...current, required_skills: event.target.value }))} rows={3} className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-500" />
                         </Field>
-                        <Field label="Course / Program Fit">
-                          <textarea value={myJobForm.course_program_fit} onChange={(event) => setMyJobForm((current) => ({ ...current, course_program_fit: event.target.value }))} rows={3} className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-blue-500" />
-                        </Field>
+                        <JobProgramFitPicker id="graduate-job-program-fit" programs={jobPrograms} value={myJobForm.course_program_fit} onChange={(value) => setMyJobForm((current) => ({ ...current, course_program_fit: value }))} />
                       </div>
 
                       <div className="grid gap-4 md:grid-cols-2">
@@ -6241,6 +6690,55 @@ export default function GraduatePortal() {
           onChange={() => changeProfileImageFromViewer(profileImageViewer.kind)}
           onRemove={() => requestProfileImageRemoval(profileImageViewer.kind)}
         />
+      )}
+
+      {shareJob && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/55 px-3 py-4 sm:px-4 sm:py-6">
+          <form onSubmit={handleShareJob} className="flex max-h-[92vh] w-full max-w-xl flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-5 py-4 dark:border-slate-700 sm:px-6 sm:py-5">
+              <div className="min-w-0">
+                <p className="text-xs font-bold uppercase tracking-[0.16em] text-blue-700 dark:text-blue-300">GradTrack Messages</p>
+                <h2 className="mt-1 text-2xl font-bold text-slate-900 dark:text-slate-100">Share Job</h2>
+                <p className="mt-1 truncate text-sm text-slate-500 dark:text-slate-400">{shareJob.title} at {shareJob.company}</p>
+              </div>
+              <button type="button" onClick={closeShareJob} disabled={shareSubmitting} className="rounded-full p-2 text-slate-500 hover:bg-slate-100 disabled:opacity-50 dark:hover:bg-slate-800" aria-label="Close Share Job"><X className="h-5 w-5" /></button>
+            </div>
+
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4 sm:px-6 sm:py-5">
+              <label className="relative block">
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input value={shareSearch} onChange={(event) => setShareSearch(event.target.value)} placeholder="Search alumni..." className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-11 py-3 text-sm outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" />
+              </label>
+
+              <div>
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Select alumnus or graduate</p>
+                <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+                  {filteredShareDirectory.length === 0 ? (
+                    <div className="rounded-2xl border border-dashed border-slate-300 px-4 py-7 text-center text-sm text-slate-500 dark:border-slate-700 dark:text-slate-400">No accessible graduates match your search.</div>
+                  ) : filteredShareDirectory.map((participant) => (
+                    <label key={participant.graduate_id} className={`flex cursor-pointer items-center gap-3 rounded-2xl border px-4 py-3 transition ${shareRecipientId === participant.graduate_id ? 'border-blue-300 bg-blue-50 dark:border-blue-500 dark:bg-blue-950/30' : 'border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800'}`}>
+                      <input type="radio" name="share_recipient" value={participant.graduate_id} checked={shareRecipientId === participant.graduate_id} onChange={() => setShareRecipientId(participant.graduate_id)} />
+                      <Avatar src={resolveAssetUrl(participant.profile_image_path)} label={participant.full_name} size="sm" />
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-semibold text-slate-900 dark:text-slate-100">{participant.full_name}</span>
+                        <span className="block text-xs text-slate-500 dark:text-slate-400">{participant.program_code || 'Graduate'}{participant.year_graduated ? ` - Batch ${participant.year_graduated}` : ''}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              <Field label="Optional message">
+                <textarea value={shareMessage} onChange={(event) => setShareMessage(event.target.value)} maxLength={500} rows={3} placeholder="Hi, I thought you might be interested in this job." className="w-full resize-none rounded-2xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" />
+              </Field>
+            </div>
+
+            <div className="flex flex-col-reverse gap-2 border-t border-slate-100 px-5 py-4 dark:border-slate-700 sm:flex-row sm:justify-end sm:px-6">
+              <button type="button" onClick={closeShareJob} disabled={shareSubmitting} className="rounded-full border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-600 dark:text-slate-200 dark:hover:bg-slate-800">Cancel</button>
+              <button type="submit" disabled={shareSubmitting || !shareRecipientId} className="inline-flex items-center justify-center gap-2 rounded-full bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">{shareSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Share2 className="h-4 w-4" />} Share Job</button>
+            </div>
+          </form>
+        </div>
       )}
 
       {selectedJob && (
@@ -6691,6 +7189,7 @@ export default function GraduatePortal() {
           onRemoveAttachment={removeChatAttachment}
           onRetryAttachment={handleRetryAttachment}
           onOpenProfile={openMiniProfile}
+          onViewJob={openSharedJob}
         />
       )}
 
@@ -8119,6 +8618,217 @@ function SummaryPill({
   );
 }
 
+function JobFiltersPanel({
+  options,
+  locationOptions,
+  locationsLoading,
+  locationInputId,
+  keyword,
+  location,
+  jobTypes,
+  programFits,
+  industries,
+  activeFilterCount,
+  onKeywordChange,
+  onLocationChange,
+  onJobTypesChange,
+  onProgramFitsChange,
+  onIndustriesChange,
+  onClear,
+  showHeading = true,
+}: {
+  options: JobFilterOptions;
+  locationOptions: JobLocationOption[];
+  locationsLoading: boolean;
+  locationInputId: string;
+  keyword: string;
+  location: string;
+  jobTypes: string[];
+  programFits: string[];
+  industries: string[];
+  activeFilterCount: number;
+  onKeywordChange: (value: string) => void;
+  onLocationChange: (value: string) => void;
+  onJobTypesChange: (value: string[]) => void;
+  onProgramFitsChange: (value: string[]) => void;
+  onIndustriesChange: (value: string[]) => void;
+  onClear: () => void;
+  showHeading?: boolean;
+}) {
+  const toggleValue = (values: string[], value: string, onChange: (next: string[]) => void) => {
+    onChange(values.includes(value) ? values.filter((item) => item !== value) : [...values, value]);
+  };
+
+  const checkboxGroup = (
+    title: string,
+    values: string[],
+    selectedValues: string[],
+    onChange: (value: string[]) => void,
+    formatValue: (value: string) => string = (value) => value,
+  ) => values.length > 0 && (
+    <fieldset className="border-t border-slate-100 pt-5 dark:border-slate-800">
+      <legend className="text-xs font-bold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">{title}</legend>
+      <div className="mt-3 max-h-44 space-y-2.5 overflow-y-auto pr-1">
+        {values.map((value) => (
+          <label key={value} className="flex cursor-pointer items-start gap-2.5 text-sm text-slate-700 dark:text-slate-200">
+            <input
+              type="checkbox"
+              checked={selectedValues.includes(value)}
+              onChange={() => toggleValue(selectedValues, value, onChange)}
+              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-700 focus:ring-blue-500"
+            />
+            <span className="min-w-0 break-words leading-5 [overflow-wrap:anywhere]">{formatValue(value)}</span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+
+  return (
+    <div className="space-y-5">
+      {showHeading && (
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <SlidersHorizontal className="h-4 w-4 text-blue-700 dark:text-blue-300" />
+            <h2 className="text-base font-bold text-slate-900 dark:text-slate-100">Filters</h2>
+          </div>
+          <button type="button" onClick={onClear} disabled={activeFilterCount === 0} className="text-xs font-semibold text-blue-700 transition hover:text-blue-900 disabled:cursor-not-allowed disabled:text-slate-300 dark:text-blue-300 dark:hover:text-blue-200 dark:disabled:text-slate-600">Clear all</button>
+        </div>
+      )}
+
+      <label className="block">
+        <span className="mb-2 block text-xs font-bold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">Keyword</span>
+        <span className="relative block">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <input value={keyword} onChange={(event) => onKeywordChange(event.target.value)} placeholder="Title, company, or keyword" className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-sm text-slate-900 outline-none transition focus:border-blue-500 focus:bg-white focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100" />
+        </span>
+      </label>
+
+      <div className="block border-t border-slate-100 pt-5 dark:border-slate-800">
+        <label htmlFor={locationInputId} className="mb-2 block text-xs font-bold uppercase tracking-[0.12em] text-slate-500 dark:text-slate-400">Location</label>
+        <JobLocationCombobox id={locationInputId} value={location} options={locationOptions} loading={locationsLoading} onChange={onLocationChange} placeholder="City, province, or remote" />
+      </div>
+
+      {checkboxGroup('Job Type', options.jobTypes, jobTypes, onJobTypesChange, formatEmploymentType)}
+      {checkboxGroup('Program Fit', options.programFits, programFits, onProgramFitsChange)}
+      {checkboxGroup('Industry', options.industries, industries, onIndustriesChange)}
+    </div>
+  );
+}
+
+function JobCard({
+  job,
+  saved,
+  saving,
+  highlighted = false,
+  elementRef,
+  onOpenProfile,
+  onToggleSave,
+  onShare,
+  onViewDetails,
+}: {
+  job: JobPost;
+  saved: boolean;
+  saving: boolean;
+  highlighted?: boolean;
+  elementRef?: (element: HTMLElement | null) => void;
+  onOpenProfile: (graduateId: number) => void;
+  onToggleSave: (job: JobPost) => void | Promise<void>;
+  onShare: (job: JobPost) => void;
+  onViewDetails: (job: JobPost) => void | Promise<void>;
+}) {
+  const posterName = getJobPosterName(job);
+  const posterProgram = getJobPosterProgram(job);
+  const officialPost = Boolean(job.created_by_admin_id || job.creator_role);
+  const hasApplicationDetails = Boolean(job.contact_email || job.application_link || job.application_method || job.requirements_file_path);
+  const externalApplication = Boolean(normalizeApplicationLink(job.application_link));
+  const deadlinePassed = isJobDeadlinePast(job.application_deadline);
+  const detailItems = [
+    ...(job.location ? [{ icon: MapPin, label: 'Location', value: job.location }] : []),
+    ...(job.salary_range ? [{ icon: Briefcase, label: 'Salary', value: job.salary_range }] : []),
+    ...(job.industry ? [{ icon: Building2, label: 'Industry', value: job.industry }] : []),
+    ...(job.course_program_fit ? [{ icon: GraduationCap, label: 'Program Fit', value: job.course_program_fit }] : []),
+  ];
+
+  return (
+    <article
+      ref={elementRef}
+      className={`group flex h-full min-w-0 flex-col overflow-hidden rounded-2xl border bg-white p-4 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md dark:bg-slate-900 sm:p-5 ${highlighted ? 'border-blue-300 ring-2 ring-blue-100 dark:border-blue-500 dark:ring-blue-500/20' : 'border-slate-200 dark:border-slate-700'}`}
+    >
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <button type="button" onClick={() => job.poster_graduate_id && onOpenProfile(job.poster_graduate_id)} disabled={!job.poster_graduate_id} className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left disabled:cursor-default">
+          <Avatar src={resolveAssetUrl(job.poster_profile_image_path)} label={posterName} size="md" />
+          <span className="min-w-0">
+            <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+              <span className="max-w-full truncate text-sm font-bold text-slate-900 transition group-hover:text-blue-800 dark:text-slate-100 dark:group-hover:text-blue-300">{posterName}</span>
+              {officialPost && <span title="Official GradTrack personnel" className="inline-flex shrink-0 items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-bold text-blue-700 dark:bg-blue-950/40 dark:text-blue-200"><ShieldCheck className="h-3 w-3" /> Official</span>}
+            </span>
+            <span className="mt-0.5 block truncate text-xs text-slate-500 dark:text-slate-400">{posterProgram} · {getJobPostedLabel(job)}</span>
+          </span>
+        </button>
+        <span className="max-w-[42%] shrink-0 break-words rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-center text-[11px] font-bold leading-4 text-blue-700 dark:border-blue-500/30 dark:bg-blue-950/30 dark:text-blue-200">{formatEmploymentType(job.job_type)}</span>
+      </div>
+
+      <div className="mt-5 min-w-0">
+        <p className="flex min-w-0 items-start gap-1.5 text-sm font-semibold text-slate-500 dark:text-slate-400"><Building2 className="mt-0.5 h-4 w-4 shrink-0 text-blue-600 dark:text-blue-300" /><span className="min-w-0 break-words [overflow-wrap:anywhere]">{job.company || 'Company not specified'}</span></p>
+        <h3 className="mt-2 break-words text-xl font-bold leading-snug tracking-tight text-slate-950 [overflow-wrap:anywhere] dark:text-white">{job.title}</h3>
+      </div>
+
+      <p className="mt-3 min-h-[4.5rem] overflow-hidden whitespace-pre-line break-words text-sm leading-6 text-slate-600 [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:3] [overflow-wrap:anywhere] dark:text-slate-300">{job.description || 'No description provided yet.'}</p>
+
+      {detailItems.length > 0 && <div className="mt-4 flex flex-wrap gap-2">{detailItems.map((item) => <JobInfoChip key={`${job.id}-${item.label}`} icon={item.icon} label={item.label} value={item.value} />)}</div>}
+
+      {hasApplicationDetails && (
+        <p className="mt-4 inline-flex items-center gap-1.5 self-start text-xs font-semibold text-slate-500 dark:text-slate-400">
+          <FileText className="h-3.5 w-3.5 text-blue-600 dark:text-blue-300" />
+          {externalApplication ? 'External application' : 'Application details available'}
+        </p>
+      )}
+
+      <div className="mt-auto pt-5">
+        <div className={`flex items-center gap-2 border-t border-slate-100 pt-4 text-xs font-semibold ${deadlinePassed ? 'text-rose-600 dark:text-rose-300' : 'text-slate-500 dark:text-slate-400'} dark:border-slate-800`}>
+          <CalendarDays className="h-4 w-4 shrink-0" />
+          <span>{job.application_deadline ? `Deadline: ${formatDate(job.application_deadline)}` : 'No deadline specified'}</span>
+          {deadlinePassed && <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[10px] font-bold uppercase dark:bg-rose-950/40">Closed</span>}
+        </div>
+        <div className="mt-4 grid min-w-0 grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+          <button type="button" onClick={() => void onToggleSave(job)} disabled={saving} aria-pressed={saved} aria-label={`${saved ? 'Remove' : 'Save'} ${job.title} ${saved ? 'from' : 'to'} Saved Jobs`} className={`inline-flex min-w-0 items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-semibold transition duration-200 disabled:cursor-wait disabled:opacity-60 ${saved ? 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 dark:border-blue-500/40 dark:bg-blue-950/30 dark:text-blue-200' : 'border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800'}`}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bookmark className={`h-4 w-4 transition-transform duration-200 ${saved ? 'fill-current' : ''}`} />}{saved ? 'Saved' : 'Save'}
+          </button>
+          <button type="button" onClick={() => onShare(job)} aria-label={`Share ${job.title}`} className="inline-flex min-w-0 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"><Share2 className="h-4 w-4" /> Share</button>
+          <button type="button" onClick={() => void onViewDetails(job)} className="col-span-2 inline-flex min-w-0 items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-800 sm:col-auto">View Details <ArrowRight className="h-4 w-4" /></button>
+        </div>
+      </div>
+    </article>
+  );
+}
+
+function JobCardSkeleton() {
+  return (
+    <div className="animate-pulse rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900" aria-hidden="true">
+      <div className="flex items-center gap-3"><div className="h-11 w-11 rounded-full bg-slate-200 dark:bg-slate-700" /><div className="flex-1 space-y-2"><div className="h-3 w-32 rounded bg-slate-200 dark:bg-slate-700" /><div className="h-2.5 w-24 rounded bg-slate-100 dark:bg-slate-800" /></div><div className="h-6 w-20 rounded-full bg-blue-100 dark:bg-blue-950" /></div>
+      <div className="mt-6 h-3 w-36 rounded bg-slate-100 dark:bg-slate-800" /><div className="mt-3 h-6 w-3/4 rounded bg-slate-200 dark:bg-slate-700" />
+      <div className="mt-4 space-y-2"><div className="h-3 w-full rounded bg-slate-100 dark:bg-slate-800" /><div className="h-3 w-full rounded bg-slate-100 dark:bg-slate-800" /><div className="h-3 w-2/3 rounded bg-slate-100 dark:bg-slate-800" /></div>
+      <div className="mt-5 flex gap-2"><div className="h-8 w-28 rounded-full bg-blue-50 dark:bg-blue-950/40" /><div className="h-8 w-24 rounded-full bg-blue-50 dark:bg-blue-950/40" /></div>
+      <div className="mt-6 border-t border-slate-100 pt-4 dark:border-slate-800"><div className="h-3 w-36 rounded bg-slate-100 dark:bg-slate-800" /><div className="mt-4 grid grid-cols-3 gap-2"><div className="h-10 rounded-xl bg-slate-100 dark:bg-slate-800" /><div className="h-10 rounded-xl bg-slate-100 dark:bg-slate-800" /><div className="h-10 rounded-xl bg-blue-100 dark:bg-blue-950" /></div></div>
+    </div>
+  );
+}
+
+function JobResultsSkeleton() {
+  return <div className="grid min-w-0 gap-4 xl:grid-cols-2" aria-label="Loading job opportunities"><JobCardSkeleton /><JobCardSkeleton /><JobCardSkeleton /><JobCardSkeleton /></div>;
+}
+
+function JobsPageSkeleton() {
+  return (
+    <section className="space-y-5" aria-label="Loading Browse Jobs">
+      <div className="animate-pulse rounded-[28px] border border-blue-100 bg-blue-50/60 px-6 py-7"><div className="h-3 w-36 rounded bg-blue-100" /><div className="mt-4 h-8 w-48 rounded bg-blue-200/70" /><div className="mt-3 h-4 w-full max-w-lg rounded bg-blue-100" /></div>
+      <div className="animate-pulse rounded-2xl border border-slate-200 bg-white p-4"><div className="h-11 rounded-xl bg-slate-100" /></div>
+      <div className="grid gap-5 md:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[280px_minmax(0,1fr)]"><div className="hidden h-96 animate-pulse rounded-2xl border border-slate-200 bg-white md:block" /><JobResultsSkeleton /></div>
+    </section>
+  );
+}
+
 function JobInfoChip({
   icon: Icon,
   label,
@@ -8129,7 +8839,7 @@ function JobInfoChip({
   value: string;
 }) {
   return (
-    <div className="inline-flex w-full min-w-0 max-w-full items-start gap-2 rounded-2xl border border-slate-200 bg-[#f8fbff] px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300 sm:w-auto sm:rounded-full">
+    <div className="inline-flex min-w-0 max-w-full items-start gap-2 rounded-full border border-slate-200 bg-[#f8fbff] px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-300">
       <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500 dark:text-blue-300" />
       <span className="shrink-0 font-semibold text-slate-500 dark:text-slate-400">{label}:</span>
       <span className="min-w-0 break-words font-medium text-slate-700 [overflow-wrap:anywhere] dark:text-slate-200">{value}</span>

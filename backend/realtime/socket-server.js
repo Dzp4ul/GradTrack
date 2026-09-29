@@ -346,14 +346,16 @@ async function ensureSchema() {
   await addColumnIfMissing('forum_chat_members', 'created_at', 'ALTER TABLE forum_chat_members ADD created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP AFTER hidden_before_message_id');
   await addColumnIfMissing('forum_chat_members', 'updated_at', 'ALTER TABLE forum_chat_members ADD updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at');
   await pool.query('ALTER TABLE forum_chat_messages MODIFY message TEXT NULL');
-  await addColumnIfMissing('forum_chat_messages', 'message_type', "ALTER TABLE forum_chat_messages ADD message_type ENUM('text', 'image', 'file', 'mixed', 'system') NOT NULL DEFAULT 'text' AFTER message");
-  await addColumnIfMissing('forum_chat_messages', 'client_message_id', 'ALTER TABLE forum_chat_messages ADD client_message_id VARCHAR(80) NULL AFTER message_type');
+  await addColumnIfMissing('forum_chat_messages', 'message_type', "ALTER TABLE forum_chat_messages ADD message_type ENUM('text', 'image', 'file', 'mixed', 'system', 'job_share') NOT NULL DEFAULT 'text' AFTER message");
+  await addColumnIfMissing('forum_chat_messages', 'reference_id', 'ALTER TABLE forum_chat_messages ADD reference_id INT NULL AFTER message_type');
+  await addColumnIfMissing('forum_chat_messages', 'client_message_id', 'ALTER TABLE forum_chat_messages ADD client_message_id VARCHAR(80) NULL AFTER reference_id');
   await addColumnIfMissing('forum_chat_messages', 'delivered_at', 'ALTER TABLE forum_chat_messages ADD delivered_at DATETIME NULL AFTER client_message_id');
   await addColumnIfMissing('forum_chat_messages', 'read_at', 'ALTER TABLE forum_chat_messages ADD read_at DATETIME NULL AFTER delivered_at');
   await addColumnIfMissing('forum_chat_messages', 'updated_at', 'ALTER TABLE forum_chat_messages ADD updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at');
   await addColumnIfMissing('forum_chat_messages', 'deleted_at', 'ALTER TABLE forum_chat_messages ADD deleted_at DATETIME NULL AFTER updated_at');
-  if (!(await enumHasValue('forum_chat_messages', 'message_type', 'system'))) {
-    await pool.query("ALTER TABLE forum_chat_messages MODIFY message_type ENUM('text', 'image', 'file', 'mixed', 'system') NOT NULL DEFAULT 'text'");
+  if (!(await enumHasValue('forum_chat_messages', 'message_type', 'system'))
+      || !(await enumHasValue('forum_chat_messages', 'message_type', 'job_share'))) {
+    await pool.query("ALTER TABLE forum_chat_messages MODIFY message_type ENUM('text', 'image', 'file', 'mixed', 'system', 'job_share') NOT NULL DEFAULT 'text'");
   }
 
   await addIndexIfMissing('forum_chat_rooms', 'idx_forum_chat_rooms_last_message', ['last_message_at', 'updated_at', 'id'], false, 'ALTER TABLE forum_chat_rooms ADD INDEX idx_forum_chat_rooms_last_message (last_message_at, updated_at, id)');
@@ -365,6 +367,7 @@ async function ensureSchema() {
   await addIndexIfMissing('forum_chat_messages', 'idx_forum_chat_messages_sender_created', ['graduate_id', 'created_at'], false, 'ALTER TABLE forum_chat_messages ADD INDEX idx_forum_chat_messages_sender_created (graduate_id, created_at)');
   await addIndexIfMissing('forum_chat_messages', 'idx_forum_chat_messages_created', ['created_at', 'id'], false, 'ALTER TABLE forum_chat_messages ADD INDEX idx_forum_chat_messages_created (created_at, id)');
   await addIndexIfMissing('forum_chat_messages', 'uniq_forum_chat_client_message', ['room_id', 'graduate_id', 'client_message_id'], true, 'ALTER TABLE forum_chat_messages ADD UNIQUE KEY uniq_forum_chat_client_message (room_id, graduate_id, client_message_id)');
+  await addIndexIfMissing('forum_chat_messages', 'idx_chat_messages_job_reference', ['message_type', 'reference_id'], false, 'ALTER TABLE forum_chat_messages ADD INDEX idx_chat_messages_job_reference (message_type, reference_id)');
 
   await pool.query(`CREATE TABLE IF NOT EXISTS forum_chat_message_attachments (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -621,17 +624,28 @@ async function getMessageAttachments(messageIds) {
 
 async function fetchMessage(messageId) {
   const [rows] = await pool.query(
-    `SELECT fcm.id, fcm.room_id, fcm.graduate_id, fcm.message, fcm.message_type, fcm.client_message_id,
+    `SELECT fcm.id, fcm.room_id, fcm.graduate_id, fcm.message, fcm.message_type, fcm.reference_id, fcm.client_message_id,
             fcm.delivered_at, fcm.read_at, fcm.created_at, fcm.updated_at,
             COALESCE(NULLIF(profile.first_name, ''), g.first_name) AS first_name,
             COALESCE(NULLIF(profile.last_name, ''), g.last_name) AS last_name,
-            p.code AS sender_program_code, gpi.file_path AS sender_profile_image_path
+            p.code AS sender_program_code, gpi.file_path AS sender_profile_image_path,
+            job.title AS job_title, job.company AS job_company, job.location AS job_location,
+            job.salary_range AS job_salary_range, job.job_type,
+            job.course_program_fit AS job_course_program_fit,
+            job.application_deadline AS job_application_deadline,
+            CASE WHEN job.id IS NOT NULL
+                       AND job.approval_status = 'approved'
+                       AND job.is_active = 1
+                       AND job.archived_at IS NULL
+                       AND (job.application_deadline IS NULL OR job.application_deadline >= CURDATE())
+                 THEN 1 ELSE 0 END AS job_available
        FROM forum_chat_messages fcm
        JOIN graduates g ON g.id = fcm.graduate_id
        LEFT JOIN graduate_accounts ga ON ga.graduate_id = g.id
        LEFT JOIN graduate_profiles profile ON profile.graduate_account_id = ga.id
        LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
        LEFT JOIN programs p ON p.id = g.program_id
+       LEFT JOIN job_posts job ON fcm.message_type = 'job_share' AND job.id = fcm.reference_id
       WHERE fcm.id = ?
         AND fcm.deleted_at IS NULL
       LIMIT 1`,
@@ -644,12 +658,26 @@ async function fetchMessage(messageId) {
 }
 
 function formatMessage(row, attachments = []) {
+  const messageType = row.message_type || 'text';
+  const referenceId = row.reference_id ? Number(row.reference_id) : null;
   return {
     id: Number(row.id),
     room_id: Number(row.room_id),
     graduate_id: Number(row.graduate_id),
     message: row.message || '',
-    message_type: row.message_type || 'text',
+    message_type: messageType,
+    reference_id: referenceId,
+    job_share: messageType === 'job_share' ? {
+      job_id: referenceId,
+      title: row.job_title || null,
+      company: row.job_company || null,
+      location: row.job_location || null,
+      salary_range: row.job_salary_range || null,
+      job_type: row.job_type || null,
+      course_program_fit: row.job_course_program_fit || null,
+      application_deadline: row.job_application_deadline || null,
+      available: Number(row.job_available || 0) === 1,
+    } : null,
     client_message_id: row.client_message_id || null,
     created_at: row.created_at,
     updated_at: row.updated_at || row.created_at,
@@ -664,6 +692,7 @@ function formatMessage(row, attachments = []) {
 }
 
 function previewText(message, messageType) {
+  if (messageType === 'job_share') return 'Shared a job opportunity';
   const clean = String(message || '').trim();
   if (clean) return clean;
   if (messageType === 'image') return 'Photo';
@@ -1252,7 +1281,8 @@ async function loadVisibleJob(jobId) {
                      NULLIF(TRIM(CONCAT_WS(' ', g.first_name, g.middle_name, g.last_name)), ''),
                      NULLIF(TRIM(admin.full_name), ''), 'GradTrack Personnel') AS poster_full_name,
             COALESCE(NULLIF(profile.program_course, ''), p.name) AS poster_program_name,
-            p.code AS poster_program_code, gpi.file_path AS poster_profile_image_path
+            p.code AS poster_program_code, gpi.file_path AS poster_profile_image_path,
+            admin.role AS creator_role
        FROM job_posts jp
        LEFT JOIN graduate_accounts ga ON jp.posted_by_account_id = ga.id
        LEFT JOIN graduates g ON ga.graduate_id = g.id
@@ -1260,7 +1290,11 @@ async function loadVisibleJob(jobId) {
        LEFT JOIN programs p ON g.program_id = p.id
        LEFT JOIN graduate_profile_images gpi ON gpi.graduate_account_id = ga.id
        LEFT JOIN admin_users admin ON admin.id = jp.created_by_admin_id
-      WHERE jp.id = ? AND jp.is_active = 1 AND jp.approval_status = 'approved'
+      WHERE jp.id = ?
+        AND jp.is_active = 1
+        AND jp.approval_status = 'approved'
+        AND jp.archived_at IS NULL
+        AND (jp.application_deadline IS NULL OR jp.application_deadline >= CURDATE())
       LIMIT 1`,
     [jobId],
   );

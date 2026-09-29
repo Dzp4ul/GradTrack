@@ -146,6 +146,21 @@ body {
   transition: background-color 160ms ease, color 160ms ease;
 }
 
+@keyframes job-filter-sheet-in {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.job-filter-sheet-enter {
+  animation: job-filter-sheet-in 200ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .job-filter-sheet-enter {
+    animation: none;
+  }
+}
+
 :focus-visible {
   outline: 2px solid var(--focus-ring) !important;
   outline-offset: 2px !important;

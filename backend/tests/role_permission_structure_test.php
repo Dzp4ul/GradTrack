@@ -35,7 +35,10 @@ $assert(
     'job posting permissions include Research Coordinator, Alumni President, and all Deans'
 );
 $assert(!in_array('mis_staff', gradtrack_job_posting_admin_roles(), true), 'MIS Staff does not inherit job-posting or Coordinator permissions');
-$assert(gradtrack_job_posting_auto_approval_roles() === ['alumni_president'], 'Research Coordinator and Dean job posts retain the approval workflow');
+$assert(
+    gradtrack_job_posting_auto_approval_roles() === gradtrack_job_posting_admin_roles(),
+    'authorized Research Coordinator, Alumni President, and Dean job posts publish directly'
+);
 $assert(gradtrack_audit_viewer_role_is_allowed('admin'), 'Admin can view the audit trail');
 $assert(!gradtrack_audit_viewer_role_is_allowed('research_coordinator'), 'Research Coordinator cannot view the audit trail');
 $assert(!gradtrack_audit_viewer_role_is_allowed('alumni_president'), 'Alumni President cannot view the Research Coordinator audit trail');

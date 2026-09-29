@@ -121,14 +121,19 @@ ALTER TABLE forum_chat_messages MODIFY message TEXT NULL;
 CALL gradtrack_add_column_if_missing(
   'forum_chat_messages',
   'message_type',
-  'ALTER TABLE forum_chat_messages ADD COLUMN message_type ENUM(''text'', ''image'', ''file'', ''mixed'', ''system'') NOT NULL DEFAULT ''text'' AFTER message'
+  'ALTER TABLE forum_chat_messages ADD COLUMN message_type ENUM(''text'', ''image'', ''file'', ''mixed'', ''system'', ''job_share'') NOT NULL DEFAULT ''text'' AFTER message'
 );
 ALTER TABLE forum_chat_messages
-  MODIFY COLUMN message_type ENUM('text', 'image', 'file', 'mixed', 'system') NOT NULL DEFAULT 'text';
+  MODIFY COLUMN message_type ENUM('text', 'image', 'file', 'mixed', 'system', 'job_share') NOT NULL DEFAULT 'text';
+CALL gradtrack_add_column_if_missing(
+  'forum_chat_messages',
+  'reference_id',
+  'ALTER TABLE forum_chat_messages ADD COLUMN reference_id INT NULL AFTER message_type'
+);
 CALL gradtrack_add_column_if_missing(
   'forum_chat_messages',
   'client_message_id',
-  'ALTER TABLE forum_chat_messages ADD COLUMN client_message_id VARCHAR(80) NULL AFTER message_type'
+  'ALTER TABLE forum_chat_messages ADD COLUMN client_message_id VARCHAR(80) NULL AFTER reference_id'
 );
 CALL gradtrack_add_column_if_missing(
   'forum_chat_messages',
@@ -192,6 +197,12 @@ CALL gradtrack_add_index_if_missing(
   'created_at,id',
   0,
   'ALTER TABLE forum_chat_messages ADD INDEX idx_forum_chat_messages_created (created_at, id)'
+);
+CALL gradtrack_add_index_if_missing(
+  'forum_chat_messages',
+  'message_type,reference_id',
+  0,
+  'ALTER TABLE forum_chat_messages ADD INDEX idx_forum_chat_messages_reference (message_type, reference_id)'
 );
 CALL gradtrack_add_index_if_missing(
   'forum_chat_messages',

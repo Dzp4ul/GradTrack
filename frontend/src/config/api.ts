@@ -85,6 +85,8 @@ export const API_ENDPOINTS = {
   JOBS: {
     POSTS: `${API_ROOT}/jobs/posts.php`,
     APPLICATIONS: `${API_ROOT}/jobs/applications.php`,
+    SAVED: `${API_ROOT}/jobs/saved.php`,
+    LOCATIONS: `${API_ROOT}/jobs/locations.php`,
   },
   ALUMNI_RATING: {
     SUMMARY: `${API_ROOT}/alumni-rating/index.php`,

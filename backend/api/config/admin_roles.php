@@ -63,7 +63,10 @@ if (!function_exists('gradtrack_job_posting_admin_roles')) {
 if (!function_exists('gradtrack_job_posting_auto_approval_roles')) {
     function gradtrack_job_posting_auto_approval_roles(): array
     {
-        return ['alumni_president'];
+        // Authorized personnel publish institutional job posts directly. The
+        // Alumni President approval workflow still applies to graduate-owned
+        // submissions because graduate actors never enter this role check.
+        return gradtrack_job_posting_admin_roles();
     }
 }
 

@@ -1,5 +1,9 @@
 import { FormEvent, useCallback, useMemo, useState, useEffect, type ReactNode } from 'react';
 import { Archive, Briefcase, Edit2, Loader2, Plus, Search, Trash2, X } from 'lucide-react';
+import JobLocationCombobox from '../../components/JobLocationCombobox';
+import type { JobLocationOption } from '../../components/JobLocationCombobox';
+import JobProgramFitPicker from '../../components/JobProgramFitPicker';
+import type { JobProgramOption } from '../../components/JobProgramFitPicker';
 import MessageBox from '../../components/MessageBox';
 import { API_ENDPOINTS } from '../../config/api';
 
@@ -154,6 +158,9 @@ export default function JobPostings() {
   const [form, setForm] = useState<JobForm>(emptyForm);
   const [requirementsFile, setRequirementsFile] = useState<File | null>(null);
   const [search, setSearch] = useState('');
+  const [programs, setPrograms] = useState<JobProgramOption[]>([]);
+  const [locationOptions, setLocationOptions] = useState<JobLocationOption[]>([]);
+  const [locationsLoading, setLocationsLoading] = useState(false);
   const [message, setMessage] = useState<{
     isOpen: boolean;
     type: 'success' | 'error' | 'warning' | 'confirm';
@@ -183,6 +190,44 @@ export default function JobPostings() {
   useEffect(() => {
     void loadJobs();
   }, [loadJobs]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadFormOptions = async () => {
+      setLocationsLoading(true);
+      const [programResult, locationResult] = await Promise.allSettled([
+        fetch(API_ENDPOINTS.SURVEY_PROGRAMS, { credentials: 'include' }),
+        fetch(API_ENDPOINTS.JOBS.LOCATIONS, { credentials: 'include' }),
+      ]);
+
+      if (!cancelled && programResult.status === 'fulfilled' && programResult.value.ok) {
+        const response = await programResult.value.json() as { success?: boolean; data?: Array<Partial<JobProgramOption>> };
+        if (!cancelled && response.success && Array.isArray(response.data)) {
+          setPrograms(response.data
+            .map((program) => ({ id: Number(program.id || 0), code: String(program.code || '').trim(), name: String(program.name || '').trim() }))
+            .filter((program) => program.code !== '')
+            .sort((left, right) => left.code.localeCompare(right.code)));
+        }
+      }
+
+      if (!cancelled && locationResult.status === 'fulfilled' && locationResult.value.ok) {
+        const response = await locationResult.value.json() as { success?: boolean; data?: Array<Partial<JobLocationOption>> };
+        if (!cancelled && response.success && Array.isArray(response.data)) {
+          setLocationOptions(response.data
+            .map((location) => ({ code: String(location.code || '').trim(), name: String(location.name || '').trim() }))
+            .filter((location) => location.code !== '' && location.name !== ''));
+        }
+      }
+
+      if (!cancelled) setLocationsLoading(false);
+    };
+
+    void loadFormOptions().catch(() => {
+      if (!cancelled) setLocationsLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   const filteredJobs = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -333,7 +378,7 @@ export default function JobPostings() {
             <article key={job.id} className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
               <div className="flex items-start justify-between gap-3">
                 <div><h2 className="text-lg font-bold text-[#1b2a4a]">{job.title}</h2><p className="text-sm text-gray-500">{job.company}</p></div>
-                <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${job.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-600'}`}>{job.is_active ? 'Published' : 'Archived'}</span>
+                <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${!job.is_active ? 'bg-gray-100 text-gray-600' : job.approval_status === 'approved' ? 'bg-emerald-100 text-emerald-700' : job.approval_status === 'declined' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}`}>{!job.is_active ? 'Inactive' : job.approval_status === 'approved' ? 'Published' : job.approval_status === 'declined' ? 'Declined' : 'Pending'}</span>
               </div>
               <div className="mt-4 grid gap-2 text-sm text-gray-600 sm:grid-cols-2"><p><strong>Type:</strong> {employmentTypeLabel(job.job_type)}</p><p><strong>Location:</strong> {job.location || 'Not specified'}</p><p><strong>Salary:</strong> {job.salary_range || 'Not specified'}</p><p><strong>Deadline:</strong> {formatDate(job.application_deadline)}</p></div>
               <p className="mt-4 line-clamp-3 whitespace-pre-line text-sm leading-6 text-gray-600">{job.description}</p>
@@ -355,16 +400,16 @@ export default function JobPostings() {
             <div className="mt-6 grid gap-4 md:grid-cols-2">
               <Field label="Job Title" required><input value={form.title} onChange={(event) => setForm((current) => ({ ...current, title: event.target.value }))} className={inputClass} /></Field>
               <Field label="Company" required><input value={form.company} onChange={(event) => setForm((current) => ({ ...current, company: event.target.value }))} className={inputClass} /></Field>
-              <Field label="Location"><input value={form.location} onChange={(event) => setForm((current) => ({ ...current, location: event.target.value }))} className={inputClass} /></Field>
+              <div className="min-w-0 text-sm font-bold text-gray-700"><label htmlFor="admin-job-location">Location</label><JobLocationCombobox id="admin-job-location" value={form.location} options={locationOptions} loading={locationsLoading} onChange={(value) => setForm((current) => ({ ...current, location: value }))} placeholder="City, province, or remote" inputClassName="mt-1.5 w-full rounded-xl border border-gray-200 py-2.5 pl-10 pr-9 text-sm font-normal text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100" /></div>
               <Field label="Salary Range"><input value={form.salary_range} onChange={(event) => setForm((current) => ({ ...current, salary_range: event.target.value }))} className={inputClass} /></Field>
-              <Field label="Employment Type"><select value={form.job_type} onChange={(event) => setForm((current) => ({ ...current, job_type: event.target.value as JobType }))} className={inputClass}><option value="full_time">Full time</option><option value="part_time">Part time</option><option value="contract">Contract</option><option value="internship">Internship</option><option value="remote">Remote</option></select></Field>
+              <Field label="Employment Type"><select value={form.job_type} onChange={(event) => setForm((current) => ({ ...current, job_type: event.target.value as JobType }))} className={inputClass}><option value="full_time">Full time</option><option value="part_time">Part time</option><option value="contract">Contract</option>{form.id && form.job_type === 'internship' && <option value="internship">Internship (legacy post)</option>}<option value="remote">Remote</option></select></Field>
               <Field label="Industry"><input value={form.industry} onChange={(event) => setForm((current) => ({ ...current, industry: event.target.value }))} className={inputClass} /></Field>
             </div>
             <div className="mt-4"><Field label="Description" required><textarea rows={5} value={form.description} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} className={inputClass} /></Field></div>
             <div className="mt-4 grid gap-4 md:grid-cols-2">
               <Field label="Qualifications / Requirements"><textarea rows={4} value={form.qualifications} onChange={(event) => setForm((current) => ({ ...current, qualifications: event.target.value }))} className={inputClass} /></Field>
               <Field label="Required Skills"><textarea rows={4} value={form.required_skills} onChange={(event) => setForm((current) => ({ ...current, required_skills: event.target.value }))} className={inputClass} /></Field>
-              <Field label="Course / Program Fit"><textarea rows={3} value={form.course_program_fit} onChange={(event) => setForm((current) => ({ ...current, course_program_fit: event.target.value }))} className={inputClass} /></Field>
+              <JobProgramFitPicker id="admin-job-program-fit" programs={programs} value={form.course_program_fit} onChange={(value) => setForm((current) => ({ ...current, course_program_fit: value }))} />
               <Field label="Application Instructions"><textarea rows={3} value={form.application_method} onChange={(event) => setForm((current) => ({ ...current, application_method: event.target.value }))} className={inputClass} /></Field>
               <Field label="Application Deadline"><input type="date" value={form.application_deadline} onChange={(event) => setForm((current) => ({ ...current, application_deadline: event.target.value }))} className={inputClass} /></Field>
               <Field label="Contact Email"><input type="email" value={form.contact_email} onChange={(event) => setForm((current) => ({ ...current, contact_email: event.target.value }))} className={inputClass} /></Field>

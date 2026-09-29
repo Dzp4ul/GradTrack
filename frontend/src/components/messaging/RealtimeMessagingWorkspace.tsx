@@ -89,6 +89,7 @@ interface RealtimeMessagingWorkspaceProps {
   onRetryAttachment: () => void;
   onOpenNewConversation: () => void;
   onOpenProfile?: (graduateId?: number | null) => void;
+  onViewJob?: (jobId: number) => void;
   conversationInfoOpen: boolean;
   conversationInfo: ConversationInformation | null;
   conversationInfoLoading: boolean;
@@ -602,6 +603,7 @@ function MessageBubble({
   onDelete,
   onImageOpen,
   onOpenProfile,
+  onViewJob,
 }: {
   message: MessagingMessage;
   showSenderIdentity: boolean;
@@ -610,6 +612,7 @@ function MessageBubble({
   onDelete: (message: MessagingMessage) => void;
   onImageOpen: (attachment: MessageAttachment) => void;
   onOpenProfile?: (graduateId?: number | null) => void;
+  onViewJob?: (jobId: number) => void;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   if (message.is_deleted) {
@@ -636,6 +639,7 @@ function MessageBubble({
   const hasText = message.message.trim().length > 0;
   const metadataClass = isMine ? 'justify-end text-slate-500' : 'text-slate-400';
   const canDelete = isMine && message.id > 0 && message.status !== 'sending' && message.status !== 'failed';
+  const sharedJob = message.message_type === 'job_share' ? message.job_share : null;
 
   const senderLink = !isMine && showSenderIdentity ? (
     <button type="button" onClick={() => onOpenProfile?.(message.graduate_id)} className="mb-1 block text-left text-xs font-bold text-slate-500 transition hover:text-blue-700 dark:text-slate-400 dark:hover:text-blue-300">
@@ -695,7 +699,51 @@ function MessageBubble({
               : 'border border-slate-200 bg-white text-slate-800'
           }`}>
             <p className="whitespace-pre-wrap break-words leading-6">{message.message}</p>
-            <div className={`mt-2 flex items-center gap-1 text-[11px] ${isMine ? 'justify-end text-blue-100' : 'text-slate-400'}`}>
+            {!sharedJob && (
+              <div className={`mt-2 flex items-center gap-1 text-[11px] ${isMine ? 'justify-end text-blue-100' : 'text-slate-400'}`}>
+                <span>{formatShortTime(message.created_at)}</span>
+                {isMine && <StatusIcon message={message} />}
+              </div>
+            )}
+          </div>
+        )}
+
+        {sharedJob && (
+          <div className="w-[min(22rem,78vw)] overflow-hidden rounded-xl border border-blue-200 bg-white text-left shadow-sm dark:border-blue-500/40 dark:bg-slate-900">
+            <div className="border-b border-blue-100 bg-blue-50 px-4 py-3 dark:border-blue-500/30 dark:bg-blue-950/40">
+              <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-blue-700 dark:text-blue-200">
+                <Briefcase className="h-4 w-4" /> Job Opportunity
+              </p>
+            </div>
+            <div className="space-y-2 px-4 py-3">
+              {sharedJob.available ? (
+                <>
+                  <p className="break-words text-sm font-bold text-slate-950 dark:text-slate-100">{sharedJob.title || 'Job opportunity'}</p>
+                  <p className="flex items-start gap-1.5 break-words text-xs font-semibold text-slate-600 dark:text-slate-300">
+                    <Building2 className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {sharedJob.company || 'Company not specified'}
+                  </p>
+                  {sharedJob.location && <p className="flex items-start gap-1.5 break-words text-xs text-slate-500 dark:text-slate-400"><MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" /> {sharedJob.location}</p>}
+                  <div className="flex flex-wrap gap-2 text-[11px] text-slate-600 dark:text-slate-300">
+                    {sharedJob.job_type && <span className="rounded-full bg-slate-100 px-2.5 py-1 dark:bg-slate-800">{sharedJob.job_type.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())}</span>}
+                    {sharedJob.salary_range && <span className="rounded-full bg-slate-100 px-2.5 py-1 dark:bg-slate-800">{sharedJob.salary_range}</span>}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={!sharedJob.job_id}
+                    onClick={() => sharedJob.job_id && onViewJob?.(sharedJob.job_id)}
+                    className="mt-1 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-blue-700 px-3 py-2 text-xs font-bold text-white transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <FileText className="h-3.5 w-3.5" /> View Job
+                  </button>
+                </>
+              ) : (
+                <div className="py-2 text-center">
+                  <p className="text-sm font-bold text-slate-700 dark:text-slate-200">This job posting is no longer available.</p>
+                  <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">The historical shared message has been preserved.</p>
+                </div>
+              )}
+            </div>
+            <div className={`flex items-center gap-1 border-t border-slate-100 px-4 py-2 text-[11px] ${metadataClass} dark:border-slate-800`}>
               <span>{formatShortTime(message.created_at)}</span>
               {isMine && <StatusIcon message={message} />}
             </div>
@@ -763,6 +811,7 @@ function MessageList({
   onScrollToNewest,
   onImageOpen,
   onOpenProfile,
+  onViewJob,
 }: {
   room: MessagingRoom | null;
   temporaryRecipient?: MessagingParticipant | null;
@@ -783,6 +832,7 @@ function MessageList({
   onScrollToNewest: () => void;
   onImageOpen: (attachment: MessageAttachment) => void;
   onOpenProfile?: (graduateId?: number | null) => void;
+  onViewJob?: (jobId: number) => void;
 }) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -978,7 +1028,7 @@ function MessageList({
                   <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-slate-500 shadow-sm">{item.label}</span>
                 </div>
               ) : (
-                <MessageBubble key={item.id} message={item.message} showSenderIdentity={item.showSenderIdentity} resolveAssetUrl={resolveAssetUrl} onRetry={onRetryMessage} onDelete={onDeleteMessage} onImageOpen={onImageOpen} onOpenProfile={onOpenProfile} />
+                <MessageBubble key={item.id} message={item.message} showSenderIdentity={item.showSenderIdentity} resolveAssetUrl={resolveAssetUrl} onRetry={onRetryMessage} onDelete={onDeleteMessage} onImageOpen={onImageOpen} onOpenProfile={onOpenProfile} onViewJob={onViewJob} />
               ))}
               <TypingIndicator names={typingNames} />
             </div>
@@ -1595,6 +1645,7 @@ export default function RealtimeMessagingWorkspace({
   onRetryAttachment,
   onOpenNewConversation,
   onOpenProfile,
+  onViewJob,
   conversationInfoOpen,
   conversationInfo,
   conversationInfoLoading,
@@ -1666,6 +1717,7 @@ export default function RealtimeMessagingWorkspace({
             onScrollToNewest={onScrollToNewest}
             onImageOpen={setPreviewAttachment}
             onOpenProfile={onOpenProfile}
+            onViewJob={onViewJob}
           />
           <MessageComposer
             draft={draft}

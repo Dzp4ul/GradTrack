@@ -34,7 +34,7 @@ export interface MessagingRoom {
   created_at: string;
   updated_at: string;
   last_message?: string | null;
-  last_message_type?: 'text' | 'image' | 'file' | 'mixed' | 'system' | null;
+  last_message_type?: 'text' | 'image' | 'file' | 'mixed' | 'system' | 'job_share' | null;
   last_message_at?: string | null;
   last_message_sender_id?: number | null;
   unread_count?: number;
@@ -42,6 +42,18 @@ export interface MessagingRoom {
   participant_count: number;
   group_image_url?: string | null;
   group_image_updated_at?: string | null;
+}
+
+export interface SharedJobPreview {
+  job_id: number | null;
+  title?: string | null;
+  company?: string | null;
+  location?: string | null;
+  salary_range?: string | null;
+  job_type?: string | null;
+  course_program_fit?: string | null;
+  application_deadline?: string | null;
+  available: boolean;
 }
 
 export interface ConversationInformation {
@@ -66,7 +78,9 @@ export interface MessagingMessage {
   room_id: number;
   graduate_id: number;
   message: string;
-  message_type?: 'text' | 'image' | 'file' | 'mixed' | 'system';
+  message_type?: 'text' | 'image' | 'file' | 'mixed' | 'system' | 'job_share';
+  reference_id?: number | null;
+  job_share?: SharedJobPreview | null;
   client_message_id?: string | null;
   created_at: string;
   updated_at?: string | null;
