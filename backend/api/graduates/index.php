@@ -7,6 +7,7 @@ require_once __DIR__ . '/../config/admin_auth.php';
 require_once __DIR__ . '/../config/graduation_years.php';
 require_once __DIR__ . '/../config/permanent_delete.php';
 require_once __DIR__ . '/../config/name_format.php';
+require_once __DIR__ . '/../config/graduate_record_validation.php';
 
 function normalize_nullable_text($value) {
     if (!isset($value)) {
@@ -287,6 +288,18 @@ try {
                 break;
             }
 
+            if (!gradtrack_optional_graduate_email_is_valid($email)) {
+                http_response_code(400);
+                echo json_encode(["success" => false, "error" => "Email must be a valid email address"]);
+                break;
+            }
+
+            if (!gradtrack_optional_graduate_phone_is_valid($phone)) {
+                http_response_code(400);
+                echo json_encode(["success" => false, "error" => "Contact No. must be 11 digits and start with 09 (e.g., 09123456789)"]);
+                break;
+            }
+
             if ($studentId !== null) {
                 $studentIdCheckStmt = $db->prepare("SELECT id FROM graduates WHERE student_id = :student_id LIMIT 1");
                 $studentIdCheckStmt->execute([':student_id' => $studentId]);
@@ -450,6 +463,18 @@ try {
             if ($yearGraduated === null) {
                 http_response_code(400);
                 echo json_encode(["success" => false, "error" => "Year Graduated must be a valid four-digit year"]);
+                break;
+            }
+
+            if (!gradtrack_optional_graduate_email_is_valid($email)) {
+                http_response_code(400);
+                echo json_encode(["success" => false, "error" => "Email must be a valid email address"]);
+                break;
+            }
+
+            if (!gradtrack_optional_graduate_phone_is_valid($phone)) {
+                http_response_code(400);
+                echo json_encode(["success" => false, "error" => "Contact No. must be 11 digits and start with 09 (e.g., 09123456789)"]);
                 break;
             }
 

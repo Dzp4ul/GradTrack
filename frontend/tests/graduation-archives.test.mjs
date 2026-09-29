@@ -72,8 +72,13 @@ assert.equal(
 
 const registrar = await readFile(new URL('../src/pages/admin/Graduates.tsx', import.meta.url), 'utf8');
 assert.match(registrar, />Year Graduated<\/th>/);
-assert.match(registrar, /archiveView === 'archived' && <th[^>]*>Actions<\/th>/);
-assert.doesNotMatch(registrar, /Edit2|openEdit|handleArchive\(g/);
+assert.match(registrar, /<th[^>]*>Actions<\/th>/);
+assert.match(registrar, /const openDetails = async/);
+assert.match(registrar, /View Details/);
+assert.match(registrar, /const openEdit = async/);
+assert.match(registrar, /method: isEditing \? 'PUT' : 'POST'/);
+assert.match(registrar, /<Edit2[^>]*\/> Edit/);
+assert.doesNotMatch(registrar, /handleArchive\(g/);
 assert.match(registrar, /archiveView === 'archived' && <td[^>]*>[\s\S]*handlePermanentDelete\(g\)/);
 assert.match(registrar, /handlePermanentDeleteSelected/);
 assert.match(registrar, /action: 'permanent_delete'/);
@@ -82,6 +87,12 @@ assert.match(registrar, /aria-label="Filter graduates by department"/);
 assert.match(registrar, /aria-label="Filter graduates by graduation year"/);
 assert.match(registrar, /res\.program_options/);
 assert.doesNotMatch(registrar, /PROGRAM_OPTIONS/);
+assert.match(registrar, /Email \(Optional\)/);
+assert.match(registrar, /Contact No\. \(Optional\)/);
+assert.match(registrar, /if \(formData\.email\.trim\(\) && !isValidEmail/);
+assert.match(registrar, /if \(formData\.phone\.trim\(\) && !\/\^09/);
+assert.match(registrar, /displayOptionalValue\(g\.email\)/);
+assert.match(registrar, /displayOptionalValue\(g\.phone\)/);
 
 const adminLayout = await readFile(new URL('../src/pages/admin/AdminLayout.tsx', import.meta.url), 'utf8');
 const registrarNavigation = adminLayout.match(/const registrarNavItems:[\s\S]*?= \[([\s\S]*?)\];/)?.[1] ?? '';
@@ -89,7 +100,7 @@ assert.doesNotMatch(registrarNavigation, /Manage Graduates/);
 assert.doesNotMatch(registrarNavigation, /Dashboard/);
 assert.match(
   adminLayout,
-  /const panelLabel = user\?\.role === 'registrar'[\s\S]*?'Registrar Panel'[\s\S]*?: 'Admin Panel'/,
+  /user\?\.role === ROLES\.REGISTRAR[\s\S]*?\? 'Registrar Panel'[\s\S]*?: 'Personnel Portal'/,
 );
 assert.match(adminLayout, /navItems\.length > 0 && \(\s*<button[\s\S]*aria-label="Toggle mobile navigation"/);
 

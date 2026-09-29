@@ -211,10 +211,25 @@ try {
         ];
     };
 
-    $create2026 = graduation_http_request('graduates/index.php', $registrarSession, 'POST', $graduatePayload(2026, 'Y26'));
-    graduation_http_assert($create2026['status'] === 200 && !empty($create2026['json']['id']), 'Registrar Add Graduate stores a 2026 record through the real API');
+    $optionalContactPayload = array_merge($graduatePayload(2026, 'Y26'), ['email' => null, 'phone' => null]);
+    $create2026 = graduation_http_request('graduates/index.php', $registrarSession, 'POST', $optionalContactPayload);
+    graduation_http_assert($create2026['status'] === 200 && !empty($create2026['json']['id']), 'Registrar Add Graduate accepts missing email and contact number through the real API');
     $graduate2026 = (int) ($create2026['json']['id'] ?? 0);
     if ($graduate2026 > 0) $fixtureIds['graduates'][] = $graduate2026;
+
+    $optionalContactDetails = graduation_http_request('graduates/index.php?id=' . $graduate2026, $registrarSession);
+    graduation_http_assert(
+        $optionalContactDetails['status'] === 200
+            && array_key_exists('email', $optionalContactDetails['json']['data'] ?? [])
+            && ($optionalContactDetails['json']['data']['email'] ?? null) === null
+            && array_key_exists('phone', $optionalContactDetails['json']['data'] ?? [])
+            && ($optionalContactDetails['json']['data']['phone'] ?? null) === null,
+        'Registrar View Details returns optional email and contact number as null without changing the record'
+    );
+
+    $invalidEmailPayload = array_merge($graduatePayload(2026, 'BadEmail'), ['email' => 'invalid-email']);
+    $invalidEmailCreate = graduation_http_request('graduates/index.php', $registrarSession, 'POST', $invalidEmailPayload);
+    graduation_http_assert($invalidEmailCreate['status'] === 400, 'Registrar Add Graduate rejects a malformed non-empty email through the real API');
 
     $createSecond = graduation_http_request('graduates/index.php', $registrarSession, 'POST', $graduatePayload(2026, 'Y27'));
     $graduate2027 = (int) ($createSecond['json']['id'] ?? 0);
