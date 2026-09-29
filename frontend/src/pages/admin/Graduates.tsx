@@ -1470,18 +1470,6 @@ export default function Graduates() {
                 </dl>
               </section>
 
-              <section className="border-t pt-5">
-                <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500">Employment Information</h3>
-                <dl className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <GraduateDetail label="Employment Status" value={viewedGraduate.employment_status} />
-                  <GraduateDetail label="Course Alignment" value={viewedGraduate.is_aligned} />
-                  <GraduateDetail label="Company" value={viewedGraduate.company_name} />
-                  <GraduateDetail label="Job Title" value={viewedGraduate.job_title} />
-                  <GraduateDetail label="Industry" value={viewedGraduate.industry} />
-                  <GraduateDetail label="Date Hired" value={viewedGraduate.date_hired} />
-                </dl>
-              </section>
-
               <div className="flex justify-end border-t pt-4">
                 <button type="button" onClick={() => setShowDetailsModal(false)} className="rounded-lg bg-[#1b2a4a] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#263c66]">
                   Close
