@@ -4,6 +4,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/system_settings.php';
 require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/graduation_years.php';
+require_once __DIR__ . '/../config/survey_program_scope.php';
 
 function survey_verification_graduate_name(array $graduate): string
 {
@@ -187,6 +188,64 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     
     try {
+        $coverage = gradtrack_get_active_survey_graduation_year_coverage($conn);
+        $programRows = $conn->query('SELECT id, code, name FROM programs ORDER BY id ASC')
+            ->fetchAll(PDO::FETCH_ASSOC);
+        $submittedProgram = gradtrack_match_program_scope_option($programRows, $program);
+        $submittedProgramId = $submittedProgram !== null ? (int) $submittedProgram['id'] : null;
+
+        if ($submittedProgramId === null) {
+            http_response_code(403);
+            echo json_encode([
+                'success' => false,
+                'code' => 'INVALID_PROGRAM',
+                'error' => 'Program is not recognized',
+                'message' => 'Please select a valid program from the survey department list.',
+            ]);
+            exit();
+        }
+
+        if ($coverage['survey'] !== null) {
+            $activeSurveyId = (int) $coverage['survey']['id'];
+            if ($surveyId !== null && (int) $surveyId !== $activeSurveyId) {
+                http_response_code(403);
+                echo json_encode([
+                    'success' => false,
+                    'code' => 'ACTIVE_SURVEY_REQUIRED',
+                    'title' => 'Survey Not Available',
+                    'error' => 'Survey not active',
+                    'message' => 'This Graduate Tracer Survey is no longer active.',
+                ]);
+                exit();
+            }
+
+            $programScope = gradtrack_get_survey_program_scope($conn, $activeSurveyId);
+            if (!$programScope['configured']) {
+                http_response_code(503);
+                echo json_encode([
+                    'success' => false,
+                    'code' => 'SURVEY_DEPARTMENT_SCOPE_NOT_CONFIGURED',
+                    'title' => 'Survey Not Available',
+                    'error' => 'Survey department scope is not configured',
+                    'message' => $programScope['error'],
+                ]);
+                exit();
+            }
+            if (!in_array($submittedProgramId, $programScope['program_ids'], true)) {
+                http_response_code(403);
+                echo json_encode([
+                    'success' => false,
+                    'code' => 'PROGRAM_NOT_IN_SURVEY_SCOPE',
+                    'title' => 'Program Not Included',
+                    'error' => 'Program is not included in this survey',
+                    'message' => 'The selected program is not included in the active survey\'s Scope of Departments.',
+                ]);
+                exit();
+            }
+
+            $surveyId = $activeSurveyId;
+        }
+
         // Step 1: Verify graduate exists in registrar database
         $identifierColumn = $verificationMethod === 'email' ? 'LOWER(g.email)' : 'g.student_id';
         $identifierParam = $verificationMethod === 'email' ? ':email' : ':student_number';
@@ -219,12 +278,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             exit();
         }
         
-        // Step 2: Verify program
-        $programMatch = (
-            stripos($graduate['program_name'], $program) !== false ||
-            stripos($graduate['program_code'], $program) !== false ||
-            $graduate['program_id'] == $program
-        );
+        // Step 2: The scoped program must also match the registrar record.
+        $programMatch = $submittedProgramId !== null
+            && $submittedProgramId === (int) $graduate['program_id'];
         
         if (!$programMatch) {
             http_response_code(403);
@@ -238,9 +294,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         $graduateProfile = survey_verification_graduate_profile($graduate);
 
+        // Eligibility is based on the Registrar's stored graduation year and the
+        // active survey's configured Year Graduated options. Student-number
+        // prefixes and client-provided values are never used for this decision.
         // Portal onboarding follows the survey period assigned to the graduate's
-        // Registrar graduation year. A response to that period remains valid
-        // after another survey is activated.
+        // Registrar graduation year. When an active survey exists, its program
+        // scope above remains authoritative even for a completed respondent.
         $completedCoveredResponse = survey_verification_find_completed_covered_response(
             $conn,
             (int) $graduate['id'],
@@ -255,10 +314,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             );
         }
 
-        // Eligibility is based on the Registrar's stored graduation year and the
-        // active survey's configured Year Graduated options. Student-number
-        // prefixes and client-provided values are never used for this decision.
-        $coverage = gradtrack_get_active_survey_graduation_year_coverage($conn);
         if ($coverage['survey'] === null) {
             http_response_code(404);
             echo json_encode([
@@ -281,20 +336,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ]);
             exit();
         }
-
-        $activeSurveyId = (int) $coverage['survey']['id'];
-        if ($surveyId !== null && (int) $surveyId !== $activeSurveyId) {
-            http_response_code(403);
-            echo json_encode([
-                'success' => false,
-                'code' => 'ACTIVE_SURVEY_REQUIRED',
-                'title' => 'Survey Not Available',
-                'error' => 'Survey not active',
-                'message' => 'This Graduate Tracer Survey is no longer active.',
-            ]);
-            exit();
-        }
-        $surveyId = $activeSurveyId;
 
         if (!gradtrack_graduation_year_is_allowed($graduate['year_graduated'] ?? null, $coverage['years'])) {
             $coverageLabel = gradtrack_format_graduation_year_coverage($coverage['years']);

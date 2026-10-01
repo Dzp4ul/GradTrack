@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ShieldCheck, AlertCircle, Loader2, UserPlus, Eye, EyeOff } from 'lucide-react';
 import { API_ENDPOINTS, API_ROOT } from '../config/api';
@@ -91,6 +91,8 @@ function SurveyVerification() {
   const [loadingPrograms, setLoadingPrograms] = useState(true);
   const [loadingSurvey, setLoadingSurvey] = useState(true);
   const [surveyError, setSurveyError] = useState('');
+  const [programsError, setProgramsError] = useState('');
+  const [programsLoadFailed, setProgramsLoadFailed] = useState(false);
   const [activeSurvey, setActiveSurvey] = useState<SurveySummary | null>(null);
   const [accountContext, setAccountContext] = useState<AccountCreationContext | null>(null);
   const [accountEmail, setAccountEmail] = useState('');
@@ -107,18 +109,7 @@ function SurveyVerification() {
     clearVerificationOnClose?: boolean;
   }>({ isOpen: false, type: 'info', message: '' });
 
-  useEffect(() => {
-    if (isMaintenanceMode || !surveyAvailable) {
-      setLoadingPrograms(false);
-      setLoadingSurvey(false);
-      return;
-    }
-
-    fetchPrograms();
-    fetchActiveSurvey();
-  }, [isMaintenanceMode, surveyAvailable]);
-
-  const fetchActiveSurvey = async () => {
+  const fetchActiveSurvey = useCallback(async (): Promise<SurveySummary | null> => {
     setLoadingSurvey(true);
     setSurveyError('');
     try {
@@ -133,7 +124,7 @@ function SurveyVerification() {
         if (!detailResult.data?.graduation_year_coverage?.configured) {
           setSurveyError('The Graduate Tracer Survey is not available right now because its graduation year coverage has not been configured. Please contact the administrator.');
         }
-        return;
+        return detailResult.data as SurveySummary;
       }
 
       const response = await fetch(`${API_ROOT}/surveys/index.php`);
@@ -151,27 +142,69 @@ function SurveyVerification() {
       if (!result.active_survey_coverage?.configured) {
         setSurveyError('The Graduate Tracer Survey is not available right now because its graduation year coverage has not been configured. Please contact the administrator.');
       }
+      return active;
     } catch (error) {
       setActiveSurvey(null);
       setSurveyError(error instanceof Error ? error.message : 'Unable to load the active survey.');
+      return null;
     } finally {
       setLoadingSurvey(false);
     }
-  };
+  }, [surveyId]);
 
-  const fetchPrograms = async () => {
+  const fetchPrograms = useCallback(async (activeSurveyId: number) => {
+    setLoadingPrograms(true);
+    setProgram('');
+    setPrograms([]);
+    setProgramsError('');
+    setProgramsLoadFailed(false);
     try {
-      const response = await fetch(`${API_ROOT}/surveys/programs.php`);
+      const response = await fetch(`${API_ROOT}/surveys/programs.php?survey_id=${encodeURIComponent(String(activeSurveyId))}`);
       const result = await response.json();
-      if (result.success) {
-        setPrograms(result.data || []);
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Unable to load departments for this survey.');
+      }
+      if (Number(result.survey_id) !== Number(activeSurveyId)) {
+        throw new Error('The department scope returned by the server does not match the active survey.');
+      }
+      const scopedPrograms = Array.isArray(result.departments)
+        ? result.departments
+        : Array.isArray(result.data) ? result.data : [];
+      setPrograms(scopedPrograms);
+      if (scopedPrograms.length === 0) {
+        setProgramsError(result.error || 'No departments are currently assigned to this survey. Please contact the survey administrator.');
       }
     } catch (error) {
       console.error('Error fetching programs:', error);
+      setPrograms([]);
+      setProgramsLoadFailed(true);
+      setProgramsError(error instanceof Error ? error.message : 'Unable to load departments for this survey.');
     } finally {
       setLoadingPrograms(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    if (isMaintenanceMode || !surveyAvailable) {
+      setLoadingPrograms(false);
+      setLoadingSurvey(false);
+      return;
+    }
+
+    let cancelled = false;
+    const loadVerificationContext = async () => {
+      const survey = await fetchActiveSurvey();
+      if (cancelled) return;
+      if (survey) {
+        await fetchPrograms(survey.id);
+      } else {
+        setPrograms([]);
+        setLoadingPrograms(false);
+      }
+    };
+    void loadVerificationContext();
+    return () => { cancelled = true; };
+  }, [fetchActiveSurvey, fetchPrograms, isMaintenanceMode, surveyAvailable]);
 
   const resetAccountCreation = () => {
     setAccountContext(null);
@@ -353,6 +386,15 @@ function SurveyVerification() {
         type: 'warning',
         title: 'Survey Not Available',
         message: 'Please wait while the active survey is loading.',
+      });
+      return;
+    }
+    if (loadingPrograms || programs.length === 0 || programsLoadFailed) {
+      setMsgBox({
+        isOpen: true,
+        type: programsLoadFailed ? 'error' : 'warning',
+        title: programsLoadFailed ? 'Departments Unavailable' : 'No Departments Assigned',
+        message: programsError || 'No departments are currently assigned to this survey. Please contact the survey administrator.',
       });
       return;
     }
@@ -812,25 +854,31 @@ function SurveyVerification() {
                 value={program}
                 onChange={(e) => setProgram(e.target.value)}
                 className={selectClass}
-                disabled={loading}
+                disabled={loading || programs.length === 0 || programsLoadFailed}
                 required
               >
                 <option value="">Select your program</option>
                 {programs.map((prog) => (
-                  <option key={prog.id} value={prog.code}>
+                  <option key={prog.id} value={String(prog.id)}>
                     {prog.name} ({prog.code})
                   </option>
                 ))}
               </select>
             )}
+            {!loadingPrograms && programsError && (
+              <div className={`mt-2 flex items-start gap-2 rounded-lg border px-3 py-2 text-sm ${programsLoadFailed ? 'border-red-200 bg-red-50 text-red-700' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+                <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                <span>{programsError}</span>
+              </div>
+            )}
           </div>
 
           <button
             type="submit"
-            disabled={loading || loadingPrograms || loadingSurvey}
+            disabled={loading || loadingPrograms || loadingSurvey || programs.length === 0 || programsLoadFailed}
             className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed text-white px-6 py-3 rounded-lg font-semibold transition shadow-md hover:shadow-lg flex items-center justify-center space-x-2"
           >
-            {loading || loadingSurvey ? (
+            {loading || loadingSurvey || loadingPrograms ? (
               <>
                 <Loader2 className="w-5 h-5 animate-spin" />
                 <span>{loading ? 'Verifying...' : 'Loading Survey...'}</span>

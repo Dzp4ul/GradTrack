@@ -7,6 +7,7 @@ require_once __DIR__ . '/../config/admin_roles.php';
 require_once __DIR__ . '/../config/admin_auth.php';
 require_once __DIR__ . '/../config/graduation_years.php';
 require_once __DIR__ . '/../config/permanent_delete.php';
+require_once __DIR__ . '/../config/survey_program_scope.php';
 require_once __DIR__ . '/../config/survey_versioning.php';
 
 $database = new Database();
@@ -284,6 +285,19 @@ function gradtrack_survey_clone_version(PDO $db, int $sourceSurveyId, string $ac
         );
     }
 
+    if (gradtrack_survey_program_scope_table_exists($db)) {
+        $copyScope = $db->prepare(
+            'INSERT INTO survey_programs (survey_id, program_id)
+             SELECT :new_survey_id, program_id
+             FROM survey_programs
+             WHERE survey_id = :source_survey_id'
+        );
+        $copyScope->execute([
+            ':new_survey_id' => $newSurveyId,
+            ':source_survey_id' => $sourceSurveyId,
+        ]);
+    }
+
     return ['id' => $newSurveyId, 'version_number' => $versionNumber, 'reused' => false];
 }
 
@@ -343,6 +357,15 @@ try {
                         'years' => $coverage['years'],
                         'question_id' => $coverage['question_id'],
                         'error' => $coverage['error'],
+                    ];
+                    $programScope = gradtrack_get_survey_program_scope($db, (int) $survey['id']);
+                    $survey['program_ids'] = $programScope['program_ids'];
+                    $survey['departments'] = $programScope['departments'];
+                    $survey['department_scope'] = [
+                        'configured' => (bool) $programScope['configured'],
+                        'program_ids' => $programScope['program_ids'],
+                        'departments' => $programScope['departments'],
+                        'error' => $programScope['error'],
                     ];
 
                     echo json_encode(["success" => true, "data" => $survey]);
@@ -522,6 +545,11 @@ try {
                     );
                 }
             }
+
+            $programIds = array_key_exists('program_ids', $data)
+                ? $data['program_ids']
+                : gradtrack_infer_survey_program_ids($db, $surveyId);
+            gradtrack_sync_survey_program_scope($db, $surveyId, $programIds);
 
             if ($status !== 'draft') {
                 $current = $db->prepare('UPDATE survey_templates SET current_version_id = :survey_id WHERE id = :template_id');
@@ -1111,6 +1139,10 @@ try {
                 }
             }
 
+            if (array_key_exists('program_ids', $data)) {
+                gradtrack_sync_survey_program_scope($db, $surveyId, $data['program_ids']);
+            }
+
             if ($status !== 'draft' && (int)($editableSurvey['template_id'] ?? 0) > 0) {
                 $current = $db->prepare('UPDATE survey_templates SET current_version_id = :survey_id, title = :title, description = :description WHERE id = :template_id');
                 $current->execute([
@@ -1214,6 +1246,10 @@ try {
             http_response_code(405);
             echo json_encode(["success" => false, "error" => "Method not allowed"]);
     }
+} catch (InvalidArgumentException $e) {
+    if ($db->inTransaction()) $db->rollBack();
+    http_response_code(422);
+    echo json_encode(['success' => false, 'error' => $e->getMessage()]);
 } catch (GradtrackPermanentDeleteException $e) {
     if ($db->inTransaction()) $db->rollBack();
     http_response_code($e->getStatusCode());

@@ -13,6 +13,7 @@ $requirements = [
     'programs' => ['id', 'name', 'code'],
     'graduates' => ['id', 'student_id', 'first_name', 'last_name', 'name_extension', 'program_id', 'year_graduated', 'archived_at'],
     'surveys' => ['id', 'title', 'status', 'created_by', 'modified_by', 'modified_at', 'archived_at', 'status_before_archive'],
+    'survey_programs' => ['survey_id', 'program_id', 'created_at'],
     'survey_questions' => ['id', 'survey_id', 'question_text', 'question_type'],
     'survey_tokens' => ['id', 'survey_id', 'graduate_id', 'token', 'expires_at'],
     'survey_responses' => ['id', 'survey_id', 'graduate_id', 'responses', 'graduate_account_id', 'region_code', 'province_code', 'city_municipality_code', 'barangay_code'],
@@ -80,6 +81,7 @@ foreach ($requirements as $table => $columns) {
 }
 
 $requiredIndexes = [
+    ['survey_programs', 'survey_id,program_id', true],
     ['forum_chat_messages', 'room_id,graduate_id,client_message_id', true],
     ['forum_chat_members', 'room_id,graduate_id', true],
     ['forum_chat_blocks', 'blocker_id,blocked_id', true],

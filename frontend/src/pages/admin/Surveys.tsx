@@ -45,6 +45,13 @@ interface Survey {
   archived_by_name?: string | null;
   restored_at?: string | null;
   restored_by_name?: string | null;
+  program_ids?: number[];
+}
+
+interface Program {
+  id: number;
+  code: string;
+  name: string;
 }
 
 interface FormData {
@@ -55,11 +62,12 @@ interface FormData {
   title: string;
   description: string;
   status: string;
+  program_ids: number[];
   questions: Question[];
 }
 
 const emptyForm: FormData = {
-  title: '', description: '', status: 'draft', questions: [],
+  title: '', description: '', status: 'draft', program_ids: [], questions: [],
 };
 
 const statusStyle: Record<string, string> = {
@@ -100,6 +108,9 @@ export default function Surveys() {
   );
   const [archiveCounts, setArchiveCounts] = useState({ active: 0, archived: 0 });
   const [coverageWarning, setCoverageWarning] = useState('');
+  const [availablePrograms, setAvailablePrograms] = useState<Program[]>([]);
+  const [programsLoading, setProgramsLoading] = useState(true);
+  const [programsError, setProgramsError] = useState('');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
@@ -179,6 +190,38 @@ export default function Surveys() {
     fetchSurveys();
   }, [archiveView, page, limit, search]);
 
+  useEffect(() => {
+    let cancelled = false;
+    setProgramsLoading(true);
+    fetch(`${API_BASE}/surveys/programs.php`, { credentials: 'include' })
+      .then((response) => response.json().then((body) => ({ ok: response.ok, body })))
+      .then(({ ok, body }) => {
+        if (cancelled) return;
+        if (!ok || !body.success || !Array.isArray(body.data)) {
+          throw new Error(body.error || 'Unable to load departments.');
+        }
+        setAvailablePrograms(body.data
+          .map((program: Partial<Program>) => ({
+            id: Number(program.id || 0),
+            code: String(program.code || '').trim(),
+            name: String(program.name || '').trim(),
+          }))
+          .filter((program: Program) => program.id > 0 && program.code !== '' && program.name !== '')
+          .sort((left: Program, right: Program) => left.name.localeCompare(right.name)));
+        setProgramsError('');
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setAvailablePrograms([]);
+          setProgramsError(error instanceof Error ? error.message : 'Unable to load departments.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setProgramsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   const activeSurvey = surveys.find((survey) => survey.status === 'active');
   const createSurveyButtonClass = `flex items-center gap-2 text-white px-6 py-2.5 rounded-lg transition-colors font-semibold shadow-md hover:shadow-lg ${
     activeSurvey ? 'bg-gray-400 hover:bg-gray-500' : 'bg-blue-900 hover:bg-blue-800'
@@ -199,10 +242,20 @@ export default function Surveys() {
   };
 
   const loadGraduateTracerTemplate = () => {
+    const templateProgramOptions = ['Bachelor of Secondary Education Major in General Science', 'Bachelor of Elementary Education', 'Bachelor of Science in Hospitality Management', 'Bachelor of Science in Computer Science', 'Associate in Computer Technology'];
+    const normalizeProgramLabel = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+    const inferredProgramIds = availablePrograms
+      .filter((program) => templateProgramOptions.some((option) => {
+        const normalizedOption = normalizeProgramLabel(option);
+        const normalizedName = normalizeProgramLabel(program.name);
+        return normalizedOption === normalizedName || normalizedOption.startsWith(`${normalizedName} major `) || normalizedOption.startsWith(`${normalizedName} specialization `);
+      }))
+      .map((program) => program.id);
     const defaultSurvey: FormData = {
       title: 'Graduate Tracer Study Survey',
       description: 'Comprehensive survey for tracking graduate employment and career outcomes',
       status: 'draft',
+      program_ids: inferredProgramIds,
       questions: [
         // SECTION 1: PERSONAL INFORMATION
         { question_text: 'Last Name', question_type: 'text', options: null, is_required: 1, sort_order: 1, section: 'Personal Information' },
@@ -221,7 +274,7 @@ export default function Surveys() {
         { question_text: 'Birthday', question_type: 'date', options: null, is_required: 1, sort_order: 14, section: 'Personal Information' },
         
         // SECTION 2: EDUCATIONAL BACKGROUND
-        { question_text: 'Degree Program & Specialization', question_type: 'multiple_choice', options: ['Bachelor of Secondary Education Major in General Science', 'Bachelor of Elementary Education', 'Bachelor of Science in Hospitality Management', 'Bachelor of Science in Computer Science', 'Associate in Computer Technology' ], is_required: 1, sort_order: 13, section: 'Educational Background' },
+        { question_text: 'Degree Program & Specialization', question_type: 'multiple_choice', options: templateProgramOptions, is_required: 1, sort_order: 13, section: 'Educational Background' },
         {
           question_text: 'Year Graduated',
           question_type: 'multiple_choice',
@@ -333,6 +386,7 @@ export default function Surveys() {
             title: d.title,
             description: d.description || '',
             status: d.status,
+            program_ids: Array.isArray(d.program_ids) ? d.program_ids.map(Number).filter((id: number) => id > 0) : [],
             questions: (d.questions || []).map((q: any) => {
               const parsedQuestion: Question = {
                 ...q,
@@ -463,8 +517,8 @@ export default function Surveys() {
       setMsgBox({
         isOpen: true,
         type: 'confirm',
-        title: 'Save text changes?',
-        message: 'This will update the wording shown in the survey. Existing response values and statistics will remain unchanged.',
+        title: 'Save survey changes?',
+        message: 'This will update the survey wording and department scope. Existing response values and statistics will remain unchanged.',
         confirmText: 'Save Changes',
         cancelText: 'Cancel',
         onConfirm: saveSurvey,
@@ -575,6 +629,15 @@ export default function Surveys() {
       questions[index] = { ...questions[index], [field]: value };
       return { ...prev, questions };
     });
+  };
+
+  const toggleProgramScope = (programId: number) => {
+    setFormData((current) => ({
+      ...current,
+      program_ids: current.program_ids.includes(programId)
+        ? current.program_ids.filter((id) => id !== programId)
+        : [...current.program_ids, programId],
+    }));
   };
 
   const updateQuestionSection = (index: number, value: string) => {
@@ -972,6 +1035,39 @@ export default function Surveys() {
                       <option value="inactive">Inactive</option>
                     </select>
                   </div>
+                  <fieldset className="rounded-xl border-2 border-blue-100 bg-blue-50/50 p-4">
+                    <legend className="px-1 text-sm font-bold text-blue-900">Scope of Departments</legend>
+                    <p className="mb-3 text-xs text-gray-600">
+                      Only graduates from the selected programs can verify their identity for this survey. Changes apply to the Verify Identity page after saving.
+                    </p>
+                    {programsLoading ? (
+                      <p className="text-sm text-blue-700">Loading departments...</p>
+                    ) : programsError ? (
+                      <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{programsError}</p>
+                    ) : (
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {availablePrograms.map((program) => (
+                          <label key={program.id} className="flex cursor-pointer items-start gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm hover:border-blue-300">
+                            <input
+                              type="checkbox"
+                              checked={formData.program_ids.includes(program.id)}
+                              onChange={() => toggleProgramScope(program.id)}
+                              className="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-700 focus:ring-blue-500"
+                            />
+                            <span>
+                              <span className="font-semibold text-gray-800">{program.code}</span>
+                              <span className="block text-xs text-gray-600">{program.name}</span>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                    {!programsLoading && !programsError && formData.program_ids.length === 0 && (
+                      <p className="mt-3 text-xs font-medium text-amber-700">
+                        No departments selected. Graduates will not be able to continue until a department is assigned.
+                      </p>
+                    )}
+                  </fieldset>
                 </div>
 
                 {/* Questions */}

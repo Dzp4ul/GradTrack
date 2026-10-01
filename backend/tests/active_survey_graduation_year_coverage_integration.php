@@ -4,6 +4,7 @@ ob_start();
 require_once __DIR__ . '/../api/config/database.php';
 require_once __DIR__ . '/../api/config/session.php';
 require_once __DIR__ . '/../api/config/graduation_years.php';
+require_once __DIR__ . '/../api/config/survey_program_scope.php';
 require_once __DIR__ . '/../api/config/survey_versioning.php';
 
 $failures = 0;
@@ -115,6 +116,11 @@ function coverage_create_survey(PDO $db, string $title, string $status, array $y
         ':lock_status' => $status,
     ]);
     $surveyId = (int) $db->lastInsertId();
+    $programId = (int) $db->query("SELECT id FROM programs WHERE code = 'BSCS' LIMIT 1")->fetchColumn();
+    if ($programId <= 0) {
+        throw new RuntimeException('BSCS program is required for the survey coverage fixture.');
+    }
+    gradtrack_sync_survey_program_scope($db, $surveyId, [$programId]);
     $questionStmt = $db->prepare("INSERT INTO survey_questions
         (survey_id, question_key, analytics_key, section, question_text, question_type, options, is_required, sort_order)
         VALUES (:survey_id, :question_key, 'graduation_year', 'Educational Background',
