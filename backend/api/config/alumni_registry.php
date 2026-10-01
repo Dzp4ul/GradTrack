@@ -2,6 +2,127 @@
 require_once __DIR__ . '/archive.php';
 require_once __DIR__ . '/admin_auth.php';
 require_once __DIR__ . '/name_format.php';
+require_once __DIR__ . '/spreadsheet_import.php';
+
+if (!function_exists('gradtrack_alumni_registry_import_required_columns')) {
+    function gradtrack_alumni_registry_import_required_columns(): array
+    {
+        return ['Name', 'Course', 'Batch'];
+    }
+}
+
+if (!function_exists('gradtrack_alumni_registry_import_header_aliases')) {
+    function gradtrack_alumni_registry_import_header_aliases(): array
+    {
+        return [
+            'name' => ['name', 'alumniname', 'fullname', 'graduatename', 'alumnifullname'],
+            'course' => ['course', 'program', 'programname', 'coursename', 'degreeprogram', 'academicprogram'],
+            'batch' => ['batch', 'graduationyear', 'yeargraduated', 'year'],
+        ];
+    }
+}
+
+if (!function_exists('gradtrack_alumni_registry_import_header_key')) {
+    function gradtrack_alumni_registry_import_header_key($value): string
+    {
+        return strtolower(preg_replace('/[^a-z0-9]/i', '', trim((string) ($value ?? ''))) ?: '');
+    }
+}
+
+if (!function_exists('gradtrack_alumni_registry_extract_import_rows')) {
+    function gradtrack_alumni_registry_extract_import_rows(array $workbook, string $requestedWorksheet = ''): array
+    {
+        if (!gradtrack_spreadsheet_has_content($workbook)) {
+            throw new GradtrackImportException('EMPTY_FILE', 'The selected Excel file does not contain any alumni records to import.');
+        }
+
+        $sheetNames = array_values($workbook['sheetNames'] ?? []);
+        $worksheetName = trim($requestedWorksheet);
+        if ($worksheetName === '') {
+            foreach ($sheetNames as $candidate) {
+                if (strcasecmp(trim((string) $candidate), 'Registered Alumni') === 0) {
+                    $worksheetName = (string) $candidate;
+                    break;
+                }
+            }
+            if ($worksheetName === '') $worksheetName = (string) ($sheetNames[0] ?? '');
+        }
+
+        $matchedWorksheet = null;
+        foreach ($sheetNames as $candidate) {
+            if ((string) $candidate === $worksheetName) {
+                $matchedWorksheet = (string) $candidate;
+                break;
+            }
+        }
+        if ($matchedWorksheet === null) {
+            throw new GradtrackImportException(
+                'INVALID_EXCEL_FORMAT',
+                'The selected worksheet does not exist in the uploaded workbook.',
+                ["Required worksheet not found: {$worksheetName}"]
+            );
+        }
+
+        $rows = $workbook['sheets'][$matchedWorksheet] ?? [];
+        $aliases = gradtrack_alumni_registry_import_header_aliases();
+        $best = ['score' => -1, 'found' => []];
+        $headerMap = null;
+        $maximumHeaderRows = min(count($rows), 30);
+        for ($rowIndex = 0; $rowIndex < $maximumHeaderRows; $rowIndex++) {
+            $indexes = ['name' => -1, 'course' => -1, 'batch' => -1];
+            foreach ((array) ($rows[$rowIndex] ?? []) as $columnIndex => $cell) {
+                $key = gradtrack_alumni_registry_import_header_key($cell);
+                foreach ($aliases as $field => $fieldAliases) {
+                    if ($indexes[$field] === -1 && in_array($key, $fieldAliases, true)) $indexes[$field] = $columnIndex;
+                }
+            }
+            $found = array_values(array_filter(array_keys($indexes), static fn (string $field): bool => $indexes[$field] >= 0));
+            if (count($found) > $best['score']) $best = ['score' => count($found), 'found' => $found];
+            if (count($found) === 3) {
+                $headerMap = ['row_index' => $rowIndex] + $indexes;
+                break;
+            }
+        }
+
+        if ($headerMap === null) {
+            $labels = ['name' => 'Name', 'course' => 'Course', 'batch' => 'Batch'];
+            $errors = [];
+            foreach ($labels as $field => $label) {
+                if (!in_array($field, $best['found'], true)) $errors[] = "Missing required column: {$label}";
+            }
+            throw new GradtrackImportException(
+                'INVALID_EXCEL_FORMAT',
+                'The selected Excel file does not match the required GradTrack alumni import format.',
+                $errors
+            );
+        }
+
+        $detected = [];
+        for ($rowIndex = $headerMap['row_index'] + 1; $rowIndex < count($rows); $rowIndex++) {
+            $row = (array) ($rows[$rowIndex] ?? []);
+            $name = strtoupper(trim((string) ($row[$headerMap['name']] ?? '')));
+            $course = trim((string) ($row[$headerMap['course']] ?? ''));
+            $batch = trim((string) ($row[$headerMap['batch']] ?? ''));
+            if ($name === '' && $course === '' && $batch === '') continue;
+            $detected[] = [
+                'row_number' => $rowIndex + 1,
+                'name' => $name,
+                'course' => $course,
+                'batch' => $batch,
+            ];
+        }
+
+        if ($detected === []) {
+            throw new GradtrackImportException('EMPTY_FILE', 'The selected Excel file contains headers but no alumni records to import.');
+        }
+
+        return [
+            'worksheet_name' => $matchedWorksheet,
+            'rows' => $detected,
+            'required_columns' => gradtrack_alumni_registry_import_required_columns(),
+        ];
+    }
+}
 
 if (!function_exists('gradtrack_alumni_registry_admin_roles')) {
     function gradtrack_alumni_registry_admin_roles(): array

@@ -21,6 +21,17 @@ export interface GraduateImportExtraction {
   graduationYears: string[];
 }
 
+export interface GraduateImportStructureValidation {
+  errorType: 'EMPTY_FILE' | 'INVALID_EXCEL_FORMAT' | null;
+  errors: string[];
+  requiredColumns: string[];
+}
+
+export const GRADUATE_IMPORT_REQUIRED_COLUMNS = [
+  'Student Number (or Student ID)',
+  'Name (or First Name and Last Name)',
+];
+
 const normalizeCellText = (value: unknown): string => {
   if (value === null || value === undefined) return '';
   return String(value).trim();
@@ -32,6 +43,17 @@ const STUDENT_HEADER_KEYS = new Set(['studentnumber', 'studentno', 'studentid', 
 const FULL_NAME_HEADER_KEYS = new Set(['name', 'fullname', 'nameofstudent', 'nameofstudents', 'studentname', 'graduatename']);
 const FIRST_NAME_HEADER_KEYS = new Set(['firstname', 'givenname']);
 const LAST_NAME_HEADER_KEYS = new Set(['lastname', 'surname']);
+const DATA_HEADER_KEYS = new Set([
+  ...STUDENT_HEADER_KEYS,
+  ...FULL_NAME_HEADER_KEYS,
+  ...FIRST_NAME_HEADER_KEYS,
+  ...LAST_NAME_HEADER_KEYS,
+  'middlename', 'nameextension', 'nameext', 'suffix',
+  'email', 'emailadd', 'emailaddress', 'contactno', 'contactnumber', 'phone',
+  'program', 'programname', 'programcode', 'programid', 'yeargraduated', 'graduationyear',
+  'address', 'employmentstatus', 'coursealignment', 'isaligned', 'companyname', 'jobtitle',
+  'industry', 'datehired', 'monthlysalary', 'timetoemploymentmonths', 'timetoemployment',
+]);
 
 const PROGRAM_CODE_ALIASES: Record<string, string> = {
   BSHRM: 'BSHM',
@@ -66,14 +88,21 @@ const isGraduateHeaderRow = (row: unknown[]): boolean => {
   return hasStudent && (hasFullName || hasSplitName);
 };
 
-const recordValue = (record: Record<string, unknown>, keys: Set<string>): string => {
-  for (const [header, value] of Object.entries(record)) {
-    if (keys.has(normalizeHeaderKey(header))) {
-      const normalized = normalizeCellText(value);
-      if (normalized !== '') return normalized;
-    }
-  }
-  return '';
+const graduateHeaderAnalysis = (row: unknown[]): { valid: boolean; score: number; missing: string[] } => {
+  const keys = headerKeys(row);
+  const hasStudent = [...STUDENT_HEADER_KEYS].some((key) => keys.has(key));
+  const hasFullName = [...FULL_NAME_HEADER_KEYS].some((key) => keys.has(key));
+  const hasFirstName = [...FIRST_NAME_HEADER_KEYS].some((key) => keys.has(key));
+  const hasLastName = [...LAST_NAME_HEADER_KEYS].some((key) => keys.has(key));
+  const hasName = hasFullName || (hasFirstName && hasLastName);
+  const missing: string[] = [];
+  if (!hasStudent) missing.push('Missing required column: Student Number (or Student ID)');
+  if (!hasName) missing.push('Missing required column: Name (or First Name and Last Name)');
+  return {
+    valid: hasStudent && hasName,
+    score: Number(hasStudent) + (hasFullName ? 2 : 0) + Number(hasFirstName) + Number(hasLastName),
+    missing,
+  };
 };
 
 const recordFromRow = (headers: string[], row: unknown[]): Record<string, unknown> => {
@@ -84,17 +113,61 @@ const recordFromRow = (headers: string[], row: unknown[]): Record<string, unknow
   return record;
 };
 
-const isGraduateDataRecord = (record: Record<string, unknown>): boolean => {
-  const studentId = recordValue(record, STUDENT_HEADER_KEYS);
-  const fullName = recordValue(record, FULL_NAME_HEADER_KEYS);
-  const firstName = recordValue(record, FIRST_NAME_HEADER_KEYS);
-  const lastName = recordValue(record, LAST_NAME_HEADER_KEYS);
-  const hasName = fullName !== '' || (firstName !== '' && lastName !== '');
+const isGraduateCandidateRecord = (record: Record<string, unknown>): boolean => Object.entries(record).some(
+  ([header, value]) => DATA_HEADER_KEYS.has(normalizeHeaderKey(header)) && normalizeCellText(value) !== '',
+);
 
-  // Registrar lists always carry a compact student number. Requiring a value
-  // without whitespace prevents merged title rows from becoming graduates.
-  return hasName && studentId !== '' && !/\s/.test(studentId);
+const isGraduateSummaryRecord = (record: Record<string, unknown>): boolean => {
+  const studentId = Object.entries(record).find(([header]) => STUDENT_HEADER_KEYS.has(normalizeHeaderKey(header)))?.[1];
+  if (normalizeCellText(studentId) !== '') return false;
+  const name = Object.entries(record).find(([header]) => FULL_NAME_HEADER_KEYS.has(normalizeHeaderKey(header)))?.[1];
+  return /^(?:grand\s+)?total(?:\s+graduates?)?$|^(?:summary|member\s+count)$/i.test(normalizeCellText(name));
 };
+
+export function validateGraduateImportStructure(
+  workbook: SpreadsheetWorkbook,
+  programOptions: GraduateImportProgramOption[],
+): GraduateImportStructureValidation {
+  const hasContent = workbook.sheetNames.some((sheetName) => (
+    (workbook.sheets[sheetName] ?? []).some((row) => !rowIsEmpty(row ?? []))
+  ));
+  if (!hasContent) {
+    return {
+      errorType: 'EMPTY_FILE',
+      errors: ['The selected Excel file does not contain any graduate records to import.'],
+      requiredColumns: GRADUATE_IMPORT_REQUIRED_COLUMNS,
+    };
+  }
+
+  let validHeaderCount = 0;
+  let best = { valid: false, score: -1, missing: GRADUATE_IMPORT_REQUIRED_COLUMNS.map((column) => `Missing required column: ${column}`) };
+  workbook.sheetNames.forEach((sheetName) => {
+    (workbook.sheets[sheetName] ?? []).forEach((row) => {
+      const analysis = graduateHeaderAnalysis(row ?? []);
+      if (analysis.valid) validHeaderCount += 1;
+      if (analysis.score > best.score) best = analysis;
+    });
+  });
+
+  if (validHeaderCount === 0) {
+    return {
+      errorType: 'INVALID_EXCEL_FORMAT',
+      errors: best.missing,
+      requiredColumns: GRADUATE_IMPORT_REQUIRED_COLUMNS,
+    };
+  }
+
+  const extraction = extractGraduateImportRows(workbook, programOptions);
+  if (extraction.rows.length === 0) {
+    return {
+      errorType: 'EMPTY_FILE',
+      errors: ['The selected Excel file contains headers but no graduate records to import.'],
+      requiredColumns: GRADUATE_IMPORT_REQUIRED_COLUMNS,
+    };
+  }
+
+  return { errorType: null, errors: [], requiredColumns: GRADUATE_IMPORT_REQUIRED_COLUMNS };
+}
 
 const startsRegistrarSection = (text: string): boolean => /\bnorzagaray\s+college\b/i.test(text);
 
@@ -202,7 +275,7 @@ export function extractGraduateImportRows(
 
       if (activeHeaders) {
         const record = recordFromRow(activeHeaders, cells);
-        if (isGraduateDataRecord(record)) {
+        if (isGraduateCandidateRecord(record) && !isGraduateSummaryRecord(record)) {
           if (currentYear) graduationYears.add(currentYear);
           importedRows.push({
             row: record,

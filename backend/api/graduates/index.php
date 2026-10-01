@@ -8,6 +8,7 @@ require_once __DIR__ . '/../config/graduation_years.php';
 require_once __DIR__ . '/../config/permanent_delete.php';
 require_once __DIR__ . '/../config/name_format.php';
 require_once __DIR__ . '/../config/graduate_record_validation.php';
+require_once __DIR__ . '/../config/graduate_import.php';
 
 function normalize_nullable_text($value) {
     if (!isset($value)) {
@@ -223,12 +224,11 @@ try {
                     ? (int) $_GET['program_id']
                     : null;
                 $yearOptions = gradtrack_fetch_graduate_years($db, $archiveScope, $yearProgramId);
+                // Import validation must recognize every configured program, including
+                // programs that do not yet have a graduate in the current archive view.
                 $programOptionsStmt = $db->query(
                     "SELECT p.id, p.code, p.name
                      FROM programs p
-                     INNER JOIN graduates g ON g.program_id = p.id
-                     WHERE " . ($archiveScope === 'archived' ? 'g.archived_at IS NOT NULL' : 'g.archived_at IS NULL') . "
-                     GROUP BY p.id, p.code, p.name
                      ORDER BY p.id ASC"
                 );
                 $programOptions = array_map(static function (array $program): array {
@@ -259,6 +259,46 @@ try {
             break;
 
         case 'POST':
+            if (strtolower((string) ($_GET['action'] ?? '')) === 'import') {
+                $file = gradtrack_import_uploaded_file('file');
+                $workbook = gradtrack_read_uploaded_spreadsheet($file);
+                $selectedProgramId = isset($_POST['selected_program_id']) && (int) $_POST['selected_program_id'] > 0
+                    ? (int) $_POST['selected_program_id']
+                    : null;
+                $analysis = gradtrack_graduate_import_analyze(
+                    $db,
+                    $workbook,
+                    $selectedProgramId,
+                    $_POST['selected_year'] ?? null
+                );
+                $result = gradtrack_graduate_import_execute($db, $analysis, graduates_has_name_extension_column($db));
+
+                logAuditTrail(
+                    $auditUser['user_id'],
+                    $auditUser['user_name'],
+                    $auditUser['user_role'],
+                    null,
+                    'Import',
+                    'Graduate Records',
+                    'Imported ' . $result['added'] . ' graduate record(s) from ' . $file['name'] . '.',
+                    null,
+                    null,
+                    null,
+                    [
+                        'file_name' => $file['name'],
+                        'inserted_count' => $result['added'],
+                        'skipped_count' => $result['skipped'],
+                    ]
+                );
+
+                echo json_encode([
+                    'success' => true,
+                    'message' => 'The Excel file was successfully validated and imported.',
+                    'result' => array_merge($result, ['fileName' => $file['name']]),
+                ]);
+                break;
+            }
+
             $data = json_decode(file_get_contents("php://input"), true);
 
             $studentId = normalize_nullable_text($data['student_id'] ?? null);
@@ -838,18 +878,39 @@ try {
             http_response_code(405);
             echo json_encode(["success" => false, "error" => "Method not allowed"]);
     }
+} catch (GradtrackImportException $e) {
+    if ($db->inTransaction()) $db->rollBack();
+    gradtrack_import_error_response($e);
 } catch (GradtrackPermanentDeleteException $e) {
     http_response_code($e->getStatusCode());
     echo json_encode(["success" => false, "error" => $e->getMessage()]);
 } catch (PDOException $e) {
     if ($db->inTransaction()) $db->rollBack();
     error_log('Graduates API database error: ' . $e->getMessage());
+    if (strtolower((string) ($_GET['action'] ?? '')) === 'import') {
+        gradtrack_import_error_response(new GradtrackImportException(
+            'IMPORT_FAILED',
+            'The graduate import could not be completed. No records were imported. Please try again.',
+            [],
+            500
+        ));
+        exit;
+    }
     $safeError = graduates_safe_database_error($e);
     http_response_code($safeError['status']);
     echo json_encode(["success" => false, "error" => $safeError['message']]);
 } catch (Exception $e) {
     if ($db->inTransaction()) $db->rollBack();
     error_log('Graduates API error: ' . $e->getMessage());
+    if (strtolower((string) ($_GET['action'] ?? '')) === 'import') {
+        gradtrack_import_error_response(new GradtrackImportException(
+            'IMPORT_FAILED',
+            'The graduate import could not be completed. No records were imported. Please try again.',
+            [],
+            500
+        ));
+        exit;
+    }
     http_response_code(500);
     echo json_encode(["success" => false, "error" => "Unable to process graduate records right now. Please try again."]);
 }

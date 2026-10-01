@@ -27,12 +27,6 @@ function alumni_registry_request_data(): array
     return is_array($decoded) ? $decoded : [];
 }
 
-function alumni_registry_allowed_source_file(string $fileName): bool
-{
-    $extension = strtolower(pathinfo($fileName, PATHINFO_EXTENSION));
-    return in_array($extension, ['xlsx', 'csv'], true);
-}
-
 function alumni_registry_normalize_status($value): string
 {
     $status = gradtrack_alumni_registry_clean_text($value, 20);
@@ -697,50 +691,43 @@ function alumni_registry_handle_export(PDO $db, array $admin): void
     ]);
 }
 
-function alumni_registry_validate_import_payload(array $data): array
-{
-    $fileName = gradtrack_alumni_registry_clean_text($data['file_name'] ?? '', 255);
-    $worksheetName = gradtrack_alumni_registry_clean_text($data['worksheet_name'] ?? '', 120);
-    $rows = $data['rows'] ?? [];
-
-    if ($fileName === '' || !alumni_registry_allowed_source_file($fileName)) {
-        alumni_registry_json_error(400, 'Only .xlsx and .csv alumni registry files are allowed');
-    }
-
-    if (!is_array($rows)) {
-        alumni_registry_json_error(400, 'Import rows must be an array');
-    }
-
-    if (count($rows) > 25000) {
-        alumni_registry_json_error(400, 'Import files are limited to 25,000 detected rows at a time');
-    }
-
-    return [
-        'file_name' => $fileName,
-        'worksheet_name' => $worksheetName,
-        'rows' => $rows,
-    ];
-}
-
 function alumni_registry_handle_preview(PDO $db): void
 {
-    $payload = alumni_registry_validate_import_payload(alumni_registry_request_data());
-    $preview = gradtrack_alumni_registry_validate_import_rows($db, $payload['rows']);
+    $file = gradtrack_import_uploaded_file('file');
+    $workbook = gradtrack_read_uploaded_spreadsheet($file);
+    $extracted = gradtrack_alumni_registry_extract_import_rows(
+        $workbook,
+        gradtrack_alumni_registry_clean_text($_POST['worksheet_name'] ?? '', 120)
+    );
+    if (count($extracted['rows']) > 25000) {
+        throw new GradtrackImportException('INVALID_EXCEL_FORMAT', 'Import files are limited to 25,000 detected rows at a time.');
+    }
+    $preview = gradtrack_alumni_registry_validate_import_rows($db, $extracted['rows']);
+    if ($preview['total_rows'] === 0) {
+        throw new GradtrackImportException('EMPTY_FILE', 'The selected Excel file does not contain any alumni records to import.');
+    }
 
     echo json_encode([
         'success' => true,
-        'file_name' => $payload['file_name'],
-        'worksheet_name' => $payload['worksheet_name'],
+        'file_name' => $file['name'],
+        'worksheet_name' => $extracted['worksheet_name'],
+        'required_columns' => $extracted['required_columns'],
         'preview' => $preview,
     ]);
 }
 
 function alumni_registry_handle_import(PDO $db, array $admin): void
 {
-    $data = alumni_registry_request_data();
-    $payload = alumni_registry_validate_import_payload($data);
+    $file = gradtrack_import_uploaded_file('file');
+    $workbook = gradtrack_read_uploaded_spreadsheet($file);
+    $extracted = gradtrack_alumni_registry_extract_import_rows(
+        $workbook,
+        gradtrack_alumni_registry_clean_text($_POST['worksheet_name'] ?? '', 120)
+    );
+    if (count($extracted['rows']) > 25000) {
+        throw new GradtrackImportException('INVALID_EXCEL_FORMAT', 'Import files are limited to 25,000 detected rows at a time.');
+    }
     $duplicateBehavior = gradtrack_alumni_registry_clean_text($_POST['duplicate_behavior'] ?? '', 20);
-    $duplicateBehavior = gradtrack_alumni_registry_clean_text($data['duplicate_behavior'] ?? $duplicateBehavior, 20);
 
     if ($duplicateBehavior === '') {
         $duplicateBehavior = 'skip';
@@ -755,7 +742,30 @@ function alumni_registry_handle_import(PDO $db, array $admin): void
         return;
     }
 
-    $preview = gradtrack_alumni_registry_validate_import_rows($db, $payload['rows']);
+    $preview = gradtrack_alumni_registry_validate_import_rows($db, $extracted['rows']);
+    if ($preview['total_rows'] === 0) {
+        throw new GradtrackImportException('EMPTY_FILE', 'The selected Excel file does not contain any alumni records to import.');
+    }
+    if ($preview['invalid_rows'] > 0) {
+        $errors = array_map(static fn (array $issue): string => 'Row ' . $issue['row_number'] . ': ' . $issue['error'], $preview['invalid']);
+        throw (new GradtrackImportException(
+            'INVALID_ROW_DATA',
+            'The Excel format is correct, but some alumni records contain invalid data. No records were imported.',
+            $errors
+        ))->setRowErrors($preview['invalid']);
+    }
+    $fileDuplicates = array_values(array_filter(
+        $preview['duplicates'],
+        static fn (array $issue): bool => ($issue['duplicate_type'] ?? '') === 'file'
+    ));
+    if ($fileDuplicates !== []) {
+        $errors = array_map(static fn (array $issue): string => 'Row ' . $issue['row_number'] . ': ' . $issue['error'], $fileDuplicates);
+        throw (new GradtrackImportException(
+            'DUPLICATE_DATA',
+            'The Excel file contains duplicate alumni records. No records were imported.',
+            $errors
+        ))->setRowErrors($fileDuplicates);
+    }
     $inserted = 0;
     $updated = 0;
 
@@ -766,8 +776,8 @@ function alumni_registry_handle_import(PDO $db, array $admin): void
             (file_name, worksheet_name, total_rows, successful_rows, duplicate_rows, invalid_rows, updated_rows, imported_by)
             VALUES (:file_name, :worksheet_name, :total_rows, 0, :duplicate_rows, :invalid_rows, 0, :imported_by)");
         $historyStmt->execute([
-            ':file_name' => $payload['file_name'],
-            ':worksheet_name' => $payload['worksheet_name'] !== '' ? $payload['worksheet_name'] : null,
+            ':file_name' => $file['name'],
+            ':worksheet_name' => $extracted['worksheet_name'] !== '' ? $extracted['worksheet_name'] : null,
             ':total_rows' => $preview['total_rows'],
             ':duplicate_rows' => $preview['duplicate_rows'],
             ':invalid_rows' => $preview['invalid_rows'],
@@ -787,7 +797,7 @@ function alumni_registry_handle_import(PDO $db, array $admin): void
                 ':course_name' => $record['course_name'],
                 ':course_code' => $record['course_code'],
                 ':batch_year' => $record['batch_year'],
-                ':source_file' => $payload['file_name'],
+                ':source_file' => $file['name'],
                 ':import_batch_id' => $importBatchId,
             ]);
             $inserted++;
@@ -804,7 +814,7 @@ function alumni_registry_handle_import(PDO $db, array $admin): void
                 }
 
                 $updateStmt->execute([
-                    ':source_file' => $payload['file_name'],
+                    ':source_file' => $file['name'],
                     ':import_batch_id' => $importBatchId,
                     ':id' => (int) $duplicate['existing_id'],
                 ]);
@@ -845,7 +855,7 @@ function alumni_registry_handle_import(PDO $db, array $admin): void
 
         echo json_encode([
             'success' => true,
-            'message' => 'Alumni registry import completed',
+            'message' => 'The Excel file was successfully validated and imported.',
             'result' => [
                 'import_batch_id' => $importBatchId,
                 'total_rows_processed' => $preview['total_rows'],
@@ -862,7 +872,12 @@ function alumni_registry_handle_import(PDO $db, array $admin): void
         }
 
         error_log('Alumni registry import failed: ' . $e->getMessage());
-        alumni_registry_json_error(500, 'Unable to import alumni registry records right now. Please review the file and try again.');
+        throw new GradtrackImportException(
+            'IMPORT_FAILED',
+            'Unable to import alumni registry records right now. No records were imported. Please review the file and try again.',
+            [],
+            500
+        );
     }
 }
 
@@ -1346,6 +1361,9 @@ try {
 } catch (GradtrackPermanentDeleteException $e) {
     if ($db->inTransaction()) $db->rollBack();
     alumni_registry_json_error($e->getStatusCode(), $e->getMessage());
+} catch (GradtrackImportException $e) {
+    if ($db->inTransaction()) $db->rollBack();
+    gradtrack_import_error_response($e);
 } catch (PDOException $e) {
     error_log('Alumni registry database error: ' . $e->getMessage());
     if (($e->errorInfo[1] ?? null) === 1062) {

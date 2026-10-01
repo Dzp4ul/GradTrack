@@ -4,11 +4,13 @@ import {
 } from 'lucide-react';
 import MessageBox from '../../components/MessageBox';
 import { API_ROOT } from '../../config/api';
-import { readSpreadsheet } from '../../lib/spreadsheets';
+import { readSpreadsheet, SpreadsheetReadError } from '../../lib/spreadsheets';
 import {
   extractGraduateImportRows,
+  GRADUATE_IMPORT_REQUIRED_COLUMNS,
   resolveGraduateImportProgramId,
   resolveImportedGraduationYear,
+  validateGraduateImportStructure,
 } from '../../utils/graduateImport';
 import { parseGraduateName, uppercaseGraduateName } from '../../utils/graduateNames';
 import { normalizeGraduationYear, normalizeGraduationYears } from '../../utils/graduationYears';
@@ -82,7 +84,7 @@ interface ImportResult {
   fileName: string;
   totalRows: number;
   added: number;
-  failed: number;
+  skipped: number;
   sheetCount: number;
   graduationYears: string[];
   failures: ImportFailureRow[];
@@ -90,9 +92,18 @@ interface ImportResult {
 
 interface ImportProgress {
   fileName: string;
-  processed: number;
   total: number;
   currentSheet: string;
+  phase: 'validating' | 'importing';
+}
+
+interface ImportApiErrorPayload {
+  success?: boolean;
+  errorType?: string;
+  message?: string;
+  error?: string;
+  errors?: string[];
+  rowErrors?: ImportFailureRow[];
 }
 
 const emptyForm: FormData = {
@@ -165,17 +176,6 @@ const formatGraduateDisplayName = (graduate: {
   const extension = normalizeText(graduate.name_extension);
   const suffix = extension ? ` ${extension}` : '';
   return `${graduate.last_name}, ${graduate.first_name}${middleInitial}${suffix}`.toUpperCase();
-};
-
-const formatImportGraduateName = (graduate: FormData): string => {
-  const givenNames = [graduate.first_name, graduate.middle_name, graduate.name_extension]
-    .map(normalizeText)
-    .filter(Boolean)
-    .join(' ');
-  const lastName = normalizeText(graduate.last_name);
-
-  if (lastName && givenNames) return `${lastName}, ${givenNames}`;
-  return lastName || givenNames || '-';
 };
 
 const getProgramDurationById = (programId: string, programOptions: ProgramOption[]): number | null => {
@@ -335,42 +335,6 @@ const hasTechnicalDatabaseDetails = (message: string): boolean => {
   ].some((fragment) => lower.includes(fragment));
 };
 
-const getImportFailureReason = (value: unknown): string => {
-  const message = normalizeText(value);
-  if (!message) return 'Rejected by server';
-
-  const lower = message.toLowerCase();
-  if (lower.includes('student id already exists') || lower.includes('student no. already exists')) {
-    return 'Duplicate student ID';
-  }
-
-  if (lower.includes('email already exists')) {
-    return 'Duplicate email';
-  }
-
-  if (lower.includes('student_id') && lower.includes('duplicate')) {
-    return 'Duplicate student ID';
-  }
-
-  if (lower.includes('email') && lower.includes('duplicate')) {
-    return 'Duplicate email';
-  }
-
-  if (lower.includes('same student no. or email') || lower.includes('same student id or email')) {
-    return 'Duplicate student ID or email';
-  }
-
-  if (lower.includes('same student no') || lower.includes('same student id')) {
-    return 'Duplicate student ID';
-  }
-
-  if (hasTechnicalDatabaseDetails(message)) {
-    return 'Duplicate or invalid record';
-  }
-
-  return message;
-};
-
 const getSafeErrorMessage = (error: unknown, fallback: string): string => {
   const message = error instanceof Error ? error.message : normalizeText(error);
   if (!message || hasTechnicalDatabaseDetails(message)) {
@@ -378,6 +342,31 @@ const getSafeErrorMessage = (error: unknown, fallback: string): string => {
   }
 
   return message;
+};
+
+const importErrorPresentation = (payload: ImportApiErrorPayload | SpreadsheetReadError | Error) => {
+  const errorType = payload instanceof SpreadsheetReadError ? payload.errorType : ('errorType' in payload ? payload.errorType : undefined);
+  const message = payload instanceof Error
+    ? payload.message
+    : payload.message || payload.error || 'Excel import failed. Please check the file and try again.';
+  const errors = payload instanceof Error ? [] : (payload.errors || []);
+  const titles: Record<string, string> = {
+    INVALID_FILE_TYPE: 'Invalid File',
+    CORRUPTED_FILE: 'Unable to Read File',
+    EMPTY_FILE: 'Empty Excel File',
+    INVALID_EXCEL_FORMAT: 'Import Failed',
+    INVALID_ROW_DATA: 'Import Validation Failed',
+    DUPLICATE_DATA: 'Import Validation Failed',
+    IMPORT_FAILED: 'Import Failed',
+  };
+  const details = errors.length > 0 ? `\n\nProblems detected:\n${errors.slice(0, 100).map((item) => `• ${item}`).join('\n')}` : '';
+  const expected = errorType === 'INVALID_EXCEL_FORMAT'
+    ? `\n\nRequired columns:\n${GRADUATE_IMPORT_REQUIRED_COLUMNS.map((column) => `• ${column}`).join('\n')}`
+    : '';
+  return {
+    title: titles[errorType || ''] || 'Import Failed',
+    message: `${message}${details}${expected}`,
+  };
 };
 
 const escapeCsvCell = (value: unknown): string => {
@@ -402,7 +391,7 @@ const downloadImportFailures = (result: ImportResult) => {
   const link = document.createElement('a');
   const fileBase = result.fileName.replace(/\.[^.]+$/, '').replace(/[^a-z0-9._-]+/gi, '-');
   link.href = blobUrl;
-  link.download = `${fileBase || 'graduate-import'}-failed-rows.csv`;
+  link.download = `${fileBase || 'graduate-import'}-skipped-rows.csv`;
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -440,6 +429,7 @@ export default function Graduates() {
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
   const [selectedGraduateIds, setSelectedGraduateIds] = useState<number[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const importLockRef = useRef(false);
   const [msgBox, setMsgBox] = useState<{
     isOpen: boolean;
     type: MessageType;
@@ -936,51 +926,36 @@ export default function Graduates() {
     const file = e.target.files?.[0];
     e.target.value = '';
 
-    if (!file) return;
+    if (!file || isImporting || importLockRef.current) return;
+    importLockRef.current = true;
 
     setImportResult(null);
     setMsgBox((current) => ({ ...current, isOpen: false }));
     setIsImporting(true);
     setImportProgress({
       fileName: file.name,
-      processed: 0,
       total: 0,
       currentSheet: '',
+      phase: 'validating',
     });
 
     try {
       const workbook = await readSpreadsheet(file);
-      if (workbook.sheetNames.length === 0) {
-        throw new Error('Excel file has no worksheet.');
+      const structure = validateGraduateImportStructure(workbook, programOptions);
+      if (structure.errorType) {
+        const presentation = importErrorPresentation({
+          errorType: structure.errorType,
+          message: structure.errors[0],
+          errors: structure.errorType === 'INVALID_EXCEL_FORMAT' ? structure.errors : [],
+        });
+        setMsgBox({ isOpen: true, type: 'error', ...presentation, confirmText: 'Close' });
+        return;
       }
 
       const extractedImport = extractGraduateImportRows(workbook, programOptions);
-      if (extractedImport.rows.length === 0) {
-        throw new Error('No graduate rows were found. Include Student Number and Name columns, then try again.');
-      }
-
-      setImportProgress((current) => current ? {
-        ...current,
-        total: extractedImport.rows.length,
-        currentSheet: extractedImport.rows[0]?.sheetName ?? '',
-      } : current);
-
-      let successCount = 0;
-      let failedCount = 0;
-      let processedCount = 0;
-      const failures: ImportFailureRow[] = [];
-
-      const addFailure = (importedRow: typeof extractedImport.rows[number], payload: FormData, reason: unknown) => {
-        failedCount += 1;
-        failures.push({
-          sheetName: importedRow.sheetName,
-          rowNumber: importedRow.rowNumber,
-          studentId: normalizeText(payload.student_id) || '-',
-          graduateName: formatImportGraduateName(payload),
-          reason: getImportFailureReason(reason),
-        });
-      };
-
+      const rowErrors: string[] = [];
+      const seenStudentIds = new Map<string, number>();
+      const seenEmails = new Map<string, number>();
       for (const importedRow of extractedImport.rows) {
         const payload = mapExcelRowToPayload(
           importedRow.row,
@@ -991,71 +966,105 @@ export default function Graduates() {
         if (!payload.program_id) {
           payload.program_id = importedRow.inferredProgramId || selectedProgramId;
         }
+        const errors: string[] = [];
+        if (!payload.student_id) errors.push('Student ID is required');
+        else if (payload.student_id.length > 20 || /\s/.test(payload.student_id)) errors.push('Invalid Student ID');
+        if (!payload.first_name) errors.push('First name is required');
+        if (!payload.last_name) errors.push('Last name is required');
+        if (!payload.year_graduated) errors.push('Invalid or missing Year Graduated');
+        if (payload.email && !isValidEmail(payload.email)) errors.push('Invalid email address');
+        if (payload.phone && !/^09\d{9}$/.test(payload.phone)) errors.push('Contact No. must be 11 digits and start with 09');
+        const programInput = pickValue(importedRow.row, ['Program ID', 'Program Code', 'Program', 'Program Name']);
+        if (programInput && !resolveProgramId(importedRow.row, programOptions)) errors.push('Invalid Program');
 
-        setImportProgress((current) => current ? {
-          ...current,
-          currentSheet: importedRow.sheetName,
-        } : current);
-
-        try {
-          if (!payload.first_name || !payload.last_name) {
-            addFailure(importedRow, payload, 'Missing first or last name');
-            continue;
-          }
-
-          if (!payload.year_graduated) {
-            addFailure(importedRow, payload, 'Missing graduation year');
-            continue;
-          }
-
-          const response = await fetch(`${API_BASE}/graduates/index.php`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify(payload),
-          });
-
-          let result: { success?: boolean; error?: unknown };
-          try {
-            result = await response.json();
-          } catch {
-            result = { success: false, error: `Server returned an invalid response (HTTP ${response.status})` };
-          }
-
-          if (response.ok && result.success) {
-            successCount += 1;
-          } else {
-            addFailure(importedRow, payload, result.error || 'Rejected by server');
-          }
-        } catch (error) {
-          addFailure(importedRow, payload, getSafeErrorMessage(error, 'Request failed'));
-        } finally {
-          processedCount += 1;
-          setImportProgress((current) => current ? {
-            ...current,
-            processed: processedCount,
-            currentSheet: importedRow.sheetName,
-          } : current);
+        const studentKey = payload.student_id.toLowerCase();
+        if (studentKey) {
+          const firstRow = seenStudentIds.get(studentKey);
+          if (firstRow) errors.push(`Duplicate Student ID in this file (first seen on row ${firstRow})`);
+          else seenStudentIds.set(studentKey, importedRow.rowNumber);
         }
+        const emailKey = payload.email.toLowerCase();
+        if (emailKey) {
+          const firstRow = seenEmails.get(emailKey);
+          if (firstRow) errors.push(`Duplicate email in this file (first seen on row ${firstRow})`);
+          else seenEmails.set(emailKey, importedRow.rowNumber);
+        }
+        errors.forEach((error) => rowErrors.push(`Row ${importedRow.rowNumber}: ${error}`));
+      }
+
+      if (rowErrors.length > 0) {
+        const duplicateOnly = rowErrors.every((error) => /: Duplicate (?:Student ID|email)/.test(error));
+        const presentation = importErrorPresentation({
+          errorType: duplicateOnly ? 'DUPLICATE_DATA' : 'INVALID_ROW_DATA',
+          message: duplicateOnly
+            ? 'The Excel file contains duplicate graduate records. No records were imported.'
+            : 'The Excel format is correct, but some graduate records contain invalid data. No records were imported.',
+          errors: rowErrors,
+        });
+        setMsgBox({ isOpen: true, type: 'error', ...presentation, confirmText: 'Close' });
+        return;
+      }
+
+      setImportProgress((current) => current ? {
+        ...current,
+        total: extractedImport.rows.length,
+        currentSheet: extractedImport.rows[0]?.sheetName ?? '',
+        phase: 'importing',
+      } : current);
+
+      const form = new window.FormData();
+      form.append('file', file);
+      if (selectedProgramId) form.append('selected_program_id', selectedProgramId);
+      if (filterYear) form.append('selected_year', filterYear);
+      const response = await fetch(`${API_BASE}/graduates/index.php?action=import`, {
+        method: 'POST',
+        credentials: 'include',
+        body: form,
+      });
+      let data: ImportApiErrorPayload & { result?: {
+        fileName: string;
+        totalRows: number;
+        added: number;
+        skipped: number;
+        sheetCount: number;
+        graduationYears: string[];
+        skippedRows: ImportFailureRow[];
+      } };
+      try {
+        data = await response.json();
+      } catch {
+        data = { success: false, errorType: 'IMPORT_FAILED', message: `Server returned an invalid response (HTTP ${response.status})` };
+      }
+      if (!response.ok || data.success === false || !data.result) {
+        const presentation = importErrorPresentation(data);
+        setMsgBox({ isOpen: true, type: 'error', ...presentation, confirmText: 'Close' });
+        return;
       }
 
       await fetchGraduates();
       setImportResult({
-        fileName: file.name,
-        totalRows: extractedImport.rows.length,
-        added: successCount,
-        failed: failedCount,
-        sheetCount: extractedImport.sheetCount,
-        graduationYears: extractedImport.graduationYears,
-        failures,
+        fileName: data.result.fileName,
+        totalRows: data.result.totalRows,
+        added: data.result.added,
+        skipped: data.result.skipped,
+        sheetCount: data.result.sheetCount,
+        graduationYears: data.result.graduationYears,
+        failures: data.result.skippedRows,
       });
     } catch (error) {
+      const presentation = importErrorPresentation(
+        error instanceof SpreadsheetReadError || error instanceof Error
+          ? error
+          : new Error('Excel import failed. Please check the file and try again.'),
+      );
       setMsgBox({
         isOpen: true,
         type: 'error',
-        message: getSafeErrorMessage(error, 'Excel import failed. Please check the file and try again.'),
+        ...presentation,
+        confirmText: 'Close',
       });
     } finally {
+      importLockRef.current = false;
       setImportProgress(null);
       setIsImporting(false);
     }
@@ -1102,7 +1111,7 @@ export default function Graduates() {
 
           {archiveView === 'active' && <button
             onClick={handleImportClick}
-            disabled={isImporting}
+            disabled={isImporting || loading}
             className="flex w-full items-center justify-center gap-2 border border-blue-200 text-blue-700 px-4 py-2.5 rounded-lg hover:bg-blue-50 transition-colors text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed sm:w-auto"
           >
             <Download className="w-4 h-4" />
@@ -1600,7 +1609,7 @@ export default function Graduates() {
               <div className="mt-0.5 h-11 w-11 shrink-0 animate-spin rounded-full border-4 border-blue-100 border-t-blue-600" aria-hidden="true" />
               <div className="min-w-0 flex-1">
                 <h2 id="graduate-import-progress-title" className="text-lg font-semibold text-[#1b2a4a]">
-                  Importing graduates
+                  {importProgress.phase === 'validating' ? 'Validating Excel file...' : 'Importing graduate records...'}
                 </h2>
                 <p className="mt-1 truncate text-sm text-gray-500" title={importProgress.fileName}>
                   {importProgress.fileName}
@@ -1609,30 +1618,15 @@ export default function Graduates() {
             </div>
 
             <div className="mt-6" aria-live="polite">
-              {importProgress.total > 0 ? (
-                <>
-                  <div className="flex items-center justify-between gap-3 text-sm">
-                    <span className="font-medium text-gray-700">
-                      {importProgress.processed} of {importProgress.total} rows processed
-                    </span>
-                    <span className="font-semibold text-blue-700">
-                      {Math.round((importProgress.processed / importProgress.total) * 100)}%
-                    </span>
-                  </div>
-                  <div className="mt-2 h-2.5 overflow-hidden rounded-full bg-blue-100">
-                    <div
-                      className="h-full rounded-full bg-blue-600 transition-[width] duration-300"
-                      style={{ width: `${Math.min(100, (importProgress.processed / importProgress.total) * 100)}%` }}
-                    />
-                  </div>
-                  {importProgress.currentSheet && (
-                    <p className="mt-3 truncate text-xs text-gray-500" title={importProgress.currentSheet}>
-                      Worksheet: <span className="font-medium text-gray-700">{importProgress.currentSheet}</span>
-                    </p>
-                  )}
-                </>
-              ) : (
-                <p className="text-sm text-gray-600">Reading and checking the workbook...</p>
+              <p className="text-sm text-gray-600">
+                {importProgress.phase === 'validating'
+                  ? 'Checking the workbook structure, required columns, and row data.'
+                  : `The server is importing ${importProgress.total} validated row${importProgress.total === 1 ? '' : 's'} in one transaction.`}
+              </p>
+              {importProgress.currentSheet && (
+                <p className="mt-3 truncate text-xs text-gray-500" title={importProgress.currentSheet}>
+                  Worksheet: <span className="font-medium text-gray-700">{importProgress.currentSheet}</span>
+                </p>
               )}
             </div>
 
@@ -1654,7 +1648,7 @@ export default function Graduates() {
             <div className="flex items-start justify-between gap-4 border-b px-5 py-4 sm:px-6">
               <div className="min-w-0">
                 <h2 id="graduate-import-results-title" className="text-xl font-semibold text-[#1b2a4a]">
-                  Graduate Import Results
+                  Import Successful
                 </h2>
                 <p className="mt-1 truncate text-sm text-gray-500" title={importResult.fileName}>
                   {importResult.fileName}
@@ -1680,9 +1674,9 @@ export default function Graduates() {
                   <p className="text-xs font-medium uppercase tracking-wide text-emerald-700">Added</p>
                   <p className="mt-1 text-2xl font-bold text-emerald-700">{importResult.added}</p>
                 </div>
-                <div className={`rounded-xl border p-4 ${importResult.failed > 0 ? 'border-red-200 bg-red-50' : 'border-emerald-200 bg-emerald-50'}`}>
-                  <p className={`text-xs font-medium uppercase tracking-wide ${importResult.failed > 0 ? 'text-red-700' : 'text-emerald-700'}`}>Failed</p>
-                  <p className={`mt-1 text-2xl font-bold ${importResult.failed > 0 ? 'text-red-700' : 'text-emerald-700'}`}>{importResult.failed}</p>
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
+                  <p className="text-xs font-medium uppercase tracking-wide text-amber-700">Skipped</p>
+                  <p className="mt-1 text-2xl font-bold text-amber-700">{importResult.skipped}</p>
                 </div>
                 <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
                   <p className="text-xs font-medium uppercase tracking-wide text-blue-700">Worksheets</p>
@@ -1701,9 +1695,9 @@ export default function Graduates() {
                 <div className="mt-6">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                     <div>
-                      <h3 className="font-semibold text-gray-900">Failed rows</h3>
+                      <h3 className="font-semibold text-gray-900">Skipped existing records</h3>
                       <p className="mt-1 text-sm text-gray-500">
-                        Use the worksheet and Excel row number to correct each record before importing it again.
+                        These records already exist and were not inserted again.
                       </p>
                     </div>
                     <button
@@ -1712,13 +1706,13 @@ export default function Graduates() {
                       className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-blue-200 px-3 py-2 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-50"
                     >
                       <Download size={16} />
-                      Download Failed Rows CSV
+                      Download Skipped Rows CSV
                     </button>
                   </div>
 
                   {importResult.failures.length > 500 && (
                     <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                      Showing the first 500 of {importResult.failures.length} failed rows. The CSV download includes all failed rows.
+                      Showing the first 500 of {importResult.failures.length} skipped rows. The CSV download includes all skipped rows.
                     </p>
                   )}
 

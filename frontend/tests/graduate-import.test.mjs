@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import JSZip from 'jszip';
-import { readSpreadsheet } from '../src/lib/spreadsheets.ts';
+import { readSpreadsheet, SpreadsheetReadError } from '../src/lib/spreadsheets.ts';
 import {
   extractGraduateImportRows,
   extractOfficialListGraduationYear,
   resolveGraduateImportProgramId,
+  validateGraduateImportStructure,
 } from '../src/utils/graduateImport.ts';
 
 const programs = [
@@ -78,6 +79,23 @@ const currentImport = extractGraduateImportRows(currentWorkbook, programs);
 assert.equal(currentImport.rows.length, 4);
 assert.equal(currentImport.sheetCount, 4);
 assert.deepEqual(currentImport.rows.map((row) => row.inferredProgramId), ['2', '4', '1', '3']);
+assert.equal(validateGraduateImportStructure(currentWorkbook, programs).errorType, null);
+
+const missingHeaderValidation = validateGraduateImportStructure({
+  sheetNames: ['Sheet1'],
+  sheets: { Sheet1: [['Employee Number', 'Department'], ['100', 'Sales']] },
+}, programs);
+assert.equal(missingHeaderValidation.errorType, 'INVALID_EXCEL_FORMAT');
+assert.deepEqual(missingHeaderValidation.errors, [
+  'Missing required column: Student Number (or Student ID)',
+  'Missing required column: Name (or First Name and Last Name)',
+]);
+
+const headersOnlyValidation = validateGraduateImportStructure({
+  sheetNames: ['Sheet1'],
+  sheets: { Sheet1: [['Student ID', 'Name']] },
+}, programs);
+assert.equal(headersOnlyValidation.errorType, 'EMPTY_FILE');
 
 const zip = new JSZip();
 zip.file('xl/workbook.xml', '<?xml version="1.0"?><x:workbook xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><x:sheets><x:sheet name="BSCS 4A" sheetId="1" r:id="rId1" /></x:sheets></x:workbook>');
@@ -94,5 +112,26 @@ const namespacedWorkbook = await readSpreadsheet(namespacedFile);
 assert.deepEqual(namespacedWorkbook.sheetNames, ['BSCS 4A']);
 assert.equal(namespacedWorkbook.sheets['BSCS 4A'][0][0], 'Student Number');
 assert.equal(namespacedWorkbook.sheets['BSCS 4A'][1][1], 'Example, Graduate');
+
+const renamedTextFile = new File([new TextEncoder().encode('not an excel workbook')], 'renamed.xlsx', {
+  type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+});
+await assert.rejects(
+  () => readSpreadsheet(renamedTextFile),
+  (error) => error instanceof SpreadsheetReadError && error.errorType === 'INVALID_FILE_TYPE',
+);
+
+const corruptedZipFile = new File([new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x01, 0x02])], 'corrupted.xlsx', {
+  type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+});
+await assert.rejects(
+  () => readSpreadsheet(corruptedZipFile),
+  (error) => error instanceof SpreadsheetReadError && error.errorType === 'CORRUPTED_FILE',
+);
+
+await assert.rejects(
+  () => readSpreadsheet(new File([], 'empty.csv', { type: 'text/csv' })),
+  (error) => error instanceof SpreadsheetReadError && error.errorType === 'EMPTY_FILE',
+);
 
 console.log('All graduate import compatibility tests passed.');

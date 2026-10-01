@@ -6,6 +6,18 @@ export interface SpreadsheetWorkbook {
   sheets: Record<string, unknown[][]>;
 }
 
+export type SpreadsheetErrorType = 'INVALID_FILE_TYPE' | 'CORRUPTED_FILE' | 'EMPTY_FILE';
+
+export class SpreadsheetReadError extends Error {
+  readonly errorType: SpreadsheetErrorType;
+
+  constructor(errorType: SpreadsheetErrorType, message: string) {
+    super(message);
+    this.name = 'SpreadsheetReadError';
+    this.errorType = errorType;
+  }
+}
+
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_ROWS = 50_000;
 const MAX_COLUMNS = 500;
@@ -226,16 +238,61 @@ const csvRows = (content: string): unknown[][] => {
 };
 
 export const readSpreadsheet = async (file: File): Promise<SpreadsheetWorkbook> => {
-  if (file.size > MAX_FILE_BYTES) throw new Error('Import file must be 10 MB or smaller.');
+  if (file.size === 0) throw new SpreadsheetReadError('EMPTY_FILE', 'The selected spreadsheet file is empty.');
+  if (file.size > MAX_FILE_BYTES) throw new SpreadsheetReadError('INVALID_FILE_TYPE', 'Import file must be 10 MB or smaller.');
   const extension = file.name.split('.').pop()?.toLowerCase();
   if (extension === 'csv') {
-    return { sheetNames: ['CSV'], sheets: { CSV: csvRows(await file.text()) } };
+    const content = await file.text();
+    if (content.includes('\0')) {
+      throw new SpreadsheetReadError('INVALID_FILE_TYPE', 'The selected .csv file is not a readable text spreadsheet.');
+    }
+    try {
+      return { sheetNames: ['CSV'], sheets: { CSV: csvRows(content) } };
+    } catch (error) {
+      throw new SpreadsheetReadError(
+        'CORRUPTED_FILE',
+        error instanceof Error ? error.message : 'GradTrack could not read the selected CSV file.',
+      );
+    }
   }
   if (extension !== 'xlsx') {
-    throw new Error('Only .xlsx and .csv files are supported. Convert legacy .xls files to .xlsx before importing.');
+    throw new SpreadsheetReadError(
+      'INVALID_FILE_TYPE',
+      'Only .xlsx and .csv files are supported. Convert legacy .xls files to .xlsx before importing.',
+    );
   }
 
   const buffer = await file.arrayBuffer();
+  const signature = new Uint8Array(buffer.slice(0, 4));
+  const isZip = signature.length === 4
+    && signature[0] === 0x50
+    && signature[1] === 0x4b
+    && ((signature[2] === 0x03 && signature[3] === 0x04)
+      || (signature[2] === 0x05 && signature[3] === 0x06)
+      || (signature[2] === 0x07 && signature[3] === 0x08));
+  if (!isZip) {
+    throw new SpreadsheetReadError(
+      'INVALID_FILE_TYPE',
+      'The selected file is not a valid Excel file. Please upload a genuine .xlsx workbook.',
+    );
+  }
+
+  try {
+    const packageZip = await JSZip.loadAsync(buffer);
+    if (!packageZip.file('[Content_Types].xml') || !packageZip.file('xl/workbook.xml')) {
+      throw new SpreadsheetReadError(
+        'INVALID_FILE_TYPE',
+        'The selected file is not a valid Excel file. Please upload a genuine .xlsx workbook.',
+      );
+    }
+  } catch (error) {
+    if (error instanceof SpreadsheetReadError) throw error;
+    throw new SpreadsheetReadError(
+      'CORRUPTED_FILE',
+      'GradTrack could not read the selected Excel workbook. The file may be corrupted or use an unsupported format.',
+    );
+  }
+
   try {
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(buffer);
@@ -245,7 +302,14 @@ export const readSpreadsheet = async (file: File): Promise<SpreadsheetWorkbook> 
     });
     return { sheetNames: Object.keys(sheets), sheets };
   } catch {
-    return readNamespacedXlsx(buffer);
+    try {
+      return await readNamespacedXlsx(buffer);
+    } catch {
+      throw new SpreadsheetReadError(
+        'CORRUPTED_FILE',
+        'GradTrack could not read the selected Excel workbook. The file may be corrupted or use an unsupported format.',
+      );
+    }
   }
 };
 

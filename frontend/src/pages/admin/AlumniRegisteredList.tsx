@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import MessageBox from '../../components/MessageBox';
 import { API_ENDPOINTS } from '../../config/api';
-import { createXlsxBlob, readSpreadsheet, type SpreadsheetWorkbook } from '../../lib/spreadsheets';
+import { createXlsxBlob, readSpreadsheet, SpreadsheetReadError, type SpreadsheetWorkbook } from '../../lib/spreadsheets';
 import { normalizeGraduationYears } from '../../utils/graduationYears';
 
 type RegistryStatus = 'Unclaimed' | 'Registered' | 'Verified' | 'Inactive';
@@ -157,6 +157,7 @@ interface ImportResult {
 interface ImportState {
   open: boolean;
   file_name: string;
+  file: File | null;
   workbook: SpreadsheetWorkbook | null;
   sheets: string[];
   selected_sheet: string;
@@ -167,6 +168,16 @@ interface ImportState {
   saving: boolean;
   error: string;
   duplicate_behavior: 'skip' | 'update' | 'cancel';
+  required_columns: string[];
+}
+
+interface ImportApiErrorPayload {
+  success?: boolean;
+  errorType?: string;
+  message?: string;
+  error?: string;
+  errors?: string[];
+  rowErrors?: ImportIssue[];
 }
 
 interface ReviewAccount {
@@ -236,6 +247,7 @@ const EMPTY_SUMMARY: RegistrySummary = {
 const DEFAULT_IMPORT_STATE: ImportState = {
   open: false,
   file_name: '',
+  file: null,
   workbook: null,
   sheets: [],
   selected_sheet: '',
@@ -246,6 +258,7 @@ const DEFAULT_IMPORT_STATE: ImportState = {
   saving: false,
   error: '',
   duplicate_behavior: 'skip',
+  required_columns: [],
 };
 
 const accountStatusOptions: Array<{ value: AccountStatus; label: string }> = [
@@ -281,6 +294,7 @@ const headerAliases = {
   course: ['course', 'program', 'program name', 'course name', 'degree program', 'academic program'],
   batch: ['batch', 'graduation year', 'year graduated', 'year_graduated', 'yeargraduated', 'year'],
 };
+const alumniRequiredColumns = ['Name', 'Course', 'Batch'];
 
 function normalizeHeader(value: unknown): string {
   return cellToText(value).toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -303,8 +317,12 @@ const nameHeaderKeys = aliasKeys(headerAliases.name);
 const courseHeaderKeys = aliasKeys(headerAliases.course);
 const batchHeaderKeys = aliasKeys(headerAliases.batch);
 
-function findHeaderMap(rows: unknown[][]): { rowIndex: number; nameIndex: number; courseIndex: number; batchIndex: number } | null {
+function findHeaderMap(rows: unknown[][]): {
+  map: { rowIndex: number; nameIndex: number; courseIndex: number; batchIndex: number } | null;
+  missing: string[];
+} {
   const maxRows = Math.min(rows.length, 30);
+  let best = { score: -1, nameIndex: -1, courseIndex: -1, batchIndex: -1 };
   for (let rowIndex = 0; rowIndex < maxRows; rowIndex += 1) {
     const row = rows[rowIndex] || [];
     let nameIndex = -1;
@@ -318,23 +336,36 @@ function findHeaderMap(rows: unknown[][]): { rowIndex: number; nameIndex: number
       if (batchIndex === -1 && batchHeaderKeys.includes(key)) batchIndex = index;
     });
 
-    if (nameIndex >= 0 && courseIndex >= 0 && batchIndex >= 0) {
-      return { rowIndex, nameIndex, courseIndex, batchIndex };
-    }
+    const score = Number(nameIndex >= 0) + Number(courseIndex >= 0) + Number(batchIndex >= 0);
+    if (score > best.score) best = { score, nameIndex, courseIndex, batchIndex };
+    if (score === 3) return { map: { rowIndex, nameIndex, courseIndex, batchIndex }, missing: [] };
   }
 
-  return null;
+  const missing: string[] = [];
+  if (best.nameIndex < 0) missing.push('Missing required column: Name');
+  if (best.courseIndex < 0) missing.push('Missing required column: Course');
+  if (best.batchIndex < 0) missing.push('Missing required column: Batch');
+  return { map: null, missing };
 }
 
-function extractRowsFromSheet(workbook: SpreadsheetWorkbook, sheetName: string): { rows: ImportRow[]; error: string } {
+function extractRowsFromSheet(workbook: SpreadsheetWorkbook, sheetName: string): {
+  rows: ImportRow[];
+  errorType: 'EMPTY_FILE' | 'INVALID_EXCEL_FORMAT' | null;
+  errors: string[];
+} {
   const sheet = workbook.sheets[sheetName];
-  if (!sheet) return { rows: [], error: 'Worksheet not found' };
+  if (!sheet) return { rows: [], errorType: 'INVALID_EXCEL_FORMAT', errors: [`Required worksheet not found: ${sheetName}`] };
 
   const rows = sheet;
-  const headerMap = findHeaderMap(rows);
-  if (!headerMap) {
-    return { rows: [], error: 'Required columns were not found: Name, Course, and Batch' };
+  const hasContent = rows.some((row) => (row || []).some((cell) => cellToText(cell) !== ''));
+  if (!hasContent) {
+    return { rows: [], errorType: 'EMPTY_FILE', errors: ['The selected worksheet does not contain any alumni records to import.'] };
   }
+  const header = findHeaderMap(rows);
+  if (!header.map) {
+    return { rows: [], errorType: 'INVALID_EXCEL_FORMAT', errors: header.missing };
+  }
+  const headerMap = header.map;
 
   const detected: ImportRow[] = [];
   for (let index = headerMap.rowIndex + 1; index < rows.length; index += 1) {
@@ -351,7 +382,40 @@ function extractRowsFromSheet(workbook: SpreadsheetWorkbook, sheetName: string):
     });
   }
 
-  return { rows: detected, error: '' };
+  if (detected.length === 0) {
+    return { rows: [], errorType: 'EMPTY_FILE', errors: ['The selected Excel file contains headers but no alumni records to import.'] };
+  }
+  return { rows: detected, errorType: null, errors: [] };
+}
+
+function importErrorPresentation(payload: ImportApiErrorPayload | SpreadsheetReadError | Error, requiredColumns = alumniRequiredColumns) {
+  const errorType = payload instanceof SpreadsheetReadError ? payload.errorType : ('errorType' in payload ? payload.errorType : undefined);
+  const responseMessage = payload instanceof Error
+    ? payload.message
+    : payload.message || payload.error || 'Unable to import the alumni registry file.';
+  const errors = payload instanceof Error
+    ? []
+    : [...new Set((payload.errors || []).map((item) => item.trim()).filter(Boolean))];
+  const titles: Record<string, string> = {
+    INVALID_FILE_TYPE: 'Invalid File',
+    CORRUPTED_FILE: 'Unable to Read File',
+    EMPTY_FILE: 'Empty Excel File',
+    INVALID_EXCEL_FORMAT: 'Invalid Excel Format',
+    INVALID_ROW_DATA: 'Import Validation Failed',
+    DUPLICATE_DATA: 'Import Validation Failed',
+    IMPORT_FAILED: 'Import Failed',
+  };
+  const message = errorType === 'INVALID_EXCEL_FORMAT'
+    ? 'The selected Excel file does not match the required GradTrack alumni import format.'
+    : responseMessage;
+  const details = errors.length > 0 ? `\n\nProblems detected:\n${errors.slice(0, 100).map((item) => `• ${item}`).join('\n')}` : '';
+  const expected = errorType === 'INVALID_EXCEL_FORMAT'
+    ? `\n\nRequired columns:\n${requiredColumns.map((column) => `• ${column}`).join('\n')}`
+    : '';
+  const guidance = errorType === 'INVALID_EXCEL_FORMAT'
+    ? '\n\nPlease use the required GradTrack Excel template and try again.'
+    : '';
+  return { title: titles[errorType || ''] || 'Import Failed', message: `${message}${details}${expected}${guidance}` };
 }
 
 function formatDateTime(value?: string | null) {
@@ -444,6 +508,8 @@ export default function AlumniRegisteredList() {
   const [exportBatch, setExportBatch] = useState('');
   const [exporting, setExporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const fileValidationLockRef = useRef(false);
+  const importSaveLockRef = useRef(false);
   const [msgBox, setMsgBox] = useState<{
     isOpen: boolean;
     type: MessageType;
@@ -896,18 +962,16 @@ export default function AlumniRegisteredList() {
     void reviewAccountAction(rejectAccount, 'reject', rejectReason);
   };
 
-  const previewImport = async (workbook: SpreadsheetWorkbook, sheetName: string, fileName: string) => {
+  const previewImport = async (workbook: SpreadsheetWorkbook, sheetName: string, file: File) => {
     const extracted = extractRowsFromSheet(workbook, sheetName);
-    if (extracted.error) {
-      setImportState((prev) => ({
-        ...prev,
-        selected_sheet: sheetName,
-        detected_rows: [],
-        preview: null,
-        result: null,
-        loading: false,
-        error: extracted.error,
-      }));
+    if (extracted.errorType) {
+      const presentation = importErrorPresentation({
+        errorType: extracted.errorType,
+        message: extracted.errors[0],
+        errors: extracted.errorType === 'INVALID_EXCEL_FORMAT' ? extracted.errors : [],
+      });
+      setImportState(DEFAULT_IMPORT_STATE);
+      setMsgBox({ isOpen: true, type: 'error', ...presentation, confirmText: 'Close' });
       return;
     }
 
@@ -922,60 +986,68 @@ export default function AlumniRegisteredList() {
     }));
 
     try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('worksheet_name', sheetName);
       const response = await fetch(`${API_ENDPOINTS.ALUMNI_REGISTRY}?action=preview`, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          file_name: fileName,
-          worksheet_name: sheetName,
-          rows: extracted.rows,
-        }),
+        body: form,
       });
-      const data = await response.json();
-      if (!response.ok || data.success === false) {
-        throw new Error(data.error || 'Unable to preview import file');
+      let data: ImportApiErrorPayload & { preview?: ImportPreview; required_columns?: string[]; worksheet_name?: string };
+      try {
+        data = await response.json();
+      } catch {
+        data = { success: false, errorType: 'IMPORT_FAILED', message: `Server returned an invalid response (HTTP ${response.status})` };
       }
+      if (!response.ok || data.success === false) {
+        const presentation = importErrorPresentation(data);
+        setMsgBox({ isOpen: true, type: 'error', ...presentation, confirmText: 'Close' });
+        setImportState(DEFAULT_IMPORT_STATE);
+        return;
+      }
+      if (!data.preview) throw new Error('The server did not return an import preview.');
+      const preview = data.preview;
 
       setImportState((prev) => ({
         ...prev,
         detected_rows: extracted.rows,
-        preview: data.preview,
+        preview,
+        selected_sheet: data.worksheet_name || sheetName,
+        required_columns: data.required_columns || alumniRequiredColumns,
         loading: false,
         error: '',
       }));
     } catch (error) {
-      setImportState((prev) => ({
-        ...prev,
-        preview: null,
-        loading: false,
-        error: error instanceof Error ? error.message : 'Unable to preview import file',
-      }));
+      const presentation = importErrorPresentation(
+        error instanceof Error ? error : new Error('Unable to preview import file'),
+      );
+      setImportState(DEFAULT_IMPORT_STATE);
+      setMsgBox({ isOpen: true, type: 'error', ...presentation, confirmText: 'Close' });
     }
   };
 
   const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file) return;
-
-    const extension = file.name.split('.').pop()?.toLowerCase() || '';
-    if (!['xlsx', 'csv'].includes(extension)) {
-      setMsgBox({ isOpen: true, type: 'error', message: 'Only .xlsx and .csv files are supported.' });
-      return;
-    }
-
-    if (file.size > maxImportSizeBytes) {
-      setMsgBox({ isOpen: true, type: 'error', message: 'Import file must be 10 MB or smaller.' });
-      return;
-    }
+    if (!file || fileValidationLockRef.current) return;
+    fileValidationLockRef.current = true;
 
     try {
       setImportState({
         ...DEFAULT_IMPORT_STATE,
         open: true,
         file_name: file.name,
+        file,
         loading: true,
       });
+
+      const extension = file.name.split('.').pop()?.toLowerCase() || '';
+      if (!['xlsx', 'csv'].includes(extension)) {
+        throw new SpreadsheetReadError('INVALID_FILE_TYPE', 'The selected file is not a supported spreadsheet. Please upload a valid .xlsx or .csv file.');
+      }
+      if (file.size > maxImportSizeBytes) {
+        throw new SpreadsheetReadError('INVALID_FILE_TYPE', 'Import file must be 10 MB or smaller.');
+      }
 
       const workbook = await readSpreadsheet(file);
 
@@ -987,24 +1059,26 @@ export default function AlumniRegisteredList() {
       const defaultSheet = sheets.find((sheet) => sheet.trim().toLowerCase() === 'registered alumni') || sheets[0];
       setImportState((prev) => ({
         ...prev,
+        file,
         workbook,
         sheets,
         selected_sheet: defaultSheet,
         loading: false,
       }));
-      await previewImport(workbook, defaultSheet, file.name);
+      await previewImport(workbook, defaultSheet, file);
     } catch (error) {
-      setImportState((prev) => ({
-        ...prev,
-        workbook: null,
-        sheets: [],
-        loading: false,
-        error: error instanceof Error ? error.message : 'Unable to read import file',
-      }));
+      const presentation = importErrorPresentation(
+        error instanceof SpreadsheetReadError || error instanceof Error ? error : new Error('Unable to read import file'),
+      );
+      setImportState(DEFAULT_IMPORT_STATE);
+      setMsgBox({ isOpen: true, type: 'error', ...presentation, confirmText: 'Close' });
+    } finally {
+      fileValidationLockRef.current = false;
     }
   };
 
   const chooseImportFile = () => {
+    if (importState.loading || importState.saving) return;
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
       fileInputRef.current.click();
@@ -1012,13 +1086,24 @@ export default function AlumniRegisteredList() {
   };
 
   const changeWorksheet = (sheetName: string) => {
-    if (!importState.workbook) return;
-    void previewImport(importState.workbook, sheetName, importState.file_name);
+    if (!importState.workbook || !importState.file) return;
+    void previewImport(importState.workbook, sheetName, importState.file);
   };
 
   const confirmImport = () => {
     const preview = importState.preview;
-    if (!preview || !importState.workbook) return;
+    if (!preview || !importState.workbook || !importState.file) return;
+    const fileDuplicates = preview.duplicates.filter((issue) => issue.duplicate_type === 'file');
+    if (preview.invalid_rows > 0 || fileDuplicates.length > 0) {
+      const issues = [...preview.invalid, ...fileDuplicates].map((issue) => `Row ${issue.row_number}: ${issue.error}`);
+      const presentation = importErrorPresentation({
+        errorType: fileDuplicates.length > 0 ? 'DUPLICATE_DATA' : 'INVALID_ROW_DATA',
+        message: 'The Excel format is correct, but some alumni records contain invalid data. No records were imported.',
+        errors: issues,
+      });
+      setMsgBox({ isOpen: true, type: 'error', ...presentation, confirmText: 'Close' });
+      return;
+    }
     const importable = preview.valid_rows + (importState.duplicate_behavior === 'update' ? preview.duplicate_rows : 0);
     if (importable === 0) {
       setMsgBox({ isOpen: true, type: 'warning', message: 'There are no valid rows to import.' });
@@ -1038,36 +1123,56 @@ export default function AlumniRegisteredList() {
   };
 
   const saveImport = async () => {
+    if (!importState.file || importState.saving || importSaveLockRef.current) return;
+    importSaveLockRef.current = true;
     setImportState((prev) => ({ ...prev, saving: true, result: null, error: '' }));
     try {
+      const form = new FormData();
+      form.append('file', importState.file);
+      form.append('worksheet_name', importState.selected_sheet);
+      form.append('duplicate_behavior', importState.duplicate_behavior);
       const response = await fetch(`${API_ENDPOINTS.ALUMNI_REGISTRY}?action=import`, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          file_name: importState.file_name,
-          worksheet_name: importState.selected_sheet,
-          rows: importState.detected_rows,
-          duplicate_behavior: importState.duplicate_behavior,
-        }),
+        body: form,
       });
-      const data = await response.json();
-      if (!response.ok || data.success === false) {
-        throw new Error(data.error || 'Unable to import alumni registry file');
+      let data: ImportApiErrorPayload & { result?: ImportResult };
+      try {
+        data = await response.json();
+      } catch {
+        data = { success: false, errorType: 'IMPORT_FAILED', message: `Server returned an invalid response (HTTP ${response.status})` };
       }
+      if (!response.ok || data.success === false) {
+        const presentation = importErrorPresentation(data, importState.required_columns.length > 0 ? importState.required_columns : alumniRequiredColumns);
+        setMsgBox({ isOpen: true, type: 'error', ...presentation, confirmText: 'Close' });
+        setImportState((prev) => ({ ...prev, saving: false, error: presentation.message }));
+        return;
+      }
+      if (!data.result) throw new Error('The server did not return an import result.');
+      const result = data.result;
 
-      setImportState((prev) => ({
-        ...prev,
-        saving: false,
-        result: data.result,
-      }));
       await refreshAll();
+      setImportState(DEFAULT_IMPORT_STATE);
+      setMsgBox({
+        isOpen: true,
+        type: 'success',
+        title: 'Import Successful',
+        message: `The Excel file was successfully validated and imported.\n\nImported: ${result.successfully_imported}\nUpdated: ${result.updated_records}\nSkipped: ${result.duplicates_skipped}`,
+        confirmText: 'Done',
+      });
     } catch (error) {
+      const presentation = importErrorPresentation(
+        error instanceof Error ? error : new Error('Unable to import alumni registry file'),
+        importState.required_columns.length > 0 ? importState.required_columns : alumniRequiredColumns,
+      );
       setImportState((prev) => ({
         ...prev,
         saving: false,
-        error: error instanceof Error ? error.message : 'Unable to import alumni registry file',
+        error: presentation.message,
       }));
+      setMsgBox({ isOpen: true, type: 'error', ...presentation, confirmText: 'Close' });
+    } finally {
+      importSaveLockRef.current = false;
     }
   };
 
@@ -1172,7 +1277,8 @@ export default function AlumniRegisteredList() {
           {archiveView === 'active' && <button
             type="button"
             onClick={chooseImportFile}
-            className="inline-flex items-center justify-center gap-2 rounded-lg border border-blue-200 bg-white px-4 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-50"
+            disabled={importState.loading || importState.saving}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-blue-200 bg-white px-4 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
           >
             <Upload className="h-4 w-4" />
             Import Alumni List
@@ -2341,15 +2447,15 @@ function ImportModal({
 }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
-      <div className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl">
+      <div className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg bg-white shadow-2xl dark:bg-slate-900">
         <ModalHeader title="Import Alumni List" subtitle={state.file_name} onClose={onClose} />
-        <div className="grid gap-3 border-b px-5 py-4 lg:grid-cols-[1fr_220px] lg:items-center">
+        <div className="grid gap-3 border-b px-5 py-4 dark:border-slate-700 lg:grid-cols-[1fr_220px] lg:items-center">
           <Field label="Worksheet">
             <select
               value={state.selected_sheet}
               onChange={(event) => onWorksheetChange(event.target.value)}
               disabled={state.loading || state.saving || state.sheets.length <= 1}
-              className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+              className="w-full rounded-lg border bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:disabled:bg-slate-800"
             >
               {state.sheets.map((sheet) => (
                 <option key={sheet} value={sheet}>{sheet}</option>
@@ -2361,7 +2467,7 @@ function ImportModal({
               value={state.duplicate_behavior}
               onChange={(event) => onBehaviorChange(event.target.value as 'skip' | 'update' | 'cancel')}
               disabled={state.saving}
-              className="w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full rounded-lg border bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
             >
               <option value="skip">Skip duplicates</option>
               <option value="update">Update import reference</option>
@@ -2372,9 +2478,9 @@ function ImportModal({
 
         <div className="overflow-y-auto px-5 py-4">
           {state.loading ? (
-            <LoadingBlock label="Preparing preview..." />
+            <LoadingBlock label="Validating Excel file..." />
           ) : state.error ? (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{state.error}</div>
+            <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">{state.error}</div>
           ) : (
             <div className="space-y-5">
               {state.preview && (
@@ -2386,6 +2492,13 @@ function ImportModal({
                     <MiniStat label="Invalid Rows" value={state.preview.invalid_rows} />
                     <MiniStat label="Ignored Rows" value={state.preview.ignored_rows} />
                   </div>
+
+                  {(state.preview.invalid_rows > 0 || state.preview.duplicates.some((issue) => issue.duplicate_type === 'file')) && (
+                    <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+                      <p className="font-bold">Import Validation Failed</p>
+                      <p className="mt-1">Correct all invalid or duplicate rows before importing. No records will be imported from this file.</p>
+                    </div>
+                  )}
 
                   <div className="grid gap-4 lg:grid-cols-2">
                     <PreviewList title="Recognized Courses" rows={recognizedPreview} emptyLabel="No recognized courses yet." />
@@ -2446,16 +2559,21 @@ function ImportModal({
           )}
         </div>
 
-        <div className="flex flex-col-reverse gap-2 border-t px-5 py-4 sm:flex-row sm:justify-end">
+        <div className="flex flex-col-reverse gap-2 border-t px-5 py-4 dark:border-slate-700 sm:flex-row sm:justify-end">
           <button type="button" onClick={onClose} className="rounded-lg border px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">Close</button>
           <button
             type="button"
             onClick={onConfirmImport}
-            disabled={!state.preview || state.saving || state.loading || state.duplicate_behavior === 'cancel'}
+            disabled={!state.preview
+              || state.saving
+              || state.loading
+              || state.duplicate_behavior === 'cancel'
+              || state.preview.invalid_rows > 0
+              || state.preview.duplicates.some((issue) => issue.duplicate_type === 'file')}
             className="inline-flex items-center justify-center gap-2 rounded-lg bg-[#1b2a4a] px-4 py-2 text-sm font-semibold text-white hover:bg-[#263c66] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {state.saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSpreadsheet className="h-4 w-4" />}
-            Save Import
+            {state.saving ? 'Importing alumni records...' : 'Save Import'}
           </button>
         </div>
       </div>
@@ -2544,10 +2662,10 @@ function ExportModal({
 
 function ModalHeader({ title, subtitle, onClose }: { title: string; subtitle?: string; onClose: () => void }) {
   return (
-    <div className="flex items-start justify-between gap-4 border-b px-5 py-4">
+    <div className="flex items-start justify-between gap-4 border-b px-5 py-4 dark:border-slate-700">
       <div className="min-w-0">
-        <h2 className="text-lg font-bold text-[#1b2a4a]">{title}</h2>
-        {subtitle && <p className="mt-1 truncate text-sm text-gray-500">{subtitle}</p>}
+        <h2 className="text-lg font-bold text-[#1b2a4a] dark:text-slate-100">{title}</h2>
+        {subtitle && <p className="mt-1 truncate text-sm text-gray-500 dark:text-slate-400">{subtitle}</p>}
       </div>
       <button type="button" onClick={onClose} className="rounded-lg p-2 text-gray-500 hover:bg-gray-100" aria-label="Close">
         <X className="h-5 w-5" />
@@ -2559,7 +2677,7 @@ function ModalHeader({ title, subtitle, onClose }: { title: string; subtitle?: s
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs font-semibold text-gray-600">{label}</span>
+      <span className="mb-1 block text-xs font-semibold text-gray-600 dark:text-slate-300">{label}</span>
       {children}
     </label>
   );
@@ -2576,24 +2694,24 @@ function Info({ label, value }: { label: string; value?: string | number | null 
 
 function MiniStat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-lg border bg-white px-3 py-2">
-      <p className="text-xs font-semibold text-gray-500">{label}</p>
-      <p className="mt-1 text-lg font-bold text-[#1b2a4a]">{value}</p>
+    <div className="rounded-lg border bg-white px-3 py-2 dark:border-slate-700 dark:bg-slate-950">
+      <p className="text-xs font-semibold text-gray-500 dark:text-slate-400">{label}</p>
+      <p className="mt-1 text-lg font-bold text-[#1b2a4a] dark:text-slate-100">{value}</p>
     </div>
   );
 }
 
 function PreviewList({ title, rows, emptyLabel }: { title: string; rows: Array<[string, number]>; emptyLabel: string }) {
   return (
-    <div className="rounded-lg border">
-      <p className="border-b bg-gray-50 px-4 py-3 text-sm font-bold text-[#1b2a4a]">{title}</p>
+    <div className="rounded-lg border dark:border-slate-700">
+      <p className="border-b bg-gray-50 px-4 py-3 text-sm font-bold text-[#1b2a4a] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100">{title}</p>
       <div className="space-y-2 p-4">
         {rows.length === 0 ? (
-          <p className="text-sm text-gray-500">{emptyLabel}</p>
+          <p className="text-sm text-gray-500 dark:text-slate-400">{emptyLabel}</p>
         ) : (
           rows.map(([label, total]) => (
             <div key={label} className="flex items-center justify-between text-sm">
-              <span className="font-medium text-gray-700">{label}</span>
+              <span className="font-medium text-gray-700 dark:text-slate-200">{label}</span>
               <span className="rounded-full bg-gray-100 px-2 py-1 text-xs font-semibold text-gray-600">{total}</span>
             </div>
           ))
