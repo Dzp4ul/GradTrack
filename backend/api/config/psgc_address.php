@@ -23,6 +23,110 @@ function gradtrack_psgc_is_list(array $value): bool
     return array_keys($value) === range(0, count($value) - 1);
 }
 
+function gradtrack_psgc_cache_version(): int
+{
+    // Version 2 stores canonical UTF-8 names. Versioning the filename leaves
+    // unrelated cache data untouched while preventing legacy mojibake entries
+    // from being reused.
+    return 2;
+}
+
+function gradtrack_psgc_mojibake_score(string $value): int
+{
+    $count = preg_match_all('/[\x{00C2}\x{00C3}\x{00E2}\x{00F0}]/u', $value, $matches);
+    return $count === false ? 0 : $count;
+}
+
+function gradtrack_psgc_normalize_text($value): string
+{
+    $normalized = trim((string) $value);
+
+    // psgc.cloud currently returns some names as valid JSON containing text
+    // that was decoded as Windows-1252/Latin-1 before serialization. Reverse
+    // that conversion only when it is lossless, produces valid UTF-8, and
+    // strictly reduces the mojibake signature. Correct UTF-8 is never changed.
+    for ($pass = 0; $pass < 2; $pass++) {
+        $score = gradtrack_psgc_mojibake_score($normalized);
+        if ($score === 0) {
+            break;
+        }
+
+        $replacement = null;
+        foreach (['Windows-1252', 'ISO-8859-1'] as $legacyEncoding) {
+            $candidate = @iconv('UTF-8', $legacyEncoding, $normalized);
+            if ($candidate === false || preg_match('//u', $candidate) !== 1) {
+                continue;
+            }
+
+            $roundTrip = @iconv($legacyEncoding, 'UTF-8', $candidate);
+            if (
+                $roundTrip !== $normalized
+                || gradtrack_psgc_mojibake_score($candidate) >= $score
+            ) {
+                continue;
+            }
+
+            $replacement = $candidate;
+            break;
+        }
+
+        if ($replacement === null) {
+            break;
+        }
+
+        $normalized = $replacement;
+    }
+
+    return $normalized;
+}
+
+function gradtrack_psgc_normalize_location($item): ?array
+{
+    if (!is_array($item) || empty($item['code']) || empty($item['name'])) {
+        return null;
+    }
+
+    $normalized = [
+        'code' => trim((string) $item['code']),
+        'name' => gradtrack_psgc_normalize_text($item['name']),
+    ];
+    if ($normalized['code'] === '' || $normalized['name'] === '') {
+        return null;
+    }
+
+    foreach (['type', 'region', 'province'] as $metadataKey) {
+        if (isset($item[$metadataKey])) {
+            $metadataValue = gradtrack_psgc_normalize_text($item[$metadataKey]);
+            if ($metadataValue !== '') {
+                $normalized[$metadataKey] = $metadataValue;
+            }
+        }
+    }
+
+    return $normalized;
+}
+
+function gradtrack_psgc_normalize_locations(array $items): array
+{
+    $locations = [];
+    foreach ($items as $item) {
+        $normalized = gradtrack_psgc_normalize_location($item);
+        if ($normalized !== null) {
+            $locations[] = $normalized;
+        }
+    }
+
+    return $locations;
+}
+
+function gradtrack_psgc_is_allowed_collection_path(string $path): bool
+{
+    return preg_match(
+        '#\A(?:regions|regions/[0-9]{10}/(?:provinces|cities-municipalities)|provinces/[0-9]{10}/cities-municipalities|cities-municipalities/[0-9]{10}/barangays)\z#D',
+        ltrim($path, '/')
+    ) === 1;
+}
+
 function gradtrack_psgc_cache_directory(): string
 {
     $configured = trim((string) (getenv('PSGC_CACHE_DIR') ?: ''));
@@ -37,7 +141,7 @@ function gradtrack_psgc_cache_file(string $path): string
 {
     return gradtrack_psgc_cache_directory()
         . DIRECTORY_SEPARATOR
-        . hash('sha256', ltrim($path, '/'))
+        . hash('sha256', 'v' . gradtrack_psgc_cache_version() . ':' . ltrim($path, '/'))
         . '.json';
 }
 
@@ -51,6 +155,7 @@ function gradtrack_psgc_read_cached_collection(string $path): ?array
     $decoded = json_decode((string) @file_get_contents($cacheFile), true);
     if (
         !is_array($decoded)
+        || ($decoded['version'] ?? null) !== gradtrack_psgc_cache_version()
         || ($decoded['path'] ?? null) !== ltrim($path, '/')
         || !isset($decoded['items'])
         || !is_array($decoded['items'])
@@ -58,22 +163,9 @@ function gradtrack_psgc_read_cached_collection(string $path): ?array
         return null;
     }
 
-    $items = [];
-    foreach ($decoded['items'] as $item) {
-        if (!is_array($item) || empty($item['code']) || empty($item['name'])) {
-            return null;
-        }
-
-        $normalized = [
-            'code' => trim((string) $item['code']),
-            'name' => trim((string) $item['name']),
-        ];
-        foreach (['type', 'region', 'province'] as $metadataKey) {
-            if (isset($item[$metadataKey]) && trim((string) $item[$metadataKey]) !== '') {
-                $normalized[$metadataKey] = trim((string) $item[$metadataKey]);
-            }
-        }
-        $items[] = $normalized;
+    $items = gradtrack_psgc_normalize_locations($decoded['items']);
+    if (count($items) !== count($decoded['items'])) {
+        return null;
     }
 
     return [
@@ -89,7 +181,9 @@ function gradtrack_psgc_write_cached_collection(string $path, array $items): voi
         return;
     }
 
+    $items = gradtrack_psgc_normalize_locations($items);
     $payload = json_encode([
+        'version' => gradtrack_psgc_cache_version(),
         'path' => ltrim($path, '/'),
         'fetched_at' => time(),
         'items' => array_values($items),
@@ -185,23 +279,7 @@ function gradtrack_psgc_fetch_collection(string $path): array
         ? $decoded['data']
         : (gradtrack_psgc_is_list($decoded) ? $decoded : []);
 
-    $locations = [];
-    foreach ($items as $item) {
-        if (!is_array($item) || empty($item['code']) || empty($item['name'])) {
-            continue;
-        }
-
-        $normalized = [
-            'code' => trim((string) $item['code']),
-            'name' => trim((string) $item['name']),
-        ];
-        foreach (['type', 'region', 'province'] as $metadataKey) {
-            if (isset($item[$metadataKey]) && trim((string) $item[$metadataKey]) !== '') {
-                $normalized[$metadataKey] = trim((string) $item[$metadataKey]);
-            }
-        }
-        $locations[] = $normalized;
-    }
+    $locations = gradtrack_psgc_normalize_locations($items);
 
     $cache[$normalizedPath] = $locations;
     gradtrack_psgc_write_cached_collection($normalizedPath, $locations);

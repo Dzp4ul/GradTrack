@@ -1,4 +1,4 @@
-import { PSGC_API_BASE_URL } from '../config/api';
+import { API_ENDPOINTS } from '../config/api';
 
 export interface PsgcLocation {
   code: string;
@@ -50,7 +50,8 @@ const getCollection = async (path: string, signal?: AbortSignal): Promise<PsgcLo
     return cached;
   }
 
-  const request = fetch(`${PSGC_API_BASE_URL}/${normalizedPath}`, {
+  const query = new URLSearchParams({ path: normalizedPath });
+  const request = fetch(`${API_ENDPOINTS.PSGC}?${query.toString()}`, {
     headers: { Accept: 'application/json' },
     signal,
   })

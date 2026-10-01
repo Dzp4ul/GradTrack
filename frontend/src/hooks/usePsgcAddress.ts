@@ -118,6 +118,10 @@ export const usePsgcAddress = () => {
       .then((items) => {
         if (requestSequence.current.regions !== requestId) return;
         setRegions(items.length > 0 ? items : FALLBACK_PSGC_REGIONS);
+        setSelection((prev) => {
+          const savedRegion = findByCode(items, prev.regionCode);
+          return savedRegion ? { ...prev, regionName: savedRegion.name } : prev;
+        });
         if (items.length === 0) {
           setErrors((prev) => ({
             ...prev,
