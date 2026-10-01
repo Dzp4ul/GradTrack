@@ -148,7 +148,15 @@ final class GradtrackSpreadsheetArchive
             if ($file->getSize() > $maximumBytes) {
                 throw new GradtrackImportException('CORRUPTED_FILE', 'The Excel workbook contains an unreadable or oversized worksheet.');
             }
-            $contents = $file->getContent();
+            try {
+                $stream = $file->openFile('rb');
+                $contents = $stream->fread($maximumBytes + 1);
+            } catch (RuntimeException $error) {
+                throw new GradtrackImportException(
+                    'CORRUPTED_FILE',
+                    'The Excel workbook contains an unreadable or oversized worksheet.'
+                );
+            }
         }
 
         if (!is_string($contents) || strlen($contents) > $maximumBytes) {
