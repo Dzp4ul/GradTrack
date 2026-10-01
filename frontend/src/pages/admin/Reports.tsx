@@ -6,7 +6,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend,
 } from 'recharts';
-import { Download, Users, Briefcase, Target, FileText, Sparkles, TrendingUp, CheckCircle2, BarChart3, Filter, RotateCcw, Check, ChevronDown, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Download, Users, Briefcase, Target, FileText, FileType2, Sparkles, TrendingUp, CheckCircle2, BarChart3, Filter, RotateCcw, Check, ChevronDown, AlertTriangle, RefreshCw } from 'lucide-react';
 import { API_ROOT } from '../../config/api';
 import { normalizeGraduationYears } from '../../utils/graduationYears';
 import { PROGRAM_COLORS } from '../../config/programColors';
@@ -19,6 +19,7 @@ import {
   buildPdfSectionNotes,
   buildStructuredOverviewAnalysis,
   formatPercentage,
+  hasUnsupportedNumericClaim,
   mergeValidatedPdfInterpretations,
   normalizeSalaryLabel,
   safeCount,
@@ -26,6 +27,14 @@ import {
   type PdfInterpretations,
   type StructuredDescriptiveAnalysis,
 } from '../../utils/descriptiveAnalytics';
+import {
+  buildReportChartDefinitions,
+  buildLabeledBarChart,
+  renderReportChart,
+  reportChartsBySection,
+  type ReportChartDefinition,
+} from '../../utils/reportCharts';
+import { normalizeReportText } from '../../utils/reportText';
 
 const API_BASE = API_ROOT;
 
@@ -376,6 +385,27 @@ const SURVEY_DEPARTMENT_OPTIONS = [
 ] as const;
 
 type ExcelRow = Record<string, string | number>;
+
+interface FormalReportExportData {
+  generatedAt: Date;
+  reportDepartment: string;
+  departmentLabel: string;
+  batchLabel: string;
+  filterLabels: {
+    employmentStatus: string;
+    programAlignment: string;
+    graduationYear: string;
+    course: string;
+  };
+  overview: Overview | null;
+  programs: ProgramReport[];
+  years: YearReport[];
+  statuses: StatusData[];
+  salaries: SalaryData[];
+  snapshot: DescriptiveAnalyticsSnapshot;
+  charts: ReportChartDefinition[];
+  fileBaseName: string;
+}
 
 const normalizeSurveySummary = (survey: SurveySummary): SurveySummary => ({
   ...survey,
@@ -810,6 +840,9 @@ export default function Reports() {
   const [aiSource, setAiSource] = useState<'groq' | 'fallback'>('fallback');
   const [aiLoading, setAiLoading] = useState(true);
   const [pdfExporting, setPdfExporting] = useState(false);
+  const [wordExporting, setWordExporting] = useState(false);
+  const [excelExporting, setExcelExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
   const [surveyItems, setSurveyItems] = useState<SurveySummary[]>([]);
   const [surveyItemsLoaded, setSurveyItemsLoaded] = useState(false);
   const [surveyLoading, setSurveyLoading] = useState(false);
@@ -933,9 +966,10 @@ export default function Reports() {
     department: string = selectedDepartment,
     auditAction?: string,
     filters?: OverviewFilters,
+    preserveOverviewDepartment = false,
   ) => {
     const params = new URLSearchParams({ type });
-    const effectiveDepartment = type === 'overview' ? 'all' : department;
+    const effectiveDepartment = type === 'overview' && !preserveOverviewDepartment ? 'all' : department;
     params.set('survey_id', selectedSurveyId ? selectedSurveyId.toString() : NO_SURVEY_SELECTION_VALUE);
     if (year !== 'all') {
       params.set('year', year);
@@ -1850,23 +1884,33 @@ export default function Reports() {
             : {};
           const validSection = (value: unknown, fallback: string): string => {
             if (typeof value !== 'string') return fallback;
-            const text = value.trim();
+            const text = normalizeReportText(value);
             const wordCount = text.split(/\s+/).filter(Boolean).length;
-            if (wordCount < 20 || /\b(?:NaN|Infinity|undefined|null|statistically significant|caused?|proves?)\b/i.test(text)) {
+            if (
+              wordCount < 20
+              || /\b(?:NaN|Infinity|undefined|null|statistically significant|caused?|proves?)\b/i.test(text)
+              || hasUnsupportedNumericClaim(text, reportData)
+            ) {
               return fallback;
             }
             return text;
           };
           const providerDataNotes = Array.isArray(providerSections.data_notes)
-            ? providerSections.data_notes.filter((note): note is string => typeof note === 'string' && note.trim() !== '')
+            ? providerSections.data_notes
+                .filter((note): note is string => typeof note === 'string' && note.trim() !== '')
+                .map((note) => normalizeReportText(note))
+                .filter((note) => !hasUnsupportedNumericClaim(note, reportData))
             : typeof providerSections.data_notes === 'string'
-              ? String(providerSections.data_notes).split(/\n+/).map((note) => note.trim()).filter(Boolean)
+              ? normalizeReportText(providerSections.data_notes)
+                  .split(/\n+/)
+                  .map((note) => note.trim())
+                  .filter((note) => note !== '' && !hasUnsupportedNumericClaim(note, reportData))
               : localSections?.dataNotes ?? [];
 
           return {
-            analysis: String(result.data.ai_analysis || ''),
-            summary: String(result.data.ai_summary || ''),
-            conclusion: String(result.data.ai_conclusion || ''),
+            analysis: validSection(result.data.ai_analysis, localAnalytics.analysis),
+            summary: validSection(result.data.ai_summary, localAnalytics.summary),
+            conclusion: validSection(result.data.ai_conclusion, localAnalytics.conclusion),
             sections: reportType === 'overview'
               ? {
                   employmentInterpretation: validSection(providerSections.employment_interpretation, localSections?.employmentInterpretation ?? ''),
@@ -2154,6 +2198,175 @@ export default function Reports() {
     ].filter((chip): chip is string => Boolean(chip));
   };
 
+  const buildFormalReportFileBaseName = (
+    generatedAt: Date,
+    reportDepartment: string,
+    batchLabel: string,
+    filters: OverviewFilters,
+  ) => {
+    const localDate = [
+      generatedAt.getFullYear(),
+      String(generatedAt.getMonth() + 1).padStart(2, '0'),
+      String(generatedAt.getDate()).padStart(2, '0'),
+    ].join('-');
+    const scopePart = isDean
+      ? toFileSafePart(reportScope?.department_code || 'dean_scope')
+      : reportDepartment === 'all'
+        ? 'all_departments'
+        : toFileSafePart(reportDepartment);
+    const yearPart = batchLabel === 'All Years' || batchLabel === 'All Batches'
+      ? 'all_years'
+      : toFileSafePart(batchLabel);
+    const optionalParts = [
+      filters.programId !== 'all'
+        ? toFileSafePart(overviewFilterOptions.programs.find((program) => String(program.id) === filters.programId)?.code || 'selected_program')
+        : null,
+      filters.employmentStatus !== 'all' ? filters.employmentStatus : null,
+      filters.programAlignment !== 'all' ? filters.programAlignment : null,
+    ].filter((part): part is string => Boolean(part));
+
+    return [
+      'gradtrack_graduate_tracer_report',
+      scopePart,
+      yearPart,
+      ...optionalParts,
+      localDate,
+    ].join('_').slice(0, 150);
+  };
+
+  const loadFormalReportExportData = async (auditAction: 'export_pdf' | 'export_word' | 'export_excel'): Promise<FormalReportExportData> => {
+    const generatedAt = new Date();
+    const reportDepartment = tab === 'overview' ? 'all' : selectedDepartment;
+    const filters = { ...overviewFilters };
+    const filterLabels = getOverviewFilterLabels(filters);
+    const batchLabel = tab === 'overview'
+      ? (isDean ? getBatchLabel() : filterLabels.graduationYear)
+      : getBatchLabel();
+    const departmentLabel = isDean
+      ? getReportScopeLabel()
+      : reportDepartment === 'all' ? 'All Departments' : reportDepartment;
+    const exportYear = tab === 'overview' ? 'all' : selectedYear;
+
+    const fetchSection = async <T,>(type: string): Promise<T> => {
+      const response = await fetch(
+        buildReportUrl(type, exportYear, reportDepartment, auditAction, filters, true),
+        { credentials: 'include' },
+      );
+      const result = await response.json().catch(() => null);
+      if (!response.ok || !result?.success) {
+        throw new Error(result?.error || `Unable to load ${type.replace(/_/g, ' ')} report data.`);
+      }
+      return result.data as T;
+    };
+
+    const [overviewExport, programs, years, statuses, salaryRows] = await Promise.all([
+      fetchSection<Overview>('overview'),
+      fetchSection<ProgramReport[]>('by_program'),
+      fetchSection<YearReport[]>('by_year'),
+      fetchSection<StatusData[]>('employment_status'),
+      fetchSection<SalaryData[]>('salary_distribution'),
+    ]);
+    const salaries = (Array.isArray(salaryRows) ? salaryRows : []).map((row) => ({
+      ...row,
+      salary_range: normalizeSalaryLabel(row.salary_range),
+    }));
+    const snapshot: DescriptiveAnalyticsSnapshot = {
+      overview: overviewExport ?? null,
+      programPerformance: Array.isArray(programs) ? programs : [],
+      yearlyTrend: Array.isArray(years) ? years : [],
+      employmentStatus: Array.isArray(statuses) ? statuses : [],
+      salaryDistribution: salaries,
+    };
+
+    return {
+      generatedAt,
+      reportDepartment,
+      departmentLabel,
+      batchLabel,
+      filterLabels,
+      overview: overviewExport ?? null,
+      programs: snapshot.programPerformance as ProgramReport[],
+      years: snapshot.yearlyTrend as YearReport[],
+      statuses: snapshot.employmentStatus as StatusData[],
+      salaries: snapshot.salaryDistribution as SalaryData[],
+      snapshot,
+      charts: buildReportChartDefinitions(snapshot),
+      fileBaseName: buildFormalReportFileBaseName(generatedAt, reportDepartment, batchLabel, filters),
+    };
+  };
+
+  const resolveFormalReportInterpretations = async (data: FormalReportExportData): Promise<PdfInterpretations> => {
+    const fallbackInterpretations = buildPdfInterpretations(data.snapshot);
+    const interpretationCacheKey = analyticsFingerprint({
+      surveyId: selectedSurveyId,
+      department: data.reportDepartment,
+      batch: data.batchLabel,
+      filters: overviewFilters,
+      snapshot: data.snapshot,
+    });
+    const cached = pdfInterpretationCacheRef.current[interpretationCacheKey];
+    if (cached) return cached;
+
+    let interpretations = fallbackInterpretations;
+    const params = new URLSearchParams({ type: 'formal_report' });
+    if (selectedSurveyId) params.set('survey_id', selectedSurveyId.toString());
+    if (data.batchLabel !== 'All Years' && data.batchLabel !== 'All Batches') params.set('year', data.batchLabel);
+    if (data.reportDepartment !== 'all') params.set('department', data.reportDepartment);
+    appendOverviewFilterParams(params, overviewFilters);
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 30000);
+
+    try {
+      const response = await fetch(`${API_BASE}/reports/ai-analytics.php?${params.toString()}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        signal: controller.signal,
+        body: JSON.stringify({
+          report_data: data.snapshot,
+          filters: {
+            department: data.departmentLabel,
+            batch: data.batchLabel,
+            survey: selectedSurvey?.title || 'No survey selected',
+            employmentStatus: data.filterLabels.employmentStatus,
+            programAlignment: data.filterLabels.programAlignment,
+            program: data.filterLabels.course,
+          },
+        }),
+      });
+      const result = await response.json().catch(() => null);
+      if (response.ok && result?.success && result.data?.ai_model && !result.data?.ai_error) {
+        interpretations = mergeValidatedPdfInterpretations(
+          result.data.pdf_interpretations,
+          fallbackInterpretations,
+          data.snapshot,
+        );
+      }
+    } catch (error) {
+      console.warn('Using verified local report interpretations:', error);
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+
+    const normalized = (Object.keys(interpretations) as Array<keyof PdfInterpretations>)
+      .reduce<PdfInterpretations>((result, key) => {
+        result[key] = normalizeReportText(interpretations[key]);
+        return result;
+      }, { ...interpretations });
+    pdfInterpretationCacheRef.current[interpretationCacheKey] = normalized;
+    return normalized;
+  };
+
+  const downloadBlob = (blob: Blob, filename: string) => {
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  };
+
   const addInferentialWorksheetHeader = (sheet: ExcelJS.Worksheet, title: string, columns = 2) => {
     const titleRow = sheet.addRow([title]);
     titleRow.font = { bold: true, size: 14, color: { argb: SURVEY_REPORT_HEADER_COLOR } };
@@ -2286,26 +2499,23 @@ export default function Reports() {
     });
 
     if (analysis.canCalculate && inferentialResult.chartData.categories.length > 0) {
-      const chartConfig = {
-        type: 'bar',
-        data: {
-          labels: inferentialResult.chartData.categories.map((row) => row.category),
-          datasets: inferentialResult.chartData.series.map((series, index) => ({
-            label: series.label,
-            backgroundColor: SURVEY_CHART_COLORS[index % SURVEY_CHART_COLORS.length],
-            data: inferentialResult.chartData.categories.map((row) => Number(row[series.key] ?? 0)),
-          })),
-        },
-        options: {
-          title: { display: true, text: `${analysis.variable2.label} by ${analysis.variable1.label}` },
-          legend: { position: 'bottom' },
-          scales: { yAxes: [{ ticks: { beginAtZero: true, precision: 0 } }] },
-        },
-      };
+      const chart = buildLabeledBarChart(
+        'inferential-analysis-pdf',
+        'overview',
+        `${analysis.variable2.label} by ${analysis.variable1.label}`,
+        inferentialResult.chartData.categories.map((row) => String(row.category)),
+        inferentialResult.chartData.series.map((series, index) => ({
+          label: series.label,
+          color: SURVEY_CHART_COLORS[index % SURVEY_CHART_COLORS.length],
+          values: inferentialResult.chartData.categories.map((row) => safeCount(row[series.key])),
+        })),
+        { rotateLabels: true },
+      );
       try {
-        const chartResponse = await fetch(`https://quickchart.io/chart?width=1000&height=420&format=png&c=${encodeURIComponent(JSON.stringify(chartConfig))}`);
-        if (chartResponse.ok) {
-          const chartBase64 = `data:image/png;base64,${arrayBufferToBase64(await chartResponse.arrayBuffer())}`;
+        if (chart) {
+          const chartBase64 = `data:image/png;base64,${arrayBufferToBase64(
+            await renderReportChart(chart, { devicePixelRatio: 2 }),
+          )}`;
           pdf.addPage();
           drawHeader('Distribution Comparison');
           pdf.addImage(chartBase64, 'PNG', margin, 110, pageWidth - margin * 2, 230);
@@ -2384,7 +2594,7 @@ export default function Reports() {
     pdf.save(`gradtrack_inferential_analysis_${new Date().toISOString().slice(0, 10)}.pdf`);
   };
 
-  const handleExport = async () => {
+  const runExcelExport = async () => {
     if (tab === 'surveys') {
       await handleSurveyExcelExport();
       return;
@@ -2394,33 +2604,14 @@ export default function Reports() {
       return;
     }
 
-    const reportDepartment = tab === 'overview' ? 'all' : selectedDepartment;
-    const exportOverviewFilters = overviewFilters;
-    const fetchReportData = async <T,>(
-      type: string,
-      applyYearFilter: boolean = false,
-    ): Promise<T | null> => {
-      const exportYear = tab === 'overview' ? 'all' : selectedYear;
-      const url = applyYearFilter
-        ? buildReportUrl(type, exportYear, reportDepartment, 'export_excel', exportOverviewFilters)
-        : buildReportUrl(type, 'all', reportDepartment, 'export_excel', exportOverviewFilters);
-
-      try {
-        const response = await fetch(url, { credentials: 'include' });
-        const result = await response.json();
-        return result.success ? (result.data as T) : null;
-      } catch {
-        return null;
-      }
-    };
-
-    const [overviewExport, programExport, yearExport, statusExport, salaryExport] = await Promise.all([
-      fetchReportData<Overview>('overview', true),
-      fetchReportData<ProgramReport[]>('by_program', true),
-      fetchReportData<YearReport[]>('by_year', true),
-      fetchReportData<StatusData[]>('employment_status', true),
-      fetchReportData<SalaryData[]>('salary_distribution', true),
-    ]);
+    const reportData = await loadFormalReportExportData('export_excel');
+    const {
+      overview: overviewExport,
+      programs: programExport,
+      years: yearExport,
+      statuses: statusExport,
+      salaries: salaryExport,
+    } = reportData;
 
     const overviewRows: ExcelRow[] = overviewExport
       ? [
@@ -2435,7 +2626,7 @@ export default function Reports() {
         ]
       : [];
 
-    const programRows: ExcelRow[] = (programExport ?? []).map((item) => ({
+    const programRows: ExcelRow[] = programExport.map((item) => ({
       'Program Code': item.code,
       'Program Name': item.name,
       'Total Graduates': item.total_graduates,
@@ -2447,7 +2638,7 @@ export default function Reports() {
       'Alignment Rate (%)': item.alignment_rate ?? 'No data',
     }));
 
-    const yearRows: ExcelRow[] = (yearExport ?? []).map((item) => ({
+    const yearRows: ExcelRow[] = yearExport.map((item) => ({
       'Year Graduated': item.year_graduated,
       'Total Graduates': item.total_graduates,
       Employed: item.employed,
@@ -2457,19 +2648,15 @@ export default function Reports() {
       'Alignment Rate (%)': item.alignment_rate ?? 'No data',
     }));
 
-    const statusRows: ExcelRow[] = (statusExport ?? []).map((item) => ({
+    const statusRows: ExcelRow[] = statusExport.map((item) => ({
       'Employment Status': item.employment_status,
       Count: item.count,
     }));
 
-    const salaryRows: ExcelRow[] = (salaryExport ?? []).map((item) => ({
+    const salaryRows: ExcelRow[] = salaryExport.map((item) => ({
       'Salary Range': item.salary_range,
       Count: item.count,
     }));
-
-    if (!overviewRows.length && !programRows.length && !yearRows.length && !statusRows.length && !salaryRows.length) {
-      return;
-    }
 
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'GradTrack';
@@ -2477,11 +2664,11 @@ export default function Reports() {
 
     const summarySheet = workbook.addWorksheet('Summary');
     summarySheet.addRow(['GradTrack Report Export']);
-    summarySheet.addRow(['Generated At', new Date().toLocaleString()]);
+    summarySheet.addRow(['Generated At', reportData.generatedAt.toLocaleString()]);
     summarySheet.addRow(['Survey', selectedSurvey?.title || 'No survey selected']);
-    summarySheet.addRow(['Batch / Year Graduated', getBatchLabel()]);
-    summarySheet.addRow([isDean ? 'Program Scope' : 'Department Filter', isDean ? getReportScopeLabel() : reportDepartment === 'all' ? 'All Departments' : reportDepartment]);
-    const labels = getOverviewFilterLabels();
+    summarySheet.addRow(['Batch / Year Graduated', reportData.batchLabel]);
+    summarySheet.addRow([isDean ? 'Program Scope' : 'Department Filter', reportData.departmentLabel]);
+    const labels = reportData.filterLabels;
     summarySheet.addRow(['Employability Status', labels.employmentStatus]);
     summarySheet.addRow(['Program Alignment', labels.programAlignment]);
     summarySheet.addRow(['Year Graduated', labels.graduationYear]);
@@ -2535,164 +2722,38 @@ export default function Reports() {
 
     let nextChartTopRow = 3;
 
-    const addChartImage = async (title: string, chartConfig: Record<string, unknown>) => {
-      chartsSheet.getCell(`A${nextChartTopRow}`).value = title;
+    const addChartImage = async (chart: ReportChartDefinition) => {
+      chartsSheet.getCell(`A${nextChartTopRow}`).value = chart.title;
       chartsSheet.getCell(`A${nextChartTopRow}`).font = { bold: true, size: 12 };
       nextChartTopRow += 1;
+      const imageBuffer = await renderReportChart(chart, { devicePixelRatio: 2 });
+      const imageBase64 = `data:image/png;base64,${arrayBufferToBase64(imageBuffer)}`;
+      const imageId = workbook.addImage({ base64: imageBase64, extension: 'png' });
+      const width = 900;
+      const height = Math.round(width * (chart.height / chart.width));
 
-      const chartUrl = `https://quickchart.io/chart?width=900&height=360&format=png&c=${encodeURIComponent(JSON.stringify(chartConfig))}`;
-
-      try {
-        const response = await fetch(chartUrl);
-        if (!response.ok) {
-          throw new Error('Chart image request failed');
-        }
-
-        const imageBuffer = await response.arrayBuffer();
-        const imageBase64 = `data:image/png;base64,${arrayBufferToBase64(imageBuffer)}`;
-        const imageId = workbook.addImage({ base64: imageBase64, extension: 'png' });
-
-        chartsSheet.addImage(imageId, {
-          tl: { col: 0, row: nextChartTopRow - 1 },
-          ext: { width: 900, height: 360 },
-        });
-
-        nextChartTopRow += 19;
-      } catch {
-        chartsSheet.getCell(`A${nextChartTopRow}`).value = 'Graph image could not be generated for this chart.';
-        nextChartTopRow += 2;
-      }
+      chartsSheet.addImage(imageId, {
+        tl: { col: 0, row: nextChartTopRow - 1 },
+        ext: { width, height },
+      });
+      nextChartTopRow += Math.ceil(height / 20) + 2;
     };
 
-    if (programRows.length) {
-      await addChartImage('Program Employment (Bar Chart)', {
-        type: 'bar',
-        data: {
-          labels: programRows.map((row) => row['Program Code']),
-          datasets: [
-            {
-              label: 'Employed',
-              backgroundColor: '#22c55e',
-              data: programRows.map((row) => row['Employed']),
-            },
-            {
-              label: 'Not Employed',
-              backgroundColor: '#ef4444',
-              data: programRows.map((row) => row['Not Employed']),
-            },
-            {
-              label: 'Aligned',
-              backgroundColor: '#3b82f6',
-              data: programRows.map((row) => row['Aligned']),
-            },
-            {
-              label: 'Not Aligned',
-              backgroundColor: '#f59e0b',
-              data: programRows.map((row) => row['Not Aligned']),
-            },
-          ],
-        },
-        options: {
-          title: { display: true, text: 'Program Employment and Alignment' },
-          legend: { position: 'bottom' },
-        },
-      });
+    for (const chart of reportData.charts) {
+      await addChartImage(chart);
     }
-
-    if (yearRows.length) {
-      await addChartImage('Yearly Employment by Year (Bar Chart)', {
-        type: 'bar',
-        data: {
-          labels: yearRows.map((row) => row['Year Graduated']),
-          datasets: [
-            {
-              label: 'Graduates',
-              backgroundColor: '#3b82f6',
-              data: yearRows.map((row) => row['Total Graduates']),
-            },
-            {
-              label: 'Employed',
-              backgroundColor: '#22c55e',
-              data: yearRows.map((row) => row['Employed']),
-            },
-            {
-              label: 'Not Employed',
-              backgroundColor: '#ef4444',
-              data: yearRows.map((row) => row['Not Employed']),
-            },
-            {
-              label: 'Aligned',
-              backgroundColor: '#f59e0b',
-              data: yearRows.map((row) => row['Aligned']),
-            },
-          ],
-        },
-        options: {
-          title: { display: true, text: 'Employment by Year' },
-          legend: { position: 'bottom' },
-        },
-      });
+    if (reportData.charts.length === 0) {
+      chartsSheet.getCell('A3').value = 'No chart data is available for the selected filters.';
     }
-
-    if (statusRows.length) {
-      await addChartImage('Employment Status Breakdown (Pie Chart)', {
-        type: 'pie',
-        data: {
-          labels: statusRows.map((row) => row['Employment Status']),
-          datasets: [
-            {
-              backgroundColor: ['#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#6b7280'],
-              data: statusRows.map((row) => row.Count),
-            },
-          ],
-        },
-        options: {
-          title: { display: true, text: 'Employment Status Distribution' },
-          legend: { position: 'right' },
-        },
-      });
-    }
-
-    if (salaryRows.length) {
-      await addChartImage('Salary Distribution (Bar Chart)', {
-        type: 'bar',
-        data: {
-          labels: salaryRows.map((row) => row['Salary Range']),
-          datasets: [
-            {
-              label: 'Count',
-              backgroundColor: '#6366f1',
-              data: salaryRows.map((row) => row.Count),
-            },
-          ],
-        },
-        options: {
-          title: { display: true, text: 'Salary Distribution' },
-          legend: { display: false },
-        },
-      });
-    }
-
-    const yearSuffix = selectedYear !== 'all' ? `_${selectedYear}` : '_all_years';
-    const fileDate = new Date().toISOString().slice(0, 10);
 
     const buffer = await workbook.xlsx.writeBuffer();
     const blob = new Blob([buffer], {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    const scopeSuffix = isDean
-      ? `_${toFileSafePart(reportScope?.department_code || 'dean_scope')}`
-      : '';
-    link.download = `gradtrack_detailed_report${scopeSuffix}${yearSuffix}_${fileDate}.xlsx`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(link.href);
+    downloadBlob(blob, `${reportData.fileBaseName}.xlsx`);
   };
 
-  const handleExportPdf = async () => {
+  const runPdfExport = async () => {
     if (tab === 'surveys') {
       await handleSurveyPdfExport();
       return;
@@ -2703,177 +2764,68 @@ export default function Reports() {
     }
     setPdfExporting(true);
     try {
-      const pdf = new jsPDF('p', 'pt', 'a4');
+      const reportData = await loadFormalReportExportData('export_pdf');
+      const {
+        overview: overviewForPdf,
+        programs: programForPdf,
+        years: yearForPdf,
+        statuses: statusForPdf,
+        salaries: salaryForPdf,
+        snapshot,
+        departmentLabel,
+        batchLabel,
+        filterLabels,
+      } = reportData;
+      const [interpretations, renderedCharts] = await Promise.all([
+        resolveFormalReportInterpretations(reportData),
+        Promise.all(reportData.charts.map(async (chart) => ({
+          chart,
+          image: await renderReportChart(chart, { devicePixelRatio: 2 }),
+        }))),
+      ]);
+      const chartImages = new Map(renderedCharts.map(({ chart, image }) => [chart.key, image]));
+      const sectionNotes = buildPdfSectionNotes(snapshot);
+      const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4', compress: true });
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
       const marginLeft = 40;
       const contentWidth = pageWidth - marginLeft * 2;
       const contentBottom = pageHeight - 38;
-      const reportDepartment = tab === 'overview' ? 'all' : selectedDepartment;
-      const pdfOverviewFilters = overviewFilters;
-      const filterLabels = getOverviewFilterLabels();
-      const departmentLabel = isDean
-        ? getReportScopeLabel()
-        : reportDepartment === 'all' ? 'All Departments' : reportDepartment;
-      const batchLabel = tab === 'overview'
-        ? (isDean ? getBatchLabel() : filterLabels.graduationYear)
-        : getBatchLabel();
-
-      const fetchReportData = async <T,>(type: string, year: string): Promise<T | null> => {
-        try {
-          const exportYear = tab === 'overview' ? 'all' : year;
-          const response = await fetch(buildReportUrl(type, exportYear, reportDepartment, 'export_pdf', pdfOverviewFilters), {
-            credentials: 'include',
-          });
-          const result = await response.json();
-          return result.success ? (result.data as T) : null;
-        } catch {
-          return null;
-        }
-      };
-
-      const [overviewPdf, programPdf, yearPdf, statusPdf, salaryPdf] = await Promise.all([
-        fetchReportData<Overview>('overview', selectedYear),
-        fetchReportData<ProgramReport[]>('by_program', selectedYear),
-        fetchReportData<YearReport[]>('by_year', selectedYear),
-        fetchReportData<StatusData[]>('employment_status', selectedYear),
-        fetchReportData<SalaryData[]>('salary_distribution', selectedYear),
-      ]);
-
-      const overviewForPdf = overviewPdf ?? (tab === 'overview' ? overview : null);
-      const programForPdf = programPdf ?? (tab === 'overview' ? overviewProgramData : programData);
-      const yearForPdf = yearPdf ?? yearData;
-      const statusForPdf = statusPdf ?? statusData;
-      const salaryForPdf = (salaryPdf ?? salaryData).map((row) => ({
-        ...row,
-        salary_range: normalizeSalaryLabel(row.salary_range),
-      }));
-      const snapshot: DescriptiveAnalyticsSnapshot = {
-        overview: overviewForPdf,
-        programPerformance: programForPdf,
-        yearlyTrend: yearForPdf,
-        employmentStatus: statusForPdf,
-        salaryDistribution: salaryForPdf,
-      };
-      const fallbackInterpretations = buildPdfInterpretations(snapshot);
-      const sectionNotes = buildPdfSectionNotes(snapshot);
-      const interpretationCacheKey = analyticsFingerprint({
-        surveyId: selectedSurveyId,
-        department: reportDepartment,
-        batch: batchLabel,
-        filters: pdfOverviewFilters,
-        snapshot,
-      });
-      let interpretations = pdfInterpretationCacheRef.current[interpretationCacheKey];
-
-      if (!interpretations) {
-        interpretations = fallbackInterpretations;
-        const params = new URLSearchParams({ type: 'formal_report' });
-        if (selectedSurveyId) params.set('survey_id', selectedSurveyId.toString());
-        if (batchLabel !== 'All Years' && batchLabel !== 'All Batches') params.set('year', batchLabel);
-        if (reportDepartment !== 'all') params.set('department', reportDepartment);
-        appendOverviewFilterParams(params, pdfOverviewFilters);
-        const controller = new AbortController();
-        const timeoutId = window.setTimeout(() => controller.abort(), 30000);
-        try {
-          const response = await fetch(`${API_BASE}/reports/ai-analytics.php?${params.toString()}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            signal: controller.signal,
-            body: JSON.stringify({
-              report_data: snapshot,
-              filters: {
-                department: departmentLabel,
-                batch: batchLabel,
-                survey: selectedSurvey?.title || 'No survey selected',
-                employmentStatus: filterLabels.employmentStatus,
-                programAlignment: filterLabels.programAlignment,
-                program: filterLabels.course,
-              },
-            }),
-          });
-          const result = await response.json().catch(() => null);
-          if (response.ok && result?.success && result.data?.ai_model && !result.data?.ai_error) {
-            interpretations = mergeValidatedPdfInterpretations(
-              result.data.pdf_interpretations,
-              fallbackInterpretations,
-              snapshot,
-            );
-          }
-        } catch {
-          interpretations = fallbackInterpretations;
-        } finally {
-          window.clearTimeout(timeoutId);
-        }
-        pdfInterpretationCacheRef.current[interpretationCacheKey] = interpretations;
-      }
-
-      const wrapText = (text: string, maxWidth: number): string[] => {
-        const paragraphs = text.replace(/\r/g, '').split(/\n+/);
-        const lines: string[] = [];
-        paragraphs.forEach((paragraph, paragraphIndex) => {
-          const words = paragraph.trim().split(/\s+/).filter(Boolean);
-          let currentLine = '';
-          words.forEach((word) => {
-            const candidate = currentLine ? `${currentLine} ${word}` : word;
-            if (pdf.getTextWidth(candidate.replace(/₱/g, 'P')) <= maxWidth || currentLine === '') {
-              currentLine = candidate;
-            } else {
-              lines.push(currentLine);
-              currentLine = word;
-            }
-          });
-          if (currentLine) lines.push(currentLine);
-          if (paragraphIndex < paragraphs.length - 1) lines.push('');
-        });
-        return lines;
-      };
-
-      const drawPesoLine = (text: string, x: number, y: number) => {
-        let cursorX = x;
-        const parts = text.replace(/[–—]/g, '-').split('₱');
-        parts.forEach((part, index) => {
-          if (part) {
-            pdf.text(part, cursorX, y);
-            cursorX += pdf.getTextWidth(part);
-          }
-          if (index < parts.length - 1) {
-            const pesoWidth = pdf.getTextWidth('P');
-            pdf.text('P', cursorX, y);
-            pdf.setLineWidth(0.35);
-            pdf.line(cursorX, y - 4.4, cursorX + pesoWidth * 0.92, y - 4.4);
-            pdf.line(cursorX, y - 2.4, cursorX + pesoWidth * 0.92, y - 2.4);
-            cursorX += pesoWidth;
-          }
-        });
-      };
 
       const drawContinuationHeader = (title: string) => {
+        pdf.setFont('helvetica', 'bold');
         pdf.setFontSize(10);
         pdf.setTextColor(27, 42, 74);
-        pdf.text(`${title} (continued)`, marginLeft, 34);
+        pdf.text(normalizeReportText(`${title} (continued)`, { peso: 'php' }), marginLeft, 34);
         pdf.setDrawColor(220, 226, 235);
         pdf.line(marginLeft, 42, pageWidth - marginLeft, 42);
       };
 
       const writePaginatedText = (text: string, startY: number, title: string, fontSize = 9.5) => {
+        pdf.setFont('helvetica', 'normal');
         pdf.setFontSize(fontSize);
         pdf.setTextColor(45, 55, 70);
-        const lineHeight = fontSize + 3;
+        const lineHeight = fontSize + 3.8;
         let y = startY;
-        wrapText(text, contentWidth).forEach((line) => {
-          if (line === '') {
-            y += 6;
-            return;
-          }
-          if (y + lineHeight > contentBottom) {
-            pdf.addPage();
-            drawContinuationHeader(title);
-            y = 62;
-          }
-          drawPesoLine(line, marginLeft, y);
-          y += lineHeight;
+        const paragraphs = normalizeReportText(text, { peso: 'php' })
+          .split(/\n{2,}/)
+          .map((paragraph) => paragraph.replace(/\n+/g, ' ').trim())
+          .filter(Boolean);
+        paragraphs.forEach((paragraph, paragraphIndex) => {
+          const lines = pdf.splitTextToSize(paragraph, contentWidth) as string[];
+          lines.forEach((line) => {
+            if (y + lineHeight > contentBottom) {
+              pdf.addPage();
+              drawContinuationHeader(title);
+              pdf.setFont('helvetica', 'normal');
+              pdf.setFontSize(fontSize);
+              pdf.setTextColor(45, 55, 70);
+              y = 62;
+            }
+            pdf.text(line, marginLeft, y, { align: 'left' });
+            y += lineHeight;
+          });
+          if (paragraphIndex < paragraphs.length - 1) y += 7;
         });
         return y;
       };
@@ -2882,15 +2834,17 @@ export default function Reports() {
       pdf.setFillColor(27, 42, 74);
       pdf.rect(0, 0, pageWidth, 110, 'F');
       pdf.setTextColor(255, 255, 255);
+      pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(22);
-      pdf.text(isDean ? 'GradTrack Reports & Analytics' : 'Graduate Tracer Study Report', marginLeft, 52);
+      pdf.text('Graduate Tracer Study Report', marginLeft, 52);
       pdf.setFontSize(13);
       pdf.text('Norzagaray College', marginLeft, 76);
 
       pdf.setTextColor(30, 30, 30);
+      pdf.setFont('helvetica', 'normal');
       pdf.setFontSize(10);
       const coverRows = [
-        `Generated: ${new Date().toLocaleString()}`,
+        `Generated: ${reportData.generatedAt.toLocaleString()}`,
         `${isDean ? 'Program Scope' : 'Department'}: ${departmentLabel}`,
         `Batch / Graduation Year: ${batchLabel}`,
         `Survey: ${selectedSurvey?.title || 'No survey selected'}`,
@@ -2898,7 +2852,8 @@ export default function Reports() {
         `Program Alignment: ${filterLabels.programAlignment}`,
         `Course / Program: ${filterLabels.course}`,
       ];
-      coverRows.forEach((row, index) => pdf.text(row, marginLeft, 142 + index * 17));
+      coverRows.forEach((row, index) => pdf.text(normalizeReportText(row, { peso: 'php' }), marginLeft, 142 + index * 17));
+      pdf.setFont('helvetica', 'bold');
       pdf.setFontSize(12);
       pdf.setTextColor(27, 42, 74);
       pdf.text('Descriptive Summary', marginLeft, 278);
@@ -2951,21 +2906,14 @@ export default function Reports() {
           statusForPdf,
           salaryForPdf,
         );
-        if (!tableData.rows.length) return;
-
         const interpretationKey = sectionInterpretationKey[sectionTab];
-        const chartConfig = getPdfChartConfig(
-          sectionTab,
-          overviewForPdf,
-          programForPdf,
-          yearForPdf,
-          statusForPdf,
-          salaryForPdf,
-        );
+        const sectionCharts = reportChartsBySection(reportData.charts, interpretationKey);
         pdf.addPage();
+        pdf.setFont('helvetica', 'bold');
         pdf.setFontSize(15);
         pdf.setTextColor(25, 35, 50);
         pdf.text(sectionTitle, marginLeft, 36);
+        pdf.setFont('helvetica', 'normal');
         pdf.setFontSize(8.5);
         pdf.setTextColor(75, 85, 100);
         const sectionFilterRows = [
@@ -2973,29 +2921,33 @@ export default function Reports() {
           `Survey: ${selectedSurvey?.title || 'No survey selected'} | Employment: ${filterLabels.employmentStatus} | Alignment: ${filterLabels.programAlignment}`,
           `Course / Program: ${filterLabels.course}`,
         ];
-        sectionFilterRows.forEach((row, index) => pdf.text(row, marginLeft, 52 + index * 12));
+        sectionFilterRows.forEach((row, index) => pdf.text(
+          normalizeReportText(row, { peso: 'php' }),
+          marginLeft,
+          52 + index * 12,
+        ));
 
         let nextY = 92;
-        if (chartConfig) {
-          const chartUrl = `https://quickchart.io/chart?width=1000&height=380&format=png&devicePixelRatio=2&c=${encodeURIComponent(JSON.stringify(chartConfig))}`;
-          try {
-            const response = await fetch(chartUrl);
-            if (!response.ok) throw new Error('Chart image request failed');
-            const imageBuffer = await response.arrayBuffer();
-            const imageBase64 = `data:image/png;base64,${arrayBufferToBase64(imageBuffer)}`;
-            const chartHeight = contentWidth * (380 / 1000);
-            pdf.addImage(imageBase64, 'PNG', marginLeft, nextY, contentWidth, chartHeight);
-            nextY += chartHeight + 18;
-          } catch {
-            pdf.setDrawColor(205, 213, 224);
-            pdf.roundedRect(marginLeft, nextY, contentWidth, 68, 4, 4);
-            pdf.setFontSize(9);
-            pdf.setTextColor(100, 110, 125);
-            pdf.text('The chart image could not be loaded. The interpretation and complete data table remain available below.', marginLeft + 12, nextY + 36);
-            nextY += 84;
+        for (const chart of sectionCharts) {
+          const imageBuffer = chartImages.get(chart.key);
+          if (!imageBuffer) throw new Error(`The ${chart.title} chart could not be generated.`);
+          const chartHeight = contentWidth * (chart.height / chart.width);
+          if (nextY + chartHeight > contentBottom - 20) {
+            pdf.addPage();
+            drawContinuationHeader(sectionTitle);
+            nextY = 58;
           }
+          const imageBase64 = `data:image/png;base64,${arrayBufferToBase64(imageBuffer)}`;
+          pdf.addImage(imageBase64, 'PNG', marginLeft, nextY, contentWidth, chartHeight, undefined, 'FAST');
+          nextY += chartHeight + 14;
         }
 
+        if (nextY > contentBottom - 44) {
+          pdf.addPage();
+          drawContinuationHeader(sectionTitle);
+          nextY = 62;
+        }
+        pdf.setFont('helvetica', 'bold');
         pdf.setFontSize(11);
         pdf.setTextColor(27, 42, 74);
         pdf.text('Descriptive Interpretation', marginLeft, nextY);
@@ -3008,6 +2960,7 @@ export default function Reports() {
         } else {
           nextY += 8;
         }
+        pdf.setFont('helvetica', 'bold');
         pdf.setFontSize(10.5);
         pdf.setTextColor(27, 42, 74);
         pdf.text('Data Table', marginLeft, nextY);
@@ -3016,24 +2969,14 @@ export default function Reports() {
         autoTable(pdf, {
           startY: nextY,
           head: [tableData.headers],
-          body: tableData.rows,
+          body: (tableData.rows.length > 0
+            ? tableData.rows
+            : [tableData.headers.map((_, index) => index === 0 ? 'No data available for the selected filters.' : '')]
+          ).map((row) => row.map((cell) => normalizeReportText(cell, { peso: 'php' }))),
           styles: { fontSize: 7.5, cellPadding: 4, overflow: 'linebreak', valign: 'middle' },
           headStyles: { fillColor: [27, 42, 74], fontSize: 7.5 },
           alternateRowStyles: { fillColor: [247, 249, 252] },
           margin: { top: 54, left: marginLeft, right: marginLeft, bottom: 34 },
-          didParseCell: (hookData) => {
-            if (sectionTab === 'salary' && hookData.section === 'body' && hookData.column.index === 0) {
-              hookData.cell.text = [''];
-            }
-          },
-          didDrawCell: (hookData) => {
-            if (sectionTab === 'salary' && hookData.section === 'body' && hookData.column.index === 0) {
-              const salaryLabel = normalizeSalaryLabel(salaryForPdf[hookData.row.index]?.salary_range ?? '');
-              pdf.setFontSize(7.5);
-              pdf.setTextColor(40, 50, 65);
-              drawPesoLine(salaryLabel, hookData.cell.x + 4, hookData.cell.y + hookData.cell.height / 2 + 2.5);
-            }
-          },
           didDrawPage: (hookData) => {
             if (hookData.pageNumber > 1) drawContinuationHeader(sectionTitle);
           },
@@ -3048,10 +2991,11 @@ export default function Reports() {
             drawContinuationHeader(sectionTitle);
             notesY = 62;
           }
+          pdf.setFont('helvetica', 'bold');
           pdf.setFontSize(10);
           pdf.setTextColor(27, 42, 74);
           pdf.text('Data Notes / Additional Observation', marginLeft, notesY);
-          writePaginatedText(notes.map((note) => `- ${note}`).join('\n'), notesY + 15, sectionTitle, 8.5);
+          writePaginatedText(notes.map((note) => `- ${note}`).join('\n\n'), notesY + 15, sectionTitle, 8.5);
         }
       };
 
@@ -3072,14 +3016,221 @@ export default function Reports() {
         pdf.text('GradTrack - Confidential Department Report', marginLeft, pageHeight - 16);
       }
 
-      const yearSuffix = batchLabel !== 'All Years' && batchLabel !== 'All Batches' ? `_${batchLabel}` : '_all_years';
-      const departmentSuffix = isDean
-        ? `_${toFileSafePart(reportScope?.department_code || 'dean_scope')}`
-        : reportDepartment !== 'all' ? `_${reportDepartment}` : '_all_departments';
-      const fileDate = new Date().toISOString().slice(0, 10);
-      pdf.save(`gradtrack_formal_report${departmentSuffix}${yearSuffix}_${fileDate}.pdf`);
+      pdf.save(`${reportData.fileBaseName}.pdf`);
     } finally {
       setPdfExporting(false);
+    }
+  };
+
+  const buildWordMetadata = (data: FormalReportExportData) => ({
+    title: 'Graduate Tracer Study Report',
+    institution: 'Norzagaray College',
+    generatedAt: data.generatedAt.toLocaleString(),
+    departmentLabel: data.departmentLabel,
+    batchLabel: data.batchLabel,
+    surveyLabel: selectedSurvey?.title || 'No survey selected',
+    employmentStatusLabel: data.filterLabels.employmentStatus,
+    programAlignmentLabel: data.filterLabels.programAlignment,
+    courseLabel: data.filterLabels.course,
+  });
+
+  const runWordExport = async () => {
+    const { generateFormalReportDocx, generateGenericReportDocx } = await import('../../utils/reportDocumentExport');
+
+    if (tab === 'surveys') {
+      if (!surveyAnalytics) throw new Error('Survey analytics are not available for this selection.');
+      const generatedAt = new Date();
+      const surveyCharts = buildSurveyReportCharts(surveyAnalytics.report_tables ?? [])
+        .map((chart, chartIndex) => buildLabeledBarChart(
+          `survey-${chart.tableNumber}-${chartIndex}`,
+          'overview',
+          chart.title,
+          chart.data.map((row) => String(row.label)),
+          chart.series.map((series) => ({
+            label: series.name,
+            color: series.color,
+            values: chart.data.map((row) => safeCount(row[series.key])),
+          })),
+          { rotateLabels: true },
+        ))
+        .filter((chart): chart is ReportChartDefinition => chart !== null);
+      const reportTables = surveyAnalytics.report_tables ?? [];
+      const sections = reportTables.length > 0
+        ? reportTables.map((table, index) => ({
+            title: `Table ${table.number || index + 1}. ${table.title}`,
+            interpretation: table.note || 'The table reports the observed frequencies and percentages for this survey section.',
+            table: {
+              headers: flattenSurveyReportHeaders(table),
+              rows: table.rows.map((row) => row.cells),
+            },
+            charts: surveyCharts.filter((chart) => chart.key.startsWith(`survey-${table.number}-`)),
+          }))
+        : [{
+            title: 'Survey Question Analytics',
+            interpretation: 'Frequencies and percentages are based on the responses applicable to each survey question.',
+            table: {
+              headers: ['Section', 'No.', 'Survey Question', 'Type', 'Answer / Option', 'Frequency', 'Percentage'],
+              rows: buildSurveyQuestionPdfRows(surveyAnalytics),
+            },
+          }];
+      const blob = await generateGenericReportDocx({
+        metadata: {
+          title: 'Survey Analytics Report',
+          institution: 'Norzagaray College',
+          generatedAt: generatedAt.toLocaleString(),
+          departmentLabel: getReportScopeLabel(),
+          batchLabel: getBatchLabel(),
+          surveyLabel: surveyAnalytics.survey_title,
+          employmentStatusLabel: 'All',
+          programAlignmentLabel: 'All',
+          courseLabel: 'All Courses',
+        },
+        descriptiveSummary: `The selected survey contains ${surveyAnalytics.total_responses} valid responses. Tables remain editable and percentages retain the denominators supplied by the survey analytics endpoint.`,
+        keyPerformanceIndicators: [
+          ['Total Responses', surveyAnalytics.total_responses],
+          ['Response Rate', formatNullableRate(surveyAnalytics.response_rate)],
+          ['Completion Rate', formatNullableRate(surveyAnalytics.completion_rate)],
+          ['Questions', surveyAnalytics.questions_analytics.length],
+        ],
+        sections,
+      });
+      downloadBlob(blob, `gradtrack_survey_analytics_${toFileSafePart(getReportScopeLabel())}_${generatedAt.toISOString().slice(0, 10)}.docx`);
+      return;
+    }
+
+    if (tab === 'inferential') {
+      if (!inferentialResult) throw new Error('Run an inferential analysis before exporting the Word document.');
+      const generatedAt = new Date();
+      const result = inferentialResult;
+      const analysisChart = buildLabeledBarChart(
+        'inferential-analysis',
+        'overview',
+        `${result.analysis.variable2.label} by ${result.analysis.variable1.label}`,
+        result.chartData.categories.map((row) => String(row.category)),
+        result.chartData.series.map((series, index) => ({
+          label: series.label,
+          color: SURVEY_CHART_COLORS[index % SURVEY_CHART_COLORS.length],
+          values: result.chartData.categories.map((row) => safeCount(row[series.key])),
+        })),
+        { rotateLabels: true },
+      );
+      const blob = await generateGenericReportDocx({
+        metadata: {
+          title: 'Inferential Analysis Report',
+          institution: 'Norzagaray College',
+          generatedAt: generatedAt.toLocaleString(),
+          departmentLabel: getReportScopeLabel(),
+          batchLabel: result.filters.graduationYear || 'All Years',
+          surveyLabel: result.survey.title,
+          employmentStatusLabel: 'Not applicable',
+          programAlignmentLabel: 'Not applicable',
+          courseLabel: result.filters.programLabel || 'All Courses',
+        },
+        descriptiveSummary: result.interpretation || result.message || 'The selected comparison could not be calculated.',
+        keyPerformanceIndicators: [
+          ['Valid Responses Used', result.analysis.validResponses],
+          ['Excluded / Missing Responses', result.analysis.excludedResponses],
+          ['Chi-Square', formatInferentialStatistic(result.analysis.chiSquare)],
+          ['p-value', formatInferentialPValue(result.analysis.pValue)],
+          ["Cramer's V", formatInferentialStatistic(result.analysis.cramersV)],
+          ['Decision', result.analysis.decision],
+        ],
+        sections: [{
+          title: 'Inferential Analysis',
+          interpretation: result.interpretation || result.message || 'The test could not be calculated.',
+          charts: analysisChart ? [analysisChart] : [],
+          table: {
+            headers: [result.analysis.variable1.label, ...result.contingencyTable.columns.map((column) => column.label), 'Total'],
+            rows: [
+              ...result.contingencyTable.rows.map((row) => [row.label, ...row.frequencies, row.total]),
+              ['Total', ...result.contingencyTable.columnTotals, result.contingencyTable.grandTotal],
+            ],
+          },
+          notes: result.assumptions.warnings,
+        }],
+      });
+      downloadBlob(blob, `gradtrack_inferential_analysis_${generatedAt.toISOString().slice(0, 10)}.docx`);
+      return;
+    }
+
+    const data = await loadFormalReportExportData('export_word');
+    const interpretations = await resolveFormalReportInterpretations(data);
+    const notes = buildPdfSectionNotes(data.snapshot);
+    const tableFor = (sectionTab: 'overview' | 'program' | 'year' | 'employment' | 'salary') => getPdfTableForTab(
+      sectionTab,
+      data.overview,
+      data.programs,
+      data.years,
+      data.statuses,
+      data.salaries,
+    );
+    const overviewCounts = data.overview;
+    const blob = await generateFormalReportDocx({
+      metadata: buildWordMetadata(data),
+      descriptiveSummary: buildStructuredOverviewAnalysis(data.overview, data.programs).summary,
+      keyPerformanceIndicators: overviewCounts ? [
+        ['Total Responses', overviewCounts.total_graduates],
+        ['Known Employment Status', overviewCounts.total_employment_known ?? safeCount(overviewCounts.total_employed) + safeCount(overviewCounts.total_unemployed)],
+        ['Employed', overviewCounts.total_employed],
+        ['Unemployed', overviewCounts.total_unemployed ?? 0],
+        ['Employment Rate', formatNullableRate(overviewCounts.employment_rate)],
+        ['Valid Alignment Responses', overviewCounts.total_alignment_known ?? safeCount(overviewCounts.total_aligned) + safeCount(overviewCounts.total_not_aligned)],
+        ['Aligned', overviewCounts.total_aligned],
+        ['Alignment Rate', formatNullableRate(overviewCounts.alignment_rate)],
+      ] : [['Result', 'No data available for the selected filters.']],
+      snapshot: data.snapshot,
+      interpretations,
+      notes,
+      tables: {
+        overview: tableFor('overview'),
+        programPerformance: tableFor('program'),
+        yearlyTrend: tableFor('year'),
+        employmentStatus: tableFor('employment'),
+        salaryDistribution: tableFor('salary'),
+      },
+    });
+    downloadBlob(blob, `${data.fileBaseName}.docx`);
+  };
+
+  const handleExportPdf = async () => {
+    if (pdfExporting) return;
+    setExportError('');
+    setPdfExporting(true);
+    try {
+      await runPdfExport();
+    } catch (error) {
+      console.error('PDF export failed:', error);
+      setExportError(error instanceof Error ? error.message : 'The PDF report could not be generated. Please try again.');
+    } finally {
+      setPdfExporting(false);
+    }
+  };
+
+  const handleWordExport = async () => {
+    if (wordExporting) return;
+    setExportError('');
+    setWordExporting(true);
+    try {
+      await runWordExport();
+    } catch (error) {
+      console.error('Word export failed:', error);
+      setExportError(error instanceof Error ? error.message : 'The Word document could not be generated. Please try again.');
+    } finally {
+      setWordExporting(false);
+    }
+  };
+
+  const handleExport = async () => {
+    if (excelExporting) return;
+    setExportError('');
+    setExcelExporting(true);
+    try {
+      await runExcelExport();
+    } catch (error) {
+      console.error('Excel export failed:', error);
+      setExportError(error instanceof Error ? error.message : 'The Excel report could not be generated. Please try again.');
+    } finally {
+      setExcelExporting(false);
     }
   };
 
@@ -3105,7 +3256,7 @@ export default function Reports() {
     };
     const renderParagraphs = (content: string) => (
       <div className="space-y-3 text-sm leading-6 text-slate-700">
-        {content
+        {normalizeReportText(content)
           .split(/\n{2,}/)
           .map((paragraph) => paragraph.trim())
           .filter(Boolean)
@@ -3254,7 +3405,8 @@ export default function Reports() {
   const isInferentialExportDisabled = tab === 'inferential' && (
     inferentialMetadataLoading || inferentialAnalysisLoading || !inferentialResult
   );
-  const isExportDisabled = isSurveyExportDisabled || isInferentialExportDisabled || pdfExporting;
+  const isExportUnavailable = isSurveyExportDisabled || isInferentialExportDisabled;
+  const exportInProgress = pdfExporting || wordExporting || excelExporting;
   const inferentialTestsGraduationYear = [inferentialSettings.variable1, inferentialSettings.variable2]
     .includes('graduation_year');
   const inferentialTestsProgram = [inferentialSettings.variable1, inferentialSettings.variable2]
@@ -3479,21 +3631,36 @@ export default function Reports() {
           )}
           <button
             onClick={handleExportPdf}
-            disabled={isExportDisabled}
-            className={exportButtonClass(isExportDisabled)}
+            disabled={isExportUnavailable || exportInProgress}
+            className={exportButtonClass(isExportUnavailable || exportInProgress)}
           >
             {pdfExporting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <FileText className="w-4 h-4" />}
-            {pdfExporting ? 'Preparing PDF...' : 'Export PDF'}
+            {pdfExporting ? 'Generating PDF...' : 'Export PDF'}
+          </button>
+          <button
+            onClick={handleWordExport}
+            disabled={isExportUnavailable || exportInProgress}
+            className={exportButtonClass(isExportUnavailable || exportInProgress)}
+          >
+            {wordExporting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <FileType2 className="w-4 h-4" />}
+            {wordExporting ? 'Generating Word document...' : 'Export Word'}
           </button>
           <button
             onClick={handleExport}
-            disabled={isExportDisabled}
-            className={exportButtonClass(isExportDisabled)}
+            disabled={isExportUnavailable || exportInProgress}
+            className={exportButtonClass(isExportUnavailable || exportInProgress)}
           >
-            <Download className="w-4 h-4" /> Export Excel
+            {excelExporting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            {excelExporting ? 'Generating Excel file...' : 'Export Excel'}
           </button>
         </div>
       </div>
+
+      {exportError && (
+        <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+          {exportError}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="bg-white rounded-xl shadow-sm border">
@@ -6087,136 +6254,4 @@ function getPdfTableForTab(
   }
 
   return { headers: [], rows: [] };
-}
-
-function getPdfChartConfig(
-  tab: 'overview' | 'program' | 'year' | 'employment' | 'salary' | 'surveys',
-  overview: Overview | null,
-  programData: ProgramReport[],
-  yearData: YearReport[],
-  statusData: StatusData[],
-  salaryData: SalaryData[],
-): Record<string, unknown> | null {
-  if (tab === 'overview' && overview) {
-    const unemployed = overview.total_unemployed
-      ?? Math.max((overview.total_employment_known ?? 0) - overview.total_employed, 0);
-
-    return {
-      type: 'doughnut',
-      data: {
-        labels: ['Employed', 'Unemployed'],
-        datasets: [
-          {
-            backgroundColor: ['#22c55e', '#ef4444'],
-            data: [overview.total_employed, unemployed],
-          },
-        ],
-      },
-      options: { title: { display: true, text: 'Employment Overview' } },
-    };
-  }
-
-  if (tab === 'program' && programData.length > 0) {
-    return {
-      type: 'bar',
-      data: {
-        labels: programData.map((item) => item.code),
-        datasets: [
-          {
-            label: 'Employed',
-            backgroundColor: '#22c55e',
-            data: programData.map((item) => item.employed),
-          },
-          {
-            label: 'Not Employed',
-            backgroundColor: '#ef4444',
-            data: programData.map((item) => getNotEmployedCount(item)),
-          },
-          {
-            label: 'Aligned',
-            backgroundColor: '#3b82f6',
-            data: programData.map((item) => item.aligned),
-          },
-          {
-            label: 'Not Aligned',
-            backgroundColor: '#f59e0b',
-            data: programData.map((item) => item.not_aligned),
-          },
-        ],
-      },
-      options: { title: { display: true, text: 'Employment by Program' } },
-    };
-  }
-
-  if (tab === 'year' && yearData.length > 0) {
-    return {
-      type: 'bar',
-      data: {
-        labels: yearData.map((item) => item.year_graduated),
-        datasets: [
-          {
-            label: 'Graduates',
-            backgroundColor: '#3b82f6',
-            data: yearData.map((item) => item.total_graduates),
-          },
-          {
-            label: 'Employed',
-            backgroundColor: '#22c55e',
-            data: yearData.map((item) => item.employed),
-          },
-          {
-            label: 'Not Employed',
-            backgroundColor: '#ef4444',
-            data: yearData.map((item) => getNotEmployedCount(item)),
-          },
-          {
-            label: 'Aligned',
-            backgroundColor: '#f59e0b',
-            data: yearData.map((item) => item.aligned),
-          },
-          {
-            label: 'Not Aligned',
-            backgroundColor: '#8b5cf6',
-            data: yearData.map((item) => item.not_aligned ?? Math.max(safeCount(item.alignment_total) - safeCount(item.aligned), 0)),
-          },
-        ],
-      },
-      options: { title: { display: true, text: 'Employment by Year' } },
-    };
-  }
-
-  if (tab === 'employment' && statusData.length > 0) {
-    return {
-      type: 'pie',
-      data: {
-        labels: statusData.map((item) => item.employment_status),
-        datasets: [
-          {
-            backgroundColor: ['#22c55e', '#3b82f6', '#ef4444', '#f59e0b', '#64748b'],
-            data: statusData.map((item) => item.count),
-          },
-        ],
-      },
-      options: { title: { display: true, text: 'Employment Status Distribution' } },
-    };
-  }
-
-  if (tab === 'salary' && salaryData.length > 0) {
-    return {
-      type: 'bar',
-      data: {
-        labels: salaryData.map((item) => normalizeSalaryLabel(item.salary_range)),
-        datasets: [
-          {
-            label: 'Count',
-            backgroundColor: '#6366f1',
-            data: salaryData.map((item) => item.count),
-          },
-        ],
-      },
-      options: { title: { display: true, text: 'Salary Distribution' } },
-    };
-  }
-
-  return null;
 }

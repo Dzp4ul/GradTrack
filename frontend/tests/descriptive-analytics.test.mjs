@@ -11,6 +11,7 @@ import {
   normalizeSalaryLabel,
   percentage,
 } from '../src/utils/descriptiveAnalytics.ts';
+import { hasBrokenReportText, normalizeReportText } from '../src/utils/reportText.ts';
 
 const snapshot = {
   overview: {
@@ -58,6 +59,29 @@ assert.equal(percentage(50, 59), 84.7, 'employment percentage rounds to one deci
 assert.equal(percentage(1, 0), null, 'zero denominator is unavailable');
 assert.equal(formatPercentage(1, 0), 'Not available', 'zero denominator never renders NaN or Infinity');
 assert.equal(normalizeSalaryLabel('â‚±5,000 - â‚±10,000'), '₱5,000 – ₱10,000', 'mojibake salary labels are normalized');
+assert.equal(
+  normalizeReportText('P r o g r a m   l e v e l   d a t a   s h o w variation.'),
+  'Program level data show variation.',
+  'accidental character-by-character spacing is repaired without joining words',
+);
+assert.equal(
+  normalizeReportText('Program �level and job �course alignment'),
+  'Program-level and job-course alignment',
+  'replacement characters between words are normalized as standard hyphens',
+);
+assert.equal(
+  normalizeReportText('Salary: ₱15,000', { peso: 'php' }),
+  'Salary: PHP 15,000',
+  'PDF-safe text uses PHP when the built-in PDF font cannot guarantee the peso glyph',
+);
+assert.equal(normalizeReportText('valid\u0000 text\u200B here'), 'valid text here', 'control and invisible characters are removed');
+assert.equal(
+  normalizeReportText('Employment rate: 84.1\u202f% and alignment: 60.4\u00a0%.'),
+  'Employment rate: 84.1% and alignment: 60.4%.',
+  'typographic spaces before percentages are converted to PDF-safe spacing',
+);
+assert.equal(hasBrokenReportText('Employment rate: 84.1\u202f%'), true, 'narrow no-break spaces are detected before normalization');
+assert.equal(hasBrokenReportText('P r o g r a m level'), true, 'letter-spaced source text is detected');
 
 const structured = buildStructuredOverviewAnalysis(snapshot.overview, snapshot.programPerformance);
 assert.equal(structured.keyFindings.find((item) => item.label === 'Employment rate')?.value, '84.7%');
@@ -119,6 +143,10 @@ assert.doesNotMatch(Object.values(singlePdf).join(' '), /NaN|Infinity|undefined|
 const validAiOverview = `${pdf.overview}\n\nWithin the selected responses, this additional synthesis remains descriptive and uses the same verified counts and denominators.`;
 const acceptedAi = mergeValidatedPdfInterpretations({ overview: validAiOverview }, pdf, snapshot);
 assert.equal(acceptedAi.overview, validAiOverview, 'valid GROQ content is retained when it matches the current snapshot');
+const inventedCountAi = mergeValidatedPdfInterpretations({
+  overview: `${validAiOverview} An unsupported total of 999 respondents is also claimed.`,
+}, pdf, snapshot);
+assert.equal(inventedCountAi.overview, pdf.overview, 'GROQ content with an unsupported number is rejected');
 
 const here = dirname(fileURLToPath(import.meta.url));
 const reportsSource = readFileSync(resolve(here, '../src/pages/admin/Reports.tsx'), 'utf8');

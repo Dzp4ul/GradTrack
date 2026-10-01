@@ -1,3 +1,5 @@
+import { hasBrokenReportText, normalizeReportText } from './reportText.ts';
+
 export type DescriptiveSectionKey =
   | 'overview'
   | 'programPerformance'
@@ -467,6 +469,38 @@ const requiredSectionValues = (
   return [snapshot.salaryDistribution.reduce((sum, row) => sum + safeCount(row.count), 0)];
 };
 
+const numericTokens = (value: unknown): number[] => {
+  const matches = String(value ?? '').match(/\d[\d,]*(?:\.\d+)?/g) ?? [];
+  return matches
+    .map((token) => Number(token.replace(/,/g, '')))
+    .filter(Number.isFinite);
+};
+
+const canonicalNumber = (value: number): string => (
+  Number(value.toFixed(3)).toString()
+);
+
+export const hasUnsupportedNumericClaim = (
+  text: string,
+  observedData: unknown,
+): boolean => {
+  const observedNumbers = numericTokens(JSON.stringify(observedData));
+  const allowed = new Set(observedNumbers.map(canonicalNumber));
+  allowed.add('0');
+  allowed.add('1');
+  allowed.add('100');
+
+  observedNumbers.forEach((numerator) => {
+    observedNumbers.forEach((denominator) => {
+      if (denominator <= 0 || numerator < 0 || numerator > denominator) return;
+      allowed.add(canonicalNumber((numerator / denominator) * 100));
+      allowed.add(canonicalNumber(Math.round((numerator / denominator) * 1000) / 10));
+    });
+  });
+
+  return numericTokens(text).some((value) => !allowed.has(canonicalNumber(value)));
+};
+
 export const isValidAiInterpretation = (
   key: DescriptiveSectionKey,
   value: unknown,
@@ -480,7 +514,13 @@ export const isValidAiInterpretation = (
     : key === 'yearlyTrend'
       ? snapshot.yearlyTrend.length > 1
       : getOverviewCounts(snapshot.overview).total >= 10;
-  if (words < (hasSubstantialData ? 80 : 35) || forbiddenInference.test(text) || invalidOutputToken.test(text)) {
+  if (
+    words < (hasSubstantialData ? 80 : 35)
+    || forbiddenInference.test(text)
+    || invalidOutputToken.test(text)
+    || hasBrokenReportText(text)
+    || hasUnsupportedNumericClaim(text, snapshot)
+  ) {
     return false;
   }
   return requiredSectionValues(key, snapshot).every((valueToFind) => (
@@ -497,9 +537,10 @@ export const mergeValidatedPdfInterpretations = (
     ? candidate as Partial<Record<DescriptiveSectionKey, unknown>>
     : {};
   return (Object.keys(fallback) as DescriptiveSectionKey[]).reduce<PdfInterpretations>((result, key) => {
-    result[key] = isValidAiInterpretation(key, source[key], snapshot)
-      ? String(source[key]).trim()
-      : fallback[key];
+    const normalizedCandidate = normalizeReportText(source[key]);
+    result[key] = isValidAiInterpretation(key, normalizedCandidate, snapshot)
+      ? normalizedCandidate
+      : normalizeReportText(fallback[key]);
     return result;
   }, { ...fallback });
 };
