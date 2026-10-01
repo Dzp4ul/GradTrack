@@ -159,7 +159,7 @@ export default function AdminLayout() {
       isOpen: true,
       type: 'confirm',
       title: 'Logout Confirmation',
-      message: 'Are you sure you want to do logout?',
+      message: 'Are you sure you want to log out?',
       confirmText: 'Logout',
       onConfirm: async () => {
         await logout();
