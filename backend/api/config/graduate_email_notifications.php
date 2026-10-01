@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/email.php';
+require_once __DIR__ . '/survey_contact_email.php';
 
 if (!function_exists('gradtrack_email_notification_ensure_schema')) {
     function gradtrack_email_notification_ensure_schema(PDO $db): void
@@ -172,23 +173,7 @@ if (!function_exists('gradtrack_graduate_account_is_approved')) {
 if (!function_exists('gradtrack_survey_notification_answer_email')) {
     function gradtrack_survey_notification_answer_email(PDO $db, int $surveyResponseId): string
     {
-        $stmt = $db->prepare("SELECT sra.answer_value
-            FROM survey_response_answers sra
-            JOIN survey_questions sq ON sq.id = sra.survey_question_id
-            WHERE sra.survey_response_id = :response_id
-              AND sra.is_canonical = 1
-              AND sq.analytics_key = 'email_address'
-            ORDER BY sra.id
-            LIMIT 1");
-        $stmt->execute([':response_id' => $surveyResponseId]);
-        $storedValue = $stmt->fetchColumn();
-        if ($storedValue === false || $storedValue === null) {
-            return '';
-        }
-
-        $decoded = json_decode((string) $storedValue, true);
-        $email = is_string($decoded) ? $decoded : (string) $storedValue;
-        return strtolower(gradtrack_email_clean_text($email));
+        return gradtrack_survey_response_contact_email($db, $surveyResponseId) ?? '';
     }
 }
 

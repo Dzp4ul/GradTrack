@@ -166,6 +166,17 @@ body {
   outline-offset: 2px !important;
 }
 
+/*
+ * Recharts gives each pie sector tabIndex="-1" so pointer interaction can move
+ * focus to its SVG <g>. Chromium outlines that group's rectangular bounding
+ * box, which makes a selected slice look deformed. Sectors are not in the tab
+ * order; the chart surface remains focusable and keeps the global keyboard
+ * focus indicator and Recharts keyboard navigation.
+ */
+.reports-analytics-page .recharts-pie-sector:focus {
+  outline: none !important;
+}
+
 .theme-toggle-wrap {
   position: relative;
   display: inline-flex;

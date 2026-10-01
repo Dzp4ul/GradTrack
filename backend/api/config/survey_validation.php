@@ -97,6 +97,9 @@ function gradtrack_survey_other_answer_text(string $value, string $option): stri
 
 function gradtrack_survey_classify_text_field(array $question): string
 {
+    $analyticsKey = trim((string) ($question['analytics_key'] ?? ''));
+    if ($analyticsKey === 'email_address') return 'EMAIL';
+
     $text = gradtrack_survey_normalize_comparison($question['question_text'] ?? '');
     $questionType = (string) ($question['question_type'] ?? 'text');
 
@@ -318,6 +321,7 @@ function gradtrack_survey_validate_text($value, string $fieldType, array $option
     }
 
     if ($fieldType === 'EMAIL') {
+        $normalized = strtolower($normalized);
         return filter_var($normalized, FILTER_VALIDATE_EMAIL) !== false
             ? gradtrack_survey_validation_result(true, $normalized)
             : gradtrack_survey_validation_result(false, $normalized, 'Please enter a valid email address.', 'email');

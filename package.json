@@ -40,6 +40,7 @@
     "test:job-archive": "php backend/tests/job_archival_integration.php",
     "test:job-save-share": "php backend/tests/job_save_share_integration.php && php backend/tests/saved_jobs_http_integration.php",
     "test:email-notifications": "php backend/tests/graduate_email_notifications_test.php",
+    "test:survey-email-sync": "php backend/tests/survey_contact_email_integration.php",
     "test:reminder-schedule": "php backend/tests/survey_reminder_schedule_test.php",
     "test:approval-email": "php backend/tests/registration_approval_email_http_integration.php",
     "test:forum-report-access": "php backend/tests/forum_report_access_rules_test.php",

@@ -4,6 +4,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/admin_auth.php';
 require_once __DIR__ . '/../config/graduation_years.php';
+require_once __DIR__ . '/../config/survey_contact_email.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     http_response_code(405);
@@ -69,12 +70,26 @@ try {
     $search = isset($_GET['search']) ? trim((string) $_GET['search']) : '';
     if ($search !== '') {
         $searchTerm = '%' . $search . '%';
-        $whereParts[] = '(g.first_name LIKE :search_1 OR g.middle_name LIKE :search_2 OR g.last_name LIKE :search_3 OR g.student_id LIKE :search_4 OR g.email LIKE :search_5)';
+        $whereParts[] = '(g.first_name LIKE :search_1 OR g.middle_name LIKE :search_2 OR g.last_name LIKE :search_3 OR g.student_id LIKE :search_4 OR g.email LIKE :search_5
+            OR EXISTS (
+                SELECT 1
+                FROM survey_responses search_sr
+                JOIN survey_response_answers search_sra ON search_sra.survey_response_id = search_sr.id
+                JOIN survey_questions search_sq ON search_sq.id = search_sra.survey_question_id
+                WHERE search_sr.graduate_id = g.id
+                  AND search_sr.survey_id = :search_survey_id
+                  AND search_sr.submitted_at IS NOT NULL
+                  AND search_sra.is_canonical = 1
+                  AND search_sq.analytics_key = \'email_address\'
+                  AND JSON_UNQUOTE(search_sra.answer_value) LIKE :search_6
+            ))';
         $params[':search_1'] = $searchTerm;
         $params[':search_2'] = $searchTerm;
         $params[':search_3'] = $searchTerm;
         $params[':search_4'] = $searchTerm;
         $params[':search_5'] = $searchTerm;
+        $params[':search_6'] = $searchTerm;
+        $params[':search_survey_id'] = $selectedSurveyId;
     }
 
     if (isset($_GET['program_id']) && (int) $_GET['program_id'] > 0) {
@@ -162,6 +177,11 @@ try {
     $dataStmt = $db->prepare($dataSql);
     $dataStmt->execute($params);
     $rows = $dataStmt->fetchAll(PDO::FETCH_ASSOC);
+    $surveyEmails = gradtrack_survey_contact_email_map(
+        $db,
+        $selectedSurveyId,
+        array_column($rows, 'id')
+    );
 
     $summarySql = "
         SELECT
@@ -196,10 +216,19 @@ try {
             "limit" => $limit,
             "pages" => max(1, (int) ceil($total / $limit)),
         ],
-        "data" => array_map(function ($row) {
+        "data" => array_map(function ($row) use ($surveyEmails) {
             $row['response_count'] = (int) $row['response_count'];
             $row['has_answered'] = (int) $row['has_answered'] === 1;
-            $row['has_email'] = trim((string) ($row['email'] ?? '')) !== '';
+            $graduateId = (int) $row['id'];
+            $officialEmail = trim((string) ($row['email'] ?? ''));
+            $surveyEmail = $surveyEmails[$graduateId] ?? null;
+            $displayEmail = $officialEmail !== '' ? $officialEmail : $surveyEmail;
+            $row['official_email'] = $officialEmail !== '' ? $officialEmail : null;
+            $row['survey_email'] = $surveyEmail;
+            $row['display_email'] = $displayEmail;
+            // Preserve the established API field while making it useful to older clients.
+            $row['email'] = $displayEmail;
+            $row['has_email'] = $displayEmail !== null;
             return $row;
         }, $rows),
     ]);

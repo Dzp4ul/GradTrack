@@ -32,6 +32,9 @@ interface GraduateParticipationRow {
   middle_name: string | null;
   last_name: string;
   email: string | null;
+  official_email?: string | null;
+  survey_email?: string | null;
+  display_email?: string | null;
   year_graduated: number | null;
   program_code: string | null;
   program_name: string | null;
@@ -757,6 +760,8 @@ export default function GraduateParticipation() {
               ) : (
                 rows.map((row) => {
                   const canSelect = !row.has_answered && row.has_email;
+                  const displayEmail =
+                    row.display_email?.trim() || row.email?.trim() || row.survey_email?.trim() || null;
                   return (
                     <tr key={row.id} className="border-b last:border-0 hover:bg-gray-50 transition-colors">
                       <td className="px-4 py-3">
@@ -774,8 +779,8 @@ export default function GraduateParticipation() {
                         <p className="font-medium text-[#1b2a4a]">
                           {getGraduateDisplayName(row)}
                         </p>
-                        <p className={`text-xs ${row.has_email ? 'text-gray-400' : 'text-red-500'}`}>
-                          {row.email || 'No email address'}
+                        <p className={`text-xs ${displayEmail ? 'text-gray-400' : 'text-red-500'}`}>
+                          {displayEmail || 'No email address'}
                         </p>
                       </td>
                       <td className="px-4 py-3">

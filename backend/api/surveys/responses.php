@@ -10,6 +10,7 @@ require_once __DIR__ . '/../config/survey_validation.php';
 require_once __DIR__ . '/../config/graduation_years.php';
 require_once __DIR__ . '/../config/survey_versioning.php';
 require_once __DIR__ . '/../config/graduate_email_notifications.php';
+require_once __DIR__ . '/../config/survey_contact_email.php';
 
 function survey_response_send_saved(int $responseId, bool $idempotent, array $emailNotification = []): never
 {
@@ -332,6 +333,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             $existingResponseId = $dupStmt->fetchColumn();
             if ($existingResponseId) {
+                gradtrack_sync_graduate_email_from_survey_response(
+                    $conn,
+                    (int) $existingResponseId,
+                    $graduateId
+                );
                 if (empty($tokenData['submitted_at'])) {
                     $markExistingTokenStmt = $conn->prepare('UPDATE survey_tokens
                         SET submitted_at = COALESCE(submitted_at, NOW()),
@@ -402,6 +408,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $surveyQuestions,
             $responses
         );
+        gradtrack_sync_graduate_email_from_survey_response($conn, $responseId, $graduateId);
         
         // Mark token as submitted if token was used
         if (isset($tokenData)) {

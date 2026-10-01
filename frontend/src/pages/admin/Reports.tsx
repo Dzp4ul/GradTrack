@@ -3533,7 +3533,7 @@ export default function Reports() {
   );
 
   return (
-    <div className="space-y-6">
+    <div className="reports-analytics-page space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[#1b2a4a]">Reports & Analytics</h1>
