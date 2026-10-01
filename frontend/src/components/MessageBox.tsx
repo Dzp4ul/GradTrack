@@ -90,15 +90,12 @@ export default function MessageBox({
 
   const current = styles[type];
   const Icon = current.Icon;
+  const isConfirmation = type === 'confirm';
   const primaryText = confirmText || (type === 'confirm' ? 'Confirm' : 'OK');
   const messageSections = message
     .split(/\n{2,}/)
     .map((section) => section.trim())
     .filter(Boolean);
-  const usesDetailedLayout = messageSections.some((section) => {
-    const heading = section.split('\n', 1)[0].replace(/:$/, '').trim().toLowerCase();
-    return heading === 'problems detected' || heading === 'required columns';
-  });
 
   const handleConfirm = () => {
     onClose();
@@ -108,7 +105,7 @@ export default function MessageBox({
   return createPortal(
     <div
       className={`fixed inset-0 z-[9999] flex items-center justify-center px-4 py-6 ${
-        usesDetailedLayout ? 'bg-slate-950/45 backdrop-blur-[1px]' : 'bg-slate-950/35'
+        isConfirmation ? 'bg-slate-950/35' : 'bg-slate-950/45 backdrop-blur-[1px]'
       }`}
       role="presentation"
       onMouseDown={(event) => {
@@ -118,16 +115,16 @@ export default function MessageBox({
       }}
     >
       <div
-        className={usesDetailedLayout
-          ? 'relative flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white px-5 py-6 shadow-2xl sm:px-7 sm:py-7 dark:border-slate-700 dark:bg-slate-900'
-          : 'w-full max-w-sm rounded-lg bg-white px-7 py-7 shadow-2xl dark:border dark:border-slate-700 dark:bg-slate-900'}
+        className={isConfirmation
+          ? 'w-full max-w-sm rounded-lg bg-white px-7 py-7 shadow-2xl dark:border dark:border-slate-700 dark:bg-slate-900'
+          : 'relative flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white px-5 py-6 shadow-2xl sm:px-7 sm:py-7 dark:border-slate-700 dark:bg-slate-900'}
         role="dialog"
         aria-modal="true"
         aria-labelledby="message-box-title"
         aria-describedby="message-box-description"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        {usesDetailedLayout && (
+        {!isConfirmation && (
           <button
             type="button"
             onClick={onClose}
@@ -139,15 +136,15 @@ export default function MessageBox({
         )}
 
         <div className="flex flex-col items-center text-center">
-          <div className={`${usesDetailedLayout ? 'mb-4' : 'mb-5'} flex h-14 w-14 items-center justify-center rounded-full ${current.iconWrap}`}>
+          <div className={`${isConfirmation ? 'mb-5' : 'mb-4'} flex h-14 w-14 items-center justify-center rounded-full ${current.iconWrap}`}>
             <Icon className={`h-6 w-6 ${current.icon}`} />
           </div>
 
-          <h3 id="message-box-title" className={`${usesDetailedLayout ? 'text-lg' : 'text-base'} font-bold text-slate-900 dark:text-slate-100`}>
+          <h3 id="message-box-title" className={`${isConfirmation ? 'text-base' : 'text-lg'} font-bold text-slate-900 dark:text-slate-100`}>
             {modalTitle}
           </h3>
 
-          {!usesDetailedLayout ? (
+          {isConfirmation ? (
             <p id="message-box-description" className="mt-3 whitespace-pre-line text-sm leading-6 text-slate-500 dark:text-slate-300">
               {message}
             </p>

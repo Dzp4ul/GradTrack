@@ -5,6 +5,7 @@ ob_start();
 require_once __DIR__ . '/../api/config/database.php';
 require_once __DIR__ . '/../api/config/session.php';
 require_once __DIR__ . '/../api/config/survey_versioning.php';
+require_once __DIR__ . '/../api/config/survey_program_scope.php';
 
 $db = (new Database())->getConnection();
 $baseUrl = rtrim((string)(getenv('GRADTRACK_HTTP_TEST_URL') ?: 'http://localhost/GradTrack/backend/api'), '/');
@@ -151,13 +152,37 @@ try {
     $choiceQuestionId = (int)$db->lastInsertId();
     gradtrack_survey_sync_question_options($db, $choiceQuestionId, $choiceKey, ['Yes', $oldNoLabel]);
 
-    $optionDefinitions = gradtrack_survey_fetch_option_definitions($db, [$yearQuestionId, $choiceQuestionId]);
+    $programRows = $db->query(
+        "SELECT id, code, name FROM programs WHERE code IN ('BSCS', 'BSHM', 'BSN') ORDER BY FIELD(code, 'BSCS', 'BSHM', 'BSN')"
+    )->fetchAll(PDO::FETCH_ASSOC);
+    if (count($programRows) !== 3) throw new RuntimeException('BSCS, BSHM, and BSN programs are required.');
+    $programLabels = array_column($programRows, 'name');
+    $programKey = gradtrack_survey_uuid();
+    $questionStmt->execute([
+        ':survey_id' => $surveyId, ':question_key' => $programKey, ':analytics_key' => 'program',
+        ':section' => 'Education', ':question_text' => 'Degree Program & Specialization',
+        ':question_type' => 'multiple_choice', ':options' => json_encode($programLabels),
+        ':required' => 1, ':sort_order' => 3,
+    ]);
+    $programQuestionId = (int)$db->lastInsertId();
+    gradtrack_survey_sync_question_options($db, $programQuestionId, $programKey, $programLabels);
+
+    $optionDefinitions = gradtrack_survey_fetch_option_definitions(
+        $db,
+        [$yearQuestionId, $choiceQuestionId, $programQuestionId]
+    );
     $yearOptions = $optionDefinitions[$yearQuestionId];
     $choiceOptions = $optionDefinitions[$choiceQuestionId];
+    $programOptions = $optionDefinitions[$programQuestionId];
     $stableNoValue = (string)$choiceOptions[1]['value'];
     $stableNoId = (int)$choiceOptions[1]['id'];
+    $stableBsnValue = (string)$programOptions[2]['value'];
 
-    $answers = [(string)$yearQuestionId => '2025', (string)$choiceQuestionId => $stableNoValue];
+    $answers = [
+        (string)$yearQuestionId => '2025',
+        (string)$choiceQuestionId => $stableNoValue,
+        (string)$programQuestionId => $stableBsnValue,
+    ];
     $responseStmt = $db->prepare('INSERT INTO survey_responses (survey_id, survey_version_id, graduate_id, responses, submitted_at) VALUES (:survey_id, :survey_version_id, :graduate_id, :responses, DATE_SUB(NOW(), INTERVAL 1 DAY))');
     $responseStmt->execute([':survey_id' => $surveyId, ':survey_version_id' => $surveyId, ':graduate_id' => $graduateId, ':responses' => json_encode($answers)]);
     $responseId = (int)$db->lastInsertId();
@@ -181,6 +206,12 @@ try {
                 'question_type' => 'multiple_choice', 'options' => ['Yes', $newNoLabel],
                 'option_definitions' => [$choiceOptions[0], array_merge($choiceOptions[1], ['label' => $newNoLabel])],
                 'is_required' => 1, 'sort_order' => 2,
+            ],
+            [
+                'id' => $programQuestionId, 'analytics_key' => 'program', 'section_id' => null,
+                'section' => 'Education', 'question_text' => 'Degree Program & Specialization',
+                'question_type' => 'multiple_choice', 'options' => $programLabels,
+                'option_definitions' => $programOptions, 'is_required' => 1, 'sort_order' => 3,
             ],
         ],
     ];
@@ -220,9 +251,51 @@ try {
     $blockedOption = live_edit_request('surveys/index.php', $sessionId, $csrfToken, 'PUT', $addOptionPayload);
     live_edit_assert($blockedOption['status'] === 409 && ($blockedOption['json']['code'] ?? '') === 'SURVEY_STRUCTURE_LOCKED', 'adding an option is blocked after responses exist');
 
+    $programScopePayload = $payload;
+    $programScopePayload['questions'][2]['options'] = array_slice($programLabels, 0, 2);
+    $programScopePayload['questions'][2]['option_definitions'] = array_slice($programOptions, 0, 2);
+    $programScopeUpdate = live_edit_request(
+        'surveys/index.php',
+        $sessionId,
+        $csrfToken,
+        'PUT',
+        $programScopePayload
+    );
+    live_edit_assert(
+        $programScopeUpdate['status'] === 200 && !empty($programScopeUpdate['json']['success']),
+        'Degree Program & Specialization options may be removed from an active survey'
+    );
+    $updatedScope = gradtrack_get_survey_program_scope($db, $surveyId);
+    live_edit_assert(
+        array_column($updatedScope['departments'], 'code') === ['BSCS', 'BSHM'],
+        'Verify Identity scope immediately follows the saved program question options'
+    );
+    $answerStmt->execute([':response_id' => $responseId, ':question_id' => $programQuestionId]);
+    live_edit_assert(
+        json_decode((string)$answerStmt->fetchColumn(), true) === $stableBsnValue,
+        'removing a current program option does not rewrite its historical response value'
+    );
+    $programAnalyticsResponse = live_edit_request(
+        'surveys/analytics.php?survey_id=' . $surveyId,
+        $sessionId,
+        $csrfToken
+    );
+    $programAnalytics = array_values(array_filter(
+        $programAnalyticsResponse['json']['data']['questions_analytics'] ?? [],
+        static fn (array $row): bool => (int)($row['question_id'] ?? 0) === $programQuestionId
+    ))[0] ?? null;
+    $historicalProgramRow = array_values(array_filter(
+        $programAnalytics['data'] ?? [],
+        static fn (array $row): bool => ($row['option'] ?? '') === $stableBsnValue
+    ))[0] ?? null;
+    live_edit_assert(
+        $programAnalyticsResponse['status'] === 200 && (int)($historicalProgramRow['count'] ?? 0) === 1,
+        'analytics retain the historical answer after that program is removed from current verification options'
+    );
+
     $questionCountStmt = $db->prepare('SELECT COUNT(*) FROM survey_questions WHERE survey_id = :id');
     $questionCountStmt->execute([':id' => $surveyId]);
-    live_edit_assert((int)$questionCountStmt->fetchColumn() === 2, 'no question rows are recreated or duplicated');
+    live_edit_assert((int)$questionCountStmt->fetchColumn() === 3, 'no question rows are recreated or duplicated');
 } catch (Throwable $error) {
     live_edit_assert(false, 'integration test completed without an exception: ' . $error->getMessage());
 }

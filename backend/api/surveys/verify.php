@@ -238,7 +238,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     'code' => 'PROGRAM_NOT_IN_SURVEY_SCOPE',
                     'title' => 'Program Not Included',
                     'error' => 'Program is not included in this survey',
-                    'message' => 'The selected program is not included in the active survey\'s Scope of Departments.',
+                    'message' => 'The selected program is not included in this survey\'s Degree Program & Specialization options.',
                 ]);
                 exit();
             }

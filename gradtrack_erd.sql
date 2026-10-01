@@ -49,14 +49,6 @@ CREATE TABLE `surveys` (
     PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE TABLE `survey_programs` (
-    `survey_id` INT NOT NULL,
-    `program_id` INT NOT NULL,
-    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (`survey_id`, `program_id`),
-    KEY `idx_survey_programs_program` (`program_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
 CREATE TABLE `announcements` (
     `id` INT NOT NULL AUTO_INCREMENT,
     `graduate_id` INT DEFAULT NULL,
@@ -926,16 +918,6 @@ ALTER TABLE `survey_questions`
     ADD CONSTRAINT `fk_survey_questions_survey`
     FOREIGN KEY (`survey_id`) REFERENCES `surveys` (`id`)
     ON DELETE CASCADE;
-
-ALTER TABLE `survey_programs`
-    ADD CONSTRAINT `fk_survey_programs_survey`
-    FOREIGN KEY (`survey_id`) REFERENCES `surveys` (`id`)
-    ON DELETE CASCADE;
-
-ALTER TABLE `survey_programs`
-    ADD CONSTRAINT `fk_survey_programs_program`
-    FOREIGN KEY (`program_id`) REFERENCES `programs` (`id`)
-    ON DELETE RESTRICT;
 
 ALTER TABLE `survey_tokens`
     ADD CONSTRAINT `fk_survey_tokens_survey`

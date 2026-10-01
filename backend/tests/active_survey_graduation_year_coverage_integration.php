@@ -116,20 +116,44 @@ function coverage_create_survey(PDO $db, string $title, string $status, array $y
         ':lock_status' => $status,
     ]);
     $surveyId = (int) $db->lastInsertId();
-    $programId = (int) $db->query("SELECT id FROM programs WHERE code = 'BSCS' LIMIT 1")->fetchColumn();
-    if ($programId <= 0) {
+    $program = $db->query("SELECT id, name FROM programs WHERE code = 'BSCS' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+    if (!$program) {
         throw new RuntimeException('BSCS program is required for the survey coverage fixture.');
     }
-    gradtrack_sync_survey_program_scope($db, $surveyId, [$programId]);
     $questionStmt = $db->prepare("INSERT INTO survey_questions
         (survey_id, question_key, analytics_key, section, question_text, question_type, options, is_required, sort_order)
-        VALUES (:survey_id, :question_key, 'graduation_year', 'Educational Background',
-                'Q16: Year Graduated', 'multiple_choice', :options, 1, 16)");
+        VALUES (:survey_id, :question_key, :analytics_key, 'Educational Background',
+                :question_text, 'multiple_choice', :options, 1, :sort_order)");
+    $programQuestionKey = gradtrack_survey_uuid();
     $questionStmt->execute([
         ':survey_id' => $surveyId,
-        ':question_key' => gradtrack_survey_uuid(),
-        ':options' => json_encode(array_map('strval', $years)),
+        ':question_key' => $programQuestionKey,
+        ':analytics_key' => 'program',
+        ':question_text' => 'Degree Program & Specialization',
+        ':options' => json_encode([(string) $program['name']]),
+        ':sort_order' => 15,
     ]);
+    gradtrack_survey_sync_question_options(
+        $db,
+        (int) $db->lastInsertId(),
+        $programQuestionKey,
+        [(string) $program['name']]
+    );
+    $yearQuestionKey = gradtrack_survey_uuid();
+    $questionStmt->execute([
+        ':survey_id' => $surveyId,
+        ':question_key' => $yearQuestionKey,
+        ':analytics_key' => 'graduation_year',
+        ':question_text' => 'Q16: Year Graduated',
+        ':options' => json_encode(array_map('strval', $years)),
+        ':sort_order' => 16,
+    ]);
+    gradtrack_survey_sync_question_options(
+        $db,
+        (int) $db->lastInsertId(),
+        $yearQuestionKey,
+        array_map('strval', $years)
+    );
     if ($status !== 'draft') {
         $db->prepare('UPDATE survey_templates SET current_version_id = :survey_id WHERE id = :template_id')
             ->execute([':survey_id' => $surveyId, ':template_id' => $templateId]);
@@ -165,6 +189,22 @@ function coverage_create_graduate(PDO $db, int $programId, int $year, string $su
 function coverage_ids(array $response): array
 {
     return array_map('intval', array_column($response['json']['data'] ?? [], 'id'));
+}
+
+function coverage_replace_question_options(PDO $db, int $questionId, array $options): void
+{
+    $questionKeyStmt = $db->prepare('SELECT question_key FROM survey_questions WHERE id = :id');
+    $questionKeyStmt->execute([':id' => $questionId]);
+    $questionKey = (string) $questionKeyStmt->fetchColumn();
+    if ($questionKey === '') throw new RuntimeException('Coverage question was not found.');
+
+    $db->prepare('UPDATE survey_questions SET options = :options WHERE id = :id')->execute([
+        ':options' => json_encode(array_values($options), JSON_UNESCAPED_UNICODE),
+        ':id' => $questionId,
+    ]);
+    $db->prepare('DELETE FROM survey_question_options WHERE survey_question_id = :question_id')
+        ->execute([':question_id' => $questionId]);
+    gradtrack_survey_sync_question_options($db, $questionId, $questionKey, array_values($options));
 }
 
 function coverage_cleanup(PDO $db): void
@@ -236,18 +276,18 @@ try {
     }
 
     $suffix = bin2hex(random_bytes(4));
-    $program = $db->query("SELECT id, code FROM programs WHERE code = 'BSCS' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
+    $program = $db->query("SELECT id, code, name FROM programs WHERE code = 'BSCS' LIMIT 1")->fetch(PDO::FETCH_ASSOC);
     if (!$program) throw new RuntimeException('BSCS program is required for the Dean-scope test.');
 
     $fixture['previous_active_ids'] = array_map('intval', $db->query("SELECT id FROM surveys WHERE status = 'active' AND archived_at IS NULL")->fetchAll(PDO::FETCH_COLUMN));
     $db->exec("UPDATE surveys SET status = 'inactive' WHERE status = 'active' AND archived_at IS NULL");
 
     $fixture['admins'][] = $adminId = coverage_create_admin($db, 'research_coordinator', $suffix);
+    $fixture['admins'][] = $systemAdminId = coverage_create_admin($db, 'admin', $suffix);
     $fixture['admins'][] = $deanId = coverage_create_admin($db, 'dean_cs', $suffix);
     $adminSession = coverage_session(['admin_user_id' => $adminId]);
+    $systemAdminSession = coverage_session(['admin_user_id' => $systemAdminId]);
     $deanSession = coverage_session(['admin_user_id' => $deanId]);
-    $researchCoordinatorSession = $adminSession;
-
     $surveyA = coverage_create_survey($db, 'Coverage A ' . $suffix, 'draft', [2025, 2024, 2023, 2022, 2021]);
     $fixture['surveys'][] = $surveyA;
     $graduateByYear = [];
@@ -280,7 +320,24 @@ try {
         ':token' => $historicalToken,
     ]);
 
-    $questionIdA = (int) $db->query('SELECT id FROM survey_questions WHERE survey_id = ' . $surveyA)->fetchColumn();
+    $questionIdA = (int) $db->query(
+        "SELECT id FROM survey_questions WHERE survey_id = {$surveyA} AND analytics_key = 'graduation_year'"
+    )->fetchColumn();
+    $programQuestionA = $db->query(
+        "SELECT * FROM survey_questions WHERE survey_id = {$surveyA} AND analytics_key = 'program'"
+    )->fetch(PDO::FETCH_ASSOC);
+    $programDefinitionsA = gradtrack_survey_fetch_option_definitions($db, [(int) $programQuestionA['id']]);
+    $programQuestionPayload = [
+        'id' => (int) $programQuestionA['id'],
+        'analytics_key' => 'program',
+        'section' => 'Educational Background',
+        'question_text' => 'Degree Program & Specialization',
+        'question_type' => 'multiple_choice',
+        'options' => [(string) $program['name']],
+        'option_definitions' => $programDefinitionsA[(int) $programQuestionA['id']] ?? [],
+        'is_required' => 1,
+        'sort_order' => 15,
+    ];
     $surveyQuestionPayload = [
         'id' => $questionIdA,
         'section' => 'Educational Background',
@@ -294,7 +351,10 @@ try {
         'title' => 'Coverage A ' . $suffix,
         'description' => 'Coverage integration test',
         'status' => 'draft',
-        'questions' => [$surveyQuestionPayload + ['options' => ['2021', ' 2021 ', 'not-a-year']]],
+        'questions' => [
+            $programQuestionPayload,
+            $surveyQuestionPayload + ['options' => ['2021', ' 2021 ', 'not-a-year']],
+        ],
     ]);
     coverage_assert($invalidSurveyUpdate['status'] === 422 && ($invalidSurveyUpdate['json']['code'] ?? '') === 'INVALID_GRADUATION_YEAR_COVERAGE', 'Survey Management API rejects duplicate and malformed coverage options');
 
@@ -303,7 +363,10 @@ try {
         'title' => 'Coverage A ' . $suffix,
         'description' => 'Coverage integration test',
         'status' => 'active',
-        'questions' => [$surveyQuestionPayload + ['options' => [' 2025 ', '2024', '2023', '2022', '2021']]],
+        'questions' => [
+            $programQuestionPayload,
+            $surveyQuestionPayload + ['options' => [' 2025 ', '2024', '2023', '2022', '2021']],
+        ],
     ]);
     $storedOptionsStmt = $db->prepare('SELECT options FROM survey_questions WHERE id = :id');
     $storedOptionsStmt->execute([':id' => $questionIdA]);
@@ -379,7 +442,7 @@ try {
     ]);
     coverage_assert($badReminderSelection['status'] === 400, 'A manually selected out-of-coverage graduate cannot be notified');
 
-    $eligibleReminders = coverage_request('research-coordinator/auto-reminders.php?action=eligible&survey_id=' . $surveyA, $researchCoordinatorSession);
+    $eligibleReminders = coverage_request('research-coordinator/auto-reminders.php?action=eligible&survey_id=' . $surveyA, $systemAdminSession);
     $eligibleReminderIds = array_map('intval', array_column($eligibleReminders['json']['data'] ?? [], 'id'));
     $coveredUnansweredIncluded = count(array_filter(
         range(2022, 2025),
@@ -411,6 +474,21 @@ try {
         'email' => (string) $db->query('SELECT email FROM graduates WHERE id = ' . (int) $graduateByYear[2026])->fetchColumn(),
     ]);
     coverage_assert($futureYearReject['status'] === 403 && ($futureYearReject['json']['code'] ?? '') === 'GRADUATION_YEAR_NOT_ELIGIBLE', 'A correct identity above the configured range is also denied');
+
+    $outOfScopeProgramReject = coverage_request('surveys/verify.php', null, 'POST', [
+        'last_name' => 'Cohort' . $suffix,
+        'program' => 'BSN',
+        'survey_id' => $surveyA,
+        'verification_method' => 'student_number',
+        'student_number' => (string) $db->query(
+            'SELECT student_id FROM graduates WHERE id = ' . (int) $graduateByYear[2021]
+        )->fetchColumn(),
+    ]);
+    coverage_assert(
+        $outOfScopeProgramReject['status'] === 403
+        && ($outOfScopeProgramReject['json']['code'] ?? '') === 'PROGRAM_NOT_IN_SURVEY_SCOPE',
+        'a manually submitted program outside the Degree Program & Specialization options is rejected'
+    );
 
     $uncoveredRegistration = coverage_request('graduate-auth/register-from-survey.php', null, 'POST', [
         'survey_response_id' => $uncoveredResponseId,
@@ -485,10 +563,7 @@ try {
         'Graduate Portal does not show an active-survey notification outside the graduate year coverage'
     );
 
-    $db->prepare('UPDATE survey_questions SET options = :options WHERE id = :id')->execute([
-        ':options' => json_encode(['2021', '2022', '2023', '2024', '2025', '2027']),
-        ':id' => $questionIdA,
-    ]);
+    coverage_replace_question_options($db, $questionIdA, ['2021', '2022', '2023', '2024', '2025', '2027']);
     $completedAccountNotifications = coverage_request(
         'notifications/index.php?audience=graduate',
         $historicalGraduateSession
@@ -501,10 +576,7 @@ try {
         $completedAccountNotifications['status'] === 200 && $completedAccountSurveyNotifications === [],
         'Graduate Portal does not ask an account linked to a submitted survey to repeat onboarding'
     );
-    $db->prepare('UPDATE survey_questions SET options = :options WHERE id = :id')->execute([
-        ':options' => json_encode(['2021', '2022', '2023', '2024', '2025']),
-        ':id' => $questionIdA,
-    ]);
+    coverage_replace_question_options($db, $questionIdA, ['2021', '2022', '2023', '2024', '2025']);
 
     $verify2025 = coverage_request('surveys/verify.php', null, 'POST', $verifyPayload + [
         'verification_method' => 'email',
@@ -537,10 +609,7 @@ try {
         'Survey analytics excludes out-of-coverage responses and uses covered graduates as the rate denominator'
     );
 
-    $db->prepare('UPDATE survey_questions SET options = :options WHERE id = :id')->execute([
-        ':options' => json_encode(['2021', '2023', '2025']),
-        ':id' => $questionIdA,
-    ]);
+    coverage_replace_question_options($db, $questionIdA, ['2021', '2023', '2025']);
     $nonContinuous = coverage_request('graduates/survey-status.php?' . $query, $adminSession);
     $nonContinuousIds = coverage_ids($nonContinuous);
     sort($nonContinuousIds);
@@ -554,11 +623,14 @@ try {
         'token' => $token2024,
         'survey_id' => $surveyA,
         'graduate_id' => $graduateByYear[2021],
-        'responses' => [(string) $questionIdA => '2021'],
+        'responses' => [
+            (string) $programQuestionA['id'] => (string) ($programQuestionPayload['option_definitions'][0]['value'] ?? $program['name']),
+            (string) $questionIdA => '2021',
+        ],
     ]);
     coverage_assert($staleSubmission['status'] === 403 && ($staleSubmission['json']['code'] ?? '') === 'GRADUATION_YEAR_NOT_ELIGIBLE', 'Survey submission rechecks the token graduate actual year and ignores a spoofed graduate ID');
 
-    $db->prepare('UPDATE survey_questions SET options = JSON_ARRAY() WHERE id = :id')->execute([':id' => $questionIdA]);
+    coverage_replace_question_options($db, $questionIdA, []);
     $missingCoverage = coverage_request('graduates/survey-status.php?' . $query, $adminSession);
     coverage_assert($missingCoverage['status'] === 422 && ($missingCoverage['json']['code'] ?? '') === 'GRADUATION_YEAR_COVERAGE_NOT_CONFIGURED', 'Empty active-survey coverage fails closed instead of exposing every Registrar graduate');
 

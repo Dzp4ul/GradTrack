@@ -285,19 +285,6 @@ function gradtrack_survey_clone_version(PDO $db, int $sourceSurveyId, string $ac
         );
     }
 
-    if (gradtrack_survey_program_scope_table_exists($db)) {
-        $copyScope = $db->prepare(
-            'INSERT INTO survey_programs (survey_id, program_id)
-             SELECT :new_survey_id, program_id
-             FROM survey_programs
-             WHERE survey_id = :source_survey_id'
-        );
-        $copyScope->execute([
-            ':new_survey_id' => $newSurveyId,
-            ':source_survey_id' => $sourceSurveyId,
-        ]);
-    }
-
     return ['id' => $newSurveyId, 'version_number' => $versionNumber, 'reused' => false];
 }
 
@@ -501,6 +488,7 @@ try {
                 break;
             }
             $data['questions'] = $questionValidation['questions'];
+            gradtrack_validate_survey_program_questions($db, $data['questions']);
 
             $db->beginTransaction();
 
@@ -545,11 +533,6 @@ try {
                     );
                 }
             }
-
-            $programIds = array_key_exists('program_ids', $data)
-                ? $data['program_ids']
-                : gradtrack_infer_survey_program_ids($db, $surveyId);
-            gradtrack_sync_survey_program_scope($db, $surveyId, $programIds);
 
             if ($status !== 'draft') {
                 $current = $db->prepare('UPDATE survey_templates SET current_version_id = :survey_id WHERE id = :template_id');
@@ -809,11 +792,32 @@ try {
                     }
 
                     $storedOptions = $storedOptionsByQuestion[$submittedQuestionId] ?? [];
-                    $submittedOptionDefinitions = gradtrack_survey_decode_option_definitions(
-                        $submittedQuestion['option_definitions'] ?? []
-                    );
-                    $submittedLabels = gradtrack_survey_decode_options($submittedQuestion['options'] ?? null);
-                    if ($storedOptions !== []) {
+                    $isProgramScopeQuestion = ($storedQuestion['analytics_key'] ?? '') === 'program';
+                    if ($isProgramScopeQuestion) {
+                        $preparedProgramOptions = gradtrack_prepare_survey_program_option_edit(
+                            $db,
+                            $storedOptions,
+                            $submittedQuestion['options'] ?? [],
+                            $submittedQuestion['option_definitions'] ?? []
+                        );
+                        $submittedLabels = $preparedProgramOptions['labels'];
+                        $submittedOptionDefinitions = $preparedProgramOptions['definitions'];
+                        if ($submittedLabels !== array_column($storedOptions, 'label')) {
+                            $protectedTextChanges[] = [
+                                'survey_id' => $surveyId,
+                                'question_id' => $submittedQuestionId,
+                                'field' => 'program_options',
+                                'old_text' => json_encode(array_column($storedOptions, 'label'), JSON_UNESCAPED_UNICODE),
+                                'new_text' => json_encode($submittedLabels, JSON_UNESCAPED_UNICODE),
+                            ];
+                        }
+                    } else {
+                        $submittedOptionDefinitions = gradtrack_survey_decode_option_definitions(
+                            $submittedQuestion['option_definitions'] ?? []
+                        );
+                        $submittedLabels = gradtrack_survey_decode_options($submittedQuestion['options'] ?? null);
+                    }
+                    if (!$isProgramScopeQuestion && $storedOptions !== []) {
                         if ($submittedOptionDefinitions === []) {
                             if ($submittedLabels !== array_column($storedOptions, 'label')) {
                                 http_response_code(409);
@@ -869,7 +873,7 @@ try {
                                 ];
                             }
                         }
-                    } elseif ($submittedLabels !== []) {
+                    } elseif (!$isProgramScopeQuestion && $submittedLabels !== []) {
                         http_response_code(409);
                         echo json_encode([
                             'success' => false,
@@ -882,9 +886,9 @@ try {
                     $storedQuestion['question_text'] = $newQuestionText;
                     $storedQuestion['section'] = $newSectionTitle !== '' ? $newSectionTitle : null;
                     $storedQuestion['option_definitions'] = $submittedOptionDefinitions;
-                    $storedQuestion['options'] = $storedOptions !== []
-                        ? array_column($submittedOptionDefinitions, 'label')
-                        : null;
+                    $storedQuestion['options'] = $isProgramScopeQuestion
+                        ? $submittedLabels
+                        : ($storedOptions !== [] ? array_column($submittedOptionDefinitions, 'label') : null);
                     $safeQuestions[] = $storedQuestion;
                 }
                 $data['questions'] = $safeQuestions;
@@ -994,6 +998,22 @@ try {
                         $definitions = gradtrack_survey_decode_option_definitions(
                             $question['option_definitions'] ?? []
                         );
+                        if (($question['analytics_key'] ?? '') === 'program') {
+                            $definitions = gradtrack_sync_editable_survey_program_options(
+                                $db,
+                                $questionId,
+                                $definitions
+                            );
+                            $labels = array_column($definitions, 'label');
+                            $updateProtectedQuestion->execute([
+                                ':question_text' => $question['question_text'],
+                                ':section' => $question['section'] ?? null,
+                                ':options' => json_encode($labels, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                                ':question_id' => $questionId,
+                                ':survey_id' => $surveyId,
+                            ]);
+                            continue;
+                        }
                         $labels = [];
                         foreach ($definitions as $definition) {
                             $optionId = (int)($definition['id'] ?? 0);
@@ -1023,6 +1043,7 @@ try {
                         ]);
                     }
                 } else {
+                gradtrack_validate_survey_program_questions($db, $data['questions']);
                 $existingStmt = $db->prepare("SELECT id, question_key, analytics_key, is_active FROM survey_questions WHERE survey_id = :id");
                 $existingStmt->execute([':id' => $data['id']]);
                 $existingIds = [];
@@ -1137,10 +1158,6 @@ try {
                 );
                 $deleteEmptySections->execute([':survey_id' => $surveyId]);
                 }
-            }
-
-            if (array_key_exists('program_ids', $data)) {
-                gradtrack_sync_survey_program_scope($db, $surveyId, $data['program_ids']);
             }
 
             if ($status !== 'draft' && (int)($editableSurvey['template_id'] ?? 0) > 0) {
