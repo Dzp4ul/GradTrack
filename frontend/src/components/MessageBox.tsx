@@ -12,6 +12,10 @@ interface MessageBoxProps {
   confirmText?: string;
   cancelText?: string;
   destructive?: boolean;
+  actionLink?: {
+    href: string;
+    label: string;
+  };
 }
 
 export default function MessageBox({
@@ -24,6 +28,7 @@ export default function MessageBox({
   confirmText,
   cancelText = 'Cancel',
   destructive = false,
+  actionLink,
 }: MessageBoxProps) {
   useEffect(() => {
     if (!isOpen) return;
@@ -117,7 +122,7 @@ export default function MessageBox({
       <div
         className={isConfirmation
           ? 'w-full max-w-sm rounded-lg bg-white px-7 py-7 shadow-2xl dark:border dark:border-slate-700 dark:bg-slate-900'
-          : 'relative flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white px-5 py-6 shadow-2xl sm:px-7 sm:py-7 dark:border-slate-700 dark:bg-slate-900'}
+          : 'relative flex max-h-[92vh] w-full max-w-sm flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white px-5 py-6 shadow-2xl sm:px-7 sm:py-7 dark:border-slate-700 dark:bg-slate-900'}
         role="dialog"
         aria-modal="true"
         aria-labelledby="message-box-title"
@@ -151,7 +156,7 @@ export default function MessageBox({
           ) : (
             <div
               id="message-box-description"
-              className="mt-4 max-h-[50vh] w-full space-y-4 overflow-y-auto overscroll-contain rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 text-left dark:border-slate-700 dark:bg-slate-950/70"
+              className="mt-4 max-h-[50vh] w-full space-y-4 overflow-y-auto overscroll-contain"
             >
               {messageSections.map((section, sectionIndex) => {
                 const lines = section.split('\n').map((line) => line.trim()).filter(Boolean);
@@ -196,6 +201,17 @@ export default function MessageBox({
                 );
               })}
             </div>
+          )}
+
+          {actionLink && (
+            <a
+              href={actionLink.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-5 inline-flex items-center justify-center rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            >
+              {actionLink.label}
+            </a>
           )}
         </div>
 

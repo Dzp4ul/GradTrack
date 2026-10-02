@@ -106,6 +106,10 @@ function SurveyVerification() {
     type: 'success' | 'error' | 'warning' | 'info';
     message: string;
     title?: string;
+    actionLink?: {
+      href: string;
+      label: string;
+    };
     clearVerificationOnClose?: boolean;
   }>({ isOpen: false, type: 'info', message: '' });
 
@@ -713,6 +717,7 @@ function SurveyVerification() {
           type={msgBox.type}
           message={msgBox.message}
           title={msgBox.title}
+          actionLink={msgBox.actionLink}
         />
       </div>
     );
@@ -904,8 +909,12 @@ function SurveyVerification() {
             onClick={() => setMsgBox({
               isOpen: true,
               type: 'info',
-              title: 'Please contact the Registrar Office to retrieve your student number. You can also check your old school ID, diploma, or transcript of records.',
-              message: ''
+              title: 'Forgot Your Student Number?',
+              message: "Please contact the Norzagaray College Registrar's Office to retrieve your student number.\n\nYou may also check your old school ID, diploma, transcript of records, or other official school records.",
+              actionLink: {
+                href: 'https://www.facebook.com/NCRegistrarOffice',
+                label: 'Contact Registrar on Facebook',
+              },
             })}
             className="text-sm text-gray-600 hover:text-blue-600 underline"
           >
@@ -920,6 +929,7 @@ function SurveyVerification() {
         type={msgBox.type}
         message={msgBox.message}
         title={msgBox.title}
+        actionLink={msgBox.actionLink}
       />
     </div>
   );
