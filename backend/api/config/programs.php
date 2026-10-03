@@ -95,14 +95,18 @@ if (!function_exists('gradtrack_program_available_code')) {
         string $preferredCode,
         string $name,
         array $programs = [],
-        array $alternateCodes = []
+        array $alternateCodes = [],
+        ?int $ownerProgramId = null
     ): string {
         $normalizedName = gradtrack_program_normalize_name($name);
         $codes = [];
         foreach ($programs as $program) {
             $existingCode = gradtrack_program_normalize_code($program['code'] ?? '');
             if ($existingCode === '') continue;
-            $codes[$existingCode] = gradtrack_program_normalize_name($program['name'] ?? '');
+            $codes[$existingCode] = [
+                'id' => (int) ($program['id'] ?? 0),
+                'name' => gradtrack_program_normalize_name($program['name'] ?? ''),
+            ];
         }
 
         $candidates = array_values(array_unique(array_filter(array_map(
@@ -110,7 +114,9 @@ if (!function_exists('gradtrack_program_available_code')) {
             array_merge([$preferredCode], $alternateCodes)
         ), 'gradtrack_program_code_is_valid')));
         foreach ($candidates as $candidate) {
-            if (!isset($codes[$candidate]) || $codes[$candidate] === $normalizedName) return $candidate;
+            if (!isset($codes[$candidate])) return $candidate;
+            if ($ownerProgramId !== null && $codes[$candidate]['id'] === $ownerProgramId) return $candidate;
+            if ($ownerProgramId === null && $codes[$candidate]['name'] === $normalizedName) return $candidate;
         }
 
         $baseCode = $candidates[0] ?? '';
@@ -160,6 +166,64 @@ if (!function_exists('gradtrack_find_program_catalog_entry')) {
             if ((string) ($entry['normalized_name'] ?? '') === $normalizedName) return $entry;
         }
         return null;
+    }
+}
+
+if (!function_exists('gradtrack_reconcile_generated_program_codes')) {
+    /**
+     * Upgrade old automatically generated codes when the database catalog has
+     * an exact official mapping. Stable program IDs and graduate links remain
+     * untouched. Explicit non-generated custom codes are preserved.
+     */
+    function gradtrack_reconcile_generated_program_codes(PDO $db): array
+    {
+        $programs = gradtrack_program_master_rows($db);
+        $catalog = gradtrack_program_catalog_rows($db);
+        if ($programs === [] || $catalog === []) return [];
+
+        $update = $db->prepare(
+            'UPDATE programs SET code = :new_code WHERE id = :program_id AND code = :old_code'
+        );
+        $changes = [];
+        foreach ($programs as $index => $program) {
+            $entry = gradtrack_find_program_catalog_entry($catalog, $program['name'] ?? '');
+            if ($entry === null) continue;
+
+            $currentCode = gradtrack_program_normalize_code($program['code'] ?? '');
+            $genericCode = gradtrack_program_generate_code((string) ($program['name'] ?? ''), []);
+            if (
+                $currentCode === ''
+                || $genericCode === ''
+                || preg_match('/^' . preg_quote($genericCode, '/') . '(?:-\d+)?$/', $currentCode) !== 1
+            ) {
+                continue;
+            }
+
+            $officialCode = gradtrack_program_available_code(
+                (string) ($entry['code'] ?? ''),
+                (string) ($entry['name'] ?? $program['name'] ?? ''),
+                $programs,
+                (array) ($entry['alternate_codes'] ?? []),
+                (int) $program['id']
+            );
+            if ($officialCode === '' || $officialCode === $currentCode) continue;
+
+            $update->execute([
+                ':new_code' => $officialCode,
+                ':program_id' => (int) $program['id'],
+                ':old_code' => (string) $program['code'],
+            ]);
+            if ($update->rowCount() !== 1) continue;
+
+            $changes[] = [
+                'id' => (int) $program['id'],
+                'name' => (string) $program['name'],
+                'old_code' => $currentCode,
+                'new_code' => $officialCode,
+            ];
+            $programs[$index]['code'] = $officialCode;
+        }
+        return $changes;
     }
 }
 

@@ -92,6 +92,21 @@ $catalogInsert->execute([
     'BSCYS',
     null,
 ]);
+$catalogInsert->execute([
+    gradtrack_program_normalize_name('Bachelor of Science in Criminology'),
+    'Bachelor of Science in Criminology',
+    'BSCRIM',
+    null,
+]);
+$db->exec("INSERT INTO programs (id, code, name) VALUES (5, 'BSC', 'Bachelor of Science in Criminology')");
+$reconciledCodes = gradtrack_reconcile_generated_program_codes($db);
+import_test_assert(
+    count($reconciledCodes) === 1
+    && ($reconciledCodes[0]['old_code'] ?? '') === 'BSC'
+    && ($reconciledCodes[0]['new_code'] ?? '') === 'BSCRIM'
+    && (string) $db->query('SELECT code FROM programs WHERE id = 5')->fetchColumn() === 'BSCRIM',
+    'catalog reconciliation upgrades a legacy generated BSC code to BSCRIM without replacing the program ID'
+);
 $db->exec('CREATE TABLE graduates (id INTEGER PRIMARY KEY AUTOINCREMENT, student_id TEXT NOT NULL UNIQUE, first_name TEXT NOT NULL, middle_name TEXT, last_name TEXT NOT NULL, name_extension TEXT, email TEXT UNIQUE, phone TEXT, program_id INTEGER, year_graduated INTEGER NOT NULL, address TEXT)');
 $db->exec('CREATE TABLE employment (id INTEGER PRIMARY KEY AUTOINCREMENT, graduate_id INTEGER, company_name TEXT, job_title TEXT, industry TEXT, employment_status TEXT, is_aligned TEXT, date_hired TEXT, monthly_salary TEXT, time_to_employment INTEGER)');
 $db->exec('CREATE TABLE registered_alumni (id INTEGER PRIMARY KEY AUTOINCREMENT, full_name TEXT NOT NULL, normalized_name TEXT NOT NULL, course_id INTEGER, course_name TEXT NOT NULL, course_code TEXT NOT NULL, batch_year INTEGER NOT NULL, archived_at TEXT, UNIQUE(normalized_name, course_code, batch_year))');

@@ -119,6 +119,9 @@ $auditUser = gradtrack_admin_audit_context($authUser);
 
 try {
     gradtrack_ensure_archive_schema($db, 'graduates');
+    // Repair legacy fallback codes (for example BSC -> BSCRIM) from exact
+    // database-catalog matches without replacing program IDs or graduate links.
+    gradtrack_reconcile_generated_program_codes($db);
 
     switch ($method) {
         case 'GET':

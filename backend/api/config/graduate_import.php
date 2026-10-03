@@ -767,9 +767,11 @@ function gradtrack_graduate_import_execute(PDO $db, array $analysis, bool $hasNa
 {
     $inserted = 0;
     $registeredPrograms = [];
+    $reconciledPrograms = [];
     $skipped = [];
     try {
         $db->beginTransaction();
+        $reconciledPrograms = gradtrack_reconcile_generated_program_codes($db);
         $existing = gradtrack_graduate_import_existing($db, $analysis['records']);
         $insertable = [];
         foreach ($analysis['records'] as $record) {
@@ -866,5 +868,6 @@ function gradtrack_graduate_import_execute(PDO $db, array $analysis, bool $hasNa
         'graduationYears' => $analysis['graduation_years'],
         'skippedRows' => $skipped,
         'registeredPrograms' => array_values($registeredPrograms),
+        'reconciledPrograms' => $reconciledPrograms,
     ];
 }

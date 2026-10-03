@@ -56,4 +56,6 @@ return static function (PDO $db): void {
                 : null,
         ]);
     }
+
+    gradtrack_reconcile_generated_program_codes($db);
 };
