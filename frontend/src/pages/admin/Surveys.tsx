@@ -85,6 +85,55 @@ const getAnswerableQuestionCount = (questions?: Question[], fallback = 0) =>
 const getDisplayQuestionNumber = (questions: Question[], index: number) =>
   questions.slice(0, index + 1).filter((question) => !isHeaderQuestion(question)).length;
 
+const normalizeQuestionLabel = (value: string) =>
+  value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+const ensurePermanentAddressSubheader = (questions: Question[]) => {
+  const alreadyConfigured = questions.some((question) => (
+    isHeaderQuestion(question)
+    && (
+      question.analytics_key === 'permanent_address'
+      || normalizeQuestionLabel(question.question_text).includes('permanent address')
+    )
+  ));
+  if (alreadyConfigured) return questions;
+
+  const addressFieldIndexes = ['region', 'province', 'city_municipality', 'barangay'].map((analyticsKey) => (
+    questions.findIndex((question) => {
+      if (question.analytics_key === analyticsKey) return true;
+      const label = normalizeQuestionLabel(question.question_text);
+      if (analyticsKey === 'city_municipality') {
+        return label.includes('city') || label.includes('municipality');
+      }
+      return label === analyticsKey;
+    })
+  ));
+  if (addressFieldIndexes.some((index) => index < 0)) return questions;
+
+  const firstAddressIndex = Math.min(...addressFieldIndexes);
+  const addressSection = questions[firstAddressIndex]?.section || '';
+  if (
+    !normalizeQuestionLabel(addressSection).includes('personal information')
+    || !addressFieldIndexes.every((index) => questions[index]?.section === addressSection)
+  ) {
+    return questions;
+  }
+
+  const withSubheader = [...questions];
+  withSubheader.splice(firstAddressIndex, 0, {
+    analytics_key: 'permanent_address',
+    question_text: 'Permanent Address',
+    question_type: 'header',
+    options: null,
+    option_definitions: [],
+    is_required: 0,
+    sort_order: firstAddressIndex + 1,
+    section: addressSection,
+  });
+
+  return withSubheader.map((question, index) => ({ ...question, sort_order: index + 1 }));
+};
+
 export default function Surveys() {
   const [routeSearchParams, setRouteSearchParams] = useSearchParams();
   const [surveys, setSurveys] = useState<Survey[]>([]);
@@ -207,8 +256,9 @@ export default function Surveys() {
         // SECTION 1: PERSONAL INFORMATION
         { question_text: 'Last Name', question_type: 'text', options: null, is_required: 1, sort_order: 1, section: 'Personal Information' },
         { question_text: 'First Name', question_type: 'text', options: null, is_required: 1, sort_order: 2, section: 'Personal Information' },
-        { question_text: 'Middle Name', question_type: 'text', options: null, is_required: 0, sort_order: 3, section: 'Personal Information' },
+        { analytics_key: 'middle_name', question_text: 'Middle Initial', question_type: 'text', options: null, is_required: 0, sort_order: 3, section: 'Personal Information' },
         { question_text: 'Name Extension', question_type: 'multiple_choice', options: ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V', 'VI'], is_required: 0, sort_order: 4, section: 'Personal Information' },
+        { analytics_key: 'permanent_address', question_text: 'Permanent Address', question_type: 'header', options: null, is_required: 0, sort_order: 5, section: 'Personal Information' },
         { question_text: 'Region', question_type: 'text', options: null, is_required: 1, sort_order: 5, section: 'Personal Information' },
         { question_text: 'Province', question_type: 'text', options: null, is_required: 1, sort_order: 6, section: 'Personal Information' },
         { question_text: 'City/Municipality', question_type: 'text', options: null, is_required: 1, sort_order: 7, section: 'Personal Information' },
@@ -333,7 +383,7 @@ export default function Surveys() {
             title: d.title,
             description: d.description || '',
             status: d.status,
-            questions: (d.questions || []).map((q: any) => {
+            questions: ensurePermanentAddressSubheader((d.questions || []).map((q: any) => {
               const parsedQuestion: Question = {
                 ...q,
                 question_type: q.question_type || 'text',
@@ -356,7 +406,7 @@ export default function Surveys() {
               }
               console.log('Parsed question:', parsedQuestion);
               return parsedQuestion;
-            }),
+            })),
           });
           setIsEditing(true);
           setShowModal(true);
@@ -596,6 +646,21 @@ export default function Surveys() {
       const questions = [...prev.questions, {
         question_text: '',
         question_type: 'text',
+        options: null,
+        is_required: 0,
+        sort_order: prev.questions.length + 1,
+        section: prev.questions[prev.questions.length - 1]?.section || '',
+      }];
+      setExpandedQ(questions.length - 1);
+      return { ...prev, questions };
+    });
+  };
+
+  const addSubheader = () => {
+    setFormData((prev) => {
+      const questions = [...prev.questions, {
+        question_text: '',
+        question_type: 'header',
         options: null,
         is_required: 0,
         sort_order: prev.questions.length + 1,
@@ -998,17 +1063,27 @@ export default function Surveys() {
 
                 {/* Questions */}
                 <div className="border-t pt-6">
-                  <div className="flex items-center justify-between mb-4">
+                  <div className="flex flex-col gap-3 mb-4 sm:flex-row sm:items-center sm:justify-between">
                     <h3 className="text-lg font-bold text-blue-900">Questions ({getAnswerableQuestionCount(formData.questions)})</h3>
-                    <button
-                      type="button"
-                      onClick={addQuestion}
-                       disabled={Boolean(formData.question_definitions_locked)}
-                       title={formData.question_definitions_locked ? 'Adding questions is locked to protect existing response mappings.' : 'Add question'}
-                       className="inline-flex items-center gap-2 rounded-lg bg-blue-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-gray-300"
-                    >
-                      <Plus className="h-4 w-4" /> Add Question
-                    </button>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <button
+                        type="button"
+                        onClick={addSubheader}
+                        title="Add a display-only subheader"
+                        className="inline-flex items-center justify-center gap-2 rounded-lg border border-blue-300 bg-white px-4 py-2 text-sm font-semibold text-blue-900 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:border-gray-200 disabled:text-gray-400"
+                      >
+                        <Plus className="h-4 w-4" /> Add Subheader
+                      </button>
+                      <button
+                        type="button"
+                        onClick={addQuestion}
+                        disabled={Boolean(formData.question_definitions_locked)}
+                        title={formData.question_definitions_locked ? 'Adding questions is locked to protect existing response mappings.' : 'Add question'}
+                        className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-800 disabled:cursor-not-allowed disabled:bg-gray-300"
+                      >
+                        <Plus className="h-4 w-4" /> Add Question
+                      </button>
+                    </div>
                   </div>
 
                   {/* Editing safety / section helper */}
@@ -1020,7 +1095,7 @@ export default function Surveys() {
                   ) : (
                     <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
                       <p className="text-sm text-blue-900 font-semibold mb-2">Tip: Group questions by section</p>
-                      <p className="text-xs text-blue-700">Enter the same section name (e.g., "Personal Information") for multiple questions to group them together. Section headers will automatically appear on the survey.</p>
+                      <p className="text-xs text-blue-700">Enter the same section name (e.g., "Personal Information") for related questions. Use Add Subheader for labels inside a section, such as "Permanent Address".</p>
                     </div>
                   )}
 
@@ -1049,7 +1124,7 @@ export default function Surveys() {
                             >
                               <div className="flex-1">
                                 <span className="text-sm font-semibold text-blue-900">
-                                  {isHeader ? 'Header: ' : `Q${getDisplayQuestionNumber(formData.questions, i)}: `}{q.question_text ? getQuestionDisplayText(q) : '(untitled)'}
+                                  {isHeader ? 'Subheader: ' : `Q${getDisplayQuestionNumber(formData.questions, i)}: `}{q.question_text ? getQuestionDisplayText(q) : '(untitled)'}
                                 </span>
                                 {q.section && (
                                   <span className="ml-2 text-xs bg-blue-200 text-blue-800 px-2 py-1 rounded-full">
@@ -1061,7 +1136,7 @@ export default function Surveys() {
                                 <button
                                   type="button"
                                   onClick={(event) => { event.stopPropagation(); moveQuestion(i, -1); }}
-                                 disabled={i === 0 || Boolean(formData.question_definitions_locked)}
+                                 disabled={i === 0 || (Boolean(formData.question_definitions_locked) && !isHeader)}
                                   className="rounded-md p-1.5 text-blue-700 hover:bg-white disabled:cursor-not-allowed disabled:opacity-30"
                                   aria-label="Move question up"
                                   title="Move up"
@@ -1071,7 +1146,7 @@ export default function Surveys() {
                                 <button
                                   type="button"
                                   onClick={(event) => { event.stopPropagation(); moveQuestion(i, 1); }}
-                                 disabled={i === formData.questions.length - 1 || Boolean(formData.question_definitions_locked)}
+                                 disabled={i === formData.questions.length - 1 || (Boolean(formData.question_definitions_locked) && !isHeader)}
                                   className="rounded-md p-1.5 text-blue-700 hover:bg-white disabled:cursor-not-allowed disabled:opacity-30"
                                   aria-label="Move question down"
                                   title="Move down"
@@ -1081,7 +1156,7 @@ export default function Surveys() {
                                 <button
                                   type="button"
                                   onClick={(event) => { event.stopPropagation(); removeQuestion(i); }}
-                                 disabled={Boolean(formData.question_definitions_locked)}
+                                 disabled={Boolean(formData.question_definitions_locked) && !isHeader}
                                  className="rounded-md p-1.5 text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-30"
                                   aria-label="Delete question"
                                   title="Delete question"
@@ -1126,12 +1201,12 @@ export default function Surveys() {
                                   />
                                 </div>
                                 <div>
-                                  <label className="block text-sm font-semibold text-gray-700 mb-2">{isHeader ? 'Header Text' : 'Question Text'}</label>
+                                  <label className="block text-sm font-semibold text-gray-700 mb-2">{isHeader ? 'Subheader Text' : 'Question Text'}</label>
                                   <input
                                     type="text"
                                     value={q.question_text}
                                     onChange={(e) => updateQuestion(i, 'question_text', e.target.value)}
-                                    placeholder={isHeader ? 'Enter your header' : 'Enter your question'}
+                                    placeholder={isHeader ? 'Enter your subheader' : 'Enter your question'}
                                     className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
                                   />
                                 </div>
@@ -1140,8 +1215,8 @@ export default function Surveys() {
                                     <label className="block text-sm font-semibold text-gray-700 mb-2">Type</label>
                                     <select
                                       value={q.question_type || 'text'}
-                                     disabled={questionDefinitionLocked}
-                                     title={questionDefinitionLocked ? 'Question type is locked to protect existing responses.' : undefined}
+                                     disabled={questionDefinitionLocked || (Boolean(formData.question_definitions_locked) && !q.id)}
+                                     title={questionDefinitionLocked || (Boolean(formData.question_definitions_locked) && !q.id) ? 'Question type is locked to protect existing responses.' : undefined}
                                       onChange={(e) => {
                                         const newType = e.target.value;
                                         updateQuestion(i, 'question_type', newType);
@@ -1160,7 +1235,7 @@ export default function Surveys() {
                                       }}
                                       className="w-full border-2 border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 transition bg-white disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-500"
                                     >
-                                      <option value="header">Header</option>
+                                      <option value="header">Subheader (display only)</option>
                                       <option value="text">Text</option>
                                       <option value="date">Date</option>
                                       <option value="multiple_choice">Multiple Choice</option>
@@ -1173,7 +1248,7 @@ export default function Surveys() {
                                     <label className="block text-sm font-semibold text-gray-700 mb-2">Required</label>
                                     {isHeader ? (
                                       <div className="border-2 border-gray-200 rounded-lg px-3 py-2 text-sm bg-white text-gray-500">
-                                        No, display only
+                                        No, subheaders are display only
                                       </div>
                                     ) : (
                                       <select

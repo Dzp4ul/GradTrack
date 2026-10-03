@@ -657,7 +657,9 @@ try {
                 );
                 $definitionStmt->execute([':survey_id' => $surveyId]);
                 $storedDefinitions = [];
-                $storedQuestionOrder = [];
+                $storedAnswerableQuestionOrder = [];
+                $storedSectionIds = [];
+                $storedSectionNames = [];
                 $storedQuestionRows = $definitionStmt->fetchAll(PDO::FETCH_ASSOC);
                 $storedOptionsByQuestion = gradtrack_survey_fetch_option_definitions(
                     $db,
@@ -665,27 +667,91 @@ try {
                 );
                 foreach ($storedQuestionRows as $storedQuestion) {
                     $storedDefinitions[(int)$storedQuestion['id']] = $storedQuestion;
-                    $storedQuestionOrder[] = (int)$storedQuestion['id'];
+                    if (($storedQuestion['question_type'] ?? '') !== 'header') {
+                        $storedAnswerableQuestionOrder[] = (int)$storedQuestion['id'];
+                    }
+                    $storedSectionName = gradtrack_survey_normalize_metadata_text($storedQuestion['section'] ?? '');
+                    if ($storedSectionName !== '') {
+                        $storedSectionNames[$storedSectionName] = true;
+                        if ((int)($storedQuestion['section_id'] ?? 0) > 0) {
+                            $storedSectionIds[$storedSectionName] = (int)$storedQuestion['section_id'];
+                        }
+                    }
                 }
 
                 $safeQuestions = [];
                 $submittedQuestions = array_values($data['questions']);
-                $submittedQuestionOrder = array_map(
-                    static fn (array $question): int => (int)($question['id'] ?? 0),
-                    $submittedQuestions
-                );
-                if ($submittedQuestionOrder !== $storedQuestionOrder) {
+                $submittedAnswerableQuestionOrder = [];
+                foreach ($submittedQuestions as $submittedQuestion) {
+                    $submittedQuestionId = (int)($submittedQuestion['id'] ?? 0);
+                    if (
+                        $submittedQuestionId > 0
+                        && isset($storedDefinitions[$submittedQuestionId])
+                        && ($storedDefinitions[$submittedQuestionId]['question_type'] ?? '') !== 'header'
+                    ) {
+                        $submittedAnswerableQuestionOrder[] = $submittedQuestionId;
+                    }
+                }
+                if ($submittedAnswerableQuestionOrder !== $storedAnswerableQuestionOrder) {
                     http_response_code(409);
                     echo json_encode([
                         'success' => false,
                         'code' => 'SURVEY_STRUCTURE_LOCKED',
-                        'error' => 'Question additions, deletion, or reordering are locked while this survey is active or has responses.',
+                        'error' => 'Answerable question additions, deletion, or reordering are locked while this survey is active or has responses.',
                     ]);
                     break;
                 }
 
                 foreach ($submittedQuestions as $index => $submittedQuestion) {
                     $submittedQuestionId = (int)($submittedQuestion['id'] ?? 0);
+                    if ($submittedQuestionId <= 0) {
+                        if (($submittedQuestion['question_type'] ?? '') !== 'header') {
+                            http_response_code(409);
+                            echo json_encode([
+                                'success' => false,
+                                'code' => 'SURVEY_STRUCTURE_LOCKED',
+                                'error' => 'Only display-only subheaders can be added while this survey is active or has responses.',
+                            ]);
+                            break 2;
+                        }
+
+                        $newSubheaderText = trim((string)($submittedQuestion['question_text'] ?? ''));
+                        if ($newSubheaderText === '') {
+                            http_response_code(422);
+                            echo json_encode(['success' => false, 'error' => 'Subheader text cannot be empty.']);
+                            break 2;
+                        }
+                        $newSubheaderSection = trim((string)($submittedQuestion['section'] ?? ''));
+                        $newSubheaderSectionName = gradtrack_survey_normalize_metadata_text($newSubheaderSection);
+                        $newSubheaderSectionId = $newSubheaderSectionName !== ''
+                            ? ($storedSectionIds[$newSubheaderSectionName] ?? 0)
+                            : 0;
+                        if ($newSubheaderSectionName !== '' && !isset($storedSectionNames[$newSubheaderSectionName])) {
+                            http_response_code(409);
+                            echo json_encode([
+                                'success' => false,
+                                'code' => 'SURVEY_STRUCTURE_LOCKED',
+                                'error' => 'A new subheader on a published survey must use an existing section.',
+                            ]);
+                            break 2;
+                        }
+
+                        $safeQuestions[] = [
+                            'question_key' => trim((string)($submittedQuestion['question_key'] ?? '')) ?: gradtrack_survey_uuid(),
+                            'analytics_key' => trim((string)($submittedQuestion['analytics_key'] ?? ''))
+                                ?: gradtrack_survey_legacy_analytics_key($newSubheaderText),
+                            'section_id' => $newSubheaderSectionId > 0 ? $newSubheaderSectionId : null,
+                            'section' => $newSubheaderSection !== '' ? $newSubheaderSection : null,
+                            'question_text' => $newSubheaderText,
+                            'question_type' => 'header',
+                            'options' => null,
+                            'option_definitions' => [],
+                            'is_required' => 0,
+                            'sort_order' => $index + 1,
+                        ];
+                        continue;
+                    }
+
                     if (!isset($storedDefinitions[$submittedQuestionId])) {
                         http_response_code(422);
                         echo json_encode([
@@ -700,14 +766,13 @@ try {
                     if (
                         (string)($submittedQuestion['question_type'] ?? '') !== (string)$storedQuestion['question_type']
                         || (int)($submittedQuestion['is_required'] ?? 0) !== (int)$storedQuestion['is_required']
-                        || (int)($submittedQuestion['sort_order'] ?? ($index + 1)) !== (int)$storedQuestion['sort_order']
                         || (int)($submittedQuestion['section_id'] ?? 0) !== (int)($storedQuestion['section_id'] ?? 0)
                     ) {
                         http_response_code(409);
                         echo json_encode([
                             'success' => false,
                             'code' => 'SURVEY_STRUCTURE_LOCKED',
-                            'error' => 'Question type, requirement, order, and section placement are locked to protect existing response data.',
+                            'error' => 'Question type, requirement, and section placement are locked to protect existing response data.',
                         ]);
                         break 2;
                     }
@@ -885,6 +950,7 @@ try {
 
                     $storedQuestion['question_text'] = $newQuestionText;
                     $storedQuestion['section'] = $newSectionTitle !== '' ? $newSectionTitle : null;
+                    $storedQuestion['sort_order'] = $index + 1;
                     $storedQuestion['option_definitions'] = $submittedOptionDefinitions;
                     $storedQuestion['options'] = $isProgramScopeQuestion
                         ? $submittedLabels
@@ -976,11 +1042,39 @@ try {
 
             if (isset($data['questions']) && is_array($data['questions'])) {
                 if ($protectExistingQuestionDefinitions) {
+                    $submittedExistingIds = array_values(array_filter(array_map(
+                        static fn (array $question): int => (int)($question['id'] ?? 0),
+                        $data['questions']
+                    ), static fn (int $questionId): bool => $questionId > 0));
+                    $retiredHeaderIds = [];
+                    foreach ($storedQuestionRows as $storedQuestion) {
+                        $storedQuestionId = (int)$storedQuestion['id'];
+                        if (
+                            ($storedQuestion['question_type'] ?? '') === 'header'
+                            && !in_array($storedQuestionId, $submittedExistingIds, true)
+                        ) {
+                            $retiredHeaderIds[] = $storedQuestionId;
+                        }
+                    }
+                    if ($retiredHeaderIds !== []) {
+                        $placeholders = implode(',', array_fill(0, count($retiredHeaderIds), '?'));
+                        $retireHeaders = $db->prepare(
+                            "UPDATE survey_questions
+                             SET is_active = 0, retired_at = COALESCE(retired_at, NOW())
+                             WHERE survey_id = ? AND question_type = 'header' AND id IN ($placeholders)"
+                        );
+                        $retireHeaders->execute(array_merge([$surveyId], $retiredHeaderIds));
+                    }
+
+                    $db->prepare('UPDATE survey_questions SET sort_order = sort_order + 100000 WHERE survey_id = :survey_id')
+                        ->execute([':survey_id' => $surveyId]);
                     $updateProtectedQuestion = $db->prepare(
                         'UPDATE survey_questions
-                         SET question_text = :question_text,
+                         SET section_id = :section_id,
+                             question_text = :question_text,
                              section = :section,
-                             options = :options
+                             options = :options,
+                             sort_order = :sort_order
                          WHERE id = :question_id AND survey_id = :survey_id AND is_active = 1'
                     );
                     $updateProtectedOption = $db->prepare(
@@ -993,8 +1087,19 @@ try {
                          WHERE id = :section_id AND survey_id = :survey_id'
                     );
 
-                    foreach ($data['questions'] as $question) {
-                        $questionId = (int)$question['id'];
+                    foreach ($data['questions'] as $questionIndex => $question) {
+                        $questionId = (int)($question['id'] ?? 0);
+                        if ($questionId <= 0) {
+                            gradtrack_survey_insert_question(
+                                $db,
+                                $surveyId,
+                                $question,
+                                $questionIndex + 1,
+                                isset($question['section_id']) ? (int)$question['section_id'] : null,
+                                true
+                            );
+                            continue;
+                        }
                         $definitions = gradtrack_survey_decode_option_definitions(
                             $question['option_definitions'] ?? []
                         );
@@ -1006,9 +1111,11 @@ try {
                             );
                             $labels = array_column($definitions, 'label');
                             $updateProtectedQuestion->execute([
+                                ':section_id' => $question['section_id'] ?? null,
                                 ':question_text' => $question['question_text'],
                                 ':section' => $question['section'] ?? null,
                                 ':options' => json_encode($labels, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+                                ':sort_order' => $questionIndex + 1,
                                 ':question_id' => $questionId,
                                 ':survey_id' => $surveyId,
                             ]);
@@ -1026,11 +1133,13 @@ try {
                             ]);
                         }
                         $updateProtectedQuestion->execute([
+                            ':section_id' => $question['section_id'] ?? null,
                             ':question_text' => $question['question_text'],
                             ':section' => $question['section'] ?? null,
                             ':options' => $labels !== []
                                 ? json_encode($labels, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
                                 : null,
+                            ':sort_order' => $questionIndex + 1,
                             ':question_id' => $questionId,
                             ':survey_id' => $surveyId,
                         ]);
@@ -1039,6 +1148,25 @@ try {
                         $updateProtectedSection->execute([
                             ':title' => $sectionTitle,
                             ':section_id' => (int)$sectionId,
+                            ':survey_id' => $surveyId,
+                        ]);
+                    }
+
+                    $inactiveQuestionStmt = $db->prepare(
+                        'SELECT id FROM survey_questions
+                         WHERE survey_id = :survey_id AND is_active = 0
+                         ORDER BY sort_order ASC, id ASC'
+                    );
+                    $inactiveQuestionStmt->execute([':survey_id' => $surveyId]);
+                    $normalizeInactiveOrder = $db->prepare(
+                        'UPDATE survey_questions SET sort_order = :sort_order
+                         WHERE id = :id AND survey_id = :survey_id AND is_active = 0'
+                    );
+                    $inactiveSortOrder = count($data['questions']) + 1;
+                    foreach ($inactiveQuestionStmt->fetchAll(PDO::FETCH_COLUMN) as $inactiveQuestionId) {
+                        $normalizeInactiveOrder->execute([
+                            ':sort_order' => $inactiveSortOrder++,
+                            ':id' => (int)$inactiveQuestionId,
                             ':survey_id' => $surveyId,
                         ]);
                     }

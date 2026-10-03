@@ -1,4 +1,5 @@
 export type SurveyTextFieldType =
+  | 'FLEXIBLE_TEXT'
   | 'PERSON_NAME'
   | 'OCCUPATION'
   | 'PROGRAM_NAME'
@@ -80,6 +81,7 @@ const COMMON_PHRASES: Partial<Record<SurveyTextFieldType, string[]>> = {
 };
 
 const FIELD_MAX_LENGTH: Record<SurveyTextFieldType, number> = {
+  FLEXIBLE_TEXT: 120,
   PERSON_NAME: 120,
   OCCUPATION: 160,
   PROGRAM_NAME: 200,
@@ -179,11 +181,13 @@ export const classifySurveyTextField = (
   question: Pick<SurveyValidationQuestion, 'analytics_key' | 'question_text' | 'question_type'>,
 ): SurveyTextFieldType => {
   const analyticsKey = String(question.analytics_key || '').trim();
+  const text = normalizeForComparison(question.question_text);
+  if (text.includes('middle initial')) {
+    return 'FLEXIBLE_TEXT';
+  }
   if (analyticsKey === 'email_address') return 'EMAIL';
   if (analyticsKey === 'mobile_number') return 'MOBILE';
   if (analyticsKey === 'phone_number') return 'PHONE';
-
-  const text = normalizeForComparison(question.question_text);
 
   if (/\b(e mail|email)\b/.test(text)) return 'EMAIL';
   if (/\b(mobile|cellphone)\b/.test(text)) return 'MOBILE';
@@ -364,6 +368,10 @@ export const validateSurveyText = (
       return { isValid: false, value: normalized, error: 'Please enter a valid number.', code: 'numeric_range' };
     }
 
+    return { isValid: true, value: normalized };
+  }
+
+  if (fieldType === 'FLEXIBLE_TEXT') {
     return { isValid: true, value: normalized };
   }
 

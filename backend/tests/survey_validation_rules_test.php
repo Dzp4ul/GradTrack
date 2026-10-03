@@ -28,6 +28,13 @@ function survey_validation_question(string $text, string $type = 'text', array $
     ];
 }
 
+$middleInitialQuestion = survey_validation_question('Middle Initial', 'text', [], false);
+$middleInitialQuestion['analytics_key'] = 'middle_name';
+foreach (['ODONEL', 'O.', '123', '.@#-+'] as $flexibleValue) {
+    $result = gradtrack_survey_validate_question_answer($middleInitialQuestion, $flexibleValue);
+    survey_validation_assert($result['is_valid'], "Middle Initial accepts '{$flexibleValue}'");
+}
+
 $validCases = [
     ['Master of Information Technology', 'Name of Graduate Program'],
     ['Master of Science in Computer Science', 'Name of Graduate Program'],

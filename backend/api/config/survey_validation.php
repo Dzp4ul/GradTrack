@@ -98,11 +98,14 @@ function gradtrack_survey_other_answer_text(string $value, string $option): stri
 function gradtrack_survey_classify_text_field(array $question): string
 {
     $analyticsKey = trim((string) ($question['analytics_key'] ?? ''));
+    $text = gradtrack_survey_normalize_comparison($question['question_text'] ?? '');
+    if (strpos($text, 'middle initial') !== false) {
+        return 'FLEXIBLE_TEXT';
+    }
     if ($analyticsKey === 'email_address') return 'EMAIL';
     if ($analyticsKey === 'mobile_number') return 'MOBILE';
     if ($analyticsKey === 'phone_number') return 'PHONE';
 
-    $text = gradtrack_survey_normalize_comparison($question['question_text'] ?? '');
     $questionType = (string) ($question['question_type'] ?? 'text');
 
     if (preg_match('/\b(e mail|email)\b/', $text)) return 'EMAIL';
@@ -284,6 +287,7 @@ function gradtrack_survey_safe_spelling_suggestion(string $value, string $fieldT
 function gradtrack_survey_field_max_length(string $fieldType): int
 {
     $lengths = [
+        'FLEXIBLE_TEXT' => 120,
         'PERSON_NAME' => 120,
         'OCCUPATION' => 160,
         'PROGRAM_NAME' => 200,
@@ -355,6 +359,10 @@ function gradtrack_survey_validate_text($value, string $fieldType, array $option
             return gradtrack_survey_validation_result(false, $normalized, 'Please enter a valid number.', 'numeric_range');
         }
 
+        return gradtrack_survey_validation_result(true, $normalized);
+    }
+
+    if ($fieldType === 'FLEXIBLE_TEXT') {
         return gradtrack_survey_validation_result(true, $normalized);
     }
 

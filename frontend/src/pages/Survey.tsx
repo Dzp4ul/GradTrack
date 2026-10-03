@@ -374,6 +374,42 @@ const isProfessionalExamHeader = (question: Question) =>
 const isHeaderQuestion = (question: Question) =>
   question.question_type === 'header' || isProfessionalExamHeader(question);
 
+const questionMatchesIdentity = (
+  question: Question,
+  analyticsKey: string,
+  labelFragments: string[],
+) => {
+  if (question.analytics_key === analyticsKey) return true;
+
+  const label = normalizeComparable(question.question_text);
+  return labelFragments.some((fragment) => label.includes(normalizeComparable(fragment)));
+};
+
+const isLastNameQuestion = (question: Question) =>
+  questionMatchesIdentity(question, 'last_name', ['last name', 'surname', 'family name']);
+
+const isFirstNameQuestion = (question: Question) =>
+  questionMatchesIdentity(question, 'first_name', ['first name', 'given name']);
+
+const isMiddleNameQuestion = (question: Question) =>
+  questionMatchesIdentity(question, 'middle_name', ['middle name', 'middle initial']);
+
+const isMiddleInitialQuestion = (question: Question) =>
+  normalizeComparable(question.question_text).includes('middle initial');
+
+const isPermanentAddressHeader = (question: Question) =>
+  isHeaderQuestion(question)
+  && questionMatchesIdentity(question, 'permanent_address', ['permanent address']);
+
+const getQuestionDisplayNumber = (questions: Question[], question: Question) => {
+  const questionIndex = questions.findIndex((candidate) => candidate.id === question.id);
+  if (questionIndex < 0) return 0;
+
+  return questions
+    .slice(0, questionIndex + 1)
+    .filter((candidate) => !isHeaderQuestion(candidate)).length;
+};
+
 const splitHeaderText = (text: string) => {
   const match = text.match(/^(.*?)(\s*\([^)]*\))$/);
   const isProfessionalHeader = normalizeComparable(text).startsWith('professional examination s passed');
@@ -426,7 +462,7 @@ const PASSWORD_COMPLEXITY_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0
 const NAME_EXTENSION_OPTIONS = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V', 'VI'];
 
 const isNameExtensionQuestion = (question: Question) =>
-  normalizeComparable(question.question_text).includes('name extension');
+  questionMatchesIdentity(question, 'name_extension', ['name extension', 'suffix']);
 
 interface PsgcAddressQuestionMap {
   region?: Question;
@@ -440,13 +476,16 @@ const getPsgcAddressQuestions = (questions: Question[]): PsgcAddressQuestionMap 
 
   questions.forEach((question) => {
     const text = normalizeComparable(question.question_text);
-    if (!map.region && /\bregion\b/.test(text)) {
+    if (!map.region && (question.analytics_key === 'region' || /\bregion\b/.test(text))) {
       map.region = question;
-    } else if (!map.province && /\bprovince\b/.test(text)) {
+    } else if (!map.province && (question.analytics_key === 'province' || /\bprovince\b/.test(text))) {
       map.province = question;
-    } else if (!map.cityMunicipality && (/\bcity\b/.test(text) || /\bmunicipality\b/.test(text))) {
+    } else if (
+      !map.cityMunicipality
+      && (question.analytics_key === 'city_municipality' || /\bcity\b/.test(text) || /\bmunicipality\b/.test(text))
+    ) {
       map.cityMunicipality = question;
-    } else if (!map.barangay && /\bbarangay\b/.test(text)) {
+    } else if (!map.barangay && (question.analytics_key === 'barangay' || /\bbarangay\b/.test(text))) {
       map.barangay = question;
     }
   });
@@ -526,19 +565,19 @@ const getGraduateAutofillValue = (question: Question, profile: TokenProfileData)
   const questionText = normalizeComparable(question.question_text);
   const addressParts = extractAddressParts(profile);
 
-  if (questionText.includes('first name') || questionText.includes('given name')) {
+  if (isFirstNameQuestion(question)) {
     return formatValueForQuestion(question, [getProfileText(profile, ['first_name'])]);
   }
 
-  if (questionText.includes('middle name')) {
+  if (isMiddleNameQuestion(question)) {
     return formatValueForQuestion(question, [getProfileText(profile, ['middle_name'])]);
   }
 
-  if (questionText.includes('last name') || questionText.includes('surname') || questionText.includes('family name')) {
+  if (isLastNameQuestion(question)) {
     return formatValueForQuestion(question, [getProfileText(profile, ['last_name'])]);
   }
 
-  if (questionText.includes('name extension') || questionText.includes('suffix')) {
+  if (isNameExtensionQuestion(question)) {
     return formatValueForQuestion(question, [getProfileText(profile, ['name_extension'])]);
   }
 
@@ -1165,11 +1204,13 @@ function Survey() {
         return;
       }
 
-      if (questionText.includes('first name') || questionText.includes('given name')) {
+      if (isFirstNameQuestion(q)) {
         prefill.first_name = value;
-      } else if (questionText.includes('middle name')) {
-        prefill.middle_name = value;
-      } else if (questionText.includes('last name')) {
+      } else if (isMiddleNameQuestion(q)) {
+        if (!isMiddleInitialQuestion(q) || !prefill.middle_name) {
+          prefill.middle_name = value;
+        }
+      } else if (isLastNameQuestion(q)) {
         prefill.last_name = value;
       } else if (questionText.includes('email') || questionText.includes('e-mail')) {
         prefill.email = value;
@@ -2152,8 +2193,14 @@ function Survey() {
     </label>
   );
 
-  const renderPsgcAddressGroup = () => (
-    <div key="psgc-address-group" className="rounded-xl border border-blue-100 bg-blue-50 p-4 sm:p-5">
+  const renderPsgcAddressGroup = (
+    title = 'Permanent Address',
+    key = 'psgc-address-group',
+  ) => (
+    <div key={key} className="rounded-xl border border-blue-100 bg-blue-50 p-4 sm:p-5">
+      <h4 className="mb-4 text-base font-semibold text-blue-900">
+        {title}
+      </h4>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         {currentAddressQuestions.region && (
           <div>
@@ -2370,7 +2417,7 @@ function Survey() {
                   </div>
                   <dl className="divide-y divide-gray-100">
                     {questions.map((question) => {
-                      const questionNumber = activeSurvey.questions.findIndex((candidate) => candidate.id === question.id) + 1;
+                      const questionNumber = getQuestionDisplayNumber(activeSurvey.questions, question);
 
                       return (
                         <div key={question.id} className="grid gap-2 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] sm:gap-6 sm:px-5">
@@ -2439,8 +2486,28 @@ function Survey() {
                 
                 while (i < currentSectionQuestions.length) {
                   const question = currentSectionQuestions[i];
-                  const globalIdx = activeSurvey.questions.findIndex(q => q.id === question.id);
+                  const questionNumber = getQuestionDisplayNumber(activeSurvey.questions, question);
                   const questionText = question.question_text.toLowerCase();
+
+                  if (
+                    isPermanentAddressHeader(question)
+                    && currentSectionQuestions[i + 1]?.id
+                    && currentAddressQuestionIds.has(currentSectionQuestions[i + 1].id!)
+                  ) {
+                    renderedQuestions.push(renderPsgcAddressGroup(
+                      question.question_text,
+                      `psgc-address-group-${question.id || i}`,
+                    ));
+                    i++;
+                    while (
+                      i < currentSectionQuestions.length
+                      && currentSectionQuestions[i].id
+                      && currentAddressQuestionIds.has(currentSectionQuestions[i].id!)
+                    ) {
+                      i++;
+                    }
+                    continue;
+                  }
 
                   if (isHeaderQuestion(question)) {
                     const { title, suffix } = splitHeaderText(question.question_text);
@@ -2448,7 +2515,7 @@ function Survey() {
                     renderedQuestions.push(
                       <div key={`header-${question.id || i}`} className="bg-white rounded-lg p-5 border border-gray-200">
                         <p className="text-base text-gray-900">
-                          <span className="font-bold">{globalIdx + 1}. {title}</span>
+                          <span className="font-bold">{title}</span>
                           {suffix && <span className="italic"> {suffix}</span>}
                         </p>
                       </div>
@@ -2475,31 +2542,31 @@ function Survey() {
                     continue;
                   }
                    
-                  // Check if this is Last Name and next two are First Name and Middle Name
-                  if (questionText.includes('last name') &&
+                  // Keep the name row together even when an administrator changes display wording.
+                  if (isLastNameQuestion(question) &&
                       i + 2 < currentSectionQuestions.length &&
-                      currentSectionQuestions[i + 1].question_text.toLowerCase().includes('first name') &&
-                      currentSectionQuestions[i + 2].question_text.toLowerCase().includes('middle name')) {
+                      isFirstNameQuestion(currentSectionQuestions[i + 1]) &&
+                      isMiddleNameQuestion(currentSectionQuestions[i + 2])) {
                     
                     const firstNameQ = currentSectionQuestions[i + 1];
                     const middleNameQ = currentSectionQuestions[i + 2];
                     const maybeNameExtensionQ = currentSectionQuestions[i + 3];
                     const hasNameExtension = Boolean(
                       maybeNameExtensionQ
-                      && maybeNameExtensionQ.question_text.toLowerCase().includes('name extension')
+                      && isNameExtensionQuestion(maybeNameExtensionQ)
                     );
-                    const firstNameIdx = activeSurvey.questions.findIndex(q => q.id === firstNameQ.id);
-                    const middleNameIdx = activeSurvey.questions.findIndex(q => q.id === middleNameQ.id);
-                    const nameExtensionIdx = hasNameExtension
-                      ? activeSurvey.questions.findIndex(q => q.id === maybeNameExtensionQ?.id)
-                      : -1;
+                    const firstNameNumber = getQuestionDisplayNumber(activeSurvey.questions, firstNameQ);
+                    const middleNameNumber = getQuestionDisplayNumber(activeSurvey.questions, middleNameQ);
+                    const nameExtensionNumber = hasNameExtension && maybeNameExtensionQ
+                      ? getQuestionDisplayNumber(activeSurvey.questions, maybeNameExtensionQ)
+                      : 0;
                     
                     renderedQuestions.push(
                       <div key={`name-group-${question.id}`} className="bg-blue-50 rounded-xl p-4 border border-blue-100 sm:p-5">
                         <div className={`grid grid-cols-1 gap-4 ${hasNameExtension ? 'md:grid-cols-2 xl:grid-cols-4' : 'md:grid-cols-3'}`}>
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
-                              {globalIdx + 1}. {question.question_text}
+                              {questionNumber}. {question.question_text}
                               {Number(question.is_required) === 1 && (
                                 <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
                               )}
@@ -2509,7 +2576,7 @@ function Survey() {
                           </div>
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
-                              {firstNameIdx + 1}. {firstNameQ.question_text}
+                              {firstNameNumber}. {firstNameQ.question_text}
                               {Number(firstNameQ.is_required) === 1 && (
                                 <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
                               )}
@@ -2519,7 +2586,7 @@ function Survey() {
                           </div>
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
-                              {middleNameIdx + 1}. {middleNameQ.question_text}
+                              {middleNameNumber}. {middleNameQ.question_text}
                               {Number(middleNameQ.is_required) === 1 && (
                                 <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
                               )}
@@ -2530,7 +2597,7 @@ function Survey() {
                           {hasNameExtension && maybeNameExtensionQ && (
                             <div>
                               <label className="block text-base font-semibold text-gray-800 mb-3">
-                                {nameExtensionIdx + 1}. {maybeNameExtensionQ.question_text}
+                                {nameExtensionNumber}. {maybeNameExtensionQ.question_text}
                                 {Number(maybeNameExtensionQ.is_required) === 1 && (
                                   <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
                                 )}
@@ -2553,15 +2620,15 @@ function Survey() {
                     
                     const mobileQ = currentSectionQuestions[i + 1];
                     const telephoneQ = currentSectionQuestions[i + 2];
-                    const mobileIdx = activeSurvey.questions.findIndex(q => q.id === mobileQ.id);
-                    const telephoneIdx = activeSurvey.questions.findIndex(q => q.id === telephoneQ.id);
+                    const mobileNumber = getQuestionDisplayNumber(activeSurvey.questions, mobileQ);
+                    const telephoneNumber = getQuestionDisplayNumber(activeSurvey.questions, telephoneQ);
                     
                     renderedQuestions.push(
                       <div key={`contact-group-${question.id}`} className="bg-blue-50 rounded-xl p-4 border border-blue-100 sm:p-5">
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
-                              {globalIdx + 1}. {question.question_text}
+                              {questionNumber}. {question.question_text}
                               {Number(question.is_required) === 1 && (
                                 <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
                               )}
@@ -2571,7 +2638,7 @@ function Survey() {
                           </div>
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
-                              {mobileIdx + 1}. {mobileQ.question_text}
+                              {mobileNumber}. {mobileQ.question_text}
                               {Number(mobileQ.is_required) === 1 && (
                                 <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
                               )}
@@ -2581,7 +2648,7 @@ function Survey() {
                           </div>
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
-                              {telephoneIdx + 1}. {telephoneQ.question_text}
+                              {telephoneNumber}. {telephoneQ.question_text}
                               {Number(telephoneQ.is_required) === 1 && (
                                 <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
                               )}
@@ -2604,15 +2671,15 @@ function Survey() {
                     
                     const sexQ = currentSectionQuestions[i + 1];
                     const birthdayQ = currentSectionQuestions[i + 2];
-                    const sexIdx = activeSurvey.questions.findIndex(q => q.id === sexQ.id);
-                    const birthdayIdx = activeSurvey.questions.findIndex(q => q.id === birthdayQ.id);
+                    const sexNumber = getQuestionDisplayNumber(activeSurvey.questions, sexQ);
+                    const birthdayNumber = getQuestionDisplayNumber(activeSurvey.questions, birthdayQ);
                     
                     renderedQuestions.push(
                       <div key={`personal-group-${question.id}`} className="bg-blue-50 rounded-xl p-4 border border-blue-100 sm:p-5">
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
-                              {globalIdx + 1}. {question.question_text}
+                              {questionNumber}. {question.question_text}
                               {Number(question.is_required) === 1 && (
                                 <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
                               )}
@@ -2622,7 +2689,7 @@ function Survey() {
                           </div>
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
-                              {sexIdx + 1}. {sexQ.question_text}
+                              {sexNumber}. {sexQ.question_text}
                               {Number(sexQ.is_required) === 1 && (
                                 <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
                               )}
@@ -2632,7 +2699,7 @@ function Survey() {
                           </div>
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
-                              {birthdayIdx + 1}. {birthdayQ.question_text}
+                              {birthdayNumber}. {birthdayQ.question_text}
                               {Number(birthdayQ.is_required) === 1 && (
                                 <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
                               )}
@@ -2654,15 +2721,15 @@ function Survey() {
                     
                     const provinceQ = currentSectionQuestions[i + 1];
                     const cityQ = currentSectionQuestions[i + 2];
-                    const provinceIdx = activeSurvey.questions.findIndex(q => q.id === provinceQ.id);
-                    const cityIdx = activeSurvey.questions.findIndex(q => q.id === cityQ.id);
+                    const provinceNumber = getQuestionDisplayNumber(activeSurvey.questions, provinceQ);
+                    const cityNumber = getQuestionDisplayNumber(activeSurvey.questions, cityQ);
                     
                     renderedQuestions.push(
                       <div key={`address-group-${question.id}`} className="bg-blue-50 rounded-xl p-4 border border-blue-100 sm:p-5">
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
-                              {globalIdx + 1}. {question.question_text}
+                              {questionNumber}. {question.question_text}
                               {Number(question.is_required) === 1 && (
                                 <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
                               )}
@@ -2672,7 +2739,7 @@ function Survey() {
                           </div>
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
-                              {provinceIdx + 1}. {provinceQ.question_text}
+                              {provinceNumber}. {provinceQ.question_text}
                               {Number(provinceQ.is_required) === 1 && (
                                 <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
                               )}
@@ -2682,7 +2749,7 @@ function Survey() {
                           </div>
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
-                              {cityIdx + 1}. {cityQ.question_text}
+                              {cityNumber}. {cityQ.question_text}
                               {Number(cityQ.is_required) === 1 && (
                                 <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
                               )}
@@ -2701,14 +2768,14 @@ function Survey() {
                       currentSectionQuestions[i + 1].question_text.toLowerCase().includes('year graduated')) {
                     
                     const yearGradQ = currentSectionQuestions[i + 1];
-                    const yearGradIdx = activeSurvey.questions.findIndex(q => q.id === yearGradQ.id);
+                    const yearGradNumber = getQuestionDisplayNumber(activeSurvey.questions, yearGradQ);
                     
                     renderedQuestions.push(
                       <div key={`degree-group-${question.id}`} className="bg-blue-50 rounded-xl p-4 border border-blue-100 sm:p-5">
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
-                              {globalIdx + 1}. {question.question_text}
+                              {questionNumber}. {question.question_text}
                               {Number(question.is_required) === 1 && (
                                 <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
                               )}
@@ -2718,7 +2785,7 @@ function Survey() {
                           </div>
                           <div>
                             <label className="block text-base font-semibold text-gray-800 mb-3">
-                              {yearGradIdx + 1}. {yearGradQ.question_text}
+                              {yearGradNumber}. {yearGradQ.question_text}
                               {Number(yearGradQ.is_required) === 1 && (
                                 <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
                               )}
@@ -2736,7 +2803,7 @@ function Survey() {
                     renderedQuestions.push(
                       <div key={question.id} className={getQuestionCardClass(question)} aria-disabled={isQuestionDisabled(question)}>
                         <label className={getQuestionLabelClass(question)}>
-                          {globalIdx + 1}. {question.question_text}
+                          {questionNumber}. {question.question_text}
                           {Number(question.is_required) === 1 && (
                             <span className="text-red-600 ml-1 font-bold" style={{ fontSize: '1.2em' }}>*</span>
                           )}

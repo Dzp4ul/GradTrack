@@ -22,6 +22,22 @@ for (const expectedText of ['Software Engineer', 'Master of Information Technolo
   }
 }
 
+const middleInitialQuestion = {
+  id: 99,
+  analytics_key: 'middle_name',
+  question_text: 'Middle Initial',
+  question_type: 'text',
+  options: null,
+  is_required: 0,
+};
+for (const flexibleValue of ['ODONEL', 'O.', '123', '.@#-+']) {
+  assert.equal(
+    validateSurveyQuestionAnswer(middleInitialQuestion, flexibleValue).isValid,
+    true,
+    `Middle Initial accepts ${JSON.stringify(flexibleValue)}`,
+  );
+}
+
 const validValues = [
   ['Master of Information Technology', 'PROGRAM_NAME'],
   ['Software Engineer', 'OCCUPATION'],

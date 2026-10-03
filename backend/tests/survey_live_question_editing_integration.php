@@ -373,9 +373,55 @@ try {
         'analytics retain the historical answer after that program is removed from current verification options'
     );
 
+    $subheaderPayload = $programScopePayload;
+    array_splice($subheaderPayload['questions'], 1, 0, [[
+        'analytics_key' => 'permanent_address',
+        'section' => 'Education',
+        'question_text' => 'Permanent Address',
+        'question_type' => 'header',
+        'options' => null,
+        'option_definitions' => [],
+        'is_required' => 0,
+        'sort_order' => 2,
+    ]]);
+    $subheaderUpdate = live_edit_request(
+        'surveys/index.php',
+        $sessionId,
+        $csrfToken,
+        'PUT',
+        $subheaderPayload
+    );
+    live_edit_assert(
+        $subheaderUpdate['status'] === 200 && !empty($subheaderUpdate['json']['success']),
+        'a display-only subheader can be added to an active survey without changing answer mappings'
+    );
+    $storedQuestionsAfterSubheader = $db->query(
+        'SELECT id, analytics_key, question_type, sort_order, is_active
+         FROM survey_questions WHERE survey_id = ' . $surveyId . ' ORDER BY sort_order, id'
+    )->fetchAll(PDO::FETCH_ASSOC);
+    $activeAnswerableIds = array_values(array_map(
+        static fn (array $question): int => (int)$question['id'],
+        array_filter($storedQuestionsAfterSubheader, static fn (array $question): bool => (
+            (int)$question['is_active'] === 1 && $question['question_type'] !== 'header'
+        ))
+    ));
+    $activeSubheaders = array_values(array_filter(
+        $storedQuestionsAfterSubheader,
+        static fn (array $question): bool => (
+            (int)$question['is_active'] === 1
+            && $question['question_type'] === 'header'
+            && $question['analytics_key'] === 'permanent_address'
+        )
+    ));
+    live_edit_assert(
+        $activeAnswerableIds === [$yearQuestionId, $choiceQuestionId, $programQuestionId]
+            && count($activeSubheaders) === 1,
+        'subheader insertion preserves the order and IDs of every answerable question'
+    );
+
     $questionCountStmt = $db->prepare('SELECT COUNT(*) FROM survey_questions WHERE survey_id = :id');
     $questionCountStmt->execute([':id' => $surveyId]);
-    live_edit_assert((int)$questionCountStmt->fetchColumn() === 3, 'no question rows are recreated or duplicated');
+    live_edit_assert((int)$questionCountStmt->fetchColumn() === 4, 'no answerable question rows are recreated or duplicated');
 } catch (Throwable $error) {
     live_edit_assert(false, 'integration test completed without an exception: ' . $error->getMessage());
 }
