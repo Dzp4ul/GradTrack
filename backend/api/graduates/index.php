@@ -224,8 +224,7 @@ try {
                     ? (int) $_GET['program_id']
                     : null;
                 $yearOptions = gradtrack_fetch_graduate_years($db, $archiveScope, $yearProgramId);
-                // Import validation must recognize every configured program, including
-                // programs that do not yet have a graduate in the current archive view.
+                // Keep the full master list for Add Graduate and import resolution.
                 $programOptionsStmt = $db->query(
                     "SELECT p.id, p.code, p.name
                      FROM programs p
@@ -238,12 +237,32 @@ try {
                         'name' => (string)$program['name'],
                     ];
                 }, $programOptionsStmt->fetchAll(PDO::FETCH_ASSOC));
+                // The Department filter should contain only programs represented
+                // by at least one record in the current active/archive section.
+                $filterProgramOptionsStmt = $db->query(
+                    "SELECT p.id, p.code, p.name, COUNT(g.id) AS record_count
+                     FROM programs p
+                     INNER JOIN graduates g ON g.program_id = p.id
+                     WHERE " . ($archiveScope === 'archived' ? 'g.archived_at IS NOT NULL' : 'g.archived_at IS NULL') . "
+                     GROUP BY p.id, p.code, p.name
+                     HAVING COUNT(g.id) > 0
+                     ORDER BY p.id ASC"
+                );
+                $filterProgramOptions = array_map(static function (array $program): array {
+                    return [
+                        'id' => (int)$program['id'],
+                        'code' => (string)$program['code'],
+                        'name' => (string)$program['name'],
+                        'record_count' => (int)$program['record_count'],
+                    ];
+                }, $filterProgramOptionsStmt->fetchAll(PDO::FETCH_ASSOC));
 
                 echo json_encode([
                     "success" => true,
                     "data" => $graduates,
                     "year_options" => $yearOptions,
                     "program_options" => $programOptions,
+                    "filter_program_options" => $filterProgramOptions,
                     "archive_counts" => [
                         "active" => (int)($archiveCounts['active'] ?? 0),
                         "archived" => (int)($archiveCounts['archived'] ?? 0),

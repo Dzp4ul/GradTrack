@@ -410,6 +410,7 @@ export default function Graduates() {
   const [search, setSearch] = useState('');
   const [selectedProgramId, setSelectedProgramId] = useState('');
   const [programOptions, setProgramOptions] = useState<ProgramOption[]>([]);
+  const [departmentFilterOptions, setDepartmentFilterOptions] = useState<ProgramOption[]>([]);
   const [filterYear, setFilterYear] = useState('');
   const [yearTabOptions, setYearTabOptions] = useState<string[]>([]);
   const [page, setPage] = useState(1);
@@ -474,7 +475,16 @@ export default function Graduates() {
         : [];
       setProgramOptions(nextProgramOptions);
 
-      if (selectedProgramId && !nextProgramOptions.some((program) => program.id === selectedProgramId)) {
+      const nextDepartmentFilterOptions: ProgramOption[] = Array.isArray(res.filter_program_options)
+        ? res.filter_program_options.map((program: { id?: unknown; code?: unknown; name?: unknown }) => ({
+            id: String(program.id ?? ''),
+            code: normalizeText(program.code).toUpperCase(),
+            name: normalizeText(program.name),
+          })).filter((program: ProgramOption) => program.id !== '' && program.code !== '')
+        : nextProgramOptions;
+      setDepartmentFilterOptions(nextDepartmentFilterOptions);
+
+      if (selectedProgramId && !nextDepartmentFilterOptions.some((program) => program.id === selectedProgramId)) {
         setSelectedProgramId('');
         return;
       }
@@ -1174,7 +1184,7 @@ export default function Graduates() {
                 className="w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">All Departments</option>
-                {programOptions.map((program) => (
+                {departmentFilterOptions.map((program) => (
                   <option key={program.id} value={program.id}>{program.code} — {program.name}</option>
                 ))}
               </select>
