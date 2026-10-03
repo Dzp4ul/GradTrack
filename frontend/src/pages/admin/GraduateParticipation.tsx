@@ -25,6 +25,12 @@ interface SurveyOption {
   status: string;
 }
 
+interface ProgramOption {
+  id: number;
+  code: string;
+  name: string;
+}
+
 interface GraduateParticipationRow {
   id: number;
   student_id: string | null;
@@ -78,15 +84,6 @@ interface SurveyResponseDetail {
 type StatusFilter = 'all' | 'answered' | 'not_answered';
 type MessageType = 'confirm' | 'success' | 'error' | 'info' | 'warning';
 
-const PROGRAM_OPTIONS = [
-  { id: 'all', code: 'All Programs' },
-  { id: '1', code: 'BSCS' },
-  { id: '2', code: 'BSHM' },
-  { id: '3', code: 'BSED' },
-  { id: '4', code: 'BEED' },
-  { id: '5', code: 'ACT' },
-];
-
 const DEFAULT_EMAIL_MESSAGE =
   'Please complete the Graduate Tracer Study Survey. Your response helps Norzagaray College improve its programs and support graduates with better alumni services.';
 
@@ -96,6 +93,7 @@ export default function GraduateParticipation() {
   const autoOpenRequestRef = useRef<string>('');
   const statusRequestRef = useRef<{ id: number; key: string } | null>(null);
   const statusRequestSequenceRef = useRef(0);
+  const programDeepLinkAppliedRef = useRef('');
   const [rows, setRows] = useState<GraduateParticipationRow[]>([]);
   const [summary, setSummary] = useState<ParticipationSummary>({ total: 0, answered: 0, not_answered: 0 });
   const [surveys, setSurveys] = useState<SurveyOption[]>([]);
@@ -108,6 +106,8 @@ export default function GraduateParticipation() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('not_answered');
   const [programFilter, setProgramFilter] = useState('all');
+  const [programOptions, setProgramOptions] = useState<ProgramOption[]>([]);
+  const [programScopeMessage, setProgramScopeMessage] = useState('');
   const [yearFilter, setYearFilter] = useState('');
   const [yearOptions, setYearOptions] = useState<string[]>([]);
   const [page, setPage] = useState(1);
@@ -156,7 +156,7 @@ export default function GraduateParticipation() {
 
   const fetchSurveys = async () => {
     try {
-      const response = await fetch(API_ENDPOINTS.SURVEYS, {
+      const response = await fetch(`${API_ENDPOINTS.SURVEYS}?limit=100`, {
         credentials: 'include',
       });
       const data = await response.json();
@@ -165,14 +165,16 @@ export default function GraduateParticipation() {
         throw new Error(data.error || 'Failed to load surveys');
       }
 
-      const surveyOptions = ((data.data || []) as SurveyOption[]).filter((survey) => survey.status === 'active');
+      const surveyOptions = (data.data || []) as SurveyOption[];
       setSurveys(surveyOptions);
 
       const surveyIdFromUrl = new URLSearchParams(location.search).get('survey_id');
       const preferredSurvey = surveyIdFromUrl
-        ? surveyOptions.find((survey) => String(survey.id) === surveyIdFromUrl && survey.status === 'active')
+        ? surveyOptions.find((survey) => String(survey.id) === surveyIdFromUrl)
         : null;
-      const defaultSurvey = preferredSurvey || surveyOptions[0];
+      const defaultSurvey = preferredSurvey
+        || surveyOptions.find((survey) => survey.status === 'active')
+        || surveyOptions[0];
       if (defaultSurvey && !selectedSurveyId) {
         setSelectedSurveyId(String(defaultSurvey.id));
       }
@@ -188,6 +190,14 @@ export default function GraduateParticipation() {
   };
 
   const fetchGraduateStatus = async () => {
+    if (!selectedSurveyId) {
+      setRows([]);
+      setProgramOptions([]);
+      setProgramScopeMessage('Select a survey to load its graduate records.');
+      setSummary({ total: 0, answered: 0, not_answered: 0 });
+      setLoading(false);
+      return;
+    }
     const params = buildStatusParams(page, 10);
     const requestKey = params.toString();
     if (statusRequestRef.current?.key === requestKey) return;
@@ -206,7 +216,7 @@ export default function GraduateParticipation() {
       if (statusRequestRef.current?.id !== requestId) return;
 
       if (!response.ok || !data.success) {
-        if (data.code === 'GRADUATION_YEAR_OUTSIDE_ACTIVE_SURVEY') {
+        if (data.code === 'GRADUATION_YEAR_OUTSIDE_SELECTED_SURVEY' || data.code === 'GRADUATION_YEAR_OUTSIDE_ACTIVE_SURVEY') {
           setYearFilter('');
         }
         throw new Error(data.error || 'Failed to load graduate participation');
@@ -215,12 +225,36 @@ export default function GraduateParticipation() {
       setRows(data.data || []);
       setSummary(data.summary || { total: 0, answered: 0, not_answered: 0 });
       setTotalPages(data.pagination?.pages || 1);
+      const nextProgramOptions = (Array.isArray(data.program_options) ? data.program_options : [])
+        .map((program: Partial<ProgramOption>) => ({
+          id: Number(program.id),
+          code: String(program.code || '').trim().toUpperCase(),
+          name: String(program.name || '').trim(),
+        }))
+        .filter((program: ProgramOption) => Number.isFinite(program.id) && program.id > 0 && program.code !== '');
+      setProgramOptions(nextProgramOptions);
+      setProgramScopeMessage(data.program_scope?.configured === false
+        ? data.program_scope?.error || 'No programs are configured for this survey.'
+        : '');
+      if (programFilter !== 'all' && !nextProgramOptions.some((program: ProgramOption) => String(program.id) === programFilter)) {
+        setProgramFilter('all');
+      } else if (programFilter === 'all') {
+        const deepLinkKey = `${selectedSurveyId}:${location.search}`;
+        const requestedProgram = (new URLSearchParams(location.search).get('program') || '').trim().toUpperCase();
+        const requestedOption = nextProgramOptions.find((program: ProgramOption) => program.code === requestedProgram);
+        if (requestedOption && programDeepLinkAppliedRef.current !== deepLinkKey) {
+          programDeepLinkAppliedRef.current = deepLinkKey;
+          setProgramFilter(String(requestedOption.id));
+        }
+      }
       const nextYearOptions = normalizeGraduationYears(Array.isArray(data.year_options) ? data.year_options : [], 'asc');
       setYearOptions(nextYearOptions);
       if (yearFilter && !nextYearOptions.includes(yearFilter)) setYearFilter('');
     } catch (error) {
       if (statusRequestRef.current?.id !== requestId) return;
       setRows([]);
+      setProgramOptions([]);
+      setProgramScopeMessage('');
       setYearOptions([]);
       setTotalPages(1);
       setError(error instanceof Error ? error.message : 'Failed to load graduate participation');
@@ -242,9 +276,7 @@ export default function GraduateParticipation() {
     setStatusFilter(requestedStatus === 'answered' || requestedStatus === 'not_answered' || requestedStatus === 'all'
       ? requestedStatus
       : 'not_answered');
-    const requestedProgram = (params.get('program') || '').toUpperCase();
-    const program = PROGRAM_OPTIONS.find((option) => option.code === requestedProgram);
-    setProgramFilter(program?.id || 'all');
+    setProgramFilter('all');
     const requestedYear = params.get('year_graduated') || '';
     setYearFilter(/^(19|20)\d{2}$/.test(requestedYear) ? requestedYear : '');
   }, [location.search]);
@@ -259,7 +291,7 @@ export default function GraduateParticipation() {
   }, [selectedSurveyId, search, statusFilter, programFilter, yearFilter]);
 
   useEffect(() => {
-    const selectedProgramCode = PROGRAM_OPTIONS.find((option) => option.id === programFilter)?.code || '';
+    const selectedProgramCode = programOptions.find((option) => String(option.id) === programFilter)?.code || '';
     window.dispatchEvent(new CustomEvent('gradtrack:page-context', {
       detail: {
         route: location.pathname,
@@ -267,13 +299,13 @@ export default function GraduateParticipation() {
         currentFilters: {
           survey_id: selectedSurveyId ? Number(selectedSurveyId) : 0,
           survey_title: selectedSurvey?.title || '',
-          program_code: selectedProgramCode === 'All Programs' ? '' : selectedProgramCode,
+          program_code: selectedProgramCode,
           year_graduated: yearFilter,
           response_status: statusFilter,
         },
       },
     }));
-  }, [location.pathname, programFilter, selectedSurvey?.title, selectedSurveyId, statusFilter, yearFilter]);
+  }, [location.pathname, programFilter, programOptions, selectedSurvey?.title, selectedSurveyId, statusFilter, yearFilter]);
 
   const toggleRowSelection = (row: GraduateParticipationRow) => {
     if (row.has_answered || !row.has_email) return;
@@ -384,6 +416,15 @@ export default function GraduateParticipation() {
         isOpen: true,
         type: 'error',
         message: 'Please select a survey before sending reminders.',
+      });
+      return;
+    }
+
+    if (selectedSurvey?.status !== 'active') {
+      setMsgBox({
+        isOpen: true,
+        type: 'warning',
+        message: 'Reminder emails can only be sent for the active survey.',
       });
       return;
     }
@@ -590,7 +631,7 @@ export default function GraduateParticipation() {
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={handleSelectAllMatching}
-            disabled={selectingAll || loading || Boolean(error) || !selectedSurveyId}
+            disabled={selectingAll || loading || Boolean(error) || !selectedSurveyId || selectedSurvey?.status !== 'active' || Boolean(programScopeMessage)}
             className="flex items-center gap-2 border border-blue-200 text-blue-700 px-4 py-2.5 rounded-lg hover:bg-blue-50 transition-colors text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {selectingAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
@@ -599,7 +640,7 @@ export default function GraduateParticipation() {
 
           <button
             onClick={handleNotifySelected}
-            disabled={notifying || selectedIds.length === 0}
+            disabled={notifying || selectedIds.length === 0 || selectedSurvey?.status !== 'active'}
             className="flex items-center gap-2 bg-[#1b2a4a] text-white px-4 py-2.5 rounded-lg hover:bg-[#263c66] transition-colors text-sm font-medium disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {notifying ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
@@ -647,7 +688,13 @@ export default function GraduateParticipation() {
 
           <select
             value={selectedSurveyId}
-            disabled
+            onChange={(event) => {
+              setSelectedSurveyId(event.target.value);
+              setProgramFilter('all');
+              setYearFilter('');
+              setPage(1);
+            }}
+            disabled={loading && surveys.length === 0}
             className="border rounded-lg px-3 py-2.5 text-sm text-gray-700 disabled:bg-gray-50 disabled:cursor-not-allowed"
           >
             {surveys.length === 0 ? (
@@ -655,7 +702,7 @@ export default function GraduateParticipation() {
             ) : (
               surveys.map((survey) => (
                 <option key={survey.id} value={survey.id}>
-                  {survey.title} {survey.status === 'active' ? '(Active)' : ''}
+                  {survey.title} ({survey.status === 'active' ? 'Active' : survey.status === 'draft' ? 'Draft' : 'Inactive'})
                 </option>
               ))
             )}
@@ -694,7 +741,7 @@ export default function GraduateParticipation() {
         </div>
 
         <div className="flex items-center gap-1 overflow-x-auto border-t pt-3">
-          {PROGRAM_OPTIONS.map((program) => (
+          {[{ id: 'all', code: 'All Programs', name: 'All Programs' }, ...programOptions.map((program) => ({ ...program, id: String(program.id) }))].map((program) => (
             <button
               key={program.id}
               onClick={() => {
@@ -711,6 +758,12 @@ export default function GraduateParticipation() {
             </button>
           ))}
         </div>
+
+        {programScopeMessage && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            {programScopeMessage}
+          </div>
+        )}
 
         <div className="border-t pt-3">
           <label className="block text-xs font-semibold text-gray-600 mb-1">Email Message</label>

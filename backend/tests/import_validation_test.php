@@ -163,6 +163,97 @@ try {
 import_test_assert($rollbackTriggered, 'The rollback test must trigger a database error');
 import_test_assert((int) $db->query('SELECT COUNT(*) FROM graduates')->fetchColumn() === 2, 'A fatal Registrar import error must roll back every row in the batch');
 
+$metadataProgramWorkbook = [
+    'sheetNames' => ['BECEd 2025 SAMPLE'],
+    'sheets' => ['BECEd 2025 SAMPLE' => [
+        ['NORZAGARAY COLLEGE'],
+        ['Official List of Graduates Year 2025'],
+        ['Bachelor of Early Childhood Education (BECEd)'],
+        [],
+        ['No.', 'Student Number', 'Name', 'Remarks', 'Email Add', 'Contact Number'],
+        ['1', '2025-9001', 'Metadata, Graduate', 'Regular', 'metadata.beced@example.test', ''],
+    ]],
+];
+$metadataProgramAnalysis = gradtrack_graduate_import_analyze($db, $metadataProgramWorkbook);
+import_test_assert(
+    ($metadataProgramAnalysis['records'][0]['program_code'] ?? '') === 'BECED'
+    && ($metadataProgramAnalysis['records'][0]['program_name'] ?? '') === 'Bachelor of Early Childhood Education',
+    'a new program declared in a Registrar title row is attached to every following graduate row'
+);
+$metadataProgramResult = gradtrack_graduate_import_execute($db, $metadataProgramAnalysis, true);
+import_test_assert($metadataProgramResult['added'] === 1, 'a title-row program imports successfully without a repeated Program column');
+import_test_assert((int) $db->query("SELECT COUNT(*) FROM programs WHERE UPPER(TRIM(code)) = 'BECED'")->fetchColumn() === 1, 'the title-row import registers BECED once');
+
+$generatedCodeWorkbook = [
+    'sheetNames' => ['Accountancy 2026'],
+    'sheets' => ['Accountancy 2026' => [
+        ['Official List of Graduates Year 2026'],
+        ['Bachelor of Science in Accountancy'],
+        ['Student Number', 'Name', 'Email Add'],
+        ['2026-9002', 'Accountancy, Graduate', 'accountancy@example.test'],
+    ]],
+];
+$generatedCodeAnalysis = gradtrack_graduate_import_analyze($db, $generatedCodeWorkbook);
+import_test_assert(
+    ($generatedCodeAnalysis['records'][0]['program_code'] ?? '') === 'BSA',
+    'a program title without an explicit code receives a readable generated code'
+);
+$generatedCodeResult = gradtrack_graduate_import_execute($db, $generatedCodeAnalysis, true);
+import_test_assert($generatedCodeResult['added'] === 1, 'a full program name without a code imports successfully');
+import_test_assert((int) $db->query("SELECT COUNT(*) FROM programs WHERE code = 'BSA'")->fetchColumn() === 1, 'the generated BSA code is registered once');
+
+$dynamicProgramWorkbook = [
+    'sheetNames' => ['New Programs'],
+    'sheets' => ['New Programs' => [
+        ['Student ID', 'Name', 'Program Code', 'Program Name', 'Year Graduated'],
+        ['2026-0001', 'Sample, Graduate', ' BECED ', 'Bachelor of Early Childhood Education', '2026'],
+        ['2026-0002', 'Sample, Graduate Two', 'beced', ' Bachelor of Early Childhood Education ', '2026'],
+        ['2026-0003', 'Sample, Graduate Three', 'BSIT', 'Bachelor of Science in Information Technology', '2026'],
+    ]],
+];
+$dynamicAnalysis = gradtrack_graduate_import_analyze($db, $dynamicProgramWorkbook);
+$dynamicResult = gradtrack_graduate_import_execute($db, $dynamicAnalysis, true);
+import_test_assert($dynamicResult['added'] === 3, 'multiple graduates from new programs import successfully');
+import_test_assert((int) $db->query("SELECT COUNT(*) FROM programs WHERE UPPER(TRIM(code)) = 'BECED'")->fetchColumn() === 1, 'case and whitespace variants create one BECED master program');
+import_test_assert((int) $db->query("SELECT COUNT(*) FROM programs WHERE UPPER(TRIM(code)) = 'BSIT'")->fetchColumn() === 1, 'a second new program is registered once in the same import');
+import_test_assert((int) $db->query("SELECT COUNT(DISTINCT program_id) FROM graduates WHERE student_id IN ('2026-0001', '2026-0002')")->fetchColumn() === 1, 'all BECED rows reference the same stable program ID');
+
+$existingProgramWorkbook = [
+    'sheetNames' => ['Existing Program'],
+    'sheets' => ['Existing Program' => [
+        ['Student ID', 'Name', 'Department', 'Year Graduated'],
+        ['2026-0004', 'Existing Program, Graduate', ' bsCs ', '2026'],
+    ]],
+];
+$existingProgramResult = gradtrack_graduate_import_execute(
+    $db,
+    gradtrack_graduate_import_analyze($db, $existingProgramWorkbook),
+    true
+);
+import_test_assert($existingProgramResult['added'] === 1, 'an existing program is resolved case-insensitively from a Department column');
+import_test_assert((int) $db->query("SELECT COUNT(*) FROM programs WHERE UPPER(TRIM(code)) = 'BSCS'")->fetchColumn() === 1, 'an existing BSCS import does not create a duplicate program');
+
+$programRollbackWorkbook = [
+    'sheetNames' => ['Rollback Program'],
+    'sheets' => ['Rollback Program' => [
+        ['Student ID', 'Name', 'Program Code', 'Program Name', 'Year Graduated'],
+        ['2016-0098', 'Rollback Program, First', 'BSNEW', 'Bachelor of Science in New Studies', '2026'],
+        ['2016-0099', 'Rollback Program, Second', 'BSNEW', 'Bachelor of Science in New Studies', '2026'],
+    ]],
+];
+$programRollbackTriggered = false;
+try {
+    gradtrack_graduate_import_execute(
+        $db,
+        gradtrack_graduate_import_analyze($db, $programRollbackWorkbook),
+        true
+    );
+} catch (PDOException $error) {
+    $programRollbackTriggered = true;
+}
+import_test_assert($programRollbackTriggered, 'a failed import still rolls back after discovering a new program');
+import_test_assert((int) $db->query("SELECT COUNT(*) FROM programs WHERE code = 'BSNEW'")->fetchColumn() === 0, 'program registration rolls back with the failed graduate batch');
+
 $alumniWorkbook = [
     'sheetNames' => ['Registered Alumni'],
     'sheets' => ['Registered Alumni' => [

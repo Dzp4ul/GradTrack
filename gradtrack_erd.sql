@@ -372,12 +372,14 @@ CREATE TABLE `survey_sections` (
 CREATE TABLE `survey_question_options` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `survey_question_id` INT NOT NULL,
+    `program_id` INT DEFAULT NULL,
     `option_key` CHAR(36) NOT NULL,
     `option_value` VARCHAR(500) NOT NULL,
     `label` VARCHAR(500) NOT NULL,
     `sort_order` INT NOT NULL DEFAULT 0,
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uq_survey_question_option_key` (`survey_question_id`, `option_key`)
+    UNIQUE KEY `uq_survey_question_option_key` (`survey_question_id`, `option_key`),
+    KEY `idx_survey_question_options_program_id` (`program_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE `survey_response_answers` (
@@ -892,6 +894,11 @@ ALTER TABLE `system_settings`
 
 ALTER TABLE `graduates`
     ADD CONSTRAINT `fk_graduates_program`
+    FOREIGN KEY (`program_id`) REFERENCES `programs` (`id`)
+    ON DELETE SET NULL;
+
+ALTER TABLE `survey_question_options`
+    ADD CONSTRAINT `fk_survey_question_options_program`
     FOREIGN KEY (`program_id`) REFERENCES `programs` (`id`)
     ON DELETE SET NULL;
 

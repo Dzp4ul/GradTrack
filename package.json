@@ -38,7 +38,7 @@
     "test:account-status": "php backend/tests/graduate_account_status_test.php",
     "test:alumni-portal-status": "php backend/tests/alumni_portal_status_integration.php",
     "test:survey-live-edit": "php backend/tests/survey_live_question_editing_integration.php",
-    "test:survey-program-scope": "php backend/tests/survey_program_scope_integration.php",
+    "test:survey-program-scope": "php backend/tests/survey_program_scope_integration.php && php backend/tests/graduate_survey_program_scope_http_integration.php",
     "test:job-archive": "php backend/tests/job_archival_integration.php",
     "test:job-save-share": "php backend/tests/job_save_share_integration.php && php backend/tests/saved_jobs_http_integration.php",
     "test:email-notifications": "php backend/tests/graduate_email_notifications_test.php",

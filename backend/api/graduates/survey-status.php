@@ -5,6 +5,7 @@ require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/admin_auth.php';
 require_once __DIR__ . '/../config/graduation_years.php';
 require_once __DIR__ . '/../config/survey_contact_email.php';
+require_once __DIR__ . '/../config/survey_program_scope.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     http_response_code(405);
@@ -23,13 +24,46 @@ try {
         ? (int) $_GET['survey_id']
         : null;
 
-    $coverage = gradtrack_get_active_survey_graduation_year_coverage($db);
+    $coverage = $requestedSurveyId !== null
+        ? gradtrack_get_survey_graduation_year_coverage($db, $requestedSurveyId)
+        : gradtrack_get_active_survey_graduation_year_coverage($db);
     if ($coverage['survey'] === null) {
-        http_response_code(409);
+        http_response_code($requestedSurveyId !== null ? 404 : 409);
         echo json_encode([
             'success' => false,
-            'code' => 'NO_ACTIVE_SURVEY',
-            'error' => 'No active survey is available for graduate monitoring.',
+            'code' => $requestedSurveyId !== null ? 'SURVEY_NOT_FOUND' : 'NO_ACTIVE_SURVEY',
+            'error' => $requestedSurveyId !== null
+                ? 'The selected survey was not found.'
+                : 'No active survey is available for graduate monitoring.',
+        ]);
+        exit;
+    }
+    if (!empty($coverage['survey']['archived_at'])) {
+        http_response_code(404);
+        echo json_encode([
+            'success' => false,
+            'code' => 'SURVEY_ARCHIVED',
+            'error' => 'Archived surveys are not available for graduate monitoring.',
+        ]);
+        exit;
+    }
+
+    $selectedSurvey = $coverage['survey'];
+    $selectedSurveyId = (int) $selectedSurvey['id'];
+    $programScope = gradtrack_get_survey_program_scope($db, $selectedSurveyId);
+    if (!$programScope['configured']) {
+        echo json_encode([
+            'success' => true,
+            'selected_survey' => $selectedSurvey,
+            'program_options' => [],
+            'program_scope' => [
+                'configured' => false,
+                'error' => $programScope['error'],
+            ],
+            'year_options' => $coverage['configured'] ? $coverage['years'] : [],
+            'summary' => ['total' => 0, 'answered' => 0, 'not_answered' => 0],
+            'pagination' => ['total' => 0, 'page' => 1, 'limit' => 20, 'pages' => 1],
+            'data' => [],
         ]);
         exit;
     }
@@ -38,27 +72,23 @@ try {
         echo json_encode([
             'success' => false,
             'code' => 'GRADUATION_YEAR_COVERAGE_NOT_CONFIGURED',
-            'error' => 'Graduation year coverage has not been configured for the active survey.',
+            'error' => 'Graduation year coverage has not been configured for the selected survey.',
             'details' => $coverage['error'],
         ]);
         exit;
     }
 
-    $selectedSurvey = $coverage['survey'];
-    $selectedSurveyId = (int) $selectedSurvey['id'];
     $allowedYears = $coverage['years'];
-    if ($requestedSurveyId !== null && $requestedSurveyId !== $selectedSurveyId) {
-        http_response_code(409);
-        echo json_encode([
-            'success' => false,
-            'code' => 'ACTIVE_SURVEY_REQUIRED',
-            'error' => 'Graduate monitoring is available only for the active survey.',
-        ]);
-        exit;
-    }
 
     $whereParts = ['g.archived_at IS NULL'];
     $params = [':survey_id' => $selectedSurveyId];
+    $scopePlaceholders = [];
+    foreach ($programScope['program_ids'] as $index => $programId) {
+        $placeholder = ':survey_program_id_' . $index;
+        $scopePlaceholders[] = $placeholder;
+        $params[$placeholder] = (int) $programId;
+    }
+    $whereParts[] = 'g.program_id IN (' . implode(', ', $scopePlaceholders) . ')';
     gradtrack_append_graduation_year_coverage_filter(
         $whereParts,
         $params,
@@ -93,8 +123,18 @@ try {
     }
 
     if (isset($_GET['program_id']) && (int) $_GET['program_id'] > 0) {
+        $requestedProgramId = (int) $_GET['program_id'];
+        if (!in_array($requestedProgramId, $programScope['program_ids'], true)) {
+            http_response_code(403);
+            echo json_encode([
+                'success' => false,
+                'code' => 'PROGRAM_OUTSIDE_SURVEY_SCOPE',
+                'error' => 'The selected program is not included in this survey.',
+            ]);
+            exit;
+        }
         $whereParts[] = 'g.program_id = :program_id';
-        $params[':program_id'] = (int) $_GET['program_id'];
+        $params[':program_id'] = $requestedProgramId;
     }
 
     if (isset($_GET['year_graduated']) && $_GET['year_graduated'] !== '') {
@@ -109,7 +149,7 @@ try {
             echo json_encode([
                 'success' => false,
                 'code' => 'GRADUATION_YEAR_OUTSIDE_ACTIVE_SURVEY',
-                'error' => 'The selected graduation year is not included in the active survey.',
+                'error' => 'The selected graduation year is not included in the selected survey.',
             ]);
             exit;
         }
@@ -204,6 +244,11 @@ try {
     echo json_encode([
         "success" => true,
         "selected_survey" => $selectedSurvey,
+        "program_options" => $programScope['departments'],
+        "program_scope" => [
+            "configured" => true,
+            "error" => null,
+        ],
         "year_options" => $allowedYears,
         "summary" => [
             "total" => (int) $summaryResult['total'],

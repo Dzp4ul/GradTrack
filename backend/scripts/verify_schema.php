@@ -14,6 +14,7 @@ $requirements = [
     'graduates' => ['id', 'student_id', 'first_name', 'last_name', 'name_extension', 'program_id', 'year_graduated', 'archived_at'],
     'surveys' => ['id', 'title', 'status', 'created_by', 'modified_by', 'modified_at', 'archived_at', 'status_before_archive'],
     'survey_questions' => ['id', 'survey_id', 'question_text', 'question_type'],
+    'survey_question_options' => ['id', 'survey_question_id', 'program_id', 'option_key', 'option_value', 'label'],
     'survey_tokens' => ['id', 'survey_id', 'graduate_id', 'token', 'expires_at'],
     'survey_responses' => ['id', 'survey_id', 'graduate_id', 'responses', 'graduate_account_id', 'region_code', 'province_code', 'city_municipality_code', 'barangay_code'],
     'graduate_accounts' => ['id', 'graduate_id', 'email', 'password_hash', 'status', 'alumni_verification_status', 'last_login_at'],

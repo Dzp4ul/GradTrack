@@ -50,7 +50,7 @@ try {
             ];
 
             if (isset($_GET['id'])) {
-                $template = getTemplateById($_GET['id']);
+                $template = getTemplateById($_GET['id'], $db);
                 if ($template) {
                     echo json_encode(["success" => true, "data" => $template]);
                 } else {
@@ -71,7 +71,8 @@ try {
     echo json_encode(["success" => false, "error" => gradtrack_public_exception_message($e, 'Unable to load survey templates right now.', 'Survey templates API')]);
 }
 
-function getTemplateById($id) {
+function getTemplateById($id, PDO $db) {
+    $programOptions = $db->query('SELECT name FROM programs ORDER BY id ASC')->fetchAll(PDO::FETCH_COLUMN);
     $templates = [
         'graduate_tracer' => [
             'id' => 'graduate_tracer',
@@ -96,7 +97,7 @@ function getTemplateById($id) {
                 ['question_text' => '9. Sex', 'question_type' => 'multiple_choice', 'options' => ['Male', 'Female'], 'is_required' => 1, 'sort_order' => 12],
                 
                 // Section B - Educational Background
-                ['question_text' => '10. Degree Program & Specialization', 'question_type' => 'multiple_choice', 'options' => ['Bachelor of Science in Computer Science', 'Associate in Computer Technology', 'Bachelor of Secondary Education - General Science', 'Bachelor of Elementary Education', 'Bachelor of Science in Hospitality Management'], 'is_required' => 1, 'sort_order' => 13],
+                ['question_text' => '10. Degree Program & Specialization', 'question_type' => 'multiple_choice', 'options' => $programOptions, 'is_required' => 1, 'sort_order' => 13],
                 // The administrator must explicitly enter the survey's covered years.
                 ['question_text' => '11. Year Graduated', 'question_type' => 'multiple_choice', 'options' => [], 'is_required' => 1, 'sort_order' => 14],
                 ['question_text' => '12. Honors / Awards Received', 'question_type' => 'checkbox', 'options' => ['Cum Laude', 'Magna Cum Laude', 'Leadership Award', 'Best in Thesis', "Dean's Lister", 'Academic Excellence'], 'is_required' => 0, 'sort_order' => 15],

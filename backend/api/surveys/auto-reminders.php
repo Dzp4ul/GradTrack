@@ -3,6 +3,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/survey_reminders.php';
 require_once __DIR__ . '/../config/graduation_years.php';
+require_once __DIR__ . '/../config/survey_program_scope.php';
 
 gradtrack_require_cli();
 
@@ -123,7 +124,14 @@ function auto_reminder_default_message(int $intervalDays): string
         . ' while your response is still pending.';
 }
 
-function auto_reminder_load_recipients(PDO $db, int $surveyId, array $allowedYears, int $intervalDays, int $limit): array
+function auto_reminder_load_recipients(
+    PDO $db,
+    int $surveyId,
+    array $allowedYears,
+    array $allowedProgramIds,
+    int $intervalDays,
+    int $limit
+): array
 {
     $whereParts = [
         's.id = :survey_id',
@@ -141,6 +149,13 @@ function auto_reminder_load_recipients(PDO $db, int $surveyId, array $allowedYea
         'g.year_graduated',
         $allowedYears,
         'auto_reminder_coverage_year'
+    );
+    gradtrack_append_program_scope_filter(
+        $whereParts,
+        $params,
+        'g.program_id',
+        $allowedProgramIds,
+        'auto_reminder_program'
     );
 
     $sql = "
@@ -265,10 +280,21 @@ try {
         ]);
     }
 
+    $programScope = gradtrack_get_survey_program_scope($db, (int) $coverage['survey']['id']);
+    if (!$programScope['configured']) {
+        auto_reminder_response(200, [
+            'success' => true,
+            'code' => 'SURVEY_PROGRAM_SCOPE_EMPTY',
+            'message' => $programScope['error'],
+            'counts' => ['eligible' => 0, 'sent' => 0, 'failed' => 0, 'skipped' => 0],
+        ]);
+    }
+
     $recipients = auto_reminder_load_recipients(
         $db,
         (int) $coverage['survey']['id'],
         $coverage['years'],
+        $programScope['program_ids'],
         $intervalDays,
         $limit
     );

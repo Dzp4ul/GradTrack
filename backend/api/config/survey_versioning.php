@@ -160,6 +160,7 @@ function gradtrack_survey_decode_option_definitions($options): array
             if ($label === '' || $value === '') continue;
             $definitions[] = [
                 'id' => isset($option['id']) ? (int)$option['id'] : null,
+                'program_id' => isset($option['program_id']) && (int)$option['program_id'] > 0 ? (int)$option['program_id'] : null,
                 'key' => trim((string)($option['key'] ?? $option['option_key'] ?? '')) ?: null,
                 'value' => $value,
                 'label' => $label,
@@ -173,6 +174,7 @@ function gradtrack_survey_decode_option_definitions($options): array
             if ($label !== '') {
                 $definitions[] = [
                     'id' => null,
+                    'program_id' => null,
                     'key' => null,
                     'value' => $label,
                     'label' => $label,
@@ -195,7 +197,7 @@ function gradtrack_survey_fetch_option_definitions(PDO $db, array $questionIds):
 
     $placeholders = implode(',', array_fill(0, count($questionIds), '?'));
     $statement = $db->prepare(
-        "SELECT id, survey_question_id, option_key, option_value, label, sort_order
+        "SELECT id, survey_question_id, program_id, option_key, option_value, label, sort_order
          FROM survey_question_options
          WHERE survey_question_id IN ($placeholders)
          ORDER BY survey_question_id, sort_order, id"
@@ -207,6 +209,7 @@ function gradtrack_survey_fetch_option_definitions(PDO $db, array $questionIds):
         $questionId = (int)$option['survey_question_id'];
         $byQuestion[$questionId][] = [
             'id' => (int)$option['id'],
+            'program_id' => isset($option['program_id']) ? (int)$option['program_id'] : null,
             'key' => (string)$option['option_key'],
             'value' => (string)$option['option_value'],
             'label' => (string)$option['label'],
@@ -322,7 +325,7 @@ function gradtrack_survey_sync_question_options(
     $existing = [];
     if ($sourceQuestionId !== null) {
         $source = $db->prepare(
-            'SELECT option_key, option_value, label FROM survey_question_options
+            'SELECT program_id, option_key, option_value, label FROM survey_question_options
              WHERE survey_question_id = :question_id ORDER BY sort_order, id'
         );
         $source->execute([':question_id' => $sourceQuestionId]);
@@ -331,7 +334,7 @@ function gradtrack_survey_sync_question_options(
         }
     } else {
         $current = $db->prepare(
-            'SELECT option_key, option_value, label FROM survey_question_options
+            'SELECT program_id, option_key, option_value, label FROM survey_question_options
              WHERE survey_question_id = :question_id ORDER BY sort_order, id'
         );
         $current->execute([':question_id' => $questionId]);
@@ -344,8 +347,8 @@ function gradtrack_survey_sync_question_options(
     $delete->execute([':question_id' => $questionId]);
     $insert = $db->prepare(
         'INSERT INTO survey_question_options
-         (survey_question_id, option_key, option_value, label, sort_order)
-         VALUES (:question_id, :option_key, :option_value, :label, :sort_order)'
+        (survey_question_id, program_id, option_key, option_value, label, sort_order)
+         VALUES (:question_id, :program_id, :option_key, :option_value, :label, :sort_order)'
     );
     foreach (array_values($options) as $index => $label) {
         // Position is used only while creating/cloning a structural definition.
@@ -354,6 +357,7 @@ function gradtrack_survey_sync_question_options(
         $prior = $existing[$index] ?? null;
         $insert->execute([
             ':question_id' => $questionId,
+            ':program_id' => isset($prior['program_id']) && (int)$prior['program_id'] > 0 ? (int)$prior['program_id'] : null,
             ':option_key' => $prior['option_key'] ?? gradtrack_survey_uuid(),
             ':option_value' => $prior['option_value'] ?? trim((string)$label),
             ':label' => trim((string)$label),

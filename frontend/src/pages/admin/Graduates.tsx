@@ -263,13 +263,13 @@ const resolveProgramId = (row: Record<string, unknown>, programOptions: ProgramO
     return programId;
   }
 
-  const code = pickValue(row, ['Program Code', 'program_code', 'programCode']).toUpperCase();
+  const code = pickValue(row, ['Program Code', 'Course Code', 'Department Code', 'program_code', 'programCode']).toUpperCase();
   if (code !== '') {
     const matchByCode = resolveGraduateImportProgramId(code, programOptions);
     if (matchByCode) return matchByCode;
   }
 
-  const name = pickValue(row, ['Program', 'Program Name', 'program_name', 'programName']);
+  const name = pickValue(row, ['Program', 'Program Name', 'Course', 'Course Name', 'Department', 'Department Name', 'Degree Program', 'Academic Program', 'program_name', 'programName']);
   if (name !== '') {
     const matchByName = resolveGraduateImportProgramId(name, programOptions);
     if (matchByName) return matchByName;
@@ -974,9 +974,6 @@ export default function Graduates() {
         if (!payload.year_graduated) errors.push('Invalid or missing Year Graduated');
         if (payload.email && !isValidEmail(payload.email)) errors.push('Invalid email address');
         if (payload.phone && !/^09\d{9}$/.test(payload.phone)) errors.push('Contact No. must be 11 digits and start with 09');
-        const programInput = pickValue(importedRow.row, ['Program ID', 'Program Code', 'Program', 'Program Name']);
-        if (programInput && !resolveProgramId(importedRow.row, programOptions)) errors.push('Invalid Program');
-
         const studentKey = payload.student_id.toLowerCase();
         if (studentKey) {
           const firstRow = seenStudentIds.get(studentKey);

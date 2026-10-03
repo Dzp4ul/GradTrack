@@ -11,10 +11,17 @@ const API_BASE = API_ROOT;
 
 interface SurveyOption {
   id: number | null;
+  program_id?: number | null;
   key: string | null;
   value: string;
   label: string;
   sort_order: number;
+}
+
+interface MasterProgramOption {
+  id: number;
+  code: string;
+  name: string;
 }
 
 interface Question {
@@ -149,6 +156,7 @@ export default function Surveys() {
   );
   const [archiveCounts, setArchiveCounts] = useState({ active: 0, archived: 0 });
   const [coverageWarning, setCoverageWarning] = useState('');
+  const [masterPrograms, setMasterPrograms] = useState<MasterProgramOption[]>([]);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
@@ -228,6 +236,20 @@ export default function Surveys() {
     fetchSurveys();
   }, [archiveView, page, limit, search]);
 
+  useEffect(() => {
+    fetch(`${API_BASE}/surveys/programs.php`, { credentials: 'include' })
+      .then((response) => response.json())
+      .then((result) => {
+        if (!result.success || !Array.isArray(result.data)) return;
+        setMasterPrograms(result.data.map((program: Partial<MasterProgramOption>) => ({
+          id: Number(program.id),
+          code: String(program.code || '').trim().toUpperCase(),
+          name: String(program.name || '').trim(),
+        })).filter((program: MasterProgramOption) => program.id > 0 && program.code !== '' && program.name !== ''));
+      })
+      .catch(() => setMasterPrograms([]));
+  }, []);
+
   const activeSurvey = surveys.find((survey) => survey.status === 'active');
   const createSurveyButtonClass = `flex items-center gap-2 text-white px-6 py-2.5 rounded-lg transition-colors font-semibold shadow-md hover:shadow-lg ${
     activeSurvey ? 'bg-gray-400 hover:bg-gray-500' : 'bg-blue-900 hover:bg-blue-800'
@@ -248,6 +270,7 @@ export default function Surveys() {
   };
 
   const loadGraduateTracerTemplate = () => {
+    const defaultProgramLabels = masterPrograms.map((program) => program.name);
     const defaultSurvey: FormData = {
       title: 'Graduate Tracer Study Survey',
       description: 'Comprehensive survey for tracking graduate employment and career outcomes',
@@ -271,7 +294,7 @@ export default function Surveys() {
         { question_text: 'Birthday', question_type: 'date', options: null, is_required: 1, sort_order: 14, section: 'Personal Information' },
         
         // SECTION 2: EDUCATIONAL BACKGROUND
-        { question_text: 'Degree Program & Specialization', question_type: 'multiple_choice', options: ['Bachelor of Secondary Education Major in General Science', 'Bachelor of Elementary Education', 'Bachelor of Science in Hospitality Management', 'Bachelor of Science in Computer Science', 'Associate in Computer Technology' ], is_required: 1, sort_order: 13, section: 'Educational Background' },
+        { analytics_key: 'program', question_text: 'Degree Program & Specialization', question_type: 'multiple_choice', options: defaultProgramLabels, is_required: 1, sort_order: 13, section: 'Educational Background' },
         {
           question_text: 'Year Graduated',
           question_type: 'multiple_choice',
@@ -391,6 +414,7 @@ export default function Surveys() {
                 option_definitions: Array.isArray(q.option_definitions)
                   ? q.option_definitions.map((option: any, optionIndex: number) => ({
                     id: option.id ? Number(option.id) : null,
+                    program_id: option.program_id ? Number(option.program_id) : null,
                     key: option.key || option.option_key || null,
                     value: String(option.value ?? option.option_value ?? option.label ?? ''),
                     label: String(option.label ?? option.value ?? ''),
@@ -1024,6 +1048,11 @@ export default function Surveys() {
             </div>
 
             <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
+              <datalist id="survey-program-master-options">
+                {masterPrograms.map((program) => (
+                  <option key={program.id} value={program.name}>{program.code}</option>
+                ))}
+              </datalist>
               <div className="p-4 space-y-6 sm:p-6">
                 <div className="space-y-4">
                   <div>
@@ -1276,6 +1305,7 @@ export default function Surveys() {
                                         <div key={optionIndex} className="flex items-center gap-2">
                                           <input
                                             type="text"
+                                            list={isProgramScopeQuestion ? 'survey-program-master-options' : undefined}
                                             value={option}
                                             onChange={(event) => updateOption(i, optionIndex, event.target.value)}
                                             placeholder={`Option ${optionIndex + 1}`}

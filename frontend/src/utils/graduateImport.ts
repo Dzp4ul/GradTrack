@@ -50,7 +50,9 @@ const DATA_HEADER_KEYS = new Set([
   ...LAST_NAME_HEADER_KEYS,
   'middlename', 'nameextension', 'nameext', 'suffix',
   'email', 'emailadd', 'emailaddress', 'contactno', 'contactnumber', 'phone',
-  'program', 'programname', 'programcode', 'programid', 'yeargraduated', 'graduationyear',
+  'program', 'programname', 'programcode', 'programid',
+  'course', 'coursename', 'coursecode', 'department', 'departmentname', 'departmentcode',
+  'degreeprogram', 'academicprogram', 'yeargraduated', 'graduationyear',
   'address', 'employmentstatus', 'coursealignment', 'isaligned', 'companyname', 'jobtitle',
   'industry', 'datehired', 'monthlysalary', 'timetoemploymentmonths', 'timetoemployment',
 ]);

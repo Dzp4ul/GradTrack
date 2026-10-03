@@ -43,6 +43,7 @@ function program_scope_create_survey(PDO $db, string $title, array $options): ar
     ]);
     $questionId = (int) $db->lastInsertId();
     gradtrack_survey_sync_question_options($db, $questionId, $questionKey, $options);
+    gradtrack_link_survey_program_question_options($db, $questionId);
 
     return ['survey_id' => $surveyId, 'question_id' => $questionId];
 }
@@ -120,6 +121,13 @@ try {
     program_scope_assert(
         $caseOneScope['configured'] && program_scope_codes($caseOneScope) === $caseOneCodes,
         'case 1 derives five programs from Degree Program & Specialization options and excludes BSN'
+    );
+    program_scope_assert(
+        (int) $db->query(
+            'SELECT COUNT(*) FROM survey_question_options WHERE survey_question_id = '
+            . (int) $surveyA['question_id'] . ' AND program_id IS NOT NULL'
+        )->fetchColumn() === count($caseOneCodes),
+        'survey program options persist stable master program IDs'
     );
 
     $caseTwoCodes = ['BSCS', 'BSHM'];

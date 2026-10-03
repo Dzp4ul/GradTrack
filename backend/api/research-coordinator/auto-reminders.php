@@ -6,6 +6,7 @@ require_once __DIR__ . '/../config/survey_reminders.php';
 require_once __DIR__ . '/../config/admin_auth.php';
 require_once __DIR__ . '/../config/admin_roles.php';
 require_once __DIR__ . '/../config/graduation_years.php';
+require_once __DIR__ . '/../config/survey_program_scope.php';
 require_once __DIR__ . '/../config/audit_trail.php';
 require_once __DIR__ . '/../../vendor/autoload.php';
 
@@ -175,7 +176,13 @@ function coordinator_reminder_get_active_survey(PDO $db): ?array
     return $coverage['survey'];
 }
 
-function coordinator_reminder_get_eligible_graduates(PDO $db, int $surveyId, array $allowedYears, int $limit = 5000): array
+function coordinator_reminder_get_eligible_graduates(
+    PDO $db,
+    int $surveyId,
+    array $allowedYears,
+    array $allowedProgramIds,
+    int $limit = 5000
+): array
 {
     $whereParts = [
         'sr.id IS NULL',
@@ -190,6 +197,13 @@ function coordinator_reminder_get_eligible_graduates(PDO $db, int $surveyId, arr
         'g.year_graduated',
         $allowedYears,
         'coordinator_reminder_coverage_year'
+    );
+    gradtrack_append_program_scope_filter(
+        $whereParts,
+        $params,
+        'g.program_id',
+        $allowedProgramIds,
+        'coordinator_reminder_program'
     );
     $sql = "
         SELECT g.id, g.student_id, g.first_name, g.last_name, g.email, p.code AS program_code
@@ -270,8 +284,17 @@ try {
             $activeSurvey = $coverage['survey'];
             $eligibleCount = 0;
             if ($activeSurvey && $coverage['configured']) {
-                $eligible = coordinator_reminder_get_eligible_graduates($db, (int) $activeSurvey['id'], $coverage['years'], 999999);
-                $eligibleCount = count($eligible);
+                $programScope = gradtrack_get_survey_program_scope($db, (int) $activeSurvey['id']);
+                if ($programScope['configured']) {
+                    $eligible = coordinator_reminder_get_eligible_graduates(
+                        $db,
+                        (int) $activeSurvey['id'],
+                        $coverage['years'],
+                        $programScope['program_ids'],
+                        999999
+                    );
+                    $eligibleCount = count($eligible);
+                }
             }
 
             $intervalDays = (int) coordinator_reminder_get_setting($db, 'survey_reminder_days', '3');
@@ -330,7 +353,13 @@ try {
             if ($surveyId !== (int) $coverage['survey']['id']) {
                 coordinator_reminder_json_response(409, ['success' => false, 'error' => 'Reminders can only use the active survey']);
             }
-            $eligible = coordinator_reminder_get_eligible_graduates($db, $surveyId, $coverage['years']);
+            $programScope = gradtrack_get_survey_program_scope($db, $surveyId);
+            $eligible = coordinator_reminder_get_eligible_graduates(
+                $db,
+                $surveyId,
+                $coverage['years'],
+                $programScope['program_ids']
+            );
             echo json_encode([
                 'success' => true,
                 'data' => $eligible,
@@ -368,6 +397,15 @@ try {
             }
             if ($surveyId !== (int) $coverage['survey']['id']) {
                 coordinator_reminder_json_response(409, ['success' => false, 'error' => 'Reminders can only use the active survey']);
+            }
+
+            $programScope = gradtrack_get_survey_program_scope($db, $surveyId);
+            if (!$programScope['configured']) {
+                coordinator_reminder_json_response(422, [
+                    'success' => false,
+                    'code' => 'SURVEY_PROGRAM_SCOPE_EMPTY',
+                    'error' => $programScope['error'],
+                ]);
             }
 
             $surveyStmt = $db->prepare("SELECT id, title, status FROM surveys WHERE id = :id AND archived_at IS NULL LIMIT 1");
@@ -414,6 +452,13 @@ try {
                     $coverage['years'],
                     'super_selected_coverage_year'
                 );
+                gradtrack_append_program_scope_filter(
+                    $whereParts,
+                    $params,
+                    'g.program_id',
+                    $programScope['program_ids'],
+                    'super_selected_program'
+                );
                 $idPlaceholders = [];
                 foreach ($graduateIds as $index => $id) {
                     $placeholder = ':gid_' . $index;
@@ -433,7 +478,12 @@ try {
                 $stmt->execute($params);
                 $recipients = $stmt->fetchAll(PDO::FETCH_ASSOC);
             } else {
-                $recipients = coordinator_reminder_get_eligible_graduates($db, $surveyId, $coverage['years']);
+                $recipients = coordinator_reminder_get_eligible_graduates(
+                    $db,
+                    $surveyId,
+                    $coverage['years'],
+                    $programScope['program_ids']
+                );
             }
 
             if (empty($recipients)) {

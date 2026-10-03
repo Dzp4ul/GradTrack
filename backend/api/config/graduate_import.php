@@ -5,6 +5,7 @@ require_once __DIR__ . '/spreadsheet_import.php';
 require_once __DIR__ . '/graduation_years.php';
 require_once __DIR__ . '/graduate_record_validation.php';
 require_once __DIR__ . '/name_format.php';
+require_once __DIR__ . '/programs.php';
 
 function gradtrack_graduate_import_required_columns(): array
 {
@@ -41,7 +42,9 @@ function gradtrack_graduate_import_header_groups(): array
         'email' => ['email', 'emailadd', 'emailaddress'],
         'phone' => ['contactno', 'contactnumber', 'phone'],
         'program_id' => ['programid'],
-        'program' => ['program', 'programname', 'programcode'],
+        'program_code' => ['programcode', 'coursecode', 'departmentcode'],
+        'program_name' => ['programname', 'coursename', 'departmentname', 'degreeprogram', 'academicprogram'],
+        'program' => ['program', 'course', 'department'],
         'year' => ['yeargraduated', 'graduationyear'],
         'address' => ['address'],
         'employment_status' => ['employmentstatus'],
@@ -124,12 +127,11 @@ function gradtrack_graduate_import_is_summary_row(array $record): bool
 
 function gradtrack_graduate_import_programs(PDO $db): array
 {
-    $rows = $db->query('SELECT id, code, name FROM programs ORDER BY id ASC')->fetchAll(PDO::FETCH_ASSOC);
     return array_map(static fn (array $row): array => [
         'id' => (string) $row['id'],
-        'code' => strtoupper(trim((string) ($row['code'] ?? ''))),
-        'name' => trim((string) ($row['name'] ?? '')),
-    ], $rows);
+        'code' => (string) $row['code'],
+        'name' => (string) $row['name'],
+    ], gradtrack_program_master_rows($db));
 }
 
 function gradtrack_graduate_import_resolve_program($value, array $programs): string
@@ -170,6 +172,158 @@ function gradtrack_graduate_import_resolve_program($value, array $programs): str
         if ($name !== '' && str_contains($normalized, $name)) return (string) $program['id'];
     }
     return '';
+}
+
+function gradtrack_graduate_import_program_definition(array $record, array $programs): array
+{
+    $programIdInput = gradtrack_graduate_import_value($record, 'program_id');
+    $programCodeInput = gradtrack_graduate_import_value($record, 'program_code');
+    $programNameInput = gradtrack_graduate_import_value($record, 'program_name');
+    $genericInput = gradtrack_graduate_import_value($record, 'program');
+    $hasInput = $programIdInput !== '' || $programCodeInput !== '' || $programNameInput !== '' || $genericInput !== '';
+
+    if (!$hasInput) {
+        return ['provided' => false, 'id' => '', 'code' => '', 'name' => '', 'is_new' => false, 'error' => null];
+    }
+
+    if ($programIdInput !== '') {
+        foreach ($programs as $program) {
+            if ((string) $program['id'] === $programIdInput) {
+                return [
+                    'provided' => true,
+                    'id' => (string) $program['id'],
+                    'code' => (string) $program['code'],
+                    'name' => (string) $program['name'],
+                    'is_new' => false,
+                    'error' => null,
+                ];
+            }
+        }
+        return ['provided' => true, 'id' => '', 'code' => '', 'name' => '', 'is_new' => false, 'error' => 'Invalid Program ID'];
+    }
+
+    $resolvedPrograms = [];
+    foreach ([$programCodeInput, $programNameInput, $genericInput] as $candidate) {
+        if ($candidate === '') continue;
+        $resolvedId = gradtrack_graduate_import_resolve_program($candidate, $programs);
+        if ($resolvedId !== '') $resolvedPrograms[$resolvedId] = true;
+    }
+    if (count($resolvedPrograms) > 1) {
+        return ['provided' => true, 'id' => '', 'code' => '', 'name' => '', 'is_new' => false, 'error' => 'Program Code and Program Name refer to different programs'];
+    }
+    if ($resolvedPrograms !== []) {
+        $resolvedId = (string) array_key_first($resolvedPrograms);
+        foreach ($programs as $program) {
+            if ((string) $program['id'] !== $resolvedId) continue;
+            $declaredCode = '';
+            if ($programCodeInput !== '') {
+                $declaredParts = gradtrack_program_extract_code_and_name($programCodeInput);
+                $declaredCode = (string) $declaredParts['code'];
+                if ($declaredCode === '') $declaredCode = gradtrack_program_normalize_code($programCodeInput);
+            }
+            if ($declaredCode === '' && $genericInput !== '') {
+                $genericParts = gradtrack_program_extract_code_and_name($genericInput);
+                $declaredCode = (string) $genericParts['code'];
+            }
+            $codeAliases = ['BSHRM' => 'BSHM', 'HRM' => 'BSHM', 'HM' => 'BSHM'];
+            $declaredCanonicalCode = $codeAliases[$declaredCode] ?? $declaredCode;
+            if (
+                $declaredCanonicalCode !== ''
+                && $declaredCanonicalCode !== gradtrack_program_normalize_code($program['code'] ?? '')
+            ) {
+                return [
+                    'provided' => true,
+                    'id' => '',
+                    'code' => $declaredCode,
+                    'name' => $programNameInput,
+                    'is_new' => false,
+                    'error' => 'Program Code and Program Name refer to different programs',
+                ];
+            }
+            return [
+                'provided' => true,
+                'id' => $resolvedId,
+                'code' => (string) $program['code'],
+                'name' => (string) $program['name'],
+                'is_new' => false,
+                'error' => null,
+            ];
+        }
+    }
+
+    $code = '';
+    $name = gradtrack_program_clean_text($programNameInput);
+    foreach ([$programCodeInput, $genericInput] as $candidate) {
+        if ($candidate === '') continue;
+        $parts = gradtrack_program_extract_code_and_name($candidate);
+        if ($code === '' && $parts['code'] !== '') $code = $parts['code'];
+        if ($name === '' && $parts['name'] !== '' && $parts['name'] !== $parts['code']) $name = $parts['name'];
+    }
+    if ($code === '' && $programCodeInput !== '') $code = gradtrack_program_normalize_code($programCodeInput);
+
+    if ($code === '' && $name !== '') {
+        $code = gradtrack_program_generate_code($name, $programs);
+    }
+    if ($code === '') {
+        return [
+            'provided' => true,
+            'id' => '',
+            'code' => '',
+            'name' => $name,
+            'is_new' => true,
+            'error' => 'GradTrack could not generate a valid code for this new program. Add a Program Code column or include the code in parentheses.',
+        ];
+    }
+    if (!gradtrack_program_code_is_valid($code)) {
+        return ['provided' => true, 'id' => '', 'code' => $code, 'name' => $name, 'is_new' => true, 'error' => 'Invalid Program Code'];
+    }
+    if ($name === '') $name = $code;
+    if (gradtrack_graduate_import_length($name) > 100) {
+        return ['provided' => true, 'id' => '', 'code' => $code, 'name' => $name, 'is_new' => true, 'error' => 'Program Name must be 100 characters or fewer'];
+    }
+
+    return [
+        'provided' => true,
+        'id' => '',
+        'code' => $code,
+        'name' => $name,
+        'is_new' => true,
+        'error' => null,
+    ];
+}
+
+function gradtrack_graduate_import_program_definition_from_heading($value, array $programs): ?array
+{
+    $text = gradtrack_graduate_import_text($value);
+    if ($text === '') return null;
+
+    $resolvedId = gradtrack_graduate_import_resolve_program($text, $programs);
+    if ($resolvedId !== '') {
+        foreach ($programs as $program) {
+            if ((string) $program['id'] !== $resolvedId) continue;
+            return [
+                'provided' => false,
+                'id' => (string) $program['id'],
+                'code' => (string) $program['code'],
+                'name' => (string) $program['name'],
+                'is_new' => false,
+                'error' => null,
+            ];
+        }
+    }
+
+    $parts = gradtrack_program_extract_code_and_name($text);
+    $code = (string) ($parts['code'] ?? '');
+    $name = (string) ($parts['name'] ?? '');
+    if ($name === '' || preg_match('/\b(?:bachelor|associate|master|doctor|diploma|certificate|degree|program|course)\b/i', $name) !== 1) {
+        return null;
+    }
+
+    $definition = gradtrack_graduate_import_program_definition([
+        'Program Code' => $code,
+        'Program Name' => $name,
+    ], $programs);
+    return $definition['error'] === null ? $definition : null;
 }
 
 function gradtrack_graduate_import_official_year(array $rows): ?int
@@ -284,10 +438,18 @@ function gradtrack_graduate_import_analyze(PDO $db, array $workbook, ?int $selec
     }
 
     $programs = gradtrack_graduate_import_programs($db);
-    $selectedProgram = '';
+    $selectedProgramDefinition = null;
     if ($selectedProgramId !== null && $selectedProgramId > 0) {
         foreach ($programs as $program) {
-            if ((int) $program['id'] === $selectedProgramId) $selectedProgram = (string) $program['id'];
+            if ((int) $program['id'] !== $selectedProgramId) continue;
+            $selectedProgramDefinition = [
+                'provided' => false,
+                'id' => (string) $program['id'],
+                'code' => (string) $program['code'],
+                'name' => (string) $program['name'],
+                'is_new' => false,
+                'error' => null,
+            ];
         }
     }
     $selectedGraduationYear = gradtrack_normalize_graduation_year($selectedYear);
@@ -298,18 +460,18 @@ function gradtrack_graduate_import_analyze(PDO $db, array $workbook, ?int $selec
     $bestHeader = ['score' => -1, 'missing' => gradtrack_graduate_import_required_columns()];
     $seenStudentIds = [];
     $seenEmails = [];
+    $newProgramNamesByCode = [];
+    $newProgramCodesByName = [];
 
     foreach (($workbook['sheetNames'] ?? []) as $sheetName) {
         $rows = $workbook['sheets'][$sheetName] ?? [];
-        $sheetProgram = gradtrack_graduate_import_resolve_program($sheetName, $programs);
-        $currentProgram = $sheetProgram;
+        $sheetProgramDefinition = gradtrack_graduate_import_program_definition_from_heading($sheetName, $programs);
+        $currentProgramDefinition = $sheetProgramDefinition;
         $currentYear = gradtrack_graduate_import_official_year(array_slice($rows, 0, 30));
         $activeHeaders = null;
         $seenCodes = [];
-        if ($sheetProgram !== '') {
-            foreach ($programs as $program) {
-                if ($program['id'] === $sheetProgram) $seenCodes[$program['code']] = true;
-            }
+        if ($sheetProgramDefinition !== null) {
+            $seenCodes[(string) $sheetProgramDefinition['code']] = true;
         }
 
         foreach ($rows as $zeroIndex => $cells) {
@@ -319,7 +481,7 @@ function gradtrack_graduate_import_analyze(PDO $db, array $workbook, ?int $selec
             $text = implode(' ', array_values(array_unique(array_filter(array_map('gradtrack_graduate_import_text', $cells)))));
             if (preg_match('/\bnorzagaray\s+college\b/i', $text) === 1) {
                 $activeHeaders = null;
-                $currentProgram = $sheetProgram;
+                $currentProgramDefinition = $sheetProgramDefinition;
             }
 
             $rowYear = gradtrack_graduate_import_official_year([$cells]);
@@ -327,7 +489,15 @@ function gradtrack_graduate_import_analyze(PDO $db, array $workbook, ?int $selec
 
             if ($headerAnalysis['valid']) {
                 $validHeaderCount++;
-                if ($currentProgram === '') $currentProgram = gradtrack_graduate_import_legacy_program($seenCodes, $programs);
+                if ($currentProgramDefinition === null) {
+                    $legacyProgramId = gradtrack_graduate_import_legacy_program($seenCodes, $programs);
+                    if ($legacyProgramId !== '') {
+                        $currentProgramDefinition = gradtrack_graduate_import_program_definition_from_heading(
+                            $legacyProgramId,
+                            $programs
+                        );
+                    }
+                }
                 $activeHeaders = array_map('gradtrack_graduate_import_text', $cells);
                 continue;
             }
@@ -346,10 +516,13 @@ function gradtrack_graduate_import_analyze(PDO $db, array $workbook, ?int $selec
                     );
                     $email = strtolower(gradtrack_graduate_import_value($record, 'email'));
                     $phone = gradtrack_graduate_import_value($record, 'phone');
-                    $programInput = gradtrack_graduate_import_value($record, 'program_id') ?: gradtrack_graduate_import_value($record, 'program');
-                    $resolvedProgramInput = $programInput !== '' ? gradtrack_graduate_import_resolve_program($programInput, $programs) : '';
-                    $programId = $resolvedProgramInput;
-                    if ($programId === '') $programId = $currentProgram !== '' ? $currentProgram : $selectedProgram;
+                    $programDefinition = gradtrack_graduate_import_program_definition($record, $programs);
+                    if (!$programDefinition['provided']) {
+                        $programDefinition = $currentProgramDefinition ?? $selectedProgramDefinition ?? $programDefinition;
+                    }
+                    $programId = (string) $programDefinition['id'];
+                    $programCode = (string) $programDefinition['code'];
+                    $programName = (string) $programDefinition['name'];
                     $yearInput = gradtrack_graduate_import_value($record, 'year');
                     $graduationYear = $currentYear ?? gradtrack_normalize_graduation_year($yearInput) ?? $selectedGraduationYear;
                     $graduateName = $lastName !== '' && $firstName !== '' ? $lastName . ', ' . $firstName : ($fullName ?: '-');
@@ -365,6 +538,8 @@ function gradtrack_graduate_import_analyze(PDO $db, array $workbook, ?int $selec
                         'email' => $email,
                         'phone' => $phone,
                         'program_id' => $programId,
+                        'program_code' => $programCode,
+                        'program_name' => $programName,
                         'year_graduated' => $graduationYear,
                         'address' => gradtrack_graduate_import_value($record, 'address'),
                         'employment_status' => gradtrack_graduate_import_value($record, 'employment_status') ?: 'unemployed',
@@ -387,7 +562,32 @@ function gradtrack_graduate_import_analyze(PDO $db, array $workbook, ?int $selec
                     if (gradtrack_graduate_import_length($middleName) > 50) $errors[] = 'Middle name must be 50 characters or fewer';
                     if ($email !== '' && (!gradtrack_optional_graduate_email_is_valid($email) || strlen($email) > 150)) $errors[] = 'Invalid email address';
                     if ($phone !== '' && !gradtrack_optional_graduate_phone_is_valid($phone)) $errors[] = 'Contact No. must be 11 digits and start with 09';
-                    if ($programInput !== '' && $resolvedProgramInput === '') $errors[] = 'Invalid Program';
+                    if ($programDefinition['error'] !== null) $errors[] = (string) $programDefinition['error'];
+                    if ($programDefinition['is_new'] && $programDefinition['error'] === null) {
+                        $normalizedCode = gradtrack_program_normalize_code($programCode);
+                        $normalizedName = gradtrack_program_normalize_name($programName);
+                        $priorName = $newProgramNamesByCode[$normalizedCode] ?? null;
+                        if (
+                            $priorName !== null
+                            && $priorName !== $normalizedName
+                            && $priorName !== gradtrack_program_normalize_name($normalizedCode)
+                            && $normalizedName !== gradtrack_program_normalize_name($normalizedCode)
+                        ) {
+                            $errors[] = 'Conflicting Program Names were provided for code ' . $normalizedCode;
+                        } else {
+                            if ($priorName === null || $priorName === gradtrack_program_normalize_name($normalizedCode)) {
+                                $newProgramNamesByCode[$normalizedCode] = $normalizedName;
+                            }
+                            if ($normalizedName !== '' && $normalizedName !== gradtrack_program_normalize_name($normalizedCode)) {
+                                $priorCode = $newProgramCodesByName[$normalizedName] ?? null;
+                                if ($priorCode !== null && $priorCode !== $normalizedCode) {
+                                    $errors[] = 'Conflicting Program Codes were provided for ' . $programName;
+                                } else {
+                                    $newProgramCodesByName[$normalizedName] = $normalizedCode;
+                                }
+                            }
+                        }
+                    }
                     if ($graduationYear === null) $errors[] = 'Invalid or missing Year Graduated';
                     if ($studentId !== '') {
                         $studentKey = strtolower($studentId);
@@ -408,12 +608,10 @@ function gradtrack_graduate_import_analyze(PDO $db, array $workbook, ?int $selec
                 }
             }
 
-            $rowProgram = gradtrack_graduate_import_resolve_program($text, $programs);
-            if ($rowProgram !== '') {
-                $currentProgram = $rowProgram;
-                foreach ($programs as $program) {
-                    if ($program['id'] === $rowProgram) $seenCodes[$program['code']] = true;
-                }
+            $rowProgramDefinition = gradtrack_graduate_import_program_definition_from_heading($text, $programs);
+            if ($rowProgramDefinition !== null) {
+                $currentProgramDefinition = $rowProgramDefinition;
+                $seenCodes[(string) $rowProgramDefinition['code']] = true;
             }
         }
     }
@@ -481,20 +679,48 @@ function gradtrack_graduate_import_existing(PDO $db, array $records): array
 
 function gradtrack_graduate_import_execute(PDO $db, array $analysis, bool $hasNameExtensionColumn): array
 {
-    $existing = gradtrack_graduate_import_existing($db, $analysis['records']);
-    $insertable = [];
-    $skipped = [];
-    foreach ($analysis['records'] as $record) {
-        $reasons = [];
-        if (isset($existing['student_ids'][strtolower($record['student_id'])])) $reasons[] = 'Student ID already exists';
-        if ($record['email'] !== '' && isset($existing['emails'][strtolower($record['email'])])) $reasons[] = 'Email already exists';
-        if ($reasons !== []) $skipped[] = gradtrack_graduate_import_issue($record, $reasons);
-        else $insertable[] = $record;
-    }
-
     $inserted = 0;
+    $registeredPrograms = [];
+    $skipped = [];
     try {
         $db->beginTransaction();
+        $existing = gradtrack_graduate_import_existing($db, $analysis['records']);
+        $insertable = [];
+        foreach ($analysis['records'] as $record) {
+            $reasons = [];
+            if (isset($existing['student_ids'][strtolower($record['student_id'])])) $reasons[] = 'Student ID already exists';
+            if ($record['email'] !== '' && isset($existing['emails'][strtolower($record['email'])])) $reasons[] = 'Email already exists';
+            if ($reasons !== []) $skipped[] = gradtrack_graduate_import_issue($record, $reasons);
+            else $insertable[] = $record;
+        }
+
+        $newProgramsByCode = [];
+        foreach ($analysis['records'] as $record) {
+            if ((string) ($record['program_id'] ?? '') !== '') continue;
+            $code = gradtrack_program_normalize_code($record['program_code'] ?? '');
+            if ($code === '') continue;
+            $name = gradtrack_program_clean_text($record['program_name'] ?? '') ?: $code;
+            if (
+                !isset($newProgramsByCode[$code])
+                || gradtrack_program_normalize_name($newProgramsByCode[$code]) === gradtrack_program_normalize_name($code)
+            ) {
+                $newProgramsByCode[$code] = $name;
+            }
+        }
+
+        $programIdsByCode = [];
+        foreach ($newProgramsByCode as $code => $name) {
+            $program = gradtrack_register_program($db, $code, $name);
+            $programIdsByCode[$code] = (int) $program['id'];
+            if (gradtrack_program_normalize_code($program['code']) === $code && (string) $program['name'] === $name) {
+                $registeredPrograms[$code] = [
+                    'id' => (int) $program['id'],
+                    'code' => (string) $program['code'],
+                    'name' => (string) $program['name'],
+                ];
+            }
+        }
+
         $graduateSql = $hasNameExtensionColumn
             ? 'INSERT INTO graduates (student_id, first_name, middle_name, last_name, name_extension, email, phone, program_id, year_graduated, address) VALUES (:student_id, :first_name, :middle_name, :last_name, :name_extension, :email, :phone, :program_id, :year_graduated, :address)'
             : 'INSERT INTO graduates (student_id, first_name, middle_name, last_name, email, phone, program_id, year_graduated, address) VALUES (:student_id, :first_name, :middle_name, :last_name, :email, :phone, :program_id, :year_graduated, :address)';
@@ -502,6 +728,11 @@ function gradtrack_graduate_import_execute(PDO $db, array $analysis, bool $hasNa
         $employmentStmt = $db->prepare('INSERT INTO employment (graduate_id, company_name, job_title, industry, employment_status, is_aligned, date_hired, monthly_salary, time_to_employment) VALUES (:graduate_id, :company, :job_title, :industry, :status, :aligned, :date_hired, :salary, :time)');
 
         foreach ($insertable as $record) {
+            $programId = (string) ($record['program_id'] ?? '');
+            if ($programId === '') {
+                $programCode = gradtrack_program_normalize_code($record['program_code'] ?? '');
+                $programId = isset($programIdsByCode[$programCode]) ? (string) $programIdsByCode[$programCode] : '';
+            }
             $parameters = [
                 ':student_id' => $record['student_id'],
                 ':first_name' => $record['first_name'],
@@ -509,7 +740,7 @@ function gradtrack_graduate_import_execute(PDO $db, array $analysis, bool $hasNa
                 ':last_name' => $record['last_name'],
                 ':email' => $record['email'] !== '' ? $record['email'] : null,
                 ':phone' => $record['phone'] !== '' ? $record['phone'] : null,
-                ':program_id' => $record['program_id'] !== '' ? (int) $record['program_id'] : null,
+                ':program_id' => $programId !== '' ? (int) $programId : null,
                 ':year_graduated' => (int) $record['year_graduated'],
                 ':address' => $record['address'] !== '' ? $record['address'] : null,
             ];
@@ -548,5 +779,6 @@ function gradtrack_graduate_import_execute(PDO $db, array $analysis, bool $hasNa
         'sheetCount' => (int) $analysis['sheet_count'],
         'graduationYears' => $analysis['graduation_years'],
         'skippedRows' => $skipped,
+        'registeredPrograms' => array_values($registeredPrograms),
     ];
 }

@@ -5,6 +5,7 @@ require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/survey_reminders.php';
 require_once __DIR__ . '/../config/admin_auth.php';
 require_once __DIR__ . '/../config/graduation_years.php';
+require_once __DIR__ . '/../config/survey_program_scope.php';
 require_once __DIR__ . '/../../vendor/autoload.php';
 
 use PHPMailer\PHPMailer\Exception as MailException;
@@ -207,6 +208,14 @@ try {
             'error' => 'Reminders can only be sent for the active survey.',
         ]);
     }
+    $programScope = gradtrack_get_survey_program_scope($db, $surveyId);
+    if (!$programScope['configured']) {
+        notify_json_response(422, [
+            'success' => false,
+            'code' => 'SURVEY_DEPARTMENT_SCOPE_NOT_CONFIGURED',
+            'error' => $programScope['error'],
+        ]);
+    }
     $mode = notify_clean_text($data['mode'] ?? 'selected');
     $onlyNotAnswered = array_key_exists('only_not_answered', $data)
         ? filter_var($data['only_not_answered'], FILTER_VALIDATE_BOOLEAN)
@@ -214,6 +223,13 @@ try {
 
     $whereParts = ['g.archived_at IS NULL'];
     $params = [':survey_id' => $surveyId];
+    $surveyScopePlaceholders = [];
+    foreach ($programScope['program_ids'] as $index => $programId) {
+        $placeholder = ':survey_scope_program_id_' . $index;
+        $surveyScopePlaceholders[] = $placeholder;
+        $params[$placeholder] = (int) $programId;
+    }
+    $whereParts[] = 'g.program_id IN (' . implode(', ', $surveyScopePlaceholders) . ')';
     gradtrack_append_graduation_year_coverage_filter(
         $whereParts,
         $params,
@@ -247,8 +263,16 @@ try {
         }
 
         if (isset($filters['program_id']) && (int) $filters['program_id'] > 0) {
+            $requestedProgramId = (int) $filters['program_id'];
+            if (!in_array($requestedProgramId, $programScope['program_ids'], true)) {
+                notify_json_response(403, [
+                    'success' => false,
+                    'code' => 'PROGRAM_OUTSIDE_SURVEY_SCOPE',
+                    'error' => 'The selected program is not included in this survey.',
+                ]);
+            }
             $whereParts[] = 'g.program_id = :program_id';
-            $params[':program_id'] = (int) $filters['program_id'];
+            $params[':program_id'] = $requestedProgramId;
         }
 
         if (isset($filters['year_graduated']) && trim((string) $filters['year_graduated']) !== '') {

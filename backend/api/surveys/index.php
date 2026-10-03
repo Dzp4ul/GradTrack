@@ -179,6 +179,9 @@ function gradtrack_survey_insert_question(
     ]);
     $questionId = (int)$db->lastInsertId();
     gradtrack_survey_sync_question_options($db, $questionId, $questionKey, $options, $sourceQuestionId);
+    if ($analyticsKey === 'program') {
+        gradtrack_link_survey_program_question_options($db, $questionId);
+    }
     return $questionId;
 }
 
@@ -1246,6 +1249,9 @@ try {
                             (string)$existingIds[$questionId]['question_key'],
                             $decodedOptions
                         );
+                        if (($existingIds[$questionId]['analytics_key'] ?? '') === 'program') {
+                            gradtrack_link_survey_program_question_options($db, $questionId);
+                        }
                     } else {
                         gradtrack_survey_insert_question(
                             $db,

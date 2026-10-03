@@ -1,24 +1,24 @@
 <?php
 
 require_once __DIR__ . '/survey_versioning.php';
+require_once __DIR__ . '/programs.php';
 
 if (!function_exists('gradtrack_normalize_program_scope_text')) {
     function gradtrack_normalize_program_scope_text($value): string
     {
-        $text = html_entity_decode(trim((string) $value), ENT_QUOTES | ENT_HTML5, 'UTF-8');
-        $text = strtolower($text);
-        $text = preg_replace('/[^a-z0-9]+/', ' ', $text) ?? $text;
-        return trim(preg_replace('/\s+/', ' ', $text) ?? $text);
+        return gradtrack_program_normalize_name($value);
     }
 }
 
 if (!function_exists('gradtrack_match_program_scope_option')) {
     /** Resolve a saved Degree Program & Specialization option to a master program. */
-    function gradtrack_match_program_scope_option(array $programs, $value, $label = null): ?array
+    function gradtrack_match_program_scope_option(array $programs, $value, $label = null, $programId = null): ?array
     {
-        // The current label is authoritative for survey scope. option_value is
-        // retained only as a stable historical response value and may describe
-        // a program that has since been removed from this survey.
+        // program_id is authoritative when present. Labels remain editable and
+        // option_value remains the stable historical response value.
+        $linkedProgram = gradtrack_find_program($programs, $programId);
+        if ($linkedProgram !== null) return $linkedProgram;
+
         $candidates = array_values(array_unique(array_filter([
             trim((string) ($label ?? '')),
             trim((string) $value),
@@ -32,9 +32,16 @@ if (!function_exists('gradtrack_match_program_scope_option')) {
                 }
             }
 
-            $candidateCode = strtoupper($candidate);
+            $candidateCode = gradtrack_program_normalize_code($candidate);
             foreach ($programs as $program) {
-                if ($candidateCode === strtoupper(trim((string) ($program['code'] ?? '')))) return $program;
+                if ($candidateCode === gradtrack_program_normalize_code($program['code'] ?? '')) return $program;
+            }
+
+            $tokens = preg_split('/[^A-Z0-9.-]+/', strtoupper($candidate), -1, PREG_SPLIT_NO_EMPTY) ?: [];
+            foreach ($tokens as $token) {
+                foreach ($programs as $program) {
+                    if ($token === gradtrack_program_normalize_code($program['code'] ?? '')) return $program;
+                }
             }
 
             if (preg_match('/\(([A-Z0-9-]{2,20})\)\s*$/i', $candidate, $matches) === 1) {
@@ -71,8 +78,7 @@ if (!function_exists('gradtrack_match_program_scope_option')) {
 if (!function_exists('gradtrack_survey_program_master_rows')) {
     function gradtrack_survey_program_master_rows(PDO $db): array
     {
-        return $db->query('SELECT id, code, name FROM programs ORDER BY id ASC')
-            ->fetchAll(PDO::FETCH_ASSOC);
+        return gradtrack_program_master_rows($db);
     }
 }
 
@@ -86,6 +92,7 @@ if (!function_exists('gradtrack_validate_survey_program_labels')) {
         $programs = gradtrack_survey_program_master_rows($db);
         $resolved = [];
         $seenLabels = [];
+        $seenProgramIds = [];
 
         foreach (array_values($labels) as $index => $rawLabel) {
             $label = trim((string) $rawLabel);
@@ -110,6 +117,13 @@ if (!function_exists('gradtrack_validate_survey_program_labels')) {
                     . '" does not match a program in the registrar master list.'
                 );
             }
+            $programId = (int) $program['id'];
+            if (isset($seenProgramIds[$programId])) {
+                throw new InvalidArgumentException(
+                    'Degree Program & Specialization options cannot reference the same program more than once.'
+                );
+            }
+            $seenProgramIds[$programId] = true;
             $resolved[] = $program;
         }
 
@@ -188,7 +202,8 @@ if (!function_exists('gradtrack_prepare_survey_program_option_edit')) {
                 $oldProgram = gradtrack_match_program_scope_option(
                     $programs,
                     $storedOption['value'] ?? '',
-                    $storedOption['label'] ?? ''
+                    $storedOption['label'] ?? '',
+                    $storedOption['program_id'] ?? null
                 );
                 $newProgram = $resolvedPrograms[$index];
 
@@ -198,6 +213,7 @@ if (!function_exists('gradtrack_prepare_survey_program_option_edit')) {
                         'key' => (string) ($storedOption['key'] ?? ''),
                         'value' => (string) ($storedOption['value'] ?? ''),
                         'label' => $label,
+                        'program_id' => (int) $newProgram['id'],
                         'sort_order' => $index + 1,
                     ];
                     continue;
@@ -209,6 +225,7 @@ if (!function_exists('gradtrack_prepare_survey_program_option_edit')) {
                 'key' => null,
                 'value' => $label,
                 'label' => $label,
+                'program_id' => (int) $resolvedPrograms[$index]['id'],
                 'sort_order' => $index + 1,
             ];
         }
@@ -226,7 +243,7 @@ if (!function_exists('gradtrack_sync_editable_survey_program_options')) {
     ): array {
         $currentById = [];
         $currentStmt = $db->prepare(
-            'SELECT id, option_key, option_value, label, sort_order
+            'SELECT id, program_id, option_key, option_value, label, sort_order
              FROM survey_question_options
              WHERE survey_question_id = :question_id'
         );
@@ -256,13 +273,13 @@ if (!function_exists('gradtrack_sync_editable_survey_program_options')) {
 
         $updateStmt = $db->prepare(
             'UPDATE survey_question_options
-             SET label = :label, sort_order = :sort_order
+             SET program_id = :program_id, label = :label, sort_order = :sort_order
              WHERE id = :option_id AND survey_question_id = :question_id'
         );
         $insertStmt = $db->prepare(
             'INSERT INTO survey_question_options
-             (survey_question_id, option_key, option_value, label, sort_order)
-             VALUES (:question_id, :option_key, :option_value, :label, :sort_order)'
+            (survey_question_id, program_id, option_key, option_value, label, sort_order)
+             VALUES (:question_id, :program_id, :option_key, :option_value, :label, :sort_order)'
         );
 
         $saved = [];
@@ -271,6 +288,7 @@ if (!function_exists('gradtrack_sync_editable_survey_program_options')) {
             $optionId = (int) ($definition['id'] ?? 0);
             if ($optionId > 0 && isset($currentById[$optionId])) {
                 $updateStmt->execute([
+                    ':program_id' => (int) ($definition['program_id'] ?? 0) ?: null,
                     ':label' => $label,
                     ':sort_order' => $index + 1,
                     ':option_id' => $optionId,
@@ -281,6 +299,7 @@ if (!function_exists('gradtrack_sync_editable_survey_program_options')) {
                     'key' => (string) $currentById[$optionId]['option_key'],
                     'value' => (string) $currentById[$optionId]['option_value'],
                     'label' => $label,
+                    'program_id' => (int) ($definition['program_id'] ?? 0) ?: null,
                     'sort_order' => $index + 1,
                 ];
                 continue;
@@ -289,6 +308,7 @@ if (!function_exists('gradtrack_sync_editable_survey_program_options')) {
             $optionKey = gradtrack_survey_uuid();
             $insertStmt->execute([
                 ':question_id' => $questionId,
+                ':program_id' => (int) ($definition['program_id'] ?? 0) ?: null,
                 ':option_key' => $optionKey,
                 ':option_value' => $label,
                 ':label' => $label,
@@ -299,6 +319,7 @@ if (!function_exists('gradtrack_sync_editable_survey_program_options')) {
                 'key' => $optionKey,
                 'value' => $label,
                 'label' => $label,
+                'program_id' => (int) ($definition['program_id'] ?? 0) ?: null,
                 'sort_order' => $index + 1,
             ];
         }
@@ -344,7 +365,7 @@ if (!function_exists('gradtrack_survey_program_option_rows')) {
         if (!$question) return [];
 
         $optionStmt = $db->prepare(
-            'SELECT id, option_key, option_value, label, sort_order
+            'SELECT id, program_id, option_key, option_value, label, sort_order
              FROM survey_question_options
              WHERE survey_question_id = :question_id
              ORDER BY sort_order ASC, id ASC'
@@ -357,6 +378,38 @@ if (!function_exists('gradtrack_survey_program_option_rows')) {
             'option_value' => $option,
             'label' => $option,
         ], gradtrack_survey_decode_options($question['options'] ?? null));
+    }
+}
+
+if (!function_exists('gradtrack_link_survey_program_question_options')) {
+    /** Persist stable master IDs for program options created through the generic survey writer. */
+    function gradtrack_link_survey_program_question_options(PDO $db, int $questionId): void
+    {
+        $programs = gradtrack_survey_program_master_rows($db);
+        $stmt = $db->prepare(
+            'SELECT id, program_id, option_value, label
+             FROM survey_question_options
+             WHERE survey_question_id = :question_id
+             ORDER BY sort_order ASC, id ASC'
+        );
+        $stmt->execute([':question_id' => $questionId]);
+        $update = $db->prepare(
+            'UPDATE survey_question_options SET program_id = :program_id
+             WHERE id = :option_id AND survey_question_id = :question_id'
+        );
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $option) {
+            $program = gradtrack_match_program_scope_option(
+                $programs,
+                $option['option_value'] ?? '',
+                $option['label'] ?? ''
+            );
+            if ($program === null) continue;
+            $update->execute([
+                ':program_id' => (int) $program['id'],
+                ':option_id' => (int) $option['id'],
+                ':question_id' => $questionId,
+            ]);
+        }
     }
 }
 
@@ -386,7 +439,8 @@ if (!function_exists('gradtrack_get_survey_program_scope')) {
             $program = gradtrack_match_program_scope_option(
                 $programs,
                 $option['option_value'] ?? '',
-                $option['label'] ?? ''
+                $option['label'] ?? '',
+                $option['program_id'] ?? null
             );
             if ($program === null) continue;
 
@@ -407,6 +461,37 @@ if (!function_exists('gradtrack_get_survey_program_scope')) {
             $result['error'] = 'No departments are currently assigned to this survey. Please contact the survey administrator.';
         }
         return $result;
+    }
+}
+
+if (!function_exists('gradtrack_append_program_scope_filter')) {
+    /**
+     * Append a parameterized program allow-list to a query. An empty scope is
+     * deliberately fail-closed so callers never fall back to every program.
+     */
+    function gradtrack_append_program_scope_filter(
+        array &$whereParts,
+        array &$params,
+        string $column,
+        array $programIds,
+        string $parameterPrefix = 'survey_program'
+    ): void {
+        $programIds = array_values(array_unique(array_filter(
+            array_map('intval', $programIds),
+            static fn (int $programId): bool => $programId > 0
+        )));
+        if ($programIds === []) {
+            $whereParts[] = '1 = 0';
+            return;
+        }
+
+        $placeholders = [];
+        foreach ($programIds as $index => $programId) {
+            $placeholder = ':' . $parameterPrefix . '_' . $index;
+            $placeholders[] = $placeholder;
+            $params[$placeholder] = $programId;
+        }
+        $whereParts[] = $column . ' IN (' . implode(', ', $placeholders) . ')';
     }
 }
 

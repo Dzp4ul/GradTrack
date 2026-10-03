@@ -81,6 +81,22 @@ assert.equal(currentImport.sheetCount, 4);
 assert.deepEqual(currentImport.rows.map((row) => row.inferredProgramId), ['2', '4', '1', '3']);
 assert.equal(validateGraduateImportStructure(currentWorkbook, programs).errorType, null);
 
+const futureProgramWorkbook = {
+  sheetNames: ['Future Programs'],
+  sheets: {
+    'Future Programs': [
+      ['Student ID', 'Name', 'Department', 'Program Name', 'Year Graduated'],
+      ['2026-0001', 'Sample, Graduate', 'BECED', 'Bachelor of Early Childhood Education', '2026'],
+    ],
+  },
+};
+const futureProgramValidation = validateGraduateImportStructure(futureProgramWorkbook, programs);
+const futureProgramImport = extractGraduateImportRows(futureProgramWorkbook, programs);
+assert.equal(futureProgramValidation.errorType, null);
+assert.equal(futureProgramImport.rows.length, 1);
+assert.equal(futureProgramImport.rows[0].row.Department, 'BECED');
+assert.equal(futureProgramImport.rows[0].inferredProgramId, '');
+
 const missingHeaderValidation = validateGraduateImportStructure({
   sheetNames: ['Sheet1'],
   sheets: { Sheet1: [['Employee Number', 'Department'], ['100', 'Sales']] },
