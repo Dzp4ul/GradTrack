@@ -6,13 +6,14 @@ require_once __DIR__ . '/../api/config/database.php';
 require_once __DIR__ . '/../api/config/session.php';
 require_once __DIR__ . '/../api/config/survey_versioning.php';
 require_once __DIR__ . '/../api/config/survey_program_scope.php';
+require_once __DIR__ . '/../api/config/survey_validation.php';
 
 $db = (new Database())->getConnection();
 $baseUrl = rtrim((string)(getenv('GRADTRACK_HTTP_TEST_URL') ?: 'http://localhost/GradTrack/backend/api'), '/');
 $cookieName = gradtrack_session_cookie_name();
 $failures = 0;
 $sessionId = null;
-$adminId = $graduateId = $surveyId = $templateId = 0;
+$adminId = $graduateId = $submissionGraduateId = $surveyId = $templateId = 0;
 $previousActiveIds = [];
 
 function live_edit_assert(bool $condition, string $message): void
@@ -52,7 +53,7 @@ function live_edit_request(string $path, string $sessionId, string $csrfToken, s
 
 function live_edit_cleanup(): void
 {
-    global $db, $sessionId, $adminId, $graduateId, $surveyId, $templateId, $previousActiveIds;
+    global $db, $sessionId, $adminId, $graduateId, $submissionGraduateId, $surveyId, $templateId, $previousActiveIds;
     try {
         if ($adminId > 0) $db->prepare('DELETE FROM audit_trail WHERE user_id = :id')->execute([':id' => $adminId]);
         if ($surveyId > 0) {
@@ -64,6 +65,7 @@ function live_edit_cleanup(): void
             $db->prepare('DELETE FROM surveys WHERE id = :id')->execute([':id' => $surveyId]);
         }
         if ($templateId > 0) $db->prepare('DELETE FROM survey_templates WHERE id = :id')->execute([':id' => $templateId]);
+        if ($submissionGraduateId > 0) $db->prepare('DELETE FROM graduates WHERE id = :id')->execute([':id' => $submissionGraduateId]);
         if ($graduateId > 0) $db->prepare('DELETE FROM graduates WHERE id = :id')->execute([':id' => $graduateId]);
         if ($adminId > 0) $db->prepare('DELETE FROM admin_users WHERE id = :id')->execute([':id' => $adminId]);
         if ($previousActiveIds !== []) {
@@ -224,6 +226,33 @@ try {
     live_edit_assert((int)($storedOption['id'] ?? 0) === $stableNoId && ($storedOption['option_value'] ?? '') === $stableNoValue, 'the stable option ID and value are unchanged');
     live_edit_assert(($storedOption['label'] ?? '') === $newNoLabel, 'only the option display label is updated');
 
+    $refreshedSurvey = live_edit_request('surveys/index.php?id=' . $surveyId, $sessionId, $csrfToken);
+    $refreshedChoice = array_values(array_filter(
+        $refreshedSurvey['json']['data']['questions'] ?? [],
+        static fn (array $row): bool => (int)($row['id'] ?? 0) === $choiceQuestionId
+    ))[0] ?? null;
+    $refreshedNoOption = $refreshedChoice['option_definitions'][1] ?? null;
+    live_edit_assert(
+        $refreshedSurvey['status'] === 200
+            && ($refreshedNoOption['value'] ?? '') === $stableNoValue
+            && ($refreshedNoOption['label'] ?? '') === $newNoLabel,
+        'a refreshed survey returns the stable option value with the corrected label'
+    );
+    $stableSelection = is_array($refreshedChoice)
+        ? gradtrack_survey_validate_question_answer($refreshedChoice, $stableNoValue)
+        : ['is_valid' => false];
+    $labelSelection = is_array($refreshedChoice)
+        ? gradtrack_survey_validate_question_answer($refreshedChoice, $newNoLabel)
+        : ['is_valid' => false];
+    live_edit_assert(
+        !empty($stableSelection['is_valid']) && ($stableSelection['value'] ?? null) === $stableNoValue,
+        'the stable value selected by the refreshed form remains valid'
+    );
+    live_edit_assert(
+        !empty($labelSelection['is_valid']) && ($labelSelection['value'] ?? null) === $stableNoValue,
+        'the corrected display label is accepted and normalized to the stable value'
+    );
+
     $answerStmt = $db->prepare('SELECT answer_value FROM survey_response_answers WHERE survey_response_id = :response_id AND survey_question_id = :question_id');
     $answerStmt->execute([':response_id' => $responseId, ':question_id' => $choiceQuestionId]);
     live_edit_assert(json_decode((string)$answerStmt->fetchColumn(), true) === $stableNoValue, 'the historical normalized answer is not rewritten');
@@ -239,6 +268,57 @@ try {
     live_edit_assert(($beforeChoice['data'][1]['percentage'] ?? null) === ($afterChoice['data'][1]['percentage'] ?? null), 'response percentages are identical after the label correction');
     $correctedLabelRow = array_values(array_filter($afterChoice['data'] ?? [], static fn (array $row): bool => ($row['option'] ?? '') === $newNoLabel))[0] ?? null;
     live_edit_assert(($afterChoice['question_text'] ?? '') === $newQuestionText && (int)($correctedLabelRow['count'] ?? 0) === 1, 'analytics display the corrected wording');
+
+    $submissionGraduateStmt = $db->prepare("INSERT INTO graduates (student_id, first_name, last_name, email, program_id, year_graduated, status) VALUES (:student_id, 'New', 'Submission', NULL, :program_id, 2025, 'active')");
+    $submissionGraduateStmt->execute([
+        ':student_id' => 'LIVE-SUBMIT-' . strtoupper($suffix),
+        ':program_id' => (int)$programRows[0]['id'],
+    ]);
+    $submissionGraduateId = (int)$db->lastInsertId();
+    $submissionToken = bin2hex(random_bytes(32));
+    $db->prepare('INSERT INTO survey_tokens (survey_id, graduate_id, token, expires_at) VALUES (:survey_id, :graduate_id, :token, DATE_ADD(NOW(), INTERVAL 1 HOUR))')->execute([
+        ':survey_id' => $surveyId,
+        ':graduate_id' => $submissionGraduateId,
+        ':token' => $submissionToken,
+    ]);
+    $submission = live_edit_request('surveys/responses.php', $sessionId, $csrfToken, 'POST', [
+        'survey_id' => $surveyId,
+        'graduate_id' => $submissionGraduateId,
+        'token' => $submissionToken,
+        'responses' => [
+            (string)$yearQuestionId => '2025',
+            (string)$choiceQuestionId => $stableNoValue,
+            (string)$programQuestionId => (string)$programOptions[0]['value'],
+        ],
+    ]);
+    $submittedResponseId = (int)($submission['json']['survey_response_id'] ?? 0);
+    live_edit_assert(
+        $submission['status'] === 201 && !empty($submission['json']['success']) && $submittedResponseId > 0,
+        'a new response selecting the edited option submits successfully'
+    );
+    $submittedAnswerStmt = $db->prepare('SELECT answer_value FROM survey_response_answers WHERE survey_response_id = :response_id AND survey_question_id = :question_id');
+    $submittedAnswerStmt->execute([
+        ':response_id' => $submittedResponseId,
+        ':question_id' => $choiceQuestionId,
+    ]);
+    live_edit_assert(
+        json_decode((string)$submittedAnswerStmt->fetchColumn(), true) === $stableNoValue,
+        'the new response stores the stable option value'
+    );
+    $afterSubmission = live_edit_request('surveys/analytics.php?survey_id=' . $surveyId, $sessionId, $csrfToken);
+    $afterSubmissionChoice = array_values(array_filter(
+        $afterSubmission['json']['data']['questions_analytics'] ?? [],
+        static fn (array $row): bool => (int)($row['question_id'] ?? 0) === $choiceQuestionId
+    ))[0] ?? null;
+    $afterSubmissionLabelRow = array_values(array_filter(
+        $afterSubmissionChoice['data'] ?? [],
+        static fn (array $row): bool => ($row['option'] ?? '') === $newNoLabel
+    ))[0] ?? null;
+    live_edit_assert(
+        (int)($afterSubmissionChoice['total_answers'] ?? 0) === 2
+            && (int)($afterSubmissionLabelRow['count'] ?? 0) === 2,
+        'analytics count the new stable value under the corrected label without splitting categories'
+    );
 
     $structuralPayload = $payload;
     $structuralPayload['questions'][1]['question_type'] = 'text';

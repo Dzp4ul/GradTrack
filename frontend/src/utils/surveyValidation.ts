@@ -10,15 +10,26 @@ export type SurveyTextFieldType =
   | 'LONG_TEXT'
   | 'NUMERIC'
   | 'EMAIL'
+  | 'MOBILE'
   | 'PHONE';
 
 export type SurveyValidationAnswer = string | number | string[] | null | undefined;
 
+export interface SurveyValidationOption {
+  id?: number | null;
+  key?: string | null;
+  value?: string;
+  option_value?: string;
+  label?: string;
+}
+
 export interface SurveyValidationQuestion {
   id?: number;
+  analytics_key?: string | null;
   question_text: string;
   question_type: string;
   options: string[] | null;
+  option_definitions?: SurveyValidationOption[];
   is_required: number;
 }
 
@@ -80,6 +91,7 @@ const FIELD_MAX_LENGTH: Record<SurveyTextFieldType, number> = {
   LONG_TEXT: 1200,
   NUMERIC: 20,
   EMAIL: 254,
+  MOBILE: 11,
   PHONE: 30,
 };
 
@@ -107,6 +119,9 @@ export const sanitizeSurveyDraftText = (value: unknown): string =>
   stripUnsafeControlCharacters(String(value ?? '').normalize('NFC'))
     .replace(/<[^>]*>/g, '')
     .slice(0, 2000);
+
+export const sanitizeSurveyMobileNumberInput = (value: unknown): string =>
+  String(value ?? '').replace(/\D/g, '').slice(0, 11);
 
 export const isOtherSurveyOption = (option: string): boolean => {
   const normalized = normalizeForComparison(option);
@@ -161,12 +176,18 @@ export const getOtherSurveyAnswerText = (value: string, option: string): string 
 };
 
 export const classifySurveyTextField = (
-  question: Pick<SurveyValidationQuestion, 'question_text' | 'question_type'>,
+  question: Pick<SurveyValidationQuestion, 'analytics_key' | 'question_text' | 'question_type'>,
 ): SurveyTextFieldType => {
+  const analyticsKey = String(question.analytics_key || '').trim();
+  if (analyticsKey === 'email_address') return 'EMAIL';
+  if (analyticsKey === 'mobile_number') return 'MOBILE';
+  if (analyticsKey === 'phone_number') return 'PHONE';
+
   const text = normalizeForComparison(question.question_text);
 
   if (/\b(e mail|email)\b/.test(text)) return 'EMAIL';
-  if (/\b(mobile|cellphone|telephone|phone|contact number|contact no)\b/.test(text)) return 'PHONE';
+  if (/\b(mobile|cellphone)\b/.test(text)) return 'MOBILE';
+  if (/\b(telephone|phone|contact number|contact no)\b/.test(text)) return 'PHONE';
   if (/\b(earned units?|units earned)\b/.test(text)) return 'NUMERIC';
   if (/\b(year graduated|year of graduation|graduation year|yr graduated)\b/.test(text)) return 'NUMERIC';
   if (question.question_type === 'text' && /(^|\s)rating($|\s)/.test(text)) return 'NUMERIC';
@@ -316,6 +337,13 @@ export const validateSurveyText = (
       : { isValid: false, value: normalized, error: 'Please enter a valid email address.', code: 'email' };
   }
 
+  if (fieldType === 'MOBILE') {
+    const isValidMobile = /^09\d{9}$/.test(normalized);
+    return isValidMobile
+      ? { isValid: true, value: normalized }
+      : { isValid: false, value: normalized, error: 'Please enter a valid Philippine phone number.', code: 'phone' };
+  }
+
   if (fieldType === 'PHONE') {
     const compactPhone = normalized.replace(/[\s().-]/g, '');
     const isValidPhone = /^(?:\+63\d{9,10}|0\d{9,10})$/.test(compactPhone);
@@ -430,6 +458,39 @@ const validateOtherDetail = (
   };
 };
 
+const getSurveyOptionDefinitions = (question: SurveyValidationQuestion) => {
+  const definitions = Array.isArray(question.option_definitions)
+    ? question.option_definitions.flatMap((option) => {
+      const value = String(option.value ?? option.option_value ?? '').trim();
+      const label = String(option.label ?? value).trim();
+      return value && label ? [{ value, label }] : [];
+    })
+    : [];
+
+  return definitions.length > 0
+    ? definitions
+    : (question.options || []).map((option) => ({ value: String(option), label: String(option) }));
+};
+
+const normalizeSubmittedOptionValue = (
+  submittedValue: string,
+  definitions: Array<{ value: string; label: string }>,
+): string => {
+  const exactLabelMatch = definitions.find((definition) => submittedValue === definition.label);
+  if (exactLabelMatch) return exactLabelMatch.value;
+
+  const otherLabelMatch = definitions.find((definition) => (
+    isOtherSurveyOption(definition.label)
+    && isOtherSurveyAnswer(submittedValue, definition.label)
+  ));
+  if (!otherLabelMatch) return submittedValue;
+
+  return buildOtherSurveyAnswer(
+    otherLabelMatch.value,
+    getOtherSurveyAnswerText(submittedValue, otherLabelMatch.label),
+  );
+};
+
 export const validateSurveyQuestionAnswer = (
   question: SurveyValidationQuestion,
   answer: SurveyValidationAnswer,
@@ -470,12 +531,16 @@ export const validateSurveyQuestionAnswer = (
   }
 
   if (['multiple_choice', 'radio', 'checkbox'].includes(question.question_type)) {
-    const options = question.options || [];
-    const otherOption = options.find(isOtherSurveyOption);
+    const optionDefinitions = getSurveyOptionDefinitions(question);
+    const options = optionDefinitions.map((option) => option.value);
+    const otherOption = optionDefinitions.find((option) => (
+      isOtherSurveyOption(option.value) || isOtherSurveyOption(option.label)
+    ))?.value;
     const submittedValues = Array.isArray(answer) ? answer.map(String) : [String(answer)];
     const normalizedValues: string[] = [];
 
-    for (const submittedValue of submittedValues) {
+    for (const rawSubmittedValue of submittedValues) {
+      const submittedValue = normalizeSubmittedOptionValue(rawSubmittedValue, optionDefinitions);
       if (otherOption && isOtherSurveyAnswer(submittedValue, otherOption)) {
         const otherResult = validateOtherDetail(question, otherOption, submittedValue);
         if (!otherResult.isValid) return otherResult;

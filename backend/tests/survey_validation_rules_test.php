@@ -131,12 +131,96 @@ survey_validation_assert(
 
 $phoneQuestion = survey_validation_question('Mobile Number');
 survey_validation_assert(
-    gradtrack_survey_validate_question_answer($phoneQuestion, '+63 917 123 4567')['is_valid'],
-    'valid Philippine mobile number is accepted'
+    gradtrack_survey_validate_question_answer($phoneQuestion, '09123456789')['is_valid'],
+    'an 11-digit Philippine mobile number starting with 09 is accepted'
+);
+foreach (['9123456789', '08123456789', '0912345678', '091234567890', '09123abc789', '+63 917 123 4567'] as $invalidMobile) {
+    survey_validation_assert(
+        !gradtrack_survey_validate_question_answer($phoneQuestion, $invalidMobile)['is_valid'],
+        "invalid survey mobile number '{$invalidMobile}' is rejected"
+    );
+}
+$telephoneQuestion = survey_validation_question('Telephone or Contact Number');
+survey_validation_assert(
+    gradtrack_survey_validate_question_answer($telephoneQuestion, '+63 917 123 4567')['is_valid'],
+    'the separate telephone/contact field retains its existing format support'
+);
+
+$editedChoiceQuestion = survey_validation_question(
+    'Is this your first job after college?',
+    'multiple_choice',
+    ['Yes', 'No (please proceed to Question 38 and 39)']
+);
+$editedChoiceQuestion['option_definitions'] = [
+    ['id' => 1, 'key' => 'yes-key', 'value' => 'Yes', 'label' => 'Yes'],
+    [
+        'id' => 2,
+        'key' => 'no-key',
+        'value' => 'No',
+        'label' => 'No (please proceed to Question 38 and 39)',
+    ],
+];
+$stableEditedChoice = gradtrack_survey_validate_question_answer($editedChoiceQuestion, 'No');
+survey_validation_assert(
+    $stableEditedChoice['is_valid'] && $stableEditedChoice['value'] === 'No',
+    'an edited option remains valid through its stable stored value'
+);
+$labelEditedChoice = gradtrack_survey_validate_question_answer(
+    $editedChoiceQuestion,
+    'No (please proceed to Question 38 and 39)'
 );
 survey_validation_assert(
-    !gradtrack_survey_validate_question_answer($phoneQuestion, '12345')['is_valid'],
-    'invalid Philippine phone number is rejected'
+    $labelEditedChoice['is_valid'] && $labelEditedChoice['value'] === 'No',
+    'the current edited label is normalized to its stable stored value'
+);
+survey_validation_assert(
+    !gradtrack_survey_validate_question_answer($editedChoiceQuestion, 'Maybe')['is_valid'],
+    'an unknown option is still rejected after a label edit'
+);
+
+$firstJobConditionalQuestions = [
+    array_merge($editedChoiceQuestion, [
+        'id' => 100,
+        'analytics_key' => 'first_job',
+        'section' => 'Employment Data',
+        'sort_order' => 1,
+    ]),
+    [
+        'id' => 101,
+        'analytics_key' => 'job_retention_reason',
+        'section' => 'Employment Data',
+        'question_text' => 'If YES, what are your reason(s) for staying on the job?',
+        'question_type' => 'checkbox',
+        'options' => ['Salaries and benefits'],
+        'is_required' => 1,
+        'sort_order' => 2,
+    ],
+    [
+        'id' => 102,
+        'analytics_key' => 'job_course_alignment',
+        'section' => 'Employment Data',
+        'question_text' => 'Is your first job related to your course?',
+        'question_type' => 'multiple_choice',
+        'options' => ['Yes', 'No'],
+        'is_required' => 1,
+        'sort_order' => 3,
+    ],
+];
+$firstJobNo = gradtrack_survey_validate_responses($firstJobConditionalQuestions, [
+    100 => 'No',
+    102 => 'Yes',
+]);
+survey_validation_assert(
+    $firstJobNo['is_valid'] && !array_key_exists(101, $firstJobNo['responses']),
+    'the job-retention follow-up is skipped and does not block submission when First Job is No'
+);
+$firstJobYes = gradtrack_survey_validate_responses($firstJobConditionalQuestions, [
+    100 => 'Yes',
+    102 => 'Yes',
+]);
+survey_validation_assert(
+    !$firstJobYes['is_valid'] && isset($firstJobYes['errors'][101]),
+    'the job-retention follow-up keeps its configured validation when First Job is Yes'
 );
 
 $otherQuestion = survey_validation_question(

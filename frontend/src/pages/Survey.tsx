@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type ClipboardEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { ShieldCheck, ChevronRight, ChevronLeft, ClipboardList, Save, Eye, EyeOff, Users, Briefcase, RefreshCw } from 'lucide-react';
 import MessageBox from '../components/MessageBox';
@@ -16,6 +16,7 @@ import {
   isOtherSurveyAnswer,
   isOtherSurveyOption,
   sanitizeSurveyDraftText,
+  sanitizeSurveyMobileNumberInput,
   validateSurveyQuestionAnswer,
   validateSurveyResponses,
 } from '../utils/surveyValidation';
@@ -30,6 +31,7 @@ interface QuestionOption {
 
 interface Question {
   id?: number;
+  analytics_key?: string | null;
   question_text: string;
   question_type: string;
   options: string[] | null;
@@ -104,6 +106,26 @@ const getSurveyDraftKey = (surveyId: number, graduateId: number | null) =>
     : `survey_draft_${surveyId}`;
 
 const SURVEY_ACCESS_KEYS = ['survey_token', 'graduate_id', 'graduate_name', 'graduate_profile'] as const;
+const EMPLOYMENT_ANALYTICS_KEYS = new Set([
+  'employment_status',
+  'employment_classification',
+  'self_employment_skills',
+  'occupation',
+  'industry',
+  'work_location',
+  'first_job',
+  'job_retention_reason',
+  'job_course_alignment',
+  'job_change_reason',
+  'first_job_duration',
+  'job_search_method',
+  'first_job_waiting_time',
+  'job_level',
+  'salary_range',
+  'curriculum_relevance',
+  'useful_competencies',
+  'reason_unemployed',
+]);
 
 const getSurveyAccessItem = (key: typeof SURVEY_ACCESS_KEYS[number]) =>
   localStorage.getItem(key) || sessionStorage.getItem(key);
@@ -125,6 +147,11 @@ const sanitizeDraftResponses = (draftResponses: unknown, questions: Question[]):
       .map((question) => Number(question.id))
       .filter((questionId) => Number.isFinite(questionId) && questionId > 0)
   );
+  const questionsById = new Map(
+    questions
+      .filter((question): question is Question & { id: number } => Boolean(question.id))
+      .map((question) => [question.id, question]),
+  );
 
   const sanitized: SurveyResponses = {};
   Object.entries(draftResponses as Record<string, unknown>).forEach(([key, value]) => {
@@ -136,7 +163,10 @@ const sanitizeDraftResponses = (draftResponses: unknown, questions: Question[]):
     if (Array.isArray(value)) {
       sanitized[questionId] = value.map((item) => sanitizeSurveyDraftText(item));
     } else if (typeof value === 'string') {
-      sanitized[questionId] = sanitizeSurveyDraftText(value);
+      const question = questionsById.get(questionId);
+      sanitized[questionId] = question && classifySurveyTextField(question) === 'MOBILE'
+        ? sanitizeSurveyMobileNumberInput(value)
+        : sanitizeSurveyDraftText(value);
     } else {
       sanitized[questionId] = value as SurveyAnswer;
     }
@@ -196,6 +226,9 @@ const findQuestion = (
     questionSectionIncludes(question, section) && questionIncludes(question, text)
   );
 
+const findQuestionByAnalyticsKey = (questions: Question[], analyticsKey: string) =>
+  questions.find((question) => question.analytics_key === analyticsKey);
+
 const shouldDisableQuestion = (
   question: Question,
   questions: Question[],
@@ -207,6 +240,7 @@ const shouldDisableQuestion = (
 
   const answerFor = (controlQuestion?: Question) =>
     controlQuestion?.id ? currentResponses[controlQuestion.id] : undefined;
+  const analyticsKey = question.analytics_key || '';
 
   if (
     questionSectionIncludes(question, 'Educational Background')
@@ -237,34 +271,50 @@ const shouldDisableQuestion = (
   }
 
   if (
-    questionSectionIncludes(question, 'Employment Data')
-    && questionIncludes(question, 'If self-employed')
+    analyticsKey === 'self_employment_skills'
+    || (
+      questionSectionIncludes(question, 'Employment Data')
+      && questionIncludes(question, 'If self-employed')
+    )
   ) {
-    const employmentStatusQuestion = findQuestion(questions, 'Employment Data', 'Present Employment Status');
+    const employmentStatusQuestion = findQuestionByAnalyticsKey(questions, 'employment_classification')
+      || findQuestion(questions, 'Employment Data', 'Present Employment Status');
     return !answerHasNormalizedText(answerFor(employmentStatusQuestion), 'Self-employed');
   }
 
   if (
-    questionSectionIncludes(question, 'Employment Data')
-    && questionIncludes(question, 'reason(s) for staying on the job')
+    analyticsKey === 'job_retention_reason'
+    || (
+      questionSectionIncludes(question, 'Employment Data')
+      && questionIncludes(question, 'reason(s) for staying on the job')
+    )
   ) {
-    const firstJobQuestion = findQuestion(questions, 'Employment Data', 'Is this your first job after college');
+    const firstJobQuestion = findQuestionByAnalyticsKey(questions, 'first_job')
+      || findQuestion(questions, 'Employment Data', 'Is this your first job after college');
     return !isYesAnswer(answerFor(firstJobQuestion));
   }
 
   if (
-    questionSectionIncludes(question, 'Employment Data')
-    && questionIncludes(question, 'reason(s) for changing job')
+    analyticsKey === 'job_change_reason'
+    || (
+      questionSectionIncludes(question, 'Employment Data')
+      && questionIncludes(question, 'reason(s) for changing job')
+    )
   ) {
-    const firstJobQuestion = findQuestion(questions, 'Employment Data', 'Is this your first job after college');
+    const firstJobQuestion = findQuestionByAnalyticsKey(questions, 'first_job')
+      || findQuestion(questions, 'Employment Data', 'Is this your first job after college');
     return !isNoAnswer(answerFor(firstJobQuestion));
   }
 
   if (
-    questionSectionIncludes(question, 'Employment Data')
-    && questionIncludes(question, 'what competencies were useful')
+    analyticsKey === 'useful_competencies'
+    || (
+      questionSectionIncludes(question, 'Employment Data')
+      && questionIncludes(question, 'what competencies were useful')
+    )
   ) {
-    const curriculumQuestion = findQuestion(questions, 'Employment Data', 'college curriculum relevant');
+    const curriculumQuestion = findQuestionByAnalyticsKey(questions, 'curriculum_relevance')
+      || findQuestion(questions, 'Employment Data', 'college curriculum relevant');
     return !isYesAnswer(answerFor(curriculumQuestion));
   }
 
@@ -276,21 +326,23 @@ const shouldShowQuestion = (
   questions: Question[],
   currentResponses: SurveyResponses,
 ) => {
-  if (!questionSectionIncludes(question, 'Employment Data')) {
+  if (!EMPLOYMENT_ANALYTICS_KEYS.has(question.analytics_key || '') && !questionSectionIncludes(question, 'Employment Data')) {
     return true;
   }
 
-  const employedQuestion = questions.find((candidate) =>
-    questionSectionIncludes(candidate, 'Employment Data')
-    && questionIncludes(candidate, 'Are you presently employed')
-  );
+  const employedQuestion = findQuestionByAnalyticsKey(questions, 'employment_status')
+    || questions.find((candidate) =>
+      questionSectionIncludes(candidate, 'Employment Data')
+      && questionIncludes(candidate, 'Are you presently employed')
+    );
 
   if (!employedQuestion?.id || question.id === employedQuestion.id) {
     return true;
   }
 
   const employedAnswer = currentResponses[employedQuestion.id];
-  const isNotEmployedReason = questionIncludes(question, 'reason(s) why you are not yet employed');
+  const isNotEmployedReason = question.analytics_key === 'reason_unemployed'
+    || questionIncludes(question, 'reason(s) why you are not yet employed');
   if (isNotEmployedReason) {
     return isNoAnswer(employedAnswer);
   }
@@ -457,6 +509,10 @@ const formatValueForQuestion = (question: Question, candidates: string[]) => {
 
   if (question.question_type === 'date') {
     return cleanCandidates[0].slice(0, 10);
+  }
+
+  if (classifySurveyTextField(question) === 'MOBILE') {
+    return sanitizeSurveyMobileNumberInput(cleanCandidates[0]);
   }
 
   if (isChoiceQuestion(question)) {
@@ -989,6 +1045,19 @@ function Survey() {
       return next;
     });
     setResponses(prev => ({ ...prev, [questionId]: value }));
+  };
+
+  const handleMobileNumberPaste = (questionId: number, event: ClipboardEvent<HTMLInputElement>) => {
+    event.preventDefault();
+    const input = event.currentTarget;
+    const currentValue = input.value;
+    const selectionStart = input.selectionStart ?? currentValue.length;
+    const selectionEnd = input.selectionEnd ?? selectionStart;
+    const pastedText = event.clipboardData.getData('text');
+    const combinedValue = currentValue.slice(0, selectionStart)
+      + pastedText
+      + currentValue.slice(selectionEnd);
+    handleResponseChange(questionId, sanitizeSurveyMobileNumberInput(combinedValue));
   };
 
   const handleCheckboxChange = (questionId: number, option: string) => {
@@ -1733,6 +1802,9 @@ function Survey() {
   const renderQuestion = (question: Question) => {
     const value = responses[question.id!] || '';
     const disabled = isQuestionDisabled(question);
+    const textFieldType = question.question_type === 'text'
+      ? classifySurveyTextField(question)
+      : null;
 
     switch (question.question_type) {
       case 'header':
@@ -1763,9 +1835,20 @@ function Survey() {
             {...getQuestionValidationProps(question)}
             type="text"
             value={value}
-            onChange={(e) => handleResponseChange(question.id!, e.target.value)}
+            onChange={(e) => handleResponseChange(
+              question.id!,
+              textFieldType === 'MOBILE'
+                ? sanitizeSurveyMobileNumberInput(e.target.value)
+                : e.target.value,
+            )}
+            onPaste={textFieldType === 'MOBILE'
+              ? (event) => handleMobileNumberPaste(question.id!, event)
+              : undefined}
             onBlur={() => handleQuestionBlur(question)}
-            inputMode={classifySurveyTextField(question) === 'NUMERIC' ? 'numeric' : undefined}
+            inputMode={textFieldType === 'NUMERIC' || textFieldType === 'MOBILE' ? 'numeric' : undefined}
+            maxLength={textFieldType === 'MOBILE' ? 11 : undefined}
+            pattern={textFieldType === 'MOBILE' ? '[0-9]{11}' : undefined}
+            autoComplete={textFieldType === 'MOBILE' ? 'tel-national' : undefined}
             className={getQuestionFieldClass(question, disabled)}
             required={question.is_required === 1}
             disabled={disabled}

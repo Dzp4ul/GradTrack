@@ -99,12 +99,15 @@ function gradtrack_survey_classify_text_field(array $question): string
 {
     $analyticsKey = trim((string) ($question['analytics_key'] ?? ''));
     if ($analyticsKey === 'email_address') return 'EMAIL';
+    if ($analyticsKey === 'mobile_number') return 'MOBILE';
+    if ($analyticsKey === 'phone_number') return 'PHONE';
 
     $text = gradtrack_survey_normalize_comparison($question['question_text'] ?? '');
     $questionType = (string) ($question['question_type'] ?? 'text');
 
     if (preg_match('/\b(e mail|email)\b/', $text)) return 'EMAIL';
-    if (preg_match('/\b(mobile|cellphone|telephone|phone|contact number|contact no)\b/', $text)) return 'PHONE';
+    if (preg_match('/\b(mobile|cellphone)\b/', $text)) return 'MOBILE';
+    if (preg_match('/\b(telephone|phone|contact number|contact no)\b/', $text)) return 'PHONE';
     if (preg_match('/\b(earned units?|units earned)\b/', $text)) return 'NUMERIC';
     if (preg_match('/\b(year graduated|year of graduation|graduation year|yr graduated)\b/', $text)) return 'NUMERIC';
     if ($questionType === 'text' && preg_match('/(^|\s)rating($|\s)/', $text)) return 'NUMERIC';
@@ -292,6 +295,7 @@ function gradtrack_survey_field_max_length(string $fieldType): int
         'LONG_TEXT' => 1200,
         'NUMERIC' => 20,
         'EMAIL' => 254,
+        'MOBILE' => 11,
         'PHONE' => 30,
     ];
 
@@ -325,6 +329,12 @@ function gradtrack_survey_validate_text($value, string $fieldType, array $option
         return filter_var($normalized, FILTER_VALIDATE_EMAIL) !== false
             ? gradtrack_survey_validation_result(true, $normalized)
             : gradtrack_survey_validation_result(false, $normalized, 'Please enter a valid email address.', 'email');
+    }
+
+    if ($fieldType === 'MOBILE') {
+        return preg_match('/^09\d{9}$/D', $normalized) === 1
+            ? gradtrack_survey_validation_result(true, $normalized)
+            : gradtrack_survey_validation_result(false, $normalized, 'Please enter a valid Philippine phone number.', 'phone');
     }
 
     if ($fieldType === 'PHONE') {
