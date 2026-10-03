@@ -85,14 +85,36 @@ if (!function_exists('gradtrack_program_generate_code')) {
         }
         if (!gradtrack_program_code_is_valid($baseCode)) return '';
 
-        $normalizedName = gradtrack_program_normalize_name($displayName);
+        return gradtrack_program_available_code($baseCode, $displayName, $programs);
+    }
+}
+
+if (!function_exists('gradtrack_program_available_code')) {
+    /** Select the first non-conflicting official/alternate code, then suffix safely. */
+    function gradtrack_program_available_code(
+        string $preferredCode,
+        string $name,
+        array $programs = [],
+        array $alternateCodes = []
+    ): string {
+        $normalizedName = gradtrack_program_normalize_name($name);
         $codes = [];
         foreach ($programs as $program) {
             $existingCode = gradtrack_program_normalize_code($program['code'] ?? '');
             if ($existingCode === '') continue;
             $codes[$existingCode] = gradtrack_program_normalize_name($program['name'] ?? '');
         }
-        if (!isset($codes[$baseCode]) || $codes[$baseCode] === $normalizedName) return $baseCode;
+
+        $candidates = array_values(array_unique(array_filter(array_map(
+            'gradtrack_program_normalize_code',
+            array_merge([$preferredCode], $alternateCodes)
+        ), 'gradtrack_program_code_is_valid')));
+        foreach ($candidates as $candidate) {
+            if (!isset($codes[$candidate]) || $codes[$candidate] === $normalizedName) return $candidate;
+        }
+
+        $baseCode = $candidates[0] ?? '';
+        if ($baseCode === '') return '';
 
         for ($suffix = 2; $suffix < 1000; $suffix++) {
             $suffixText = '-' . $suffix;
@@ -100,6 +122,44 @@ if (!function_exists('gradtrack_program_generate_code')) {
             if (!isset($codes[$candidate]) || $codes[$candidate] === $normalizedName) return $candidate;
         }
         return '';
+    }
+}
+
+if (!function_exists('gradtrack_program_catalog_rows')) {
+    function gradtrack_program_catalog_rows(PDO $db): array
+    {
+        try {
+            $rows = $db->query(
+                'SELECT normalized_name, official_name, program_code, alternate_codes
+                 FROM program_code_catalog ORDER BY id ASC'
+            )->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $ignored) {
+            // Deployments remain import-compatible while the additive catalog
+            // migration is pending; generated-code fallback still works.
+            return [];
+        }
+
+        return array_map(static function (array $row): array {
+            $alternates = json_decode((string) ($row['alternate_codes'] ?? ''), true);
+            return [
+                'normalized_name' => (string) $row['normalized_name'],
+                'name' => gradtrack_program_clean_text($row['official_name'] ?? ''),
+                'code' => gradtrack_program_normalize_code($row['program_code'] ?? ''),
+                'alternate_codes' => is_array($alternates) ? array_values($alternates) : [],
+            ];
+        }, $rows);
+    }
+}
+
+if (!function_exists('gradtrack_find_program_catalog_entry')) {
+    function gradtrack_find_program_catalog_entry(array $catalog, $name): ?array
+    {
+        $normalizedName = gradtrack_program_normalize_name($name);
+        if ($normalizedName === '') return null;
+        foreach ($catalog as $entry) {
+            if ((string) ($entry['normalized_name'] ?? '') === $normalizedName) return $entry;
+        }
+        return null;
     }
 }
 
@@ -189,8 +249,8 @@ if (!function_exists('gradtrack_register_program')) {
         }
         if ($displayName === '') $displayName = $normalizedCode;
         $nameLength = function_exists('mb_strlen') ? mb_strlen($displayName, 'UTF-8') : strlen($displayName);
-        if ($nameLength > 100) {
-            throw new InvalidArgumentException('Program name must be 100 characters or fewer.');
+        if ($nameLength > 255) {
+            throw new InvalidArgumentException('Program name must be 255 characters or fewer.');
         }
 
         $programs = gradtrack_program_master_rows($db);

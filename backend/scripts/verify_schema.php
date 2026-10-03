@@ -11,6 +11,7 @@ require_once __DIR__ . '/../api/config/database.php';
 $requirements = [
     'admin_users' => ['id', 'username', 'email', 'password', 'role', 'is_active'],
     'programs' => ['id', 'name', 'code'],
+    'program_code_catalog' => ['id', 'normalized_name', 'official_name', 'program_code', 'alternate_codes', 'created_at', 'updated_at'],
     'graduates' => ['id', 'student_id', 'first_name', 'last_name', 'name_extension', 'program_id', 'year_graduated', 'archived_at'],
     'surveys' => ['id', 'title', 'status', 'created_by', 'modified_by', 'modified_at', 'archived_at', 'status_before_archive'],
     'survey_questions' => ['id', 'survey_id', 'question_text', 'question_type'],

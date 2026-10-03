@@ -22,6 +22,28 @@ function import_test_expect_error(callable $callback, string $errorType): Gradtr
     throw new RuntimeException("Expected {$errorType}, but no import exception was thrown");
 }
 
+$referenceCatalog = require __DIR__ . '/../../database/program_code_catalog.php';
+$referenceCodes = [];
+foreach ($referenceCatalog as $entry) {
+    $referenceCodes[gradtrack_program_normalize_name($entry[0] ?? '')] = gradtrack_program_normalize_code($entry[1] ?? '');
+}
+import_test_assert(count($referenceCodes) === 141, 'the saved course catalog contains 141 unique normalized program names');
+import_test_assert(
+    ($referenceCodes[gradtrack_program_normalize_name('Bachelor of Science in Cybersecurity')] ?? '') === 'BSCYS'
+    && ($referenceCodes[gradtrack_program_normalize_name('Bachelor of Secondary Education major in General Science')] ?? '') === 'BSED-SCI'
+    && ($referenceCodes[gradtrack_program_normalize_name('Bachelor of Science in Accountancy')] ?? '') === 'BSA',
+    'the saved catalog retains official codes that cannot always be inferred from initials'
+);
+import_test_assert(
+    gradtrack_program_available_code(
+        'BSMT',
+        'Bachelor of Science in Medical Technology',
+        [['id' => 100, 'code' => 'BSMT', 'name' => 'Bachelor of Science in Marine Transportation']],
+        ['BSMLS']
+    ) === 'BSMLS',
+    'an alternate catalog code prevents unrelated programs with a shared preferred code from being merged'
+);
+
 function import_test_create_xlsx(): string
 {
     $base = tempnam(sys_get_temp_dir(), 'gradtrack-import-test-');
@@ -62,6 +84,14 @@ $db = new PDO('sqlite::memory:');
 $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 $db->exec('CREATE TABLE programs (id INTEGER PRIMARY KEY, code TEXT UNIQUE, name TEXT NOT NULL)');
 $db->exec("INSERT INTO programs (id, code, name) VALUES (1, 'BSCS', 'Bachelor of Science in Computer Science'), (2, 'BSHM', 'Bachelor of Science in Hospitality Management'), (3, 'BSED', 'Bachelor of Secondary Education'), (4, 'BEED', 'Bachelor of Elementary Education')");
+$db->exec('CREATE TABLE program_code_catalog (id INTEGER PRIMARY KEY, normalized_name TEXT UNIQUE, official_name TEXT NOT NULL, program_code TEXT NOT NULL, alternate_codes TEXT)');
+$catalogInsert = $db->prepare('INSERT INTO program_code_catalog (normalized_name, official_name, program_code, alternate_codes) VALUES (?, ?, ?, ?)');
+$catalogInsert->execute([
+    gradtrack_program_normalize_name('Bachelor of Science in Cybersecurity'),
+    'Bachelor of Science in Cybersecurity',
+    'BSCYS',
+    null,
+]);
 $db->exec('CREATE TABLE graduates (id INTEGER PRIMARY KEY AUTOINCREMENT, student_id TEXT NOT NULL UNIQUE, first_name TEXT NOT NULL, middle_name TEXT, last_name TEXT NOT NULL, name_extension TEXT, email TEXT UNIQUE, phone TEXT, program_id INTEGER, year_graduated INTEGER NOT NULL, address TEXT)');
 $db->exec('CREATE TABLE employment (id INTEGER PRIMARY KEY AUTOINCREMENT, graduate_id INTEGER, company_name TEXT, job_title TEXT, industry TEXT, employment_status TEXT, is_aligned TEXT, date_hired TEXT, monthly_salary TEXT, time_to_employment INTEGER)');
 $db->exec('CREATE TABLE registered_alumni (id INTEGER PRIMARY KEY AUTOINCREMENT, full_name TEXT NOT NULL, normalized_name TEXT NOT NULL, course_id INTEGER, course_name TEXT NOT NULL, course_code TEXT NOT NULL, batch_year INTEGER NOT NULL, archived_at TEXT, UNIQUE(normalized_name, course_code, batch_year))');
@@ -201,6 +231,21 @@ import_test_assert(
 $generatedCodeResult = gradtrack_graduate_import_execute($db, $generatedCodeAnalysis, true);
 import_test_assert($generatedCodeResult['added'] === 1, 'a full program name without a code imports successfully');
 import_test_assert((int) $db->query("SELECT COUNT(*) FROM programs WHERE code = 'BSA'")->fetchColumn() === 1, 'the generated BSA code is registered once');
+
+$catalogCodeWorkbook = [
+    'sheetNames' => ['Cybersecurity 2026'],
+    'sheets' => ['Cybersecurity 2026' => [
+        ['Official List of Graduates Year 2026'],
+        ['Bachelor of Science in Cybersecurity'],
+        ['Student Number', 'Name'],
+        ['2026-9003', 'Cybersecurity, Graduate'],
+    ]],
+];
+$catalogCodeAnalysis = gradtrack_graduate_import_analyze($db, $catalogCodeWorkbook);
+import_test_assert(
+    ($catalogCodeAnalysis['records'][0]['program_code'] ?? '') === 'BSCYS',
+    'the database course catalog overrides the generic acronym with the saved official code'
+);
 
 $dynamicProgramWorkbook = [
     'sheetNames' => ['New Programs'],

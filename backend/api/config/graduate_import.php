@@ -174,7 +174,7 @@ function gradtrack_graduate_import_resolve_program($value, array $programs): str
     return '';
 }
 
-function gradtrack_graduate_import_program_definition(array $record, array $programs): array
+function gradtrack_graduate_import_program_definition(array $record, array $programs, array $programCatalog = []): array
 {
     $programIdInput = gradtrack_graduate_import_value($record, 'program_id');
     $programCodeInput = gradtrack_graduate_import_value($record, 'program_code');
@@ -200,6 +200,64 @@ function gradtrack_graduate_import_program_definition(array $record, array $prog
             }
         }
         return ['provided' => true, 'id' => '', 'code' => '', 'name' => '', 'is_new' => false, 'error' => 'Invalid Program ID'];
+    }
+
+    $genericParts = gradtrack_program_extract_code_and_name($genericInput);
+    $declaredCode = '';
+    if ($programCodeInput !== '') {
+        $codeParts = gradtrack_program_extract_code_and_name($programCodeInput);
+        $declaredCode = (string) $codeParts['code'];
+        if ($declaredCode === '') $declaredCode = gradtrack_program_normalize_code($programCodeInput);
+    }
+    if ($declaredCode === '') $declaredCode = (string) ($genericParts['code'] ?? '');
+    $catalogCandidateName = $programNameInput;
+    if ($catalogCandidateName === '') {
+        $genericName = (string) ($genericParts['name'] ?? '');
+        if (gradtrack_program_normalize_name($genericName) !== gradtrack_program_normalize_name($declaredCode)) {
+            $catalogCandidateName = $genericName;
+        }
+    }
+    $catalogEntry = gradtrack_find_program_catalog_entry($programCatalog, $catalogCandidateName);
+    if ($catalogEntry !== null) {
+        $officialName = (string) $catalogEntry['name'];
+        $existingByName = gradtrack_find_program($programs, null, null, $officialName);
+        if ($existingByName !== null) {
+            if (
+                $declaredCode !== ''
+                && gradtrack_program_normalize_code($existingByName['code'] ?? '') !== $declaredCode
+            ) {
+                return ['provided' => true, 'id' => '', 'code' => $declaredCode, 'name' => $officialName, 'is_new' => false, 'error' => 'Program Code and Program Name refer to different programs'];
+            }
+            return [
+                'provided' => true,
+                'id' => (string) $existingByName['id'],
+                'code' => (string) $existingByName['code'],
+                'name' => (string) $existingByName['name'],
+                'is_new' => false,
+                'error' => null,
+            ];
+        }
+
+        $catalogCode = $declaredCode !== ''
+            ? $declaredCode
+            : gradtrack_program_available_code(
+                (string) $catalogEntry['code'],
+                $officialName,
+                $programs,
+                (array) ($catalogEntry['alternate_codes'] ?? [])
+            );
+        $existingByCode = gradtrack_find_program($programs, null, $catalogCode);
+        if ($existingByCode !== null) {
+            return ['provided' => true, 'id' => '', 'code' => $catalogCode, 'name' => $officialName, 'is_new' => false, 'error' => 'Program Code and Program Name refer to different programs'];
+        }
+        return [
+            'provided' => true,
+            'id' => '',
+            'code' => $catalogCode,
+            'name' => $officialName,
+            'is_new' => true,
+            'error' => gradtrack_program_code_is_valid($catalogCode) ? null : 'Invalid Program Code',
+        ];
     }
 
     $resolvedPrograms = [];
@@ -261,6 +319,18 @@ function gradtrack_graduate_import_program_definition(array $record, array $prog
     }
     if ($code === '' && $programCodeInput !== '') $code = gradtrack_program_normalize_code($programCodeInput);
 
+    $catalogEntry = gradtrack_find_program_catalog_entry($programCatalog, $name);
+    if ($catalogEntry !== null) {
+        $name = (string) $catalogEntry['name'];
+        if ($code === '') {
+            $code = gradtrack_program_available_code(
+                (string) $catalogEntry['code'],
+                $name,
+                $programs,
+                (array) ($catalogEntry['alternate_codes'] ?? [])
+            );
+        }
+    }
     if ($code === '' && $name !== '') {
         $code = gradtrack_program_generate_code($name, $programs);
     }
@@ -278,8 +348,8 @@ function gradtrack_graduate_import_program_definition(array $record, array $prog
         return ['provided' => true, 'id' => '', 'code' => $code, 'name' => $name, 'is_new' => true, 'error' => 'Invalid Program Code'];
     }
     if ($name === '') $name = $code;
-    if (gradtrack_graduate_import_length($name) > 100) {
-        return ['provided' => true, 'id' => '', 'code' => $code, 'name' => $name, 'is_new' => true, 'error' => 'Program Name must be 100 characters or fewer'];
+    if (gradtrack_graduate_import_length($name) > 255) {
+        return ['provided' => true, 'id' => '', 'code' => $code, 'name' => $name, 'is_new' => true, 'error' => 'Program Name must be 255 characters or fewer'];
     }
 
     return [
@@ -292,29 +362,35 @@ function gradtrack_graduate_import_program_definition(array $record, array $prog
     ];
 }
 
-function gradtrack_graduate_import_program_definition_from_heading($value, array $programs): ?array
+function gradtrack_graduate_import_program_definition_from_heading(
+    $value,
+    array $programs,
+    array $programCatalog = []
+): ?array
 {
     $text = gradtrack_graduate_import_text($value);
     if ($text === '') return null;
 
-    $resolvedId = gradtrack_graduate_import_resolve_program($text, $programs);
-    if ($resolvedId !== '') {
-        foreach ($programs as $program) {
-            if ((string) $program['id'] !== $resolvedId) continue;
-            return [
-                'provided' => false,
-                'id' => (string) $program['id'],
-                'code' => (string) $program['code'],
-                'name' => (string) $program['name'],
-                'is_new' => false,
-                'error' => null,
-            ];
-        }
-    }
-
     $parts = gradtrack_program_extract_code_and_name($text);
     $code = (string) ($parts['code'] ?? '');
     $name = (string) ($parts['name'] ?? '');
+    $catalogEntry = gradtrack_find_program_catalog_entry($programCatalog, $name);
+    if ($catalogEntry === null) {
+        $resolvedId = gradtrack_graduate_import_resolve_program($text, $programs);
+        if ($resolvedId !== '') {
+            foreach ($programs as $program) {
+                if ((string) $program['id'] !== $resolvedId) continue;
+                return [
+                    'provided' => false,
+                    'id' => (string) $program['id'],
+                    'code' => (string) $program['code'],
+                    'name' => (string) $program['name'],
+                    'is_new' => false,
+                    'error' => null,
+                ];
+            }
+        }
+    }
     if ($name === '' || preg_match('/\b(?:bachelor|associate|master|doctor|diploma|certificate|degree|program|course)\b/i', $name) !== 1) {
         return null;
     }
@@ -322,7 +398,7 @@ function gradtrack_graduate_import_program_definition_from_heading($value, array
     $definition = gradtrack_graduate_import_program_definition([
         'Program Code' => $code,
         'Program Name' => $name,
-    ], $programs);
+    ], $programs, $programCatalog);
     return $definition['error'] === null ? $definition : null;
 }
 
@@ -438,6 +514,7 @@ function gradtrack_graduate_import_analyze(PDO $db, array $workbook, ?int $selec
     }
 
     $programs = gradtrack_graduate_import_programs($db);
+    $programCatalog = gradtrack_program_catalog_rows($db);
     $selectedProgramDefinition = null;
     if ($selectedProgramId !== null && $selectedProgramId > 0) {
         foreach ($programs as $program) {
@@ -465,7 +542,11 @@ function gradtrack_graduate_import_analyze(PDO $db, array $workbook, ?int $selec
 
     foreach (($workbook['sheetNames'] ?? []) as $sheetName) {
         $rows = $workbook['sheets'][$sheetName] ?? [];
-        $sheetProgramDefinition = gradtrack_graduate_import_program_definition_from_heading($sheetName, $programs);
+        $sheetProgramDefinition = gradtrack_graduate_import_program_definition_from_heading(
+            $sheetName,
+            $programs,
+            $programCatalog
+        );
         $currentProgramDefinition = $sheetProgramDefinition;
         $currentYear = gradtrack_graduate_import_official_year(array_slice($rows, 0, 30));
         $activeHeaders = null;
@@ -494,7 +575,8 @@ function gradtrack_graduate_import_analyze(PDO $db, array $workbook, ?int $selec
                     if ($legacyProgramId !== '') {
                         $currentProgramDefinition = gradtrack_graduate_import_program_definition_from_heading(
                             $legacyProgramId,
-                            $programs
+                            $programs,
+                            $programCatalog
                         );
                     }
                 }
@@ -516,7 +598,7 @@ function gradtrack_graduate_import_analyze(PDO $db, array $workbook, ?int $selec
                     );
                     $email = strtolower(gradtrack_graduate_import_value($record, 'email'));
                     $phone = gradtrack_graduate_import_value($record, 'phone');
-                    $programDefinition = gradtrack_graduate_import_program_definition($record, $programs);
+                    $programDefinition = gradtrack_graduate_import_program_definition($record, $programs, $programCatalog);
                     if (!$programDefinition['provided']) {
                         $programDefinition = $currentProgramDefinition ?? $selectedProgramDefinition ?? $programDefinition;
                     }
@@ -608,7 +690,11 @@ function gradtrack_graduate_import_analyze(PDO $db, array $workbook, ?int $selec
                 }
             }
 
-            $rowProgramDefinition = gradtrack_graduate_import_program_definition_from_heading($text, $programs);
+            $rowProgramDefinition = gradtrack_graduate_import_program_definition_from_heading(
+                $text,
+                $programs,
+                $programCatalog
+            );
             if ($rowProgramDefinition !== null) {
                 $currentProgramDefinition = $rowProgramDefinition;
                 $seenCodes[(string) $rowProgramDefinition['code']] = true;

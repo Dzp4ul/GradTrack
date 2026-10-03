@@ -18,12 +18,25 @@ CREATE TABLE `admin_users` (
 
 CREATE TABLE `programs` (
     `id` INT NOT NULL AUTO_INCREMENT,
-    `name` VARCHAR(100) NOT NULL,
-    `code` VARCHAR(20) NOT NULL,
+    `name` VARCHAR(255) NOT NULL,
+    `code` VARCHAR(32) NOT NULL,
     `description` TEXT DEFAULT NULL,
     `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uq_programs_code` (`code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `program_code_catalog` (
+    `id` INT NOT NULL AUTO_INCREMENT,
+    `normalized_name` VARCHAR(255) NOT NULL,
+    `official_name` VARCHAR(255) NOT NULL,
+    `program_code` VARCHAR(32) NOT NULL,
+    `alternate_codes` JSON DEFAULT NULL,
+    `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_program_code_catalog_normalized_name` (`normalized_name`),
+    KEY `idx_program_code_catalog_code` (`program_code`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE `surveys` (
