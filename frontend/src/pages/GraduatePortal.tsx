@@ -18,6 +18,7 @@ import {
   CheckCircle2,
   Clock3,
   Contact,
+  ExternalLink,
   FileText,
   Filter,
   Flag,
@@ -38,6 +39,7 @@ import {
   Phone,
   Plus,
   Search,
+  Send,
   Share2,
   SlidersHorizontal,
   Settings,
@@ -76,7 +78,7 @@ import type { JobProgramOption } from '../components/JobProgramFitPicker';
 import MobileBottomNav from '../components/MobileBottomNav';
 import NotificationBell from '../components/NotificationBell';
 import type { NotificationSnapshot } from '../components/NotificationBell';
-import ProfileAvatar from '../components/ProfileAvatar';
+import ProfileAvatar, { getProfileInitials } from '../components/ProfileAvatar';
 import ThemeToggle from '../components/ThemeToggle';
 import GraduateAnnouncements from '../components/graduate/GraduateAnnouncements';
 import { useGraduateAuth } from '../contexts/GraduateAuthContext';
@@ -884,8 +886,27 @@ function getJobPosterProgram(job: JobPost) {
   return job.created_by_admin_id ? 'GradTrack Personnel' : 'Graduate';
 }
 
-function getJobProgramFit(job: JobPost) {
-  return job.course_program_fit || 'Not specified';
+function getJobPosterRole(job: JobPost) {
+  if (job.creator_role) {
+    const roleLabels: Record<string, string> = {
+      research_coordinator: 'Research Coordinator',
+      alumni_president: 'Alumni President',
+      dean_cs: 'Dean',
+      dean_coed: 'Dean',
+      dean_hm: 'Dean',
+      admin: 'GradTrack Administrator',
+    };
+    return roleLabels[job.creator_role]
+      || job.creator_role.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+  }
+  return job.created_by_admin_id ? 'GradTrack Personnel' : 'Graduate';
+}
+
+function getJobContentItems(value?: string | null) {
+  return String(value || '')
+    .split(/\r?\n/)
+    .map((item) => item.replace(/^\s*(?:[-*\u2022]|\d+[.)])\s*/, '').trim())
+    .filter(Boolean);
 }
 
 function getJobPostedLabel(job: JobPost) {
@@ -5009,10 +5030,10 @@ export default function GraduatePortal() {
     }
   };
 
-  const closeJobDetails = () => {
+  const closeJobDetails = useCallback(() => {
     setSelectedJob(null);
     setSelectedJobLoading(false);
-  };
+  }, []);
 
   const beginCreateJob = () => {
     if (!jobsAvailable) {
@@ -6781,8 +6802,13 @@ export default function GraduatePortal() {
         <JobDetailsModal
           job={selectedJob}
           loading={selectedJobLoading}
+          saved={savedJobIds.has(selectedJob.id)}
+          saving={savingJobIds.includes(selectedJob.id)}
+          suspended={Boolean(shareJob || msgBox.isOpen)}
           onClose={closeJobDetails}
           onOpenProfile={openCommunityProfile}
+          onShare={openShareJob}
+          onToggleSave={toggleSavedJob}
         />
       )}
 
@@ -8900,152 +8926,390 @@ function JobInfoChip({
 function JobDetailsModal({
   job,
   loading,
+  saved,
+  saving,
+  suspended,
   onClose,
   onOpenProfile,
+  onShare,
+  onToggleSave,
 }: {
   job: JobPost;
   loading: boolean;
+  saved: boolean;
+  saving: boolean;
+  suspended: boolean;
   onClose: () => void;
   onOpenProfile: (graduateId: number) => void;
+  onShare: (job: JobPost) => void;
+  onToggleSave: (job: JobPost) => void | Promise<void>;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const backButtonRef = useRef<HTMLButtonElement>(null);
+  const suspendedRef = useRef(suspended);
   const posterName = getJobPosterName(job);
+  const posterRole = getJobPosterRole(job);
+  const posterProgram = job.creator_role ? '' : getJobPosterProgram(job);
   const applicationLink = normalizeApplicationLink(job.application_link);
   const requirementsLink = resolveAssetUrl(job.requirements_file_path);
-  const hasApplyDetails = Boolean(job.contact_email || applicationLink || job.application_method || requirementsLink);
+  const contactEmail = String(job.contact_email || '').trim();
+  const applyHref = applicationLink || (contactEmail ? `mailto:${contactEmail}` : '');
+  const hasApplyDetails = Boolean(contactEmail || applicationLink || job.application_method);
+  const qualificationItems = getJobContentItems(job.qualifications);
+  const requirementItems = getJobContentItems(job.required_skills);
+  const hasRequirements = requirementItems.length > 0 || Boolean(requirementsLink);
+  const heroCategory = String(job.industry || '').trim() || 'Career opportunity';
+
+  const metadataItems = [
+    ...(job.location ? [{ icon: MapPin, label: 'Location', value: job.location }] : []),
+    ...(job.salary_range ? [{ icon: Banknote, label: 'Salary', value: job.salary_range }] : []),
+    ...(job.industry ? [{ icon: Building2, label: 'Industry', value: job.industry }] : []),
+    ...(job.created_at ? [{ icon: Clock3, label: 'Posted', value: formatDate(job.created_at) }] : []),
+    ...(job.application_deadline ? [{ icon: CalendarDays, label: 'Deadline', value: formatDate(job.application_deadline) }] : []),
+  ];
 
   const detailItems = [
     { icon: Building2, label: 'Company', value: job.company || 'Not specified' },
-    { icon: Briefcase, label: 'Type', value: formatEmploymentType(job.job_type) },
-    { icon: MapPin, label: 'Location', value: job.location || 'Not specified' },
-    { icon: GraduationCap, label: 'Program Fit', value: getJobProgramFit(job) },
-    { icon: Building2, label: 'Industry', value: job.industry || 'Not specified' },
-    { icon: Briefcase, label: 'Salary', value: job.salary_range || 'Not specified' },
-    { icon: CalendarDays, label: 'Deadline', value: job.application_deadline ? formatDate(job.application_deadline) : 'Not specified' },
-    { icon: Clock3, label: 'Posted', value: job.created_at ? formatDateTime(job.created_at) : 'Not specified' },
+    { icon: Briefcase, label: 'Job Type', value: formatEmploymentType(job.job_type) },
+    ...(job.location ? [{ icon: MapPin, label: 'Location', value: job.location }] : []),
+    ...(job.salary_range ? [{ icon: Banknote, label: 'Salary', value: job.salary_range }] : []),
+    ...(job.industry ? [{ icon: Building2, label: 'Industry', value: job.industry }] : []),
+    ...(job.course_program_fit ? [{ icon: GraduationCap, label: 'Program Fit', value: job.course_program_fit }] : []),
+    ...(job.created_at ? [{ icon: Clock3, label: 'Posted', value: formatDateTime(job.created_at) }] : []),
+    ...(job.application_deadline ? [{ icon: CalendarDays, label: 'Application Deadline', value: formatDate(job.application_deadline) }] : []),
   ];
 
+  useEffect(() => {
+    suspendedRef.current = suspended;
+  }, [suspended]);
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const previousOverflow = document.body.style.overflow;
+    const previousPaddingRight = document.body.style.paddingRight;
+    const scrollbarWidth = Math.max(0, window.innerWidth - document.documentElement.clientWidth);
+
+    document.body.style.overflow = 'hidden';
+    if (scrollbarWidth > 0) document.body.style.paddingRight = `${scrollbarWidth}px`;
+
+    const focusFrame = window.requestAnimationFrame(() => backButtonRef.current?.focus({ preventScroll: true }));
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (suspendedRef.current) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+
+      if (event.key !== 'Tab' || !dialogRef.current) return;
+      const focusableElements = Array.from(dialogRef.current.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )).filter((element) => !element.hasAttribute('hidden'));
+      if (focusableElements.length === 0) {
+        event.preventDefault();
+        dialogRef.current.focus();
+        return;
+      }
+
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements[focusableElements.length - 1];
+      if (event.shiftKey && document.activeElement === firstElement) {
+        event.preventDefault();
+        lastElement.focus();
+      } else if (!event.shiftKey && document.activeElement === lastElement) {
+        event.preventDefault();
+        firstElement.focus();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      window.removeEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = previousOverflow;
+      document.body.style.paddingRight = previousPaddingRight;
+      if (previouslyFocused?.isConnected) previouslyFocused.focus({ preventScroll: true });
+    };
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 px-3 py-4 sm:px-4 sm:py-6">
-      <div className="flex max-h-[92vh] w-full max-w-4xl min-w-0 flex-col overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-2xl sm:rounded-[32px] dark:border-slate-700 dark:bg-slate-900">
-        <div className="flex min-w-0 flex-col items-start gap-3 border-b border-slate-100 px-4 py-4 sm:flex-row sm:justify-between sm:px-6 sm:py-5 dark:border-slate-700">
-          <button
-            type="button"
-            onClick={() => job.poster_graduate_id && onOpenProfile(job.poster_graduate_id)}
-            disabled={!job.poster_graduate_id}
-            className="flex w-full min-w-0 items-center gap-3 pr-10 text-left sm:w-auto sm:flex-1 sm:pr-0"
-          >
-            <Avatar src={resolveAssetUrl(job.poster_profile_image_path)} label={posterName} size="md" />
-            <span className="min-w-0">
-              <span className="block break-words text-sm font-semibold text-slate-900 transition [overflow-wrap:anywhere] hover:text-blue-700 dark:text-slate-100 dark:hover:text-blue-300 sm:truncate">{posterName}</span>
-              <span className="block break-words text-xs text-slate-500 [overflow-wrap:anywhere] dark:text-slate-400">
-                {getJobPosterProgram(job)} - {getJobPostedLabel(job)}
-              </span>
-            </span>
-          </button>
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/70 p-2 backdrop-blur-[2px] sm:p-4 lg:p-6"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="job-details-title"
+        aria-busy={loading}
+        tabIndex={-1}
+        className="flex max-h-[calc(100dvh-1rem)] w-full max-w-[90rem] min-w-0 flex-col overflow-hidden rounded-[24px] border border-white/20 bg-white shadow-[0_28px_90px_rgba(15,23,42,0.35)] sm:max-h-[94dvh] sm:rounded-[30px] dark:border-slate-700 dark:bg-slate-900"
+      >
+        <header className="relative h-[220px] shrink-0 overflow-hidden bg-blue-950 text-white sm:h-[230px] lg:h-[250px]">
+          <img src="/browse-jobs-city.jpg" alt="" className="absolute inset-0 h-full w-full object-cover object-center" aria-hidden="true" />
+          <div className="absolute inset-0 bg-gradient-to-r from-slate-950/95 via-blue-950/80 to-blue-900/45" aria-hidden="true" />
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-slate-950/35" aria-hidden="true" />
 
-          <div className="flex max-w-full shrink-0 items-center gap-2">
-            <span className="max-w-full break-words rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700 [overflow-wrap:anywhere] dark:border-blue-500/40 dark:bg-blue-500/10 dark:text-blue-200">
-              {formatEmploymentType(job.job_type)}
-            </span>
-            <button type="button" onClick={onClose} className="rounded-full p-2 text-slate-500 transition hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-200" aria-label="Close job details">
-              <X className="h-5 w-5" />
+          <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-between gap-2 p-3 sm:p-5 lg:px-7">
+            <button
+              ref={backButtonRef}
+              type="button"
+              onClick={onClose}
+              className="inline-flex h-10 min-w-10 items-center justify-center gap-1.5 rounded-full border border-white/15 bg-slate-950/35 px-3 text-sm font-semibold text-white shadow-sm backdrop-blur-md transition hover:bg-white/15 sm:px-4"
+              aria-label="Back to Browse Jobs"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              <span className="hidden sm:inline">Back to Browse Jobs</span>
             </button>
-          </div>
-        </div>
 
-        <div className="min-w-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6">
+            <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+              <button
+                type="button"
+                onClick={() => void onToggleSave(job)}
+                disabled={saving}
+                aria-pressed={saved}
+                aria-label={`${saved ? 'Remove' : 'Save'} ${job.title} ${saved ? 'from' : 'to'} Saved Jobs`}
+                className={`inline-flex h-10 min-w-10 items-center justify-center gap-2 rounded-full border px-3 text-sm font-semibold shadow-sm backdrop-blur-md transition disabled:cursor-wait disabled:opacity-70 sm:px-4 ${saved ? 'border-blue-200/50 bg-blue-600 text-white hover:bg-blue-500' : 'border-white/15 bg-slate-950/35 text-white hover:bg-white/15'}`}
+              >
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bookmark className={`h-4 w-4 ${saved ? 'fill-current' : ''}`} />}
+                <span className="hidden md:inline">{saved ? 'Saved' : 'Save'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onShare(job)}
+                aria-label={`Share ${job.title}`}
+                className="inline-flex h-10 min-w-10 items-center justify-center gap-2 rounded-full border border-white/15 bg-slate-950/35 px-3 text-sm font-semibold text-white shadow-sm backdrop-blur-md transition hover:bg-white/15 sm:px-4"
+              >
+                <Share2 className="h-4 w-4" />
+                <span className="hidden md:inline">Share</span>
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-white text-slate-800 shadow-md transition hover:bg-blue-50 hover:text-blue-700"
+                aria-label="Close job details"
+                title="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+
+          <div className="absolute inset-x-0 bottom-0 z-10 flex min-w-0 items-end gap-3 p-4 sm:gap-5 sm:p-6 lg:px-8 lg:pb-7">
+            <div role="img" className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl border border-white/50 bg-white text-xl font-black tracking-tight text-blue-700 shadow-xl sm:h-20 sm:w-20 sm:rounded-[22px] sm:text-2xl" aria-label={`${job.company || 'Company'} company mark`}>
+              {getProfileInitials(job.company)}
+            </div>
+            <div className="min-w-0 pb-0.5">
+              <p className="break-words text-lg font-bold leading-tight text-white [overflow-wrap:anywhere] sm:text-2xl">{job.company || 'Company not specified'}</p>
+              <p className="mt-1 flex min-w-0 items-center gap-1.5 text-xs font-medium text-blue-100 sm:text-sm">
+                <Building2 className="h-4 w-4 shrink-0" />
+                <span className="min-w-0 break-words [overflow-wrap:anywhere]">{heroCategory}</span>
+              </p>
+            </div>
+          </div>
+        </header>
+
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain bg-slate-50 dark:bg-slate-950">
           {loading && (
-            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 dark:border-blue-500/40 dark:bg-blue-500/10 dark:text-blue-200">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              Loading complete job details...
+            <div className="sticky top-0 z-20 flex justify-center pt-3" role="status">
+              <span className="inline-flex items-center gap-2 rounded-full border border-blue-100 bg-white px-3 py-1.5 text-xs font-semibold text-blue-700 shadow-sm dark:border-blue-500/40 dark:bg-slate-900 dark:text-blue-200">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Loading complete job details...
+              </span>
             </div>
           )}
 
-          <div className="min-w-0">
-            <p className="flex min-w-0 items-start gap-1.5 text-sm font-semibold text-slate-500 dark:text-slate-400">
-              <Building2 className="mt-0.5 h-4 w-4 shrink-0 text-blue-500 dark:text-blue-300" />
-              <span className="min-w-0 break-words [overflow-wrap:anywhere]">{job.company || 'Company not specified'}</span>
-            </p>
-            <h2 className="mt-2 break-words text-xl font-bold leading-tight text-slate-950 [overflow-wrap:anywhere] sm:text-3xl dark:text-slate-50">{job.title || 'Job Post'}</h2>
-          </div>
+          <div className={`grid min-w-0 gap-5 p-4 sm:p-6 lg:gap-6 lg:p-8 xl:grid-cols-[minmax(0,1.85fr)_minmax(300px,0.95fr)] ${loading ? '-mt-8 pt-12 sm:pt-14' : ''}`}>
+            <main className="min-w-0">
+              <span className="inline-flex rounded-full border border-blue-100 bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700 dark:border-blue-500/30 dark:bg-blue-950/40 dark:text-blue-200">
+                {formatEmploymentType(job.job_type)}
+              </span>
+              <h2 id="job-details-title" className="mt-3 break-words text-2xl font-extrabold leading-tight tracking-tight text-slate-950 [overflow-wrap:anywhere] sm:text-3xl lg:text-[2rem] dark:text-white">
+                {job.title || 'Job Post'}
+              </h2>
 
-          <div className="mt-5 flex flex-wrap gap-2">
-            {detailItems.map((item) => (
-              <JobInfoChip key={`modal-${item.label}`} icon={item.icon} label={item.label} value={item.value} />
-            ))}
-          </div>
+              {metadataItems.length > 0 && (
+                <div className="mt-5 flex min-w-0 flex-wrap gap-2.5" aria-label="Job highlights">
+                  {metadataItems.map((item) => <JobMetadataPill key={item.label} {...item} />)}
+                </div>
+              )}
 
-          <div className="mt-6 grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
-            <div className="space-y-5">
-              <section>
-                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Description</h3>
-                <p className="mt-2 whitespace-pre-line break-words text-sm leading-7 text-slate-700 [overflow-wrap:anywhere] dark:text-slate-300">{job.description || 'No description provided yet.'}</p>
+              <div className="mt-6 space-y-4">
+                {hasDisplayValue(job.description) && (
+                  <JobModalSection icon={FileText} title="Overview">
+                    <p className="whitespace-pre-line break-words text-sm leading-7 text-slate-600 [overflow-wrap:anywhere] dark:text-slate-300">{job.description}</p>
+                  </JobModalSection>
+                )}
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  {qualificationItems.length > 0 && (
+                    <JobModalSection icon={GraduationCap} title="Qualifications">
+                      <JobContentList items={qualificationItems} />
+                    </JobModalSection>
+                  )}
+
+                  {hasRequirements && (
+                    <JobModalSection icon={FileText} title="Requirements">
+                      {requirementItems.length > 0 && <JobContentList items={requirementItems} />}
+                      {requirementsLink && (
+                        <a
+                          href={requirementsLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={`${requirementItems.length > 0 ? 'mt-4' : ''} flex min-w-0 items-center gap-3 rounded-xl border border-blue-100 bg-blue-50 p-3 text-left text-sm font-semibold text-blue-700 transition hover:border-blue-200 hover:bg-blue-100 dark:border-blue-500/30 dark:bg-blue-950/40 dark:text-blue-200 dark:hover:bg-blue-950/60`}
+                        >
+                          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-blue-700 shadow-sm dark:bg-slate-900 dark:text-blue-200"><FileText className="h-4 w-4" /></span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block break-words [overflow-wrap:anywhere]">{job.requirements_file_name || 'View requirements file'}</span>
+                            {formatBytes(job.requirements_file_size_bytes) && <span className="mt-0.5 block text-xs font-medium text-slate-500 dark:text-slate-400">{formatBytes(job.requirements_file_size_bytes)}</span>}
+                          </span>
+                          <ExternalLink className="h-4 w-4 shrink-0" aria-hidden="true" />
+                        </a>
+                      )}
+                    </JobModalSection>
+                  )}
+                </div>
+              </div>
+            </main>
+
+            <aside className="min-w-0 space-y-4 xl:sticky xl:top-6 xl:self-start" aria-label="Application and posting details">
+              {hasApplyDetails && (
+                <section className="rounded-2xl border border-blue-100 bg-blue-50/80 p-5 shadow-sm dark:border-blue-500/30 dark:bg-blue-950/30 sm:p-6">
+                  <div className="flex items-start gap-3">
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white text-blue-700 shadow-sm dark:bg-slate-900 dark:text-blue-300"><Send className="h-5 w-5" /></span>
+                    <div className="min-w-0">
+                      <h3 className="text-lg font-bold text-slate-950 dark:text-white">How to Apply</h3>
+                      <p className="mt-1 text-sm leading-6 text-slate-600 dark:text-slate-300">
+                        {applicationLink
+                          ? 'Continue to the employer\'s application process.'
+                          : contactEmail
+                            ? 'Send your application directly to the contact below.'
+                            : 'Follow the application instructions provided by the poster.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {job.application_method && <p className="mt-4 whitespace-pre-line break-words text-sm leading-6 text-slate-700 [overflow-wrap:anywhere] dark:text-slate-200">{job.application_method}</p>}
+
+                  {applyHref && (
+                    <a
+                      href={applyHref}
+                      target={applicationLink ? '_blank' : undefined}
+                      rel={applicationLink ? 'noopener noreferrer' : undefined}
+                      className="mt-5 inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-5 text-sm font-bold text-white shadow-sm transition hover:bg-blue-800 focus-visible:ring-2 focus-visible:ring-blue-300"
+                      aria-label={`Apply now for ${job.title}${applicationLink ? ' (opens in a new tab)' : ' by email'}`}
+                    >
+                      Apply Now
+                      {applicationLink ? <ExternalLink className="h-4 w-4" /> : <ArrowRight className="h-4 w-4" />}
+                    </a>
+                  )}
+
+                  {contactEmail && (
+                    <a href={`mailto:${contactEmail}`} className="mt-3 flex min-w-0 items-center justify-center gap-2 break-all text-center text-xs font-semibold text-blue-700 hover:underline dark:text-blue-300">
+                      <Mail className="h-3.5 w-3.5 shrink-0" />
+                      {contactEmail}
+                    </a>
+                  )}
+                </section>
+              )}
+
+              <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:p-6">
+                <div className="mb-2 flex items-center gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300"><Briefcase className="h-5 w-5" /></span>
+                  <h3 className="text-base font-bold text-slate-950 dark:text-white">Job Details</h3>
+                </div>
+                <dl>
+                  {detailItems.map((item) => <JobDetailRow key={item.label} {...item} />)}
+                </dl>
               </section>
 
-              {hasDisplayValue(job.qualifications) && (
-                <section>
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Qualifications</h3>
-                  <p className="mt-2 whitespace-pre-line break-words text-sm leading-7 text-slate-700 [overflow-wrap:anywhere] dark:text-slate-300">{job.qualifications}</p>
-                </section>
-              )}
+              <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:p-6">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300"><Contact className="h-5 w-5" /></span>
+                  <h3 className="text-base font-bold text-slate-950 dark:text-white">Posted By</h3>
+                </div>
 
-              {hasDisplayValue(job.required_skills) && (
-                <section>
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">Required Skills</h3>
-                  <p className="mt-2 whitespace-pre-line break-words text-sm leading-7 text-slate-700 [overflow-wrap:anywhere] dark:text-slate-300">{job.required_skills}</p>
-                </section>
-              )}
-            </div>
-
-            <aside className="space-y-4 rounded-[24px] border border-slate-200 bg-[#fafbff] p-4 dark:border-slate-700 dark:bg-slate-950/60">
-              <div>
-                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">How to Apply</h3>
-                {hasApplyDetails ? (
-                  <div className="mt-3 space-y-3 text-sm text-slate-600 dark:text-slate-300">
-                    {job.contact_email && (
-                      <a href={`mailto:${job.contact_email}`} className="flex min-w-0 items-start gap-2 font-medium text-blue-700 hover:underline dark:text-blue-300">
-                        <Mail className="h-4 w-4 shrink-0" />
-                        <span className="min-w-0 break-all">{job.contact_email}</span>
-                      </a>
-                    )}
-                    {applicationLink && (
-                      <a href={applicationLink} target="_blank" rel="noreferrer" className="flex min-w-0 items-start gap-2 font-medium text-blue-700 hover:underline dark:text-blue-300">
-                        <FileText className="h-4 w-4 shrink-0" />
-                        <span className="min-w-0 break-words [overflow-wrap:anywhere]">Open application link</span>
-                      </a>
-                    )}
-                    {requirementsLink && (
-                      <a href={requirementsLink} target="_blank" rel="noreferrer" className="flex min-w-0 items-start gap-2 font-medium text-blue-700 hover:underline dark:text-blue-300">
-                        <FileText className="h-4 w-4 shrink-0" />
-                        <span className="min-w-0 break-words [overflow-wrap:anywhere]">{job.requirements_file_name || 'Requirements file'}</span>
-                      </a>
-                    )}
-                    {job.application_method && <p className="whitespace-pre-line break-words leading-6 [overflow-wrap:anywhere]">{job.application_method}</p>}
-                  </div>
-                ) : (
-                  <p className="mt-3 text-sm text-slate-500 dark:text-slate-400">Application details are not specified.</p>
-                )}
-              </div>
-
-              <div className="border-t border-slate-200 pt-4 dark:border-slate-700">
-                <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 dark:text-slate-500">Posted By</p>
-                <button
-                  type="button"
-                  onClick={() => job.poster_graduate_id && onOpenProfile(job.poster_graduate_id)}
-                  disabled={!job.poster_graduate_id}
-                  className="mt-3 flex min-w-0 items-center gap-3 text-left"
-                >
-                  <Avatar src={resolveAssetUrl(job.poster_profile_image_path)} label={posterName} size="sm" />
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-semibold text-slate-900 transition hover:text-blue-700 dark:text-slate-100 dark:hover:text-blue-300">{posterName}</span>
-                    <span className="block text-xs text-slate-500 dark:text-slate-400">{getJobPosterProgram(job)}</span>
+                <div className="mt-4 flex min-w-0 items-center gap-3">
+                  <span className="shrink-0 rounded-full ring-4 ring-blue-50 dark:ring-blue-950/40">
+                    <Avatar src={resolveAssetUrl(job.poster_profile_image_path)} label={posterName} size="md" />
                   </span>
-                </button>
-              </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="break-words text-sm font-bold text-slate-950 [overflow-wrap:anywhere] dark:text-white">{posterName}</p>
+                    {posterProgram && posterProgram !== posterRole && <p className="mt-0.5 break-words text-xs text-slate-500 [overflow-wrap:anywhere] dark:text-slate-400">{posterProgram}</p>}
+                    <span className="mt-2 inline-flex rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-[11px] font-bold text-blue-700 dark:border-blue-500/30 dark:bg-blue-950/40 dark:text-blue-200">{posterRole}</span>
+                  </div>
+                </div>
+
+                {job.poster_graduate_id && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose();
+                      onOpenProfile(job.poster_graduate_id as number);
+                    }}
+                    className="mt-4 flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 px-3.5 py-3 text-left text-sm font-semibold text-blue-700 transition hover:border-blue-200 hover:bg-blue-50 dark:border-slate-700 dark:text-blue-300 dark:hover:border-blue-500/40 dark:hover:bg-blue-950/30"
+                  >
+                    <span>View more from this poster</span>
+                    <ChevronRight className="h-4 w-4 shrink-0" />
+                  </button>
+                )}
+              </section>
             </aside>
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function JobMetadataPill({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
+  return (
+    <div className="flex min-w-0 max-w-full items-start gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm dark:border-slate-700 dark:bg-slate-900">
+      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-blue-600 dark:text-blue-300" aria-hidden="true" />
+      <span className="min-w-0">
+        <span className="block text-[10px] font-bold uppercase tracking-wide text-slate-400 dark:text-slate-500">{label}</span>
+        <span className="block min-w-0 break-words text-xs font-semibold leading-5 text-slate-600 [overflow-wrap:anywhere] dark:text-slate-300">{value}</span>
+      </span>
+    </div>
+  );
+}
+
+function JobModalSection({ icon: Icon, title, children }: { icon: LucideIcon; title: string; children: ReactNode }) {
+  return (
+    <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-700 dark:bg-slate-900 sm:p-6">
+      <div className="mb-4 flex items-center gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300"><Icon className="h-5 w-5" aria-hidden="true" /></span>
+        <h3 className="text-base font-bold text-slate-950 dark:text-white">{title}</h3>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function JobContentList({ items }: { items: string[] }) {
+  return (
+    <ul className="space-y-2.5">
+      {items.map((item, index) => (
+        <li key={`${item}-${index}`} className="flex min-w-0 items-start gap-2.5 text-sm leading-6 text-slate-600 dark:text-slate-300">
+          <CheckCircle2 className="mt-1 h-4 w-4 shrink-0 text-blue-600 dark:text-blue-300" aria-hidden="true" />
+          <span className="min-w-0 break-words [overflow-wrap:anywhere]">{item}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function JobDetailRow({ icon: Icon, label, value }: { icon: LucideIcon; label: string; value: string }) {
+  return (
+    <div className="grid min-w-0 grid-cols-[minmax(90px,0.8fr)_minmax(0,1.25fr)] gap-3 border-b border-slate-100 py-3 last:border-b-0 last:pb-0 dark:border-slate-800">
+      <dt className="flex min-w-0 items-start gap-2 text-xs font-medium leading-5 text-slate-500 dark:text-slate-400">
+        <Icon className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500 dark:text-blue-300" aria-hidden="true" />
+        <span>{label}</span>
+      </dt>
+      <dd className="min-w-0 break-words text-sm font-semibold leading-5 text-slate-800 [overflow-wrap:anywhere] dark:text-slate-200">{value}</dd>
     </div>
   );
 }
