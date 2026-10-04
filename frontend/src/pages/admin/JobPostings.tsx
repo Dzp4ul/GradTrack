@@ -197,7 +197,7 @@ export default function JobPostings() {
     const loadFormOptions = async () => {
       setLocationsLoading(true);
       const [programResult, locationResult] = await Promise.allSettled([
-        fetch(API_ENDPOINTS.SURVEY_PROGRAMS, { credentials: 'include' }),
+        fetch(`${API_ENDPOINTS.SURVEY_PROGRAMS}?with_graduate_records=1`, { credentials: 'include' }),
         fetch(API_ENDPOINTS.JOBS.LOCATIONS, { credentials: 'include' }),
       ]);
 

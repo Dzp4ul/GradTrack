@@ -55,10 +55,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
             exit;
         }
 
-        // Other authenticated GradTrack screens use this endpoint as the
-        // program master list. Survey verification always supplies survey_id
-        // and therefore never receives this unscoped list.
-        $query = "SELECT id, name, code, description FROM programs ORDER BY name ASC";
+        // Other GradTrack screens use this endpoint as the program master
+        // list. Job-posting forms can request only programs represented by at
+        // least one Registrar graduate record, without deleting unused master
+        // programs that may be needed by future imports.
+        $withGraduateRecords = filter_var(
+            $_GET['with_graduate_records'] ?? false,
+            FILTER_VALIDATE_BOOLEAN
+        );
+        $query = "SELECT p.id, p.name, p.code, p.description
+                  FROM programs p";
+        if ($withGraduateRecords) {
+            $query .= " WHERE EXISTS (
+                            SELECT 1
+                            FROM graduates g
+                            WHERE g.program_id = p.id
+                        )";
+        }
+        $query .= " ORDER BY p.name ASC";
         $stmt = $conn->prepare($query);
         $stmt->execute();
         $programs = $stmt->fetchAll(PDO::FETCH_ASSOC);

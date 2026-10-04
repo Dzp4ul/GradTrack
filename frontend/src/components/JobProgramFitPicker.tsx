@@ -68,7 +68,7 @@ export default function JobProgramFitPicker({
         placeholder="Select programs above or enter eligibility such as Open to all graduates"
         className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100"
       />
-      <p className="mt-1.5 text-xs font-normal leading-5 text-slate-500 dark:text-slate-400">All active GradTrack programs are available even when they have no current job posts.</p>
+      <p className="mt-1.5 text-xs font-normal leading-5 text-slate-500 dark:text-slate-400">Only programs represented by graduate records in Registrar are listed.</p>
     </fieldset>
   );
 }

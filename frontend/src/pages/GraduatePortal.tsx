@@ -1655,7 +1655,7 @@ export default function GraduatePortal() {
 
   const loadJobPrograms = useCallback(async () => {
     try {
-      const response = await authenticatedFetch(API_ENDPOINTS.SURVEY_PROGRAMS);
+      const response = await authenticatedFetch(`${API_ENDPOINTS.SURVEY_PROGRAMS}?with_graduate_records=1`);
       const programs = Array.isArray(response.data) ? response.data as Array<Partial<JobProgramOption>> : [];
       setJobPrograms(programs
         .map((program) => ({
@@ -5634,7 +5634,7 @@ export default function GraduatePortal() {
   return (
     <div className="min-h-screen overflow-x-clip bg-[#f4f6fb] text-slate-900" style={graduatePortalLayoutStyle}>
       <header className="sticky top-0 z-50 border-b border-gray-200 bg-white shadow-sm">
-        <div className="mx-auto grid max-w-screen-2xl grid-cols-[auto_minmax(0,1fr)] items-center gap-3 px-4 py-2 sm:px-6 xl:grid-cols-[minmax(180px,1fr)_auto_minmax(340px,1fr)] xl:gap-5">
+        <div className="mx-auto grid w-full min-w-0 max-w-screen-2xl grid-cols-[auto_minmax(0,1fr)] items-center gap-2 px-3 py-2 sm:gap-3 sm:px-6 xl:grid-cols-[minmax(180px,1fr)_auto_minmax(340px,1fr)] xl:gap-5">
           <button
             type="button"
             onClick={() => selectTab('community_forum')}
@@ -5692,7 +5692,7 @@ export default function GraduatePortal() {
 
           <div className="flex min-w-0 shrink-0 items-center justify-end gap-2 justify-self-end sm:gap-3">
             <ThemeToggle compact />
-            {notificationsEnabled && <NotificationBell audience="graduate" expandLabel onSnapshot={applyNotificationSnapshot} />}
+            {notificationsEnabled && <NotificationBell audience="graduate" onSnapshot={applyNotificationSnapshot} />}
 
             <div className="relative min-w-0" ref={profileMenuRef}>
               <button

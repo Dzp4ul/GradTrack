@@ -31,7 +31,6 @@ interface NotificationBellProps {
   audience: 'admin' | 'graduate';
   colorScheme?: 'light' | 'dark';
   className?: string;
-  expandLabel?: boolean;
   onSnapshot?: (snapshot: NotificationSnapshot) => void;
 }
 
@@ -89,7 +88,7 @@ function formatNotificationType(type: string) {
   return typeLabels[type] || type.replace(/[_-]+/g, ' ');
 }
 
-export default function NotificationBell({ audience, colorScheme = 'light', className = '', expandLabel = false, onSnapshot }: NotificationBellProps) {
+export default function NotificationBell({ audience, colorScheme = 'light', className = '', onSnapshot }: NotificationBellProps) {
   const navigate = useNavigate();
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const streamRef = useRef<EventSource | null>(null);
@@ -296,42 +295,39 @@ export default function NotificationBell({ audience, colorScheme = 'light', clas
       ? 'border-transparent text-white hover:border-white/10 hover:bg-white/10 focus:ring-white/40'
       : 'border-transparent text-gray-600 hover:border-gray-200 hover:bg-gray-100 hover:text-gray-900 focus:ring-blue-500/30 dark:text-slate-300 dark:hover:border-slate-700 dark:hover:bg-slate-800 dark:hover:text-white';
   const unreadLabel = unreadCount > 99 ? '99+' : String(unreadCount);
-  const expandedButtonClass = expandLabel
-    ? 'w-11 justify-start hover:w-40 focus-visible:w-40'
-    : 'w-11 justify-start';
 
   return (
-    <div className={`relative overflow-visible ${className}`} ref={wrapperRef}>
+    <div className={`relative flex-none overflow-visible ${className}`} ref={wrapperRef}>
       <button
         type="button"
         onClick={() => {
           setOpen((current) => !current);
           void fetchNotifications(true);
         }}
-        className={`group relative flex h-11 items-center overflow-visible rounded-full border transition-[width,background-color,border-color,color,box-shadow] duration-[250ms] ease-out focus:outline-none focus:ring-2 ${buttonClass} ${open ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-slate-700 dark:bg-slate-800 dark:text-blue-200' : ''} ${expandedButtonClass}`}
-        aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ''}`}
+        className={`relative inline-flex h-11 w-11 flex-none items-center justify-center overflow-visible rounded-full border transition-[background-color,border-color,color,box-shadow] duration-[250ms] ease-out focus:outline-none focus:ring-2 ${buttonClass} ${open ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-slate-700 dark:bg-slate-800 dark:text-blue-200' : ''}`}
+        aria-label="Notifications"
         aria-haspopup="dialog"
         aria-expanded={open}
+        title="Notifications"
       >
         <span className="relative flex h-11 w-11 shrink-0 items-center justify-center">
-          <Bell className="h-5 w-5" />
+          <Bell className="h-5 w-5" aria-hidden="true" />
           {unreadCount > 0 && (
-            <span className="pointer-events-none absolute right-0 top-0 z-10 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold leading-none text-white shadow-sm ring-2 ring-white dark:ring-slate-900">
+            <span aria-hidden="true" className="pointer-events-none absolute right-0 top-0 z-10 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold leading-none text-white shadow-sm ring-2 ring-white dark:ring-slate-900">
               {unreadLabel}
             </span>
           )}
         </span>
-        {expandLabel && (
-          <span className="min-w-0 max-w-0 -translate-x-1 overflow-hidden whitespace-nowrap pr-0 text-sm font-semibold opacity-0 transition-[max-width,opacity,transform,padding] duration-[250ms] ease-out group-hover:max-w-24 group-hover:translate-x-0 group-hover:pr-4 group-hover:opacity-100 group-focus-visible:max-w-24 group-focus-visible:translate-x-0 group-focus-visible:pr-4 group-focus-visible:opacity-100">
-            Notifications
-          </span>
-        )}
       </button>
 
       {open && (
-        <div className="absolute right-0 z-50 mt-2 w-80 max-w-[calc(100vw-1rem)] overflow-hidden rounded-lg border border-gray-200 bg-white text-gray-900 shadow-xl dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100">
-          <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-slate-800">
-            <div>
+        <div
+          className="fixed left-1/2 top-[4.25rem] z-50 flex max-h-[calc(100dvh-5rem)] w-[calc(100vw-1.5rem)] max-w-[440px] -translate-x-1/2 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white text-gray-900 shadow-xl sm:absolute sm:left-auto sm:right-0 sm:top-full sm:mt-2 sm:w-[440px] sm:max-w-[calc(100vw-1.5rem)] sm:translate-x-0 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+          role="dialog"
+          aria-label="Notifications"
+        >
+          <div className="flex flex-none items-center justify-between gap-3 border-b border-gray-100 px-3 py-3 sm:px-4 dark:border-slate-800">
+            <div className="min-w-0">
               <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">Notifications</p>
               <p className="text-xs text-gray-500 dark:text-slate-400">
                 {unreadCount > 0 ? `${unreadCount} unread` : 'All caught up'}
@@ -341,14 +337,14 @@ export default function NotificationBell({ audience, colorScheme = 'light', clas
               type="button"
               onClick={markAllRead}
               disabled={markingAll || unreadCount === 0}
-              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-blue-700 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:text-gray-400 disabled:hover:bg-transparent dark:text-blue-300 dark:hover:bg-blue-950/50 dark:disabled:text-slate-600"
+              className="inline-flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-blue-700 transition hover:bg-blue-50 disabled:cursor-not-allowed disabled:text-gray-400 disabled:hover:bg-transparent dark:text-blue-300 dark:hover:bg-blue-950/50 dark:disabled:text-slate-600"
             >
               {markingAll ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCheck className="h-3.5 w-3.5" />}
               Mark read
             </button>
           </div>
 
-          <div className="max-h-[420px] overflow-y-auto">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain sm:max-h-[420px]">
             {loading && (
               <div className="flex items-center justify-center gap-2 px-4 py-8 text-sm text-gray-500 dark:text-slate-400">
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -377,19 +373,19 @@ export default function NotificationBell({ audience, colorScheme = 'light', clas
                   type="button"
                   key={notification.key}
                   onClick={() => handleNotificationClick(notification)}
-                  className={`flex w-full gap-3 border-b border-gray-100 px-4 py-3 text-left transition last:border-b-0 hover:bg-gray-50 dark:border-slate-800 dark:hover:bg-slate-800/70 ${
+                  className={`flex min-w-0 w-full gap-2.5 border-b border-gray-100 px-3 py-3 text-left transition last:border-b-0 hover:bg-gray-50 sm:gap-3 sm:px-4 dark:border-slate-800 dark:hover:bg-slate-800/70 ${
                     notification.read ? 'bg-white dark:bg-slate-900' : 'bg-yellow-50/60 dark:bg-amber-950/20'
                   }`}
                 >
                   <span className={`mt-0.5 h-2.5 w-2.5 flex-shrink-0 rounded-full ${notification.read ? 'bg-gray-300' : 'bg-red-500'}`} />
                   <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-2">
-                      <span className="truncate text-sm font-semibold text-gray-900 dark:text-slate-100">{notification.title}</span>
-                      <span className={`rounded-md border px-1.5 py-0.5 text-[10px] font-semibold capitalize ${style}`}>
+                    <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="min-w-0 max-w-full flex-1 basis-40 break-words text-sm font-semibold text-gray-900 [overflow-wrap:anywhere] dark:text-slate-100">{notification.title}</span>
+                      <span className={`max-w-full shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold capitalize [overflow-wrap:anywhere] ${style}`}>
                         {formatNotificationType(notification.type)}
                       </span>
                     </span>
-                    <span className="mt-1 block text-sm leading-5 text-gray-600 dark:text-slate-300">{notification.message}</span>
+                    <span className="mt-1 block break-words text-sm leading-5 text-gray-600 [overflow-wrap:anywhere] dark:text-slate-300">{notification.message}</span>
                     <span className="mt-2 block text-xs text-gray-400 dark:text-slate-500">{formatRelativeTime(notification.created_at)}</span>
                   </span>
                 </button>
