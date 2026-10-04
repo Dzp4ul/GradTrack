@@ -151,11 +151,11 @@ $cachedTwice = gradtrack_statistical_get_cached_interpretation($fingerprintA);
 statistical_interpretation_assert($cachedOnce === $validResolved && $cachedTwice === $validResolved, 'TEST 7: repeated requests reuse the cached interpretation without another provider call');
 
 // TEST 8: a context is bound to its authenticated backend user and role.
-$owner = ['id' => 501, 'role' => 'dean_cs'];
-$otherDean = ['id' => 502, 'role' => 'dean_coed'];
+$owner = ['id' => 501, 'role' => 'research_coordinator'];
+$otherCoordinator = ['id' => 502, 'role' => 'research_coordinator'];
 $ownedFingerprint = gradtrack_statistical_register_context($owner, $strongPayload, $strongFallback);
-statistical_interpretation_assert(gradtrack_statistical_load_context($owner, $ownedFingerprint) !== null, 'TEST 8: the owning Dean can load the server-issued context');
-statistical_interpretation_assert(gradtrack_statistical_load_context($otherDean, $ownedFingerprint) === null, 'TEST 8: another Dean cannot reuse the context');
+statistical_interpretation_assert(gradtrack_statistical_load_context($owner, $ownedFingerprint) !== null, 'TEST 8: the owning Research Coordinator can load the server-issued context');
+statistical_interpretation_assert(gradtrack_statistical_load_context($otherCoordinator, $ownedFingerprint) === null, 'TEST 8: another Research Coordinator cannot reuse the context');
 
 // TEST 9: malformed and hallucinated provider responses are rejected.
 $malformedMock = static fn (): array => [

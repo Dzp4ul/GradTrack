@@ -100,7 +100,7 @@ $surveyId = $requestedSurveyId > 0
         "SELECT id FROM surveys WHERE archived_at IS NULL ORDER BY (status = 'active') DESC, id DESC LIMIT 1"
     )->fetchColumn() ?: 0);
 
-inferential_http_assert($adminId > 0, 'an authorized Reports account is available');
+inferential_http_assert($adminId > 0, 'an authorized Research Coordinator account is available');
 inferential_http_assert($surveyId > 0, 'a survey is available for endpoint testing');
 
 if ($adminId > 0 && $surveyId > 0) {
@@ -225,47 +225,37 @@ if ($adminId > 0 && $surveyId > 0) {
             '/reports/inferential-analysis.php?survey_id=' . $surveyId,
             $deanSession
         );
-        $deanPrograms = $deanMetadataResponse['json']['data']['filterOptions']['programs'] ?? [];
-        $deanProgramCodes = array_values(array_unique(array_column($deanPrograms, 'code')));
         inferential_http_assert(
-            $deanMetadataResponse['status'] === 200
-            && array_diff($deanProgramCodes, ['BSCS', 'ACT']) === [],
-            'Dean inferential metadata contains only programs in the authenticated department scope'
+            $deanMetadataResponse['status'] === 403,
+            'Dean accounts cannot load inferential metadata'
         );
 
-        $foreignProgramId = (int)($db->query(
-            "SELECT id FROM programs WHERE code NOT IN ('BSCS', 'ACT') ORDER BY id LIMIT 1"
-        )->fetchColumn() ?: 0);
-        if ($foreignProgramId > 0) {
-            $deanAttack = inferential_http_request(
-                'POST',
-                '/reports/inferential-analysis.php',
-                $deanSession,
-                [
-                    'surveyId' => $surveyId,
-                    'variable1' => 'program',
-                    'variable2' => 'employment_status',
-                    'filters' => ['programId' => $foreignProgramId],
-                ]
-            );
-            inferential_http_assert(
-                $deanAttack['status'] === 403,
-                'a manipulated inferential program filter cannot escape the authenticated Dean scope'
-            );
-        }
+        $deanAnalysisResponse = inferential_http_request(
+            'POST',
+            '/reports/inferential-analysis.php',
+            $deanSession,
+            [
+                'surveyId' => $surveyId,
+                'variable1' => 'program',
+                'variable2' => 'employment_status',
+                'filters' => [],
+            ]
+        );
+        inferential_http_assert(
+            $deanAnalysisResponse['status'] === 403,
+            'Dean accounts cannot run inferential analyses'
+        );
 
-        if (!empty($aiContext['fingerprint'])) {
-            $crossScopeInterpretation = inferential_http_request(
-                'POST',
-                '/reports/ai-statistical-interpretation.php',
-                $deanSession,
-                ['analysisFingerprint' => $aiContext['fingerprint']]
-            );
-            inferential_http_assert(
-                $crossScopeInterpretation['status'] === 404,
-                'a Dean cannot reuse another authenticated account\'s AI analysis context'
-            );
-        }
+        $deanInterpretationResponse = inferential_http_request(
+            'POST',
+            '/reports/ai-statistical-interpretation.php',
+            $deanSession,
+            ['analysisFingerprint' => $aiContext['fingerprint'] ?? str_repeat('0', 64)]
+        );
+        inferential_http_assert(
+            $deanInterpretationResponse['status'] === 403,
+            'Dean accounts cannot generate inferential AI interpretations'
+        );
     }
 }
 

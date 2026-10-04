@@ -4,7 +4,6 @@ require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/admin_auth.php';
 require_once __DIR__ . '/../config/audit_trail.php';
-require_once __DIR__ . '/../config/dean_program_scope.php';
 require_once __DIR__ . '/../config/graduation_years.php';
 require_once __DIR__ . '/../config/survey_response_analytics.php';
 require_once __DIR__ . '/../config/inferential_analysis.php';
@@ -47,7 +46,7 @@ function gradtrack_inferential_survey_id($value): int
     return (int)$value;
 }
 
-function gradtrack_inferential_context(PDO $db, array $survey, ?array $deanScope): array
+function gradtrack_inferential_context(PDO $db, array $survey): array
 {
     $surveyId = (int)$survey['id'];
     $coverage = gradtrack_get_survey_graduation_year_coverage($db, $surveyId);
@@ -62,10 +61,6 @@ function gradtrack_inferential_context(PDO $db, array $survey, ?array $deanScope
     if ($coverage['configured']) {
         $baseOptions['allowed_graduation_years'] = $coverage['years'];
     }
-    if ($deanScope !== null) {
-        $baseOptions['program_codes'] = $deanScope['program_codes'];
-    }
-
     $questions = gradtrack_analytics_fetch_questions($db, $surveyId);
     $roles = gradtrack_analytics_question_roles($questions);
     $availability = [
@@ -114,13 +109,11 @@ try {
         throw new InferentialAnalysisValidationException('Method not allowed.', 405);
     }
 
-    $authorizedRoles = array_merge(['research_coordinator'], gradtrack_dean_roles());
     $authUser = gradtrack_require_admin_auth(
         $db,
-        $authorizedRoles,
-        'Only authorized report accounts can access inferential analysis'
+        ['research_coordinator'],
+        'Only Research Coordinator accounts can access inferential analysis'
     );
-    $deanScope = gradtrack_dean_program_scope($db, $authUser);
 
     $payload = [];
     if ($method === 'POST') {
@@ -134,7 +127,7 @@ try {
         $method === 'GET' ? ($_GET['survey_id'] ?? $_GET['surveyId'] ?? null) : ($payload['surveyId'] ?? null)
     );
     $survey = gradtrack_inferential_survey($db, $surveyId);
-    $context = gradtrack_inferential_context($db, $survey, $deanScope);
+    $context = gradtrack_inferential_context($db, $survey);
 
     if ($method === 'GET') {
         echo json_encode(['success' => true, 'data' => gradtrack_inferential_public_context($context)]);

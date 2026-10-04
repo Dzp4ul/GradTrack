@@ -3,7 +3,6 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/admin_auth.php';
-require_once __DIR__ . '/../config/dean_program_scope.php';
 require_once __DIR__ . '/../config/statistical_interpretation.php';
 
 $database = new Database();
@@ -18,8 +17,8 @@ try {
 
     $authUser = gradtrack_require_admin_auth(
         $db,
-        array_merge(['research_coordinator'], gradtrack_dean_roles()),
-        'Only authorized report accounts can generate statistical interpretations'
+        ['research_coordinator'],
+        'Only Research Coordinator accounts can generate statistical interpretations'
     );
     $body = json_decode((string)file_get_contents('php://input'), true);
     if (!is_array($body)) {

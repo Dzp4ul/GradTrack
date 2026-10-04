@@ -803,6 +803,7 @@ const buildLocalDescriptiveAnalytics = (reportType: string, reportData: unknown)
 export default function Reports() {
   const { user } = useAuth();
   const isDean = DEAN_ROLES.includes(user?.role ?? '');
+  const canAccessInferential = user?.role === 'research_coordinator';
   const initialParams = new URLSearchParams(window.location.search);
   const initialTabParam = initialParams.get('tab') as ReportTab | null;
   const initialSurveyParam = initialParams.get('survey_id');
@@ -811,7 +812,11 @@ export default function Reports() {
   const initialSurveyId = parseSurveyId(initialSurveyParam ?? initialStoredSurvey);
   const initialNoSurveySelection = hasInitialSurveyParam && parseSurveyId(initialSurveyParam) === null;
   const [tab, setTab] = useState<ReportTab>(
-    initialTabParam && REPORT_TABS.includes(initialTabParam) ? initialTabParam : 'overview'
+    initialTabParam
+      && REPORT_TABS.includes(initialTabParam)
+      && (initialTabParam !== 'inferential' || canAccessInferential)
+      ? initialTabParam
+      : 'overview'
   );
   const [overview, setOverview] = useState<Overview | null>(null);
   const [programData, setProgramData] = useState<ProgramReport[]>([]);
@@ -1362,7 +1367,7 @@ export default function Reports() {
   };
 
   const runInferentialAnalysis = async () => {
-    if (!selectedSurveyId || inferentialAnalysisLoading) return;
+    if (!canAccessInferential || !selectedSurveyId || inferentialAnalysisLoading) return;
     if (!inferentialSettings.variable1 || !inferentialSettings.variable2) {
       setInferentialError('Please select two categorical variables for inferential analysis.');
       return;
@@ -1667,7 +1672,7 @@ export default function Reports() {
   }, [tab, selectedSurveyDepartment, selectedSurveyId, isDean, selectedYear]);
 
   useEffect(() => {
-    if (tab !== 'inferential') return;
+    if (tab !== 'inferential' || !canAccessInferential) return;
     setInferentialResult(null);
     setInferentialError('');
     if (selectedSurveyId) {
@@ -1676,7 +1681,13 @@ export default function Reports() {
       setInferentialMetadata(null);
       setInferentialMetadataLoading(false);
     }
-  }, [tab, selectedSurveyId, isDean]);
+  }, [tab, selectedSurveyId, canAccessInferential]);
+
+  useEffect(() => {
+    if (!canAccessInferential && tab === 'inferential') {
+      setTab('overview');
+    }
+  }, [canAccessInferential, tab]);
 
   useEffect(() => {
     setShowSurveyGraphs(false);
@@ -3242,7 +3253,10 @@ export default function Reports() {
     { key: 'salary', label: 'Salary Distribution' },
     { key: 'surveys', label: 'Survey Analytics' },
     { key: 'inferential', label: 'Inferential Analysis' },
-  ] as const;
+  ].filter((reportTab) => reportTab.key !== 'inferential' || canAccessInferential) as Array<{
+    key: ReportTab;
+    label: string;
+  }>;
 
   const renderAiAnalyticsSection = () => {
     const localStructured = buildStructuredOverviewAnalysis(overview, overviewProgramData);
@@ -4382,7 +4396,7 @@ export default function Reports() {
               )}
 
               {/* Inferential Analysis */}
-              {tab === 'inferential' && (
+              {canAccessInferential && tab === 'inferential' && (
                 <InferentialAnalysisPanel
                   selectedSurveyId={selectedSurveyId}
                   metadata={inferentialMetadata}
