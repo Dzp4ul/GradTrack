@@ -5927,21 +5927,6 @@ export default function GraduatePortal() {
                     </div>
                   </div>
 
-                  <div className="grid gap-4 lg:grid-cols-2">
-                    {getSetting('community_default_announcement') && (
-                      <div className="rounded-[24px] border border-blue-100 bg-blue-50 px-5 py-4">
-                        <p className="text-sm font-bold text-blue-900">Community Announcement</p>
-                        <p className="mt-2 whitespace-pre-line text-sm leading-6 text-blue-800">{getSetting('community_default_announcement')}</p>
-                      </div>
-                    )}
-                    {getSetting('community_guidelines') && (
-                      <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-4 shadow-sm">
-                        <p className="text-sm font-bold text-slate-900">Community Guidelines</p>
-                        <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-600">{getSetting('community_guidelines')}</p>
-                      </div>
-                    )}
-                  </div>
-
                   <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px] xl:grid-cols-[minmax(0,1fr)_380px]">
                     <div className="min-w-0 space-y-5">
                       <div className="rounded-[32px] border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
