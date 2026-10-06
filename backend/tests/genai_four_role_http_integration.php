@@ -131,6 +131,29 @@ try {
             'Research Coordinator Taglish count answer contains the current authorized survey-response total'
         );
 
+        $crossTabCount = genai_four_role_chat(
+            'Research Coordinator',
+            $session,
+            'How many answered the survey?',
+            '/admin/job-postings'
+        );
+        genai_four_role_assert(
+            ($crossTabCount['json']['data']['context']['dataTool'] ?? '') === 'survey_participation'
+            && genai_four_role_metric($crossTabCount, 'Submitted survey responses') !== null,
+            'Job Postings page context still permits authorized Survey Participation data'
+        );
+
+        $crossTabJobHelp = genai_four_role_chat(
+            'Research Coordinator',
+            $session,
+            'How do I create a job posting?',
+            '/admin/surveys'
+        );
+        genai_four_role_assert(
+            stripos((string)$crossTabJobHelp['json']['data']['assistant']['answer'], 'does not have access') === false,
+            'Survey Management page context still permits authorized Job Postings guidance'
+        );
+
         $list = genai_four_role_chat('Research Coordinator', $session, 'Show graduates who have not answered the survey.', '/admin/graduates');
         genai_four_role_assert(
             ($list['json']['data']['context']['dataTool'] ?? '') === 'survey_participation_list'

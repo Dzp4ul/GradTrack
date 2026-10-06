@@ -110,6 +110,78 @@ function graduates_audit_display_name(array $graduate): string
     return $name !== '' ? $name : 'Graduate';
 }
 
+/**
+ * Return the normalized program options represented by graduate records in one
+ * Registrar section. Program names that differ only by whitespace or casing are
+ * collapsed without rewriting historical records.
+ */
+function graduates_program_options_for_scope(PDO $db, string $archiveScope): array
+{
+    $where = $archiveScope === 'archived'
+        ? 'g.archived_at IS NOT NULL'
+        : "g.archived_at IS NULL AND g.status = 'active'";
+    $stmt = $db->query(
+        "SELECT p.id, p.code, p.name, COUNT(g.id) AS record_count
+         FROM programs p
+         INNER JOIN graduates g ON g.program_id = p.id
+         WHERE {$where}
+         GROUP BY p.id, p.code, p.name
+         HAVING COUNT(g.id) > 0
+         ORDER BY p.id ASC"
+    );
+
+    $optionsByName = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $program) {
+        $code = gradtrack_program_normalize_code($program['code'] ?? '');
+        $name = gradtrack_program_clean_text($program['name'] ?? '');
+        $normalizedName = gradtrack_program_normalize_name($name);
+        $key = $normalizedName !== '' ? $normalizedName : strtolower($code);
+        if ($key === '') continue;
+
+        if (!isset($optionsByName[$key])) {
+            $optionsByName[$key] = [
+                'id' => (int)$program['id'],
+                'code' => $code,
+                'name' => $name !== '' ? $name : $code,
+                'record_count' => (int)$program['record_count'],
+            ];
+            continue;
+        }
+
+        $optionsByName[$key]['record_count'] += (int)$program['record_count'];
+    }
+
+    return array_values($optionsByName);
+}
+
+/**
+ * A normalized dropdown option can represent legacy duplicate program rows.
+ * Filtering by any representative ID must therefore include every equivalent
+ * program ID instead of hiding records attached to a formatting variant.
+ */
+function graduates_equivalent_program_ids(PDO $db, int $programId): array
+{
+    if ($programId <= 0) return [];
+
+    $programs = gradtrack_program_master_rows($db);
+    $selected = gradtrack_find_program($programs, $programId);
+    if ($selected === null) return [];
+
+    $selectedName = gradtrack_program_normalize_name($selected['name'] ?? '');
+    $selectedCode = gradtrack_program_normalize_code($selected['code'] ?? '');
+    $ids = [];
+    foreach ($programs as $program) {
+        $sameName = $selectedName !== ''
+            && gradtrack_program_normalize_name($program['name'] ?? '') === $selectedName;
+        $sameCode = $selectedName === ''
+            && $selectedCode !== ''
+            && gradtrack_program_normalize_code($program['code'] ?? '') === $selectedCode;
+        if ($sameName || $sameCode) $ids[] = (int)$program['id'];
+    }
+
+    return array_values(array_unique(array_filter($ids, static fn (int $id): bool => $id > 0)));
+}
+
 $database = new Database();
 $db = $database->getConnection();
 $method = $_SERVER['REQUEST_METHOD'];
@@ -154,7 +226,9 @@ try {
             } else {
                 // List all graduates with filters
                 $archiveScope = isset($_GET['archive']) && $_GET['archive'] === 'archived' ? 'archived' : 'active';
-                $where = [$archiveScope === 'archived' ? 'g.archived_at IS NOT NULL' : 'g.archived_at IS NULL'];
+                $where = [$archiveScope === 'archived'
+                    ? 'g.archived_at IS NOT NULL'
+                    : "g.archived_at IS NULL AND g.status = 'active'"];
                 $params = [];
 
                 if (isset($_GET['search']) && !empty($_GET['search'])) {
@@ -167,8 +241,18 @@ try {
                     $params[':search5'] = $searchTerm;
                 }
                 if (isset($_GET['program_id']) && !empty($_GET['program_id'])) {
-                    $where[] = "g.program_id = :program_id";
-                    $params[':program_id'] = $_GET['program_id'];
+                    $programIds = graduates_equivalent_program_ids($db, (int)$_GET['program_id']);
+                    if ($programIds === []) {
+                        $where[] = '1 = 0';
+                    } else {
+                        $programPlaceholders = [];
+                        foreach ($programIds as $index => $programId) {
+                            $placeholder = ':program_id_' . $index;
+                            $programPlaceholders[] = $placeholder;
+                            $params[$placeholder] = $programId;
+                        }
+                        $where[] = 'g.program_id IN (' . implode(', ', $programPlaceholders) . ')';
+                    }
                 }
                 if (isset($_GET['year_graduated']) && $_GET['year_graduated'] !== '') {
                     $requestedYear = gradtrack_normalize_graduation_year($_GET['year_graduated']);
@@ -220,45 +304,19 @@ try {
                 $stmt->execute($params);
                 $graduates = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 $archiveCounts = $db->query("SELECT
-                                                SUM(CASE WHEN archived_at IS NULL THEN 1 ELSE 0 END) AS active,
+                                                SUM(CASE WHEN archived_at IS NULL AND status = 'active' THEN 1 ELSE 0 END) AS active,
                                                 SUM(CASE WHEN archived_at IS NOT NULL THEN 1 ELSE 0 END) AS archived
                                              FROM graduates")->fetch(PDO::FETCH_ASSOC) ?: [];
-                $yearProgramId = isset($_GET['program_id']) && (int) $_GET['program_id'] > 0
-                    ? (int) $_GET['program_id']
+                $yearProgramIds = isset($_GET['program_id']) && (int) $_GET['program_id'] > 0
+                    ? graduates_equivalent_program_ids($db, (int)$_GET['program_id'])
                     : null;
-                $yearOptions = gradtrack_fetch_graduate_years($db, $archiveScope, $yearProgramId);
-                // Keep the full master list for Add Graduate and import resolution.
-                $programOptionsStmt = $db->query(
-                    "SELECT p.id, p.code, p.name
-                     FROM programs p
-                     ORDER BY p.id ASC"
-                );
-                $programOptions = array_map(static function (array $program): array {
-                    return [
-                        'id' => (int)$program['id'],
-                        'code' => (string)$program['code'],
-                        'name' => (string)$program['name'],
-                    ];
-                }, $programOptionsStmt->fetchAll(PDO::FETCH_ASSOC));
-                // The Department filter should contain only programs represented
-                // by at least one record in the current active/archive section.
-                $filterProgramOptionsStmt = $db->query(
-                    "SELECT p.id, p.code, p.name, COUNT(g.id) AS record_count
-                     FROM programs p
-                     INNER JOIN graduates g ON g.program_id = p.id
-                     WHERE " . ($archiveScope === 'archived' ? 'g.archived_at IS NOT NULL' : 'g.archived_at IS NULL') . "
-                     GROUP BY p.id, p.code, p.name
-                     HAVING COUNT(g.id) > 0
-                     ORDER BY p.id ASC"
-                );
-                $filterProgramOptions = array_map(static function (array $program): array {
-                    return [
-                        'id' => (int)$program['id'],
-                        'code' => (string)$program['code'],
-                        'name' => (string)$program['name'],
-                        'record_count' => (int)$program['record_count'],
-                    ];
-                }, $filterProgramOptionsStmt->fetchAll(PDO::FETCH_ASSOC));
+                $yearOptions = gradtrack_fetch_graduate_years($db, $archiveScope, null, null, $yearProgramIds);
+                // Add Graduate and the normal Department filter intentionally use
+                // the same active-record source. The archive keeps its own list.
+                $programOptions = graduates_program_options_for_scope($db, 'active');
+                $filterProgramOptions = $archiveScope === 'active'
+                    ? $programOptions
+                    : graduates_program_options_for_scope($db, 'archived');
 
                 echo json_encode([
                     "success" => true,

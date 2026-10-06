@@ -262,6 +262,28 @@ import_test_assert(
     'the database course catalog overrides the generic acronym with the saved official code'
 );
 
+$civilEngineeringWorkbook = [
+    'sheetNames' => ['Civil Engineering 2026'],
+    'sheets' => ['Civil Engineering 2026' => [
+        ['Student ID', 'Name', 'Program Name', 'Year Graduated'],
+        ['2026-9004', 'Civil Engineering, Graduate', ' Bachelor of Science in Civil Engineering ', '2026'],
+    ]],
+];
+$civilEngineeringResult = gradtrack_graduate_import_execute(
+    $db,
+    gradtrack_graduate_import_analyze($db, $civilEngineeringWorkbook),
+    true
+);
+import_test_assert($civilEngineeringResult['added'] === 1, 'a Civil Engineering graduate can introduce a previously unused program');
+import_test_assert(
+    (int) $db->query("SELECT COUNT(*) FROM programs WHERE LOWER(TRIM(name)) = 'bachelor of science in civil engineering'")->fetchColumn() === 1,
+    'the Civil Engineering import registers one normalized program without a source-code change'
+);
+import_test_assert(
+    (int) $db->query("SELECT COUNT(*) FROM graduates g INNER JOIN programs p ON p.id = g.program_id WHERE g.student_id = '2026-9004' AND LOWER(TRIM(p.name)) = 'bachelor of science in civil engineering'")->fetchColumn() === 1,
+    'the imported Civil Engineering graduate is linked to the newly registered program'
+);
+
 $dynamicProgramWorkbook = [
     'sheetNames' => ['New Programs'],
     'sheets' => ['New Programs' => [

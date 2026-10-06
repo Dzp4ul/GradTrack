@@ -361,13 +361,30 @@ if (!function_exists('gradtrack_fetch_graduate_years')) {
         PDO $db,
         string $archiveScope = 'active',
         ?int $programId = null,
-        ?array $programCodes = null
+        ?array $programCodes = null,
+        ?array $programIds = null
     ): array {
-        $where = [$archiveScope === 'archived' ? 'g.archived_at IS NOT NULL' : 'g.archived_at IS NULL'];
+        $where = [$archiveScope === 'archived'
+            ? 'g.archived_at IS NOT NULL'
+            : "g.archived_at IS NULL AND g.status = 'active'"];
         $params = [];
         $join = '';
 
-        if ($programId !== null && $programId > 0) {
+        if (is_array($programIds)) {
+            $cleanProgramIds = array_values(array_unique(array_filter(
+                array_map('intval', $programIds),
+                static fn (int $id): bool => $id > 0
+            )));
+            if ($cleanProgramIds === []) return [];
+
+            $placeholders = [];
+            foreach ($cleanProgramIds as $index => $id) {
+                $placeholder = ':year_program_id_' . $index;
+                $placeholders[] = $placeholder;
+                $params[$placeholder] = $id;
+            }
+            $where[] = 'g.program_id IN (' . implode(', ', $placeholders) . ')';
+        } elseif ($programId !== null && $programId > 0) {
             $where[] = 'g.program_id = :year_program_id';
             $params[':year_program_id'] = $programId;
         }

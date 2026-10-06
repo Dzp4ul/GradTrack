@@ -85,6 +85,26 @@ foreach ($dataCases as [$role, $question, $route, $tool, $metric]) {
     );
 }
 
+$crossTabSurveyResolution = gradtrack_genai_resolve_data_tool(
+    'How many answered the survey?',
+    'research_coordinator',
+    null,
+    ['route' => '/admin/job-postings', 'current_module' => 'Job Postings']
+);
+genai_behavior_assert(
+    ($crossTabSurveyResolution['tool'] ?? null) === 'survey_participation'
+    && ($crossTabSurveyResolution['metric'] ?? null) === 'answered',
+    'Job Postings page context does not block an authorized Survey Participation question'
+);
+genai_behavior_assert(
+    gradtrack_genai_classify_request(
+        'How do I create a job posting?',
+        'research_coordinator',
+        $policies['research_coordinator']
+    )['type'] === 'feature_help',
+    'Survey Management page context does not block authorized Job Postings guidance'
+);
+
 $listCases = [
     ['research_coordinator', 'Show graduates who have not answered the survey.', 'survey_participation_list'],
     ['registrar', 'List BSCS graduates.', 'graduate_record_list'],

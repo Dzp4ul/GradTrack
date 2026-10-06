@@ -128,6 +128,10 @@ const normalizeText = (value: unknown): string => {
   return String(value).trim();
 };
 
+const normalizeProgramNameKey = (value: unknown): string => normalizeText(value)
+  .replace(/\s+/g, ' ')
+  .toLocaleLowerCase();
+
 const normalizeFieldKey = (value: unknown): string => normalizeText(value).toLowerCase().replace(/[^a-z0-9]/g, '');
 
 const pickValue = (row: Record<string, unknown>, keys: string[]): string => {
@@ -417,6 +421,7 @@ export default function Graduates() {
   const [archiveCounts, setArchiveCounts] = useState({ active: 0, archived: 0 });
   const [showModal, setShowModal] = useState(false);
   const [editingGraduateId, setEditingGraduateId] = useState<number | null>(null);
+  const [editingProgramOption, setEditingProgramOption] = useState<ProgramOption | null>(null);
   const [viewedGraduate, setViewedGraduate] = useState<Graduate | null>(null);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
   const [loadingGraduateId, setLoadingGraduateId] = useState<number | null>(null);
@@ -464,20 +469,26 @@ export default function Graduates() {
       }
 
       const nextProgramOptions: ProgramOption[] = Array.isArray(res.program_options)
-        ? res.program_options.map((program: { id?: unknown; code?: unknown; name?: unknown }) => ({
-            id: String(program.id ?? ''),
-            code: normalizeText(program.code).toUpperCase(),
-            name: normalizeText(program.name),
-          })).filter((program: ProgramOption) => program.id !== '' && program.code !== '')
+        ? res.program_options.map((program: { id?: unknown; code?: unknown; name?: unknown }) => {
+            const code = normalizeText(program.code).toUpperCase();
+            return {
+              id: String(program.id ?? ''),
+              code,
+              name: normalizeText(program.name) || code,
+            };
+          }).filter((program: ProgramOption) => program.id !== '' && program.name !== '')
         : [];
       setProgramOptions(nextProgramOptions);
 
       const nextDepartmentFilterOptions: ProgramOption[] = Array.isArray(res.filter_program_options)
-        ? res.filter_program_options.map((program: { id?: unknown; code?: unknown; name?: unknown }) => ({
-            id: String(program.id ?? ''),
-            code: normalizeText(program.code).toUpperCase(),
-            name: normalizeText(program.name),
-          })).filter((program: ProgramOption) => program.id !== '' && program.code !== '')
+        ? res.filter_program_options.map((program: { id?: unknown; code?: unknown; name?: unknown }) => {
+            const code = normalizeText(program.code).toUpperCase();
+            return {
+              id: String(program.id ?? ''),
+              code,
+              name: normalizeText(program.name) || code,
+            };
+          }).filter((program: ProgramOption) => program.id !== '' && program.name !== '')
         : nextProgramOptions;
       setDepartmentFilterOptions(nextDepartmentFilterOptions);
 
@@ -517,8 +528,12 @@ export default function Graduates() {
   }, [page, search, selectedProgramId, filterYear, archiveView]);
 
   const openAdd = () => {
-    setFormData({ ...emptyForm, program_id: selectedProgramId });
+    const activeProgramId = programOptions.some((program) => program.id === selectedProgramId)
+      ? selectedProgramId
+      : '';
+    setFormData({ ...emptyForm, program_id: activeProgramId });
     setEditingGraduateId(null);
+    setEditingProgramOption(null);
     setShowModal(true);
   };
 
@@ -564,6 +579,11 @@ export default function Graduates() {
       const currentGraduate = await fetchGraduateRecord(graduate);
       setFormData(graduateToFormData(currentGraduate));
       setEditingGraduateId(currentGraduate.id);
+      setEditingProgramOption(currentGraduate.program_id === null ? null : {
+        id: String(currentGraduate.program_id),
+        code: normalizeText(currentGraduate.program_code).toUpperCase(),
+        name: normalizeText(currentGraduate.program_name || currentGraduate.program_code),
+      });
       setShowModal(true);
     } catch (error) {
       setMsgBox({
@@ -631,6 +651,7 @@ export default function Graduates() {
 
       setShowModal(false);
       setEditingGraduateId(null);
+      setEditingProgramOption(null);
       await fetchGraduates();
       setMsgBox({
         isOpen: true,
@@ -735,7 +756,7 @@ export default function Graduates() {
     setMsgBox({
       isOpen: true,
       type: 'confirm',
-      message: `Archive all graduates for year ${filterYear} in ${programOptions.find((p) => p.id === selectedProgramId)?.code || 'the selected program'}?\n\nThe records will be moved to Registrar Archive and all related data will be preserved.`,
+      message: `Archive all graduates for year ${filterYear} in ${departmentFilterOptions.find((p) => p.id === selectedProgramId)?.code || 'the selected program'}?\n\nThe records will be moved to Registrar Archive and all related data will be preserved.`,
       confirmText: 'Archive',
       cancelText: 'Cancel',
       onConfirm: async () => {
@@ -879,7 +900,7 @@ export default function Graduates() {
   const handlePermanentDeleteByYear = () => {
     if (!filterYear || !selectedProgramId || isBulkDeleting) return;
 
-    const programCode = programOptions.find((program) => program.id === selectedProgramId)?.code || 'the selected department';
+    const programCode = departmentFilterOptions.find((program) => program.id === selectedProgramId)?.code || 'the selected department';
     setMsgBox({
       isOpen: true,
       type: 'confirm',
@@ -1074,6 +1095,17 @@ export default function Graduates() {
     }
   };
 
+  const graduateFormProgramOptions = editingGraduateId !== null
+    && editingProgramOption
+    && !programOptions.some((program) => program.id === editingProgramOption.id)
+    ? [
+        editingProgramOption,
+        ...programOptions.filter((program) => (
+          normalizeProgramNameKey(program.name) !== normalizeProgramNameKey(editingProgramOption.name)
+        )),
+      ]
+    : programOptions;
+
   const updateField = (field: keyof FormData, value: string) => {
     setFormData((prev) => {
       const normalizedValue = field === 'student_id'
@@ -1086,7 +1118,7 @@ export default function Graduates() {
       const next = { ...prev, [field]: normalizedValue };
 
       if (field === 'student_id' || field === 'program_id') {
-        const computedYear = inferGraduationYear(next.student_id, next.program_id, programOptions);
+        const computedYear = inferGraduationYear(next.student_id, next.program_id, graduateFormProgramOptions);
         if (computedYear) {
           next.year_graduated = computedYear;
         }
@@ -1182,7 +1214,9 @@ export default function Graduates() {
               >
                 <option value="">All Departments</option>
                 {departmentFilterOptions.map((program) => (
-                  <option key={program.id} value={program.id}>{program.code} — {program.name}</option>
+                  <option key={program.id} value={program.id}>
+                    {program.code ? `${program.code} — ${program.name}` : program.name}
+                  </option>
                 ))}
               </select>
             </label>
@@ -1500,7 +1534,7 @@ export default function Graduates() {
               <h2 id="graduate-form-title" className="text-lg font-bold text-[#1b2a4a]">
                 {editingGraduateId !== null ? 'Edit Graduate' : 'Add Graduate'}
               </h2>
-              <button type="button" onClick={() => { setShowModal(false); setEditingGraduateId(null); }} className="p-1 rounded-lg hover:bg-gray-100" aria-label="Close graduate form">
+              <button type="button" onClick={() => { setShowModal(false); setEditingGraduateId(null); setEditingProgramOption(null); }} className="p-1 rounded-lg hover:bg-gray-100" aria-label="Close graduate form">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1561,7 +1595,7 @@ export default function Graduates() {
                     className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">Select</option>
-                    {programOptions.map((program) => (
+                    {graduateFormProgramOptions.map((program) => (
                       <option key={program.id} value={program.id}>{program.name}</option>
                     ))}
                   </select>
@@ -1584,7 +1618,7 @@ export default function Graduates() {
               <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">
                 <button
                   type="button"
-                    onClick={() => { setShowModal(false); setEditingGraduateId(null); }}
+                    onClick={() => { setShowModal(false); setEditingGraduateId(null); setEditingProgramOption(null); }}
                   className="px-4 py-2.5 border rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
                 >
                   Cancel

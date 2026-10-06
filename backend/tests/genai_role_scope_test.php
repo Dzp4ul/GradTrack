@@ -82,6 +82,16 @@ genai_scope_test_assert(
     && str_contains($semanticPrompt, 'recent_server_owned_conversation'),
     'semantic prompt includes verified capabilities, current page context, and recent history'
 );
+$systemPrompt = gradtrack_genai_system_prompt(
+    ['role' => 'research_coordinator'],
+    $policies['research_coordinator']
+);
+genai_scope_test_assert(
+    str_contains($systemPrompt, 'You are the GradTrack AI Assistant')
+    && str_contains($systemPrompt, 'current page is additional context only')
+    && str_contains($systemPrompt, 'authenticated role'),
+    'system prompt uses the general assistant identity, treats page context as non-restrictive, and preserves RBAC'
+);
 genai_scope_test_assert(
     gradtrack_genai_contextual_suggestions($policies['research_coordinator'], ['route' => '/admin/graduates'])[0]
         === 'Show graduates without survey responses',
