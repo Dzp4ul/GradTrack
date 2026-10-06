@@ -77,23 +77,28 @@ if (!function_exists('gradtrack_graduate_storage_references')) {
             JOIN graduate_accounts account ON account.id = cover_image.graduate_account_id
             WHERE account.graduate_id = :graduate_id_2
             UNION ALL
+            SELECT credential.file_path
+            FROM graduate_credentials credential
+            JOIN graduate_accounts account ON account.id = credential.graduate_account_id
+            WHERE account.graduate_id = :graduate_id_3
+            UNION ALL
             SELECT document.file_path
             FROM alumni_supporting_documents document
-            WHERE document.graduate_id = :graduate_id_3
+            WHERE document.graduate_id = :graduate_id_4
             UNION ALL
             SELECT post_media.file_path
             FROM forum_post_media post_media
             JOIN forum_posts post ON post.id = post_media.post_id
-            WHERE post.graduate_id = :graduate_id_4
+            WHERE post.graduate_id = :graduate_id_5
             UNION ALL
             SELECT post.image_path
             FROM forum_posts post
-            WHERE post.graduate_id = :graduate_id_5 AND post.image_path IS NOT NULL
+            WHERE post.graduate_id = :graduate_id_6 AND post.image_path IS NOT NULL
             UNION ALL
             SELECT attachment.storage_path
             FROM forum_chat_message_attachments attachment
             LEFT JOIN forum_chat_messages message ON message.id = attachment.message_id
-            WHERE attachment.uploaded_by = :graduate_id_6 OR message.graduate_id = :graduate_id_7{$roomClause}
+            WHERE attachment.uploaded_by = :graduate_id_7 OR message.graduate_id = :graduate_id_8{$roomClause}
             UNION ALL
             SELECT room.group_image_path
             FROM forum_chat_rooms room
@@ -103,22 +108,22 @@ if (!function_exists('gradtrack_graduate_storage_references')) {
             SELECT job.requirements_file_path
             FROM job_posts job
             JOIN graduate_accounts account ON account.id = job.posted_by_account_id
-            WHERE account.graduate_id = :graduate_id_8 AND job.requirements_file_path IS NOT NULL
+            WHERE account.graduate_id = :graduate_id_9 AND job.requirements_file_path IS NOT NULL
             UNION ALL
             SELECT mentor.proof_file_path
             FROM mentors mentor
-            WHERE mentor.graduate_id = :graduate_id_9 AND mentor.proof_file_path IS NOT NULL
+            WHERE mentor.graduate_id = :graduate_id_10 AND mentor.proof_file_path IS NOT NULL
             UNION ALL
             SELECT announcement.cover_image_path
             FROM announcements announcement
-            WHERE announcement.graduate_id = :graduate_id_10 AND announcement.cover_image_path IS NOT NULL
+            WHERE announcement.graduate_id = :graduate_id_11 AND announcement.cover_image_path IS NOT NULL
             UNION ALL
             SELECT announcement_image.file_path
             FROM announcement_images announcement_image
             JOIN announcements announcement ON announcement.id = announcement_image.announcement_id
-            WHERE announcement.graduate_id = :graduate_id_11
+            WHERE announcement.graduate_id = :graduate_id_12
         ";
-        for ($index = 1; $index <= 11; $index++) {
+        for ($index = 1; $index <= 12; $index++) {
             $params[':graduate_id_' . $index] = $graduateId;
         }
         $stmt = $db->prepare($sql);

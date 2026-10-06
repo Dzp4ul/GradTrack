@@ -26,6 +26,7 @@ $requirements = [
     'graduate_profile_images' => ['id', 'graduate_account_id', 'file_path'],
     'graduate_cover_images' => ['id', 'graduate_account_id', 'file_path'],
     'graduate_profiles' => ['id', 'graduate_account_id'],
+    'graduate_credentials' => ['id', 'graduate_account_id', 'credential_name', 'issuing_organization', 'issue_date', 'expiration_date', 'credential_id', 'verification_url', 'file_path', 'original_file_name', 'stored_file_name', 'mime_type', 'file_size_bytes', 'status', 'created_at', 'updated_at'],
     'system_settings' => ['id', 'setting_key', 'setting_value', 'setting_group'],
     'website_content' => ['id', 'page'],
     'faq_categories' => ['id'],
@@ -82,6 +83,7 @@ foreach ($requirements as $table => $columns) {
 }
 
 $requiredIndexes = [
+    ['graduate_credentials', 'graduate_account_id,updated_at,id', false],
     ['forum_chat_messages', 'room_id,graduate_id,client_message_id', true],
     ['forum_chat_members', 'room_id,graduate_id', true],
     ['forum_chat_blocks', 'blocker_id,blocked_id', true],

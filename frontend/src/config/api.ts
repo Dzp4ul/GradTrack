@@ -43,6 +43,7 @@ export const API_ENDPOINTS = {
   },
   GRADUATE_PROFILE: `${API_ROOT}/graduate-profile/index.php`,
   GRADUATE_MINI_PROFILE: `${API_ROOT}/graduate-profile/mini.php`,
+  GRADUATE_CREDENTIALS: `${API_ROOT}/graduate-credentials/index.php`,
   GRADUATES: `${API_ROOT}/graduates/index.php`,
   SURVEYS: `${API_ROOT}/surveys/index.php`,
   SURVEY_PROGRAMS: `${API_ROOT}/surveys/programs.php`,

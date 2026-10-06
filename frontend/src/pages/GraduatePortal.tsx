@@ -81,6 +81,7 @@ import type { NotificationSnapshot } from '../components/NotificationBell';
 import ProfileAvatar, { getProfileInitials } from '../components/ProfileAvatar';
 import ThemeToggle from '../components/ThemeToggle';
 import GraduateAnnouncements from '../components/graduate/GraduateAnnouncements';
+import CredentialsSection from '../components/graduate/CredentialsSection';
 import { useGraduateAuth } from '../contexts/GraduateAuthContext';
 import type { GraduateUser } from '../contexts/GraduateAuthContext';
 import { useSystemSettings } from '../contexts/SystemSettingsContext';
@@ -1062,7 +1063,7 @@ function getPortalHeading(tab: PortalTab) {
 
   return {
     title: 'My Profile',
-    subtitle: 'Review your personal, contact, education, and career details.',
+    subtitle: 'Review your personal, contact, education, career, and credential details.',
   };
 }
 
@@ -7375,6 +7376,8 @@ function ProfileWorkspace({
         workFields={workFields}
         educationFields={educationFields}
       />
+
+      {canEdit && <CredentialsSection />}
 
       <ProfilePostsSection
         posts={posts}
