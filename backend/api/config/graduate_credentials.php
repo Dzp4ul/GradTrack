@@ -200,3 +200,25 @@ if (!function_exists('gradtrack_credentials_find_owned')) {
         return $row ?: null;
     }
 }
+
+if (!function_exists('gradtrack_credentials_visible_account_id')) {
+    function gradtrack_credentials_visible_account_id(PDO $db, int $graduateId): ?int
+    {
+        if ($graduateId <= 0) {
+            return null;
+        }
+
+        $stmt = $db->prepare("SELECT account.id
+                              FROM graduate_accounts account
+                              JOIN graduates graduate ON graduate.id = account.graduate_id
+                              WHERE graduate.id = :graduate_id
+                                AND graduate.archived_at IS NULL
+                                AND account.status = 'active'
+                                AND account.alumni_verification_status = 'approved'
+                              ORDER BY account.id DESC
+                              LIMIT 1");
+        $stmt->execute([':graduate_id' => $graduateId]);
+        $accountId = (int) ($stmt->fetchColumn() ?: 0);
+        return $accountId > 0 ? $accountId : null;
+    }
+}

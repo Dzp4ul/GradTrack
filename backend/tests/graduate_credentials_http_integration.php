@@ -237,11 +237,53 @@ try {
     credentials_http_assert($refresh['status'] === 200 && in_array($credentialId, $refreshIds, true), 'credential persists after a fresh list request');
 
     $otherList = credentials_http_request('graduate-credentials/index.php', $otherSession['id']);
-    credentials_http_assert(count($otherList['json']['data'] ?? []) === 0, 'another graduate cannot list the owner credential');
+    credentials_http_assert(count($otherList['json']['data'] ?? []) === 0, 'the default credential list remains scoped to the logged-in graduate');
+    $publicList = credentials_http_request(
+        'graduate-credentials/index.php?graduate_id=' . $owner['graduate_id'],
+        $otherSession['id']
+    );
+    $publicListIds = array_map('intval', array_column($publicList['json']['data'] ?? [], 'id'));
+    credentials_http_assert(
+        $publicList['status'] === 200 && in_array($credentialId, $publicListIds, true),
+        'an authenticated graduate can view credentials on another approved graduate profile'
+    );
     $otherRead = credentials_http_request('graduate-credentials/index.php?id=' . $credentialId, $otherSession['id']);
-    credentials_http_assert($otherRead['status'] === 404, 'another graduate cannot read credential metadata by changing the URL id');
+    credentials_http_assert($otherRead['status'] === 404, 'changing only a credential id cannot escape the logged-in graduate scope');
+    $publicRead = credentials_http_request(
+        'graduate-credentials/index.php?id=' . $credentialId . '&graduate_id=' . $owner['graduate_id'],
+        $otherSession['id']
+    );
+    credentials_http_assert(
+        $publicRead['status'] === 200 && (int) ($publicRead['json']['data']['id'] ?? 0) === $credentialId,
+        'credential metadata is available through an explicit viewed-profile scope'
+    );
     $otherFile = credentials_http_request('graduate-credentials/index.php?id=' . $credentialId . '&file=1', $otherSession['id']);
-    credentials_http_assert($otherFile['status'] === 404, 'another graduate cannot preview the credential file');
+    credentials_http_assert($otherFile['status'] === 404, 'changing only a file id cannot preview another graduate credential');
+    $publicFile = credentials_http_request(
+        'graduate-credentials/index.php?id=' . $credentialId . '&graduate_id=' . $owner['graduate_id'] . '&file=1',
+        $otherSession['id']
+    );
+    credentials_http_assert(
+        in_array($publicFile['status'], [200, 302], true)
+        && (stripos($publicFile['headers'], 'Content-Type: application/pdf') !== false || stripos($publicFile['headers'], 'Location:') !== false),
+        'an authenticated profile viewer can preview the shared credential file'
+    );
+    $publicDownload = credentials_http_request(
+        'graduate-credentials/index.php?id=' . $credentialId . '&graduate_id=' . $owner['graduate_id'] . '&download=1',
+        $otherSession['id']
+    );
+    credentials_http_assert(
+        in_array($publicDownload['status'], [200, 302], true)
+        && (stripos($publicDownload['headers'], 'Content-Disposition: attachment') !== false || stripos($publicDownload['headers'], 'Location:') !== false),
+        'an authenticated profile viewer can download the shared credential file'
+    );
+    $otherUpdate = credentials_http_request('graduate-credentials/index.php', $otherSession['id'], $otherSession['csrf'], 'POST', [
+        '_method' => 'PUT',
+        'id' => (string) $credentialId,
+        'credential_name' => 'Unauthorized Update',
+        'issuing_organization' => 'Unauthorized Organization',
+    ]);
+    credentials_http_assert($otherUpdate['status'] === 404, 'another graduate cannot edit a shared credential');
     $otherDelete = credentials_http_request('graduate-credentials/index.php', $otherSession['id'], $otherSession['csrf'], 'DELETE', ['id' => $credentialId], true);
     credentials_http_assert($otherDelete['status'] === 404, 'another graduate cannot delete the credential');
 

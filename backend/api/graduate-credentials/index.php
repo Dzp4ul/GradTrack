@@ -49,11 +49,24 @@ $newStorageReference = null;
 try {
     $user = gradtrack_require_graduate_auth($db);
     $accountId = (int) $user['account_id'];
+    $viewerGraduateId = (int) $user['graduate_id'];
     $credentialId = isset($_GET['id']) ? (int) $_GET['id'] : (int) ($_POST['id'] ?? 0);
 
     if ($effectiveMethod === 'GET') {
+        $hasTargetGraduate = array_key_exists('graduate_id', $_GET);
+        $targetGraduateId = $hasTargetGraduate ? (int) $_GET['graduate_id'] : $viewerGraduateId;
+        if ($targetGraduateId <= 0) {
+            gradtrack_credentials_error(400, 'A valid graduate id is required.');
+        }
+        $readAccountId = $targetGraduateId === $viewerGraduateId
+            ? $accountId
+            : gradtrack_credentials_visible_account_id($db, $targetGraduateId);
+        if ($readAccountId === null) {
+            gradtrack_credentials_error(404, 'Graduate profile not found.');
+        }
+
         if ($credentialId > 0) {
-            $credential = gradtrack_credentials_find_owned($db, $credentialId, $accountId);
+            $credential = gradtrack_credentials_find_owned($db, $credentialId, $readAccountId);
             if (!$credential) {
                 gradtrack_credentials_error(404, 'Credential not found.');
             }
@@ -67,7 +80,7 @@ try {
         $stmt = $db->prepare('SELECT * FROM graduate_credentials
                               WHERE graduate_account_id = :account_id
                               ORDER BY issue_date IS NULL ASC, issue_date DESC, created_at DESC, id DESC');
-        $stmt->execute([':account_id' => $accountId]);
+        $stmt->execute([':account_id' => $readAccountId]);
         $credentials = array_map('gradtrack_credentials_format', $stmt->fetchAll(PDO::FETCH_ASSOC));
         echo json_encode(['success' => true, 'data' => $credentials]);
         exit;

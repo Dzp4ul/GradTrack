@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Award,
@@ -64,8 +64,20 @@ const credentialFileAccept = '.pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,im
 const allowedCredentialExtensions = new Set(['pdf', 'jpg', 'jpeg', 'png']);
 const allowedCredentialMimeTypes = new Set(['application/pdf', 'image/jpeg', 'image/png']);
 
-function credentialFileUrl(credentialId: number, download = false) {
+interface CredentialsSectionProps {
+  graduateId?: number;
+  editable?: boolean;
+}
+
+function credentialCollectionUrl(graduateId?: number) {
+  if (!graduateId || graduateId <= 0) return API_ENDPOINTS.GRADUATE_CREDENTIALS;
+  const params = new URLSearchParams({ graduate_id: String(graduateId) });
+  return `${API_ENDPOINTS.GRADUATE_CREDENTIALS}?${params.toString()}`;
+}
+
+function credentialFileUrl(credentialId: number, graduateId?: number, download = false) {
   const params = new URLSearchParams({ id: String(credentialId) });
+  if (graduateId && graduateId > 0) params.set('graduate_id', String(graduateId));
   params.set(download ? 'download' : 'file', '1');
   return `${API_ENDPOINTS.GRADUATE_CREDENTIALS}?${params.toString()}`;
 }
@@ -145,9 +157,9 @@ async function credentialApiRequest<T>(url: string, options?: RequestInit): Prom
   return payload as T;
 }
 
-function triggerCredentialDownload(credential: GraduateCredential) {
+function triggerCredentialDownload(credential: GraduateCredential, graduateId?: number) {
   const anchor = document.createElement('a');
-  anchor.href = credentialFileUrl(credential.id, true);
+  anchor.href = credentialFileUrl(credential.id, graduateId, true);
   anchor.rel = 'noopener';
   anchor.style.display = 'none';
   document.body.appendChild(anchor);
@@ -155,7 +167,7 @@ function triggerCredentialDownload(credential: GraduateCredential) {
   anchor.remove();
 }
 
-export default function CredentialsSection() {
+export default function CredentialsSection({ graduateId, editable = true }: CredentialsSectionProps) {
   const [credentials, setCredentials] = useState<GraduateCredential[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -165,23 +177,36 @@ export default function CredentialsSection() {
   const [deleteCredential, setDeleteCredential] = useState<GraduateCredential | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const loadRequestRef = useRef(0);
 
-  const loadCredentials = async () => {
+  const credentialsUrl = useMemo(() => credentialCollectionUrl(graduateId), [graduateId]);
+
+  const loadCredentials = useCallback(async () => {
+    const requestId = ++loadRequestRef.current;
     setLoading(true);
     setLoadError('');
     try {
-      const payload = await credentialApiRequest<{ data?: GraduateCredential[] }>(API_ENDPOINTS.GRADUATE_CREDENTIALS);
-      setCredentials(Array.isArray(payload.data) ? payload.data : []);
+      const payload = await credentialApiRequest<{ data?: GraduateCredential[] }>(credentialsUrl);
+      if (requestId === loadRequestRef.current) {
+        setCredentials(Array.isArray(payload.data) ? payload.data : []);
+      }
     } catch (error) {
-      setLoadError(error instanceof Error ? error.message : 'Unable to load credentials.');
+      if (requestId === loadRequestRef.current) {
+        setLoadError(error instanceof Error ? error.message : 'Unable to load credentials.');
+      }
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestRef.current) setLoading(false);
     }
-  };
+  }, [credentialsUrl]);
 
   useEffect(() => {
+    setSearch('');
+    setFeedback(null);
+    setFormCredential(undefined);
+    setPreviewCredential(null);
+    setDeleteCredential(null);
     void loadCredentials();
-  }, []);
+  }, [loadCredentials]);
 
   const filteredCredentials = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
@@ -210,7 +235,7 @@ export default function CredentialsSection() {
   };
 
   const handleDelete = async () => {
-    if (!deleteCredential || deleting) return;
+    if (!editable || !deleteCredential || deleting) return;
     setDeleting(true);
     try {
       const payload = await credentialApiRequest<{ message?: string }>(API_ENDPOINTS.GRADUATE_CREDENTIALS, {
@@ -239,17 +264,21 @@ export default function CredentialsSection() {
             <h2 id="credentials-heading" className="text-xl font-bold text-text-primary">Credentials</h2>
           </div>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-text-secondary">
-            Add and manage your professional certifications, licenses, and other credentials.
+            {editable
+              ? 'Add and manage your professional certifications, licenses, and other credentials.'
+              : 'Professional certifications, licenses, and other credentials shared by this graduate.'}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setFormCredential(null)}
-          className="gt-bg-primary inline-flex min-h-11 w-full shrink-0 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white shadow-sm transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 sm:w-auto dark:focus-visible:ring-blue-900/60"
-        >
-          <Plus className="h-4 w-4" aria-hidden="true" />
-          Add Credential
-        </button>
+        {editable && (
+          <button
+            type="button"
+            onClick={() => setFormCredential(null)}
+            className="gt-bg-primary inline-flex min-h-11 w-full shrink-0 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white shadow-sm transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 sm:w-auto dark:focus-visible:ring-blue-900/60"
+          >
+            <Plus className="h-4 w-4" aria-hidden="true" />
+            Add Credential
+          </button>
+        )}
       </div>
 
       {feedback && (
@@ -290,7 +319,7 @@ export default function CredentialsSection() {
           <button type="button" onClick={() => void loadCredentials()} className="mt-4 rounded-xl border border-border bg-surface px-4 py-2 text-sm font-bold text-text-primary hover:bg-surface-hover">Try Again</button>
         </div>
       ) : credentials.length === 0 ? (
-        <CredentialEmptyState onAdd={() => setFormCredential(null)} />
+        <CredentialEmptyState editable={editable} onAdd={() => setFormCredential(null)} />
       ) : filteredCredentials.length === 0 ? (
         <div className="mt-5 rounded-2xl border border-dashed border-border-strong bg-surface-alt px-5 py-9 text-center">
           <Search className="mx-auto h-7 w-7 text-text-muted" aria-hidden="true" />
@@ -303,8 +332,10 @@ export default function CredentialsSection() {
             <CredentialCard
               key={credential.id}
               credential={credential}
+              graduateId={graduateId}
+              canManage={editable}
               onView={() => setPreviewCredential(credential)}
-              onDownload={() => triggerCredentialDownload(credential)}
+              onDownload={() => triggerCredentialDownload(credential, graduateId)}
               onEdit={() => setFormCredential(credential)}
               onDelete={() => setDeleteCredential(credential)}
             />
@@ -312,7 +343,7 @@ export default function CredentialsSection() {
         </div>
       )}
 
-      {formCredential !== undefined && (
+      {editable && formCredential !== undefined && (
         <CredentialFormModal
           credential={formCredential}
           onClose={() => setFormCredential(undefined)}
@@ -322,11 +353,12 @@ export default function CredentialsSection() {
       {previewCredential && (
         <CredentialPreviewModal
           credential={previewCredential}
+          graduateId={graduateId}
           onClose={() => setPreviewCredential(null)}
-          onDownload={() => triggerCredentialDownload(previewCredential)}
+          onDownload={() => triggerCredentialDownload(previewCredential, graduateId)}
         />
       )}
-      {deleteCredential && (
+      {editable && deleteCredential && (
         <CredentialDeleteModal
           credential={deleteCredential}
           deleting={deleting}
@@ -351,29 +383,39 @@ function CredentialsSkeleton() {
   );
 }
 
-function CredentialEmptyState({ onAdd }: { onAdd: () => void }) {
+function CredentialEmptyState({ editable, onAdd }: { editable: boolean; onAdd: () => void }) {
   return (
     <div className="mt-5 rounded-2xl border border-dashed border-border-strong bg-surface-alt px-5 py-10 text-center">
       <span className="mx-auto inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-700 dark:text-blue-300">
         <FileText className="h-7 w-7" aria-hidden="true" />
       </span>
       <h3 className="mt-4 text-base font-bold text-text-primary">No credentials added yet.</h3>
-      <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-text-secondary">Add certifications, licenses, or other professional credentials to your profile.</p>
-      <button type="button" onClick={onAdd} className="gt-bg-primary mt-5 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white">
-        <Plus className="h-4 w-4" /> Add Credential
-      </button>
+      <p className="mx-auto mt-2 max-w-lg text-sm leading-6 text-text-secondary">
+        {editable
+          ? 'Add certifications, licenses, or other professional credentials to your profile.'
+          : 'This graduate has not added any professional credentials yet.'}
+      </p>
+      {editable && (
+        <button type="button" onClick={onAdd} className="gt-bg-primary mt-5 inline-flex min-h-11 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold text-white">
+          <Plus className="h-4 w-4" /> Add Credential
+        </button>
+      )}
     </div>
   );
 }
 
 function CredentialCard({
   credential,
+  graduateId,
+  canManage,
   onView,
   onDownload,
   onEdit,
   onDelete,
 }: {
   credential: GraduateCredential;
+  graduateId?: number;
+  canManage: boolean;
   onView: () => void;
   onDownload: () => void;
   onEdit: () => void;
@@ -408,7 +450,7 @@ function CredentialCard({
     <article className="flex min-w-0 flex-col overflow-visible rounded-2xl border border-border bg-surface-alt shadow-sm transition hover:border-border-strong hover:shadow-md">
       <button type="button" onClick={onView} className="group relative block h-36 w-full overflow-hidden rounded-t-2xl border-b border-border bg-surface-muted text-left" aria-label={`View ${credential.credential_name}`}>
         {isImage ? (
-          <img src={credentialFileUrl(credential.id)} alt="" loading="lazy" className="h-full w-full object-cover transition duration-200 group-hover:scale-[1.02]" />
+          <img src={credentialFileUrl(credential.id, graduateId)} alt="" loading="lazy" className="h-full w-full object-cover transition duration-200 group-hover:scale-[1.02]" />
         ) : (
           <span className="flex h-full flex-col items-center justify-center bg-[linear-gradient(145deg,var(--surface-muted),var(--surface-alt))] text-rose-600 dark:text-rose-300">
             <FileText className="h-12 w-12" aria-hidden="true" />
@@ -456,17 +498,19 @@ function CredentialCard({
           <button type="button" onClick={onDownload} className="inline-flex min-h-10 flex-1 items-center justify-center gap-1.5 rounded-lg text-xs font-bold text-blue-700 transition hover:bg-blue-50 dark:text-blue-300">
             <Download className="h-4 w-4" /> Download
           </button>
-          <div ref={menuRef} className="relative">
-            <button type="button" onClick={() => setMenuOpen((current) => !current)} className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-text-secondary transition hover:bg-surface-hover" aria-label={`More actions for ${credential.credential_name}`} aria-haspopup="menu" aria-expanded={menuOpen}>
-              <MoreHorizontal className="h-5 w-5" />
-            </button>
-            {menuOpen && (
-              <div role="menu" className="absolute bottom-full right-0 z-20 mb-2 w-48 rounded-xl border border-border bg-surface p-1.5 shadow-xl">
-                <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onEdit(); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-text-primary hover:bg-surface-hover"><Pencil className="h-4 w-4 text-blue-600" /> Edit Credential</button>
-                <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onDelete(); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-rose-700 hover:bg-rose-50 dark:text-rose-300"><Trash2 className="h-4 w-4" /> Delete Credential</button>
-              </div>
-            )}
-          </div>
+          {canManage && (
+            <div ref={menuRef} className="relative">
+              <button type="button" onClick={() => setMenuOpen((current) => !current)} className="inline-flex h-10 w-10 items-center justify-center rounded-lg text-text-secondary transition hover:bg-surface-hover" aria-label={`More actions for ${credential.credential_name}`} aria-haspopup="menu" aria-expanded={menuOpen}>
+                <MoreHorizontal className="h-5 w-5" />
+              </button>
+              {menuOpen && (
+                <div role="menu" className="absolute bottom-full right-0 z-20 mb-2 w-48 rounded-xl border border-border bg-surface p-1.5 shadow-xl">
+                  <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onEdit(); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-text-primary hover:bg-surface-hover"><Pencil className="h-4 w-4 text-blue-600" /> Edit Credential</button>
+                  <button type="button" role="menuitem" onClick={() => { setMenuOpen(false); onDelete(); }} className="flex w-full items-center gap-2 rounded-lg px-3 py-2.5 text-left text-sm font-semibold text-rose-700 hover:bg-rose-50 dark:text-rose-300"><Trash2 className="h-4 w-4" /> Delete Credential</button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </article>
@@ -701,7 +745,17 @@ function CredentialField({
   );
 }
 
-function CredentialPreviewModal({ credential, onClose, onDownload }: { credential: GraduateCredential; onClose: () => void; onDownload: () => void }) {
+function CredentialPreviewModal({
+  credential,
+  graduateId,
+  onClose,
+  onDownload,
+}: {
+  credential: GraduateCredential;
+  graduateId?: number;
+  onClose: () => void;
+  onDownload: () => void;
+}) {
   const isImage = credential.mime_type.startsWith('image/');
 
   useEffect(() => {
@@ -724,9 +778,9 @@ function CredentialPreviewModal({ credential, onClose, onDownload }: { credentia
         </div>
         <div className="min-h-0 flex-1 overflow-auto bg-surface-alt p-3 sm:p-5">
           {isImage ? (
-            <img src={credentialFileUrl(credential.id)} alt={`${credential.credential_name} certificate`} className="mx-auto max-h-[70dvh] w-auto rounded-xl border border-border bg-surface object-contain shadow-sm" />
+            <img src={credentialFileUrl(credential.id, graduateId)} alt={`${credential.credential_name} certificate`} className="mx-auto max-h-[70dvh] w-auto rounded-xl border border-border bg-surface object-contain shadow-sm" />
           ) : (
-            <iframe src={credentialFileUrl(credential.id)} title={`${credential.credential_name} PDF certificate`} className="h-[68dvh] min-h-[420px] w-full rounded-xl border border-border bg-white" />
+            <iframe src={credentialFileUrl(credential.id, graduateId)} title={`${credential.credential_name} PDF certificate`} className="h-[68dvh] min-h-[420px] w-full rounded-xl border border-border bg-white" />
           )}
         </div>
         <div className="flex flex-col gap-3 border-t border-border px-4 py-4 sm:flex-row sm:justify-end sm:px-6">

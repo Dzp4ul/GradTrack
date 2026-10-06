@@ -4,7 +4,6 @@ import { useLocation, useNavigate, useParams, useSearchParams } from 'react-rout
 import {
   AlertCircle,
   ArrowRight,
-  Award,
   BadgeCheck,
   Banknote,
   Bookmark,
@@ -1306,7 +1305,6 @@ export default function GraduatePortal() {
   const profileWorkFields = profileSurvey?.work?.fields || [];
   const profileEducationFields = profileSurvey?.education?.fields || [];
   const profileGraduateStudyFields = profileSurvey?.education?.graduate_studies || [];
-  const profileTrainings = profileSurvey?.trainings || [];
   const authenticatedUserProfileImageUrl = resolveAssetUrl(user?.profile_image_path);
   const profileImageUrl = isViewingOwnProfile
     ? (authenticatedProfileImagePreview || resolveAssetUrl(viewedProfileUser?.profile_image_path) || authenticatedUserProfileImageUrl)
@@ -6485,7 +6483,6 @@ export default function GraduatePortal() {
                       workFields={profileWorkFields}
                       educationFields={profileEducationFields}
                       graduateStudyFields={profileGraduateStudyFields}
-                      trainings={profileTrainings}
                       posts={profilePosts}
                       profileImageUrl={profileImageUrl}
                       coverImageUrl={profileCoverImageUrl}
@@ -7287,7 +7284,6 @@ function ProfileWorkspace({
   workFields,
   educationFields,
   graduateStudyFields,
-  trainings,
   posts,
   profileImageUrl,
   coverImageUrl,
@@ -7319,7 +7315,6 @@ function ProfileWorkspace({
   workFields: GraduateProfileField[];
   educationFields: GraduateProfileField[];
   graduateStudyFields: GraduateProfileField[];
-  trainings: GraduateTrainingEntry[];
   posts: ForumPost[];
   profileImageUrl: string;
   coverImageUrl: string;
@@ -7344,7 +7339,7 @@ function ProfileWorkspace({
   onDeletePost: (post: ForumPost) => void;
   onOpenProfile: (graduateId?: number | null) => void;
 }) {
-  const hasSupplementaryDetails = educationFields.length > 0 || graduateStudyFields.length > 0 || trainings.length > 0;
+  const hasSupplementaryDetails = educationFields.length > 0 || graduateStudyFields.length > 0;
 
   return (
     <div className="space-y-6">
@@ -7377,7 +7372,7 @@ function ProfileWorkspace({
         educationFields={educationFields}
       />
 
-      {canEdit && <CredentialsSection />}
+      <CredentialsSection graduateId={user?.graduate_id || undefined} editable={canEdit} />
 
       <ProfilePostsSection
         posts={posts}
@@ -7396,7 +7391,6 @@ function ProfileWorkspace({
           user={user}
           educationFields={educationFields}
           graduateStudyFields={graduateStudyFields}
-          trainings={trainings}
           canEdit={canEdit}
           onEdit={onEdit}
         />
@@ -7722,14 +7716,12 @@ function ProfileSupplementaryDetails({
   user,
   educationFields,
   graduateStudyFields,
-  trainings,
   canEdit,
   onEdit,
 }: {
   user?: GraduateUser | null;
   educationFields: GraduateProfileField[];
   graduateStudyFields: GraduateProfileField[];
-  trainings: GraduateTrainingEntry[];
   canEdit: boolean;
   onEdit: (section?: ProfileEditSection) => void;
 }) {
@@ -7738,7 +7730,7 @@ function ProfileSupplementaryDetails({
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-lg font-bold text-slate-950">Additional Profile Details</h3>
-          <p className="text-sm text-slate-500">Education and training records from existing GradTrack survey data.</p>
+          <p className="text-sm text-slate-500">Education records from existing GradTrack survey data.</p>
         </div>
         {canEdit && (
           <button type="button" onClick={() => onEdit('education')} className="inline-flex items-center justify-center gap-2 rounded-full border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
@@ -7748,12 +7740,9 @@ function ProfileSupplementaryDetails({
         )}
       </div>
 
-      <div className="mt-5 grid gap-5 xl:grid-cols-2">
+      <div className="mt-5 grid gap-5">
         {(educationFields.length > 0 || graduateStudyFields.length > 0) && (
           <ProfileEducationCard user={user} fields={educationFields} graduateStudyFields={graduateStudyFields} compact />
-        )}
-        {trainings.length > 0 && (
-          <ProfileTrainingsSection trainings={trainings.slice(0, 3)} compact />
         )}
       </div>
     </section>
@@ -7889,38 +7878,6 @@ function GraduateStudiesSummary({ fields }: { fields: GraduateProfileField[] }) 
         {earnedUnits && earnedUnits !== '0' && <p className="mt-2 text-xs font-semibold text-slate-500">Earned units: {earnedUnits}</p>}
       </div>
     </div>
-  );
-}
-
-function ProfileTrainingsSection({
-  trainings,
-  compact,
-  onEdit,
-}: {
-  trainings: GraduateTrainingEntry[];
-  compact?: boolean;
-  onEdit?: () => void;
-}) {
-  return (
-    <section className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-sm">
-      <ProfileCardHeader icon={Award} title="Trainings & Seminars" actionLabel={onEdit ? 'View' : undefined} onAction={onEdit} />
-      {trainings.length === 0 ? (
-        <ProfileEmptyState icon={Award} message="No trainings or seminars added yet." />
-      ) : (
-        <div className={`mt-5 grid gap-4 ${compact ? '' : 'lg:grid-cols-2'}`}>
-          {trainings.map((training) => (
-            <article key={training.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <h4 className="font-bold text-slate-950">{training.title || 'Training / Seminar'}</h4>
-              <div className="mt-3 space-y-2 text-sm text-slate-600">
-                {training.organizer && <ProfileMiniLine icon={Building2} value={training.organizer} />}
-                {training.date && <ProfileMiniLine icon={CalendarDays} value={training.date} />}
-              </div>
-              {training.description && <p className="mt-3 whitespace-pre-line text-sm leading-6 text-slate-700">{training.description}</p>}
-            </article>
-          ))}
-        </div>
-      )}
-    </section>
   );
 }
 
@@ -8091,21 +8048,6 @@ function ProfileInfoRow({
         <p className="mt-0.5 break-words text-sm font-medium text-slate-700">{value}</p>
       </div>
     </div>
-  );
-}
-
-function ProfileMiniLine({
-  icon: Icon,
-  value,
-}: {
-  icon: LucideIcon;
-  value: string;
-}) {
-  return (
-    <p className="flex items-center gap-2">
-      <Icon className="h-4 w-4 shrink-0 text-slate-400" />
-      <span>{value}</span>
-    </p>
   );
 }
 
