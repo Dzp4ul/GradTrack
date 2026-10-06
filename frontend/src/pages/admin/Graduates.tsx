@@ -251,10 +251,7 @@ const normalizeEmploymentStatus = (value: string): string => {
 
 const normalizeAlignment = (value: string): string => {
   const parsed = value.toLowerCase().replace(/\s+/g, '_');
-  if (['aligned', 'partially_aligned', 'not_aligned'].includes(parsed)) {
-    return parsed;
-  }
-  return 'not_aligned';
+  return parsed === 'aligned' ? 'aligned' : 'not_aligned';
 };
 
 const resolveProgramId = (row: Record<string, unknown>, programOptions: ProgramOption[]): string => {

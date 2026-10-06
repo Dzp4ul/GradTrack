@@ -915,9 +915,9 @@ export default function Surveys() {
                   <div className="border-t pt-4 mt-4">
                     <button
                       onClick={() => setExpandedSurvey(expandedSurvey === s.id ? null : s.id)}
-                      className="w-full flex items-center justify-between text-left hover:bg-blue-50 p-2 rounded transition"
+                      className="w-full flex items-center justify-between rounded bg-surface-alt p-2 text-left text-text-primary transition hover:bg-surface-hover"
                     >
-                      <h4 className="font-semibold text-blue-900">Preview Questions</h4>
+                      <h4 className="font-semibold text-text-primary">Preview Questions</h4>
                       {expandedSurvey === s.id ? (
                         <ChevronUp className="w-5 h-5 text-gray-600" />
                       ) : (
@@ -926,21 +926,21 @@ export default function Surveys() {
                     </button>
 
                     {expandedSurvey === s.id && (
-                      <div className="mt-4 space-y-3 bg-blue-50 p-4 rounded-lg max-h-80 overflow-y-auto">
+                      <div className="mt-4 max-h-80 space-y-3 overflow-y-auto rounded-lg border border-border bg-surface-alt p-4">
                         {s.questions.map((q, idx) => {
                           const isHeader = isHeaderQuestion(q);
 
                           return (
-                            <div key={idx} className="bg-white rounded-lg p-3 border border-blue-100">
-                              <p className={`text-sm font-semibold mb-2 ${isHeader ? 'text-gray-900' : 'text-blue-900'}`}>
+                            <div key={idx} className="rounded-lg border border-border bg-surface p-3 text-text-primary">
+                              <p className="mb-2 text-sm font-semibold text-text-primary">
                                 {isHeader ? 'Header: ' : `Q${getDisplayQuestionNumber(s.questions || [], idx)}: `}{getQuestionDisplayText(q)}
                                 {!isHeader && q.is_required ? <span className="text-red-500 ml-1">*</span> : null}
                               </p>
-                              <p className="text-xs text-gray-500 capitalize mb-2">{isHeader ? 'Header' : q.question_type.replace('_', ' ')}</p>
+                              <p className="mb-2 text-xs capitalize text-text-muted">{isHeader ? 'Header' : q.question_type.replace('_', ' ')}</p>
                               {!isHeader && q.options && Array.isArray(q.options) && q.options.length > 0 && (
                                 <div className="space-y-1 ml-2">
                                   {q.options.map((option, oi) => (
-                                    <div key={oi} className="text-xs text-gray-700 flex items-center gap-2">
+                                    <div key={oi} className="flex items-center gap-2 text-xs text-text-secondary">
                                       <div className="w-3 h-3 rounded-full border border-blue-600 flex-shrink-0" />
                                       {option}
                                     </div>
@@ -1037,17 +1037,17 @@ export default function Surveys() {
       {/* Create/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
-            <div className="flex items-center justify-between gap-4 p-4 border-b bg-white rounded-t-2xl flex-shrink-0 sm:p-6">
-              <h2 className="text-xl font-bold text-blue-900 sm:text-2xl">
+          <div className="survey-editor-modal flex max-h-[90dvh] w-full max-w-3xl flex-col rounded-2xl border border-border bg-surface text-text-primary shadow-2xl">
+            <div className="flex flex-shrink-0 items-center justify-between gap-4 rounded-t-2xl border-b border-border bg-surface p-4 sm:p-6">
+              <h2 className="text-xl font-bold text-text-primary sm:text-2xl">
                 {isEditing ? 'Edit Survey' : 'Create New Survey'}
               </h2>
-              <button onClick={() => setShowModal(false)} className="p-2 rounded-lg hover:bg-gray-100">
+              <button onClick={() => setShowModal(false)} className="rounded-lg p-2 text-text-secondary hover:bg-surface-hover hover:text-text-primary">
                 <X className="w-6 h-6" />
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto">
+            <form onSubmit={handleSubmit} className="min-h-0 flex-1 overflow-y-auto">
               <datalist id="survey-program-master-options">
                 {masterPrograms.map((program) => (
                   <option key={program.id} value={program.name}>{program.code}</option>
@@ -1354,7 +1354,7 @@ export default function Surveys() {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3 p-6 border-t bg-gray-50 flex-shrink-0">
+              <div className="flex flex-shrink-0 flex-wrap justify-end gap-3 border-t border-border bg-surface-alt p-4 sm:p-6">
                 <button type="button" onClick={() => setShowModal(false)} className="px-6 py-2.5 border-2 border-gray-300 text-gray-700 rounded-lg font-semibold hover:bg-gray-50 transition">
                   Cancel
                 </button>

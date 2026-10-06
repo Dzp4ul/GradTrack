@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect } from 'react';
+import { createContext, useContext } from 'react';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type ResolvedTheme = 'light' | 'dark';
@@ -57,15 +57,4 @@ export function useTheme() {
     throw new Error('useTheme must be used within a ThemeProvider');
   }
   return context;
-}
-
-export function useLightOnlyTheme() {
-  useEffect(() => {
-    applyTheme('light', 'light');
-
-    return () => {
-      const storedThemeMode = getStoredThemeMode();
-      applyTheme(storedThemeMode, resolveTheme(storedThemeMode));
-    };
-  }, []);
 }

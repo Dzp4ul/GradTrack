@@ -53,9 +53,8 @@ Alignment Rate = (Number of Aligned Jobs / Number of Employed) × 100
 2. Identify employment status questions using pattern matching
 3. Identify job alignment questions using pattern matching
 4. For each employed graduate:
-   - Check if job is "directly related" to course → Aligned
-   - Check if job is "partially related" → Partially Aligned
-   - Otherwise → Not Aligned
+   - Check if job is related to the course → Aligned
+   - Otherwise → Not Aligned (including preserved legacy partial-related wording)
 5. Calculate alignment rate from aligned count
 6. Return percentage rounded to one decimal
 
@@ -245,12 +244,11 @@ Alignment Index = (Aligned Jobs in Program / Employed in Program) × 100
 **Location:** `api/dashboard/stats.php`
 **Purpose:** Calculate distribution of job alignment categories
 **Categories:**
-- Aligned (directly related)
-- Partially Aligned
-- Not Aligned
+- Aligned (related)
+- Not Aligned (not related, including normalized legacy wording)
 
 **Algorithm Steps:**
-1. Count graduates in each alignment category
+1. Count graduates in each of the two supported alignment categories
 2. Calculate total employed for alignment
 3. For each category:
    - Calculate percentage
@@ -449,7 +447,7 @@ Alignment Index = (Aligned Jobs in Program / Employed in Program) × 100
 ### 10.2 Pie Chart Distribution Algorithm
 **Location:** `src/pages/admin/Dashboard.tsx`
 **Purpose:** Calculate percentage distribution for pie charts
-**Categories:** Aligned, Partially Aligned, Not Aligned
+**Categories:** Aligned, Not Aligned
 
 **Algorithm Steps:**
 1. Count graduates in each category

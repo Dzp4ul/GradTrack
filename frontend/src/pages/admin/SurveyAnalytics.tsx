@@ -88,7 +88,6 @@ interface EmploymentInsights {
   alignment_rate: number | null;
   aligned_count: number;
   alignment_total: number;
-  partially_aligned_count: number;
   not_aligned_count: number;
 }
 
@@ -285,7 +284,6 @@ function SummaryView({ analytics }: { analytics: Analytics }) {
             rate={analytics.employment_insights.alignment_rate}
             rows={[
               ['Aligned', analytics.employment_insights.aligned_count],
-              ['Partially aligned', analytics.employment_insights.partially_aligned_count],
               ['Not aligned', analytics.employment_insights.not_aligned_count],
             ]}
             denominator={analytics.employment_insights.alignment_total}

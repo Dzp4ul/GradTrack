@@ -600,8 +600,11 @@ function gradtrack_analytics_classify_alignment($answer): ?string
         return null;
     }
 
-    if (strpos($text, 'partially') !== false) {
-        return 'partially_aligned';
+    // Historical survey versions used partial-related wording. Preserve those
+    // raw answers, but normalize them into the current binary No/Not Aligned
+    // category so analytics never invent a third response choice.
+    if (strpos($text, 'partial') !== false) {
+        return 'not_aligned';
     }
     if ($text === 'no' || strpos($text, 'not related') !== false || strpos($text, 'not aligned') !== false || strpos($text, 'unrelated') !== false) {
         return 'not_aligned';
@@ -685,9 +688,9 @@ function gradtrack_analytics_build_records(array $responses, array $questions): 
             'year' => $year,
             'employment_status' => $employmentStatus,
             'alignment_status' => $alignmentStatus,
-            'alignment_binary' => $alignmentStatus === 'aligned'
-                ? 'aligned'
-                : (in_array($alignmentStatus, ['partially_aligned', 'not_aligned'], true) ? 'not_aligned' : null),
+            'alignment_binary' => in_array($alignmentStatus, ['aligned', 'not_aligned'], true)
+                ? $alignmentStatus
+                : null,
             'work_location' => $workLocation,
         ];
     }
@@ -729,8 +732,6 @@ function gradtrack_analytics_empty_bucket(): array
         'employment_unknown' => 0,
         'employment_rate' => null,
         'aligned' => 0,
-        'partially_aligned' => 0,
-        'explicit_not_aligned' => 0,
         'not_aligned' => 0,
         'alignment_total' => 0,
         'alignment_rate' => null,
@@ -763,12 +764,7 @@ function gradtrack_analytics_accumulate(array &$bucket, array $record): void
     if ($alignmentStatus === 'aligned') {
         $bucket['aligned']++;
         $bucket['alignment_total']++;
-    } elseif ($alignmentStatus === 'partially_aligned') {
-        $bucket['partially_aligned']++;
-        $bucket['not_aligned']++;
-        $bucket['alignment_total']++;
     } elseif ($alignmentStatus === 'not_aligned') {
-        $bucket['explicit_not_aligned']++;
         $bucket['not_aligned']++;
         $bucket['alignment_total']++;
     }

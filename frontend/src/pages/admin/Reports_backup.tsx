@@ -26,7 +26,6 @@ interface ProgramReport {
   total_graduates: number;
   employed: number;
   aligned: number;
-  partially_aligned: number;
   not_aligned: number;
   avg_time_to_employment: number;
   avg_salary: number;

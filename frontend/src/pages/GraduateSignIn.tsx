@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff, LogIn } from 'lucide-react';
 import { useGraduateAuth } from '../contexts/GraduateAuthContext';
 import MessageBox from '../components/MessageBox';
+import ThemeToggle from '../components/ThemeToggle';
 import { useSystemSettings } from '../contexts/SystemSettingsContext';
 import MaintenancePage from './MaintenancePage';
 
@@ -107,6 +108,7 @@ export default function GraduateSignIn() {
       className="relative flex min-h-screen items-center justify-center overflow-x-hidden bg-cover bg-center bg-fixed p-4 sm:p-6"
       style={{ backgroundImage: `url(${loginBackground})` }}
     >
+      <ThemeToggle className="fixed right-4 top-4 z-30" compact />
       <div className="absolute inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80"></div>
 
       <div className="relative z-10 w-full min-w-0 max-w-md rounded-2xl border border-blue-100 bg-white p-5 shadow-xl sm:p-8">

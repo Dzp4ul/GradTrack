@@ -36,7 +36,7 @@ This is the core algorithm of GradTrack. It processes graduate tracer survey res
    - Location: `api/dashboard/stats.php`, `api/reports/index.php`, `api/surveys/analytics.php`
 
 4. **Job Alignment Classification Algorithm**
-   - Classifies employed graduates as aligned, partially aligned, or not aligned based on whether their work is related to their course.
+   - Classifies employed graduates as aligned or not aligned based on the survey's Yes/No job-relatedness answer. Preserved legacy partial-related wording is normalized to not aligned for reporting.
    - Location: `api/dashboard/stats.php`, `api/reports/index.php`, `api/surveys/analytics.php`
 
 5. **String Manipulation Algorithm**

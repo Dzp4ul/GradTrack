@@ -16,7 +16,7 @@ Updated all report types to calculate alignment from survey responses:
 
 #### By Program Report
 - Tracks alignment per program based on survey responses
-- Counts aligned, partially aligned, and not aligned for each program
+- Counts aligned and not aligned responses for each program
 - Updates program statistics with real-time alignment data
 
 #### By Year Report
@@ -31,10 +31,9 @@ Updated all report types to calculate alignment from survey responses:
 Updated dashboard calculations:
 
 - **Alignment Rate**: Calculated from survey responses instead of employment table
-- **Alignment Distribution**: Pie chart data now reflects survey responses
-  - Aligned: Job directly related to course
-  - Partially Aligned: Job somewhat related
-  - Not Aligned: Job not related
+- **Alignment Distribution**: Pie chart data now reflects the survey's binary responses
+  - Aligned: Job related to course
+  - Not Aligned: Job not related to course
 - **Employment Trends**: Current year data updated with real-time alignment rate
 - **Program Stats**: Added alignment_index for each program
 
@@ -53,8 +52,7 @@ The system looks for these question patterns:
 
 **Alignment Classification:**
 - **Aligned**: "Yes, directly related", "Yes", "Directly related"
-- **Partially Aligned**: "Partially related", "Somewhat related"
-- **Not Aligned**: "Not related", "No"
+- **Not Aligned**: "Not related", "No". Legacy partial-related wording is preserved in raw responses and normalized into this supported category.
 
 ## How It Works
 
@@ -64,7 +62,7 @@ The system looks for these question patterns:
 3. For each response:
    - Check if graduate is employed
    - Check job alignment answer
-   - Classify as aligned/partially aligned/not aligned
+   - Classify as aligned or not aligned
 4. Calculate rates:
    - Employment Rate = (employed / total_responses) * 100
    - Alignment Rate = (aligned / employed) * 100
@@ -104,7 +102,7 @@ The frontend components automatically display the updated data:
 ### Adding New Survey Questions
 If you add new job alignment questions:
 1. Ensure question text includes keywords like "related to your course"
-2. Use consistent answer options: "Yes, directly related", "Partially related", "Not related"
+2. Use the current binary answer options: "Yes" and "No"
 3. Test with `test-alignment.php` script
 
 ### Troubleshooting

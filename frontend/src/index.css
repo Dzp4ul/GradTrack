@@ -11,7 +11,7 @@
   .public-rich-text strong,
   .public-rich-text b { @apply font-bold; }
 
-  .field-input { @apply w-full rounded-lg border border-gray-300 bg-white px-3 py-2.5 text-gray-900 outline-none transition focus:border-blue-600 focus:ring-2 focus:ring-blue-100; }
+  .field-input { @apply w-full rounded-lg border border-border bg-input px-3 py-2.5 text-text-primary outline-none transition placeholder:text-text-muted focus:border-blue-600 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900/50; }
 }
 
 @layer base {
@@ -90,6 +90,10 @@
   --chart-axis: #475569;
   --chart-grid: #e2e8f0;
   --chart-tooltip: #ffffff;
+  --disabled-surface: #e2e8f0;
+  --disabled-text: #64748b;
+  --scrollbar-track: #f1f5f9;
+  --scrollbar-thumb: #94a3b8;
 }
 
 .gt-bg-primary {
@@ -133,6 +137,10 @@ html.dark {
   --chart-axis: #cbd5e1;
   --chart-grid: #334155;
   --chart-tooltip: #1e293b;
+  --disabled-surface: #334155;
+  --disabled-text: #a8b4c7;
+  --scrollbar-track: #111827;
+  --scrollbar-thumb: #64748b;
 }
 
 html,
@@ -144,6 +152,30 @@ body,
 
 body {
   transition: background-color 160ms ease, color 160ms ease;
+}
+
+* {
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  height: 0.65rem;
+  width: 0.65rem;
+}
+
+*::-webkit-scrollbar-track {
+  background: var(--scrollbar-track);
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 2px solid var(--scrollbar-track);
+  border-radius: 9999px;
+  background: var(--scrollbar-thumb);
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
 }
 
 @keyframes job-filter-sheet-in {
@@ -178,8 +210,11 @@ body {
 }
 
 .theme-toggle-wrap {
-  position: relative;
   display: inline-flex;
+}
+
+:where(.theme-toggle-wrap) {
+  position: relative;
 }
 
 .theme-toggle {
@@ -301,7 +336,10 @@ html.dark .hover\:bg-\[\#edf1f8\]:hover {
   background-color: var(--surface-alt) !important;
 }
 
-html.dark .bg-white\/70 {
+html.dark .bg-white\/70,
+html.dark .bg-white\/80,
+html.dark .bg-white\/90,
+html.dark .bg-white\/95 {
   background-color: rgb(30 41 59 / 0.78) !important;
 }
 
@@ -360,11 +398,29 @@ html.dark .bg-orange-100 {
   background-color: rgb(249 115 22 / 0.2) !important;
 }
 
+html.dark .bg-cyan-50,
+html.dark .bg-cyan-100,
+html.dark .bg-sky-50,
+html.dark .bg-sky-100,
+html.dark .bg-teal-50,
+html.dark .bg-teal-100 {
+  background-color: rgb(6 182 212 / 0.16) !important;
+}
+
 html.dark .bg-purple-50,
 html.dark .bg-purple-100,
 html.dark .bg-violet-50,
-html.dark .bg-violet-100 {
+html.dark .bg-violet-100,
+html.dark .bg-indigo-50,
+html.dark .bg-indigo-100 {
   background-color: rgb(139 92 246 / 0.2) !important;
+}
+
+html.dark .bg-pink-50,
+html.dark .bg-pink-100,
+html.dark .bg-fuchsia-50,
+html.dark .bg-fuchsia-100 {
+  background-color: rgb(236 72 153 / 0.16) !important;
 }
 
 html.dark .from-blue-50 {
@@ -379,8 +435,40 @@ html.dark .from-yellow-50 {
   --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
 }
 
+html.dark .from-purple-50,
+html.dark .from-violet-50,
+html.dark .from-indigo-50 {
+  --tw-gradient-from: rgb(139 92 246 / 0.2) var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgb(139 92 246 / 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+
+html.dark .from-green-50,
+html.dark .from-emerald-50,
+html.dark .from-teal-50 {
+  --tw-gradient-from: rgb(16 185 129 / 0.18) var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgb(16 185 129 / 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--tw-gradient-to) !important;
+}
+
+html.dark .via-blue-50,
+html.dark .via-slate-50,
+html.dark .via-gray-50,
+html.dark .via-white {
+  --tw-gradient-to: rgb(30 41 59 / 0) var(--tw-gradient-to-position) !important;
+  --tw-gradient-stops: var(--tw-gradient-from), var(--surface) var(--tw-gradient-via-position), var(--tw-gradient-to) !important;
+}
+
 html.dark .to-white {
   --tw-gradient-to: var(--surface) var(--tw-gradient-to-position) !important;
+}
+
+html.dark .to-slate-50,
+html.dark .to-gray-50,
+html.dark .to-blue-50,
+html.dark .to-violet-50,
+html.dark .to-indigo-50 {
+  --tw-gradient-to: var(--surface-alt) var(--tw-gradient-to-position) !important;
 }
 
 html.dark .text-gray-900,
@@ -432,23 +520,61 @@ html.dark .text-green-600 {
 }
 
 html.dark .text-amber-700,
+html.dark .text-amber-800,
+html.dark .text-amber-900,
+html.dark .text-amber-950,
 html.dark .text-yellow-600,
+html.dark .text-yellow-700,
 html.dark .text-yellow-500,
 html.dark .text-orange-700,
-html.dark .text-orange-600 {
+html.dark .text-orange-600,
+html.dark .text-orange-800,
+html.dark .text-orange-900 {
   color: #fcd34d !important;
 }
 
 html.dark .text-red-700,
 html.dark .text-red-600,
+html.dark .text-red-800,
+html.dark .text-red-900,
 html.dark .text-rose-700,
-html.dark .text-rose-600 {
+html.dark .text-rose-600,
+html.dark .text-rose-800,
+html.dark .text-rose-900 {
   color: #fda4af !important;
 }
 
 html.dark .text-purple-700,
-html.dark .text-violet-700 {
+html.dark .text-purple-800,
+html.dark .text-purple-900,
+html.dark .text-violet-700,
+html.dark .text-violet-800,
+html.dark .text-violet-900,
+html.dark .text-indigo-700,
+html.dark .text-indigo-800,
+html.dark .text-indigo-900 {
   color: #c4b5fd !important;
+}
+
+html.dark .text-cyan-700,
+html.dark .text-cyan-800,
+html.dark .text-cyan-900,
+html.dark .text-sky-700,
+html.dark .text-sky-800,
+html.dark .text-sky-900,
+html.dark .text-teal-700,
+html.dark .text-teal-800,
+html.dark .text-teal-900 {
+  color: #67e8f9 !important;
+}
+
+html.dark .text-pink-700,
+html.dark .text-pink-800,
+html.dark .text-pink-900,
+html.dark .text-fuchsia-700,
+html.dark .text-fuchsia-800,
+html.dark .text-fuchsia-900 {
+  color: #f9a8d4 !important;
 }
 
 html.dark .bg-yellow-400.text-slate-900,
@@ -493,6 +619,24 @@ html.dark .border-rose-200 {
   border-color: rgb(251 113 133 / 0.32) !important;
 }
 
+html.dark .border-cyan-100,
+html.dark .border-cyan-200,
+html.dark .border-sky-100,
+html.dark .border-sky-200,
+html.dark .border-teal-100,
+html.dark .border-teal-200 {
+  border-color: rgb(34 211 238 / 0.32) !important;
+}
+
+html.dark .border-purple-100,
+html.dark .border-purple-200,
+html.dark .border-violet-100,
+html.dark .border-violet-200,
+html.dark .border-indigo-100,
+html.dark .border-indigo-200 {
+  border-color: rgb(167 139 250 / 0.32) !important;
+}
+
 html.dark .hover\:bg-gray-50:hover,
 html.dark .hover\:bg-gray-100:hover,
 html.dark .hover\:bg-slate-50:hover,
@@ -529,10 +673,30 @@ html.dark textarea::placeholder {
 html.dark input:disabled,
 html.dark textarea:disabled,
 html.dark select:disabled,
-html.dark .disabled\:bg-gray-400:disabled {
-  background-color: #334155 !important;
-  color: #94a3b8 !important;
+html.dark .disabled\:bg-gray-50:disabled,
+html.dark .disabled\:bg-gray-100:disabled,
+html.dark .disabled\:bg-gray-200:disabled,
+html.dark .disabled\:bg-gray-300:disabled,
+html.dark .disabled\:bg-gray-400:disabled,
+html.dark .disabled\:bg-slate-100:disabled,
+html.dark .disabled\:bg-slate-200:disabled,
+html.dark .disabled\:bg-slate-300:disabled {
+  background-color: var(--disabled-surface) !important;
+  color: var(--disabled-text) !important;
   cursor: not-allowed;
+}
+
+html.dark .disabled\:text-gray-400:disabled,
+html.dark .disabled\:text-gray-500:disabled,
+html.dark .disabled\:text-slate-400:disabled,
+html.dark .disabled\:text-slate-500:disabled,
+html.dark [aria-disabled='true'] {
+  color: var(--disabled-text) !important;
+}
+
+html.dark select option {
+  background-color: var(--input);
+  color: var(--text-primary);
 }
 
 html.dark table {
@@ -553,6 +717,15 @@ html.dark th {
 
 html.dark tbody tr:hover {
   background-color: var(--surface-hover);
+}
+
+html.dark .odd\:bg-white:nth-child(odd) {
+  background-color: var(--surface) !important;
+}
+
+html.dark .even\:bg-gray-50:nth-child(even),
+html.dark .even\:bg-slate-50:nth-child(even) {
+  background-color: var(--surface-alt) !important;
 }
 
 html.dark .divide-gray-100 > :not([hidden]) ~ :not([hidden]),
@@ -584,6 +757,11 @@ html.dark .recharts-cartesian-axis-tick-value {
 
 html.dark .recharts-cartesian-grid line {
   stroke: var(--chart-grid) !important;
+}
+
+html.dark .recharts-cartesian-axis-line,
+html.dark .recharts-cartesian-axis-tick-line {
+  stroke: var(--border-strong) !important;
 }
 
 html.dark .recharts-tooltip-wrapper .recharts-default-tooltip {

@@ -840,7 +840,7 @@ function gradtrack_graduate_import_execute(PDO $db, array $analysis, bool $hasNa
             $status = strtolower(str_replace(' ', '_', $record['employment_status']));
             if (!in_array($status, ['employed', 'self_employed', 'freelance', 'unemployed'], true)) $status = 'unemployed';
             $alignment = strtolower(str_replace(' ', '_', $record['is_aligned']));
-            if (!in_array($alignment, ['aligned', 'partially_aligned', 'not_aligned'], true)) $alignment = 'not_aligned';
+            $alignment = $alignment === 'aligned' ? 'aligned' : 'not_aligned';
             $employmentStmt->execute([
                 ':graduate_id' => $graduateId,
                 ':company' => $record['company_name'] !== '' ? $record['company_name'] : null,

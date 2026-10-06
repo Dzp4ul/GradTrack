@@ -624,8 +624,8 @@ function gradtrack_profile_alignment_label(?string $value): ?string
     if ($normalized === 'aligned') {
         return 'Related to Degree';
     }
-    if ($normalized === 'partially aligned') {
-        return 'Partially Related to Degree';
+    if (strpos($normalized, 'partial') !== false) {
+        return 'Not Related to Degree';
     }
     if ($normalized === 'not aligned') {
         return 'Not Related to Degree';

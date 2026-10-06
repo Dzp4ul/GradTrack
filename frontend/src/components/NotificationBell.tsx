@@ -35,19 +35,19 @@ interface NotificationBellProps {
 }
 
 const typeStyles: Record<string, string> = {
-  announcement: 'bg-cyan-50 text-cyan-700 border-cyan-200',
-  approval: 'bg-amber-50 text-amber-700 border-amber-200',
-  forum: 'bg-blue-50 text-blue-700 border-blue-200',
-  forum_comment: 'bg-blue-50 text-blue-700 border-blue-200',
-  forum_report: 'bg-amber-50 text-amber-700 border-amber-200',
-  post_reaction: 'bg-rose-50 text-rose-700 border-rose-200',
-  graduate: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  job_opportunity: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  job_posting: 'bg-amber-50 text-amber-700 border-amber-200',
-  job_share: 'bg-blue-50 text-blue-700 border-blue-200',
-  response: 'bg-violet-50 text-violet-700 border-violet-200',
-  survey: 'bg-rose-50 text-rose-700 border-rose-200',
-  user: 'bg-slate-50 text-slate-700 border-slate-200',
+  announcement: 'bg-cyan-50 text-cyan-700 border-cyan-200 dark:border-cyan-400/30 dark:bg-cyan-400/10 dark:text-cyan-200',
+  approval: 'bg-amber-50 text-amber-700 border-amber-200 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-200',
+  forum: 'bg-blue-50 text-blue-700 border-blue-200 dark:border-blue-400/30 dark:bg-blue-400/10 dark:text-blue-200',
+  forum_comment: 'bg-blue-50 text-blue-700 border-blue-200 dark:border-blue-400/30 dark:bg-blue-400/10 dark:text-blue-200',
+  forum_report: 'bg-amber-50 text-amber-700 border-amber-200 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-200',
+  post_reaction: 'bg-rose-50 text-rose-700 border-rose-200 dark:border-rose-400/30 dark:bg-rose-400/10 dark:text-rose-200',
+  graduate: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:border-emerald-400/30 dark:bg-emerald-400/10 dark:text-emerald-200',
+  job_opportunity: 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:border-emerald-400/30 dark:bg-emerald-400/10 dark:text-emerald-200',
+  job_posting: 'bg-amber-50 text-amber-700 border-amber-200 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-200',
+  job_share: 'bg-blue-50 text-blue-700 border-blue-200 dark:border-blue-400/30 dark:bg-blue-400/10 dark:text-blue-200',
+  response: 'bg-violet-50 text-violet-700 border-violet-200 dark:border-violet-400/30 dark:bg-violet-400/10 dark:text-violet-200',
+  survey: 'bg-rose-50 text-rose-700 border-rose-200 dark:border-rose-400/30 dark:bg-rose-400/10 dark:text-rose-200',
+  user: 'bg-slate-50 text-slate-700 border-slate-200 dark:border-slate-500/50 dark:bg-slate-700/60 dark:text-slate-200',
 };
 
 const typeLabels: Record<string, string> = {
@@ -374,10 +374,10 @@ export default function NotificationBell({ audience, colorScheme = 'light', clas
                   key={notification.key}
                   onClick={() => handleNotificationClick(notification)}
                   className={`flex min-w-0 w-full gap-2.5 border-b border-gray-100 px-3 py-3 text-left transition last:border-b-0 hover:bg-gray-50 sm:gap-3 sm:px-4 dark:border-slate-800 dark:hover:bg-slate-800/70 ${
-                    notification.read ? 'bg-white dark:bg-slate-900' : 'bg-yellow-50/60 dark:bg-amber-950/20'
+                    notification.read ? 'bg-white dark:bg-slate-900' : 'bg-blue-50/80 dark:bg-blue-950/35'
                   }`}
                 >
-                  <span className={`mt-0.5 h-2.5 w-2.5 flex-shrink-0 rounded-full ${notification.read ? 'bg-gray-300' : 'bg-red-500'}`} />
+                  <span className={`mt-0.5 h-2.5 w-2.5 flex-shrink-0 rounded-full ${notification.read ? 'bg-gray-300 dark:bg-slate-600' : 'bg-blue-600 ring-2 ring-blue-100 dark:bg-blue-400 dark:ring-blue-950'}`} />
                   <span className="min-w-0 flex-1">
                     <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
                       <span className="min-w-0 max-w-full flex-1 basis-40 break-words text-sm font-semibold text-gray-900 [overflow-wrap:anywhere] dark:text-slate-100">{notification.title}</span>
@@ -386,7 +386,7 @@ export default function NotificationBell({ audience, colorScheme = 'light', clas
                       </span>
                     </span>
                     <span className="mt-1 block break-words text-sm leading-5 text-gray-600 [overflow-wrap:anywhere] dark:text-slate-300">{notification.message}</span>
-                    <span className="mt-2 block text-xs text-gray-400 dark:text-slate-500">{formatRelativeTime(notification.created_at)}</span>
+                    <span className="mt-2 block text-xs text-gray-500 dark:text-slate-400">{formatRelativeTime(notification.created_at)}</span>
                   </span>
                 </button>
               );

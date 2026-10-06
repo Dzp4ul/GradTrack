@@ -32,7 +32,7 @@
 
 ### Before (Old Method)
 - Alignment rate was based on static `employment` table
-- Field: `is_aligned` (aligned/partially_aligned/not_aligned)
+- Field: `is_aligned` (legacy schemas may contain a third enum value; the current model is binary)
 - Required manual updates
 - Not dynamic
 
@@ -40,9 +40,8 @@
 - Alignment rate calculated from survey responses in real-time
 - Looks for job alignment questions in surveys
 - Automatically classifies based on graduate answers:
-  - **Aligned**: "Yes, directly related" to course
-  - **Partially Aligned**: "Partially related" to course
-  - **Not Aligned**: "Not related" to course
+  - **Aligned**: "Yes" / related to course
+  - **Not Aligned**: "No" / not related to course. Historical partial-related wording remains unchanged in raw responses and is included here for reporting.
 - Updates immediately when surveys are submitted
 
 ## Key Features
@@ -63,7 +62,7 @@ For the system to work, surveys should include:
 
 2. **Job Alignment Question**
    - Example: "Is your current job related to your course?"
-   - Answers: "Yes, directly related", "Partially related", "Not related"
+   - Answers: "Yes", "No"
 
 ## Testing Instructions
 
@@ -87,7 +86,7 @@ For the system to work, surveys should include:
 
 After implementation:
 - Alignment Rate card displays percentage based on survey responses
-- Pie chart shows distribution: Aligned / Partially Aligned / Not Aligned
+- Pie chart shows the binary distribution: Aligned / Not Aligned
 - Reports show alignment counts per program and year
 - All data updates immediately when new surveys are submitted
 

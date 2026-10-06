@@ -288,7 +288,7 @@ CREATE TABLE `employment` (
     `job_title` VARCHAR(100) DEFAULT NULL,
     `industry` VARCHAR(100) DEFAULT NULL,
     `employment_status` ENUM('employed','unemployed','self_employed','freelance') DEFAULT 'unemployed',
-    `is_aligned` ENUM('aligned','partially_aligned','not_aligned') DEFAULT 'not_aligned',
+    `is_aligned` ENUM('aligned','not_aligned') DEFAULT 'not_aligned',
     `date_hired` DATE DEFAULT NULL,
     `monthly_salary` DECIMAL(10,2) DEFAULT NULL,
     `time_to_employment` INT DEFAULT 0 COMMENT 'Months after graduation',

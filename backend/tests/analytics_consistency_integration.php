@@ -160,7 +160,7 @@ try {
         analytics_assert($empty['alignment_rate'] === null, 'no alignment answers returns No data instead of a fake 0%');
         analytics_assert(gradtrack_analytics_classify_employment(null) === null, 'null employment answers are invalid');
         analytics_assert(gradtrack_analytics_classify_alignment(null) === null, 'null alignment answers are invalid');
-        analytics_assert(gradtrack_analytics_classify_alignment('Partially related') === 'partially_aligned', 'partial alignment is a valid applicable response');
+        analytics_assert(gradtrack_analytics_classify_alignment('Partially related') === 'not_aligned', 'legacy partial wording is retained as data but folded into the supported binary category');
 
         $db->beginTransaction();
         try {

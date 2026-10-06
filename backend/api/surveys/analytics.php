@@ -2387,9 +2387,7 @@ function analyzeEmploymentData($responses, $questions, $questionResponseKeys) {
         'alignment_rate' => $canonicalSummary['alignment_rate'],
         'aligned_count' => (int)$canonicalSummary['aligned'],
         'alignment_total' => (int)$canonicalSummary['alignment_total'],
-        'partially_aligned_count' => (int)$canonicalSummary['partially_aligned'],
-        'not_aligned_count' => (int)$canonicalSummary['explicit_not_aligned'],
-        'binary_not_aligned_count' => (int)$canonicalSummary['not_aligned'],
+        'not_aligned_count' => (int)$canonicalSummary['not_aligned'],
         'salary_distribution' => $salaryDistribution,
         'time_to_job_distribution' => $timeToJobDistribution
     ];

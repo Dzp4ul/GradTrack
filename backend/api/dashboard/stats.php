@@ -179,7 +179,6 @@ function dashboardProgramStats(array $programs): array
             'employment_total' => (int)$stats['employment_total'],
             'aligned_count' => (int)$stats['aligned'],
             'not_aligned_count' => (int)$stats['not_aligned'],
-            'partially_aligned_count' => (int)$stats['partially_aligned'],
             'alignment_total' => (int)$stats['alignment_total'],
             // Employability Index has historically meant the survey employment rate.
             'employability_index' => $stats['employment_rate'],

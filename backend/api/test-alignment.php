@@ -65,7 +65,7 @@ foreach ($surveyResponses as $response) {
             $alignedCount++;
             echo "Result: <strong style='color:green;'>ALIGNED</strong>";
         } else if (strpos($jobRelated, 'partially') !== false) {
-            echo "Result: <strong style='color:orange;'>PARTIALLY ALIGNED</strong>";
+            echo "Result: <strong style='color:red;'>NOT ALIGNED</strong>";
         } else {
             echo "Result: <strong style='color:red;'>NOT ALIGNED</strong>";
         }

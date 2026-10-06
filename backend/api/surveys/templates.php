@@ -111,7 +111,7 @@ function getTemplateById($id, PDO $db) {
                 ['question_text' => '18. Industry/Sector', 'question_type' => 'multiple_choice', 'options' => ['IT/Technology', 'Education', 'Hospitality', 'Healthcare', 'Government', 'Business/Finance', 'Manufacturing', 'Other:'], 'is_required' => 0, 'sort_order' => 21],
                 ['question_text' => '19. Monthly salary range', 'question_type' => 'multiple_choice', 'options' => ['Below 10,000', '10,000-20,000', '20,000-30,000', '30,000-50,000', 'Above 50,000'], 'is_required' => 0, 'sort_order' => 22],
                 ['question_text' => '20. How long did it take to find your first job?', 'question_type' => 'multiple_choice', 'options' => ['Less than 1 month', '1-3 months', '3-6 months', '6-12 months', 'More than 1 year'], 'is_required' => 0, 'sort_order' => 23],
-                ['question_text' => '21. Is your current job related to your course?', 'question_type' => 'multiple_choice', 'options' => ['Yes, directly related', 'Partially related', 'Not related'], 'is_required' => 0, 'sort_order' => 24],
+                ['question_text' => '21. Is your current job related to your course?', 'question_type' => 'multiple_choice', 'options' => ['Yes', 'No'], 'is_required' => 0, 'sort_order' => 24],
                 ['question_text' => '22. Suggestions to improve the course curriculum', 'question_type' => 'text', 'options' => null, 'is_required' => 0, 'sort_order' => 25],
             ]
         ],

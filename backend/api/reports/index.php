@@ -128,7 +128,7 @@ function answerIndicatesAlignment(string $answerText): bool
     return $answerText === 'yes'
         || $answerText === 'no'
         || strpos($answerText, 'directly related') !== false
-        || strpos($answerText, 'partially related') !== false
+        || strpos($answerText, 'partial') !== false // legacy response wording; normalized into Not Aligned
         || strpos($answerText, 'not related') !== false;
 }
 

@@ -2,13 +2,11 @@ import { useState, useRef } from 'react';
 import { Link, Navigate, useNavigate } from 'react-router-dom';
 import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { useLightOnlyTheme } from '../contexts/theme';
 import { useSystemSettings } from '../contexts/SystemSettingsContext';
 import { ROLES } from '../config/roles';
+import ThemeToggle from '../components/ThemeToggle';
 
 function SignIn() {
-  useLightOnlyTheme();
-
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState('');
   const [error, setError] = useState('');
@@ -68,7 +66,8 @@ function SignIn() {
   };
 
   return (
-    <div className="flex min-h-screen overflow-x-hidden">
+    <div className="relative flex min-h-screen overflow-x-hidden">
+      <ThemeToggle className="fixed right-4 top-4 z-30" compact />
       {/* Left Side - Fixed Branding */}
       <div className="hidden md:flex md:w-1/2 bg-cover bg-center fixed top-0 left-0 h-screen items-center justify-center" style={{ backgroundImage: `url(${loginBackground})` }}>
         <div className="absolute inset-0 bg-gradient-to-br from-blue-900/85 via-blue-800/85 to-blue-900/85"></div>
@@ -101,7 +100,7 @@ function SignIn() {
             <img
               src={loginLogo}
               alt={`${getSetting('system_short_name', 'GradTrack')} Logo`}
-              className="h-20 object-contain"
+              className="h-auto max-h-20 w-full max-w-[360px] object-contain"
             />
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold text-blue-900 text-center mb-2">{getSetting('login_page_title', 'Sign In')}</h1>

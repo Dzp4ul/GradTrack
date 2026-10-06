@@ -160,7 +160,6 @@ interface SurveyEmploymentInsights {
   aligned_count: number;
   alignment_total: number;
   not_aligned_count: number;
-  binary_not_aligned_count: number;
   salary_distribution: Record<string, number>;
   time_to_job_distribution: Record<string, number>;
 }
@@ -3269,7 +3268,7 @@ export default function Reports() {
       dataNotes: aiSections?.dataNotes?.length ? aiSections.dataNotes : localStructured.dataNotes,
     };
     const renderParagraphs = (content: string) => (
-      <div className="space-y-3 text-sm leading-6 text-slate-700">
+      <div className="space-y-3 text-sm leading-6 text-text-secondary">
         {normalizeReportText(content)
           .split(/\n{2,}/)
           .map((paragraph) => paragraph.trim())
@@ -3279,16 +3278,16 @@ export default function Reports() {
     );
 
     return (
-      <section aria-labelledby="ai-descriptive-heading" className="overflow-hidden rounded-xl border border-violet-200 bg-white shadow-sm">
-        <div className="border-b border-violet-100 bg-gradient-to-r from-violet-50 via-blue-50 to-white px-4 py-4 sm:px-6">
+      <section aria-labelledby="ai-descriptive-heading" className="overflow-hidden rounded-xl border border-border bg-surface text-text-primary shadow-sm">
+        <div className="border-b border-border bg-surface-alt px-4 py-4 sm:px-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex min-w-0 items-center gap-3">
               <div className="shrink-0 rounded-lg bg-gradient-to-br from-violet-600 to-blue-600 p-2.5 shadow-sm">
                 <Sparkles className="h-5 w-5 text-white" aria-hidden="true" />
               </div>
               <div className="min-w-0">
-                <h3 id="ai-descriptive-heading" className="text-base font-bold text-[#1b2a4a] sm:text-lg">AI-Powered Descriptive Analytics</h3>
-                <p className="mt-0.5 text-xs font-medium text-slate-500">
+                <h3 id="ai-descriptive-heading" className="text-base font-bold text-text-primary sm:text-lg">AI-Powered Descriptive Analytics</h3>
+                <p className="mt-0.5 text-xs font-medium text-text-muted">
                   {aiSource === 'groq' ? 'Powered by GROQ AI' : 'Verified local analysis while GROQ AI is unavailable'}
                 </p>
               </div>
@@ -3297,7 +3296,7 @@ export default function Reports() {
               type="button"
               onClick={handleRegenerateAiAnalytics}
               disabled={aiLoading || !selectedSurveyId}
-              className="inline-flex min-h-10 items-center justify-center gap-2 self-start rounded-lg border border-violet-200 bg-white px-3 py-2 text-xs font-semibold text-violet-700 transition-colors hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-60 sm:self-auto"
+              className="inline-flex min-h-10 items-center justify-center gap-2 self-start rounded-lg border border-border-strong bg-surface px-3 py-2 text-xs font-semibold text-violet-700 transition-colors hover:bg-surface-hover disabled:cursor-not-allowed disabled:opacity-60 dark:text-violet-300 sm:self-auto"
               aria-label="Regenerate descriptive analytics"
             >
               <RefreshCw className={`h-4 w-4 ${aiLoading ? 'animate-spin' : ''}`} aria-hidden="true" />
@@ -3315,24 +3314,24 @@ export default function Reports() {
           ) : tab === 'overview' ? (
             <div className="space-y-6">
               <section>
-                <h4 className="mb-3 text-sm font-bold text-[#1b2a4a]">Descriptive Analysis</h4>
+                <h4 className="mb-3 text-sm font-bold text-text-primary">Descriptive Analysis</h4>
                 {renderParagraphs(`${structured.employmentInterpretation}\n\n${structured.alignmentAnalysis}`)}
               </section>
 
-              <section className="border-t border-slate-200 pt-5">
-                <h4 className="mb-3 text-sm font-bold text-[#1b2a4a]">Program-Level Analysis</h4>
+              <section className="border-t border-border pt-5">
+                <h4 className="mb-3 text-sm font-bold text-text-primary">Program-Level Analysis</h4>
                 {renderParagraphs(structured.programAnalysis)}
               </section>
 
-              <section className="border-t border-slate-200 pt-5">
-                <h4 className="mb-3 text-sm font-bold text-[#1b2a4a]">Overall Summary</h4>
+              <section className="border-t border-border pt-5">
+                <h4 className="mb-3 text-sm font-bold text-text-primary">Overall Summary</h4>
                 {renderParagraphs(structured.summary)}
               </section>
 
               {structured.dataNotes.length > 0 && (
-                <section className="border-t border-slate-200 pt-5">
-                  <h4 className="text-sm font-bold text-[#1b2a4a]">Data Notes</h4>
-                  <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6 text-slate-700">
+                <section className="border-t border-border pt-5">
+                  <h4 className="text-sm font-bold text-text-primary">Data Notes</h4>
+                  <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6 text-text-secondary">
                     {structured.dataNotes.map((note) => <li key={note}>{note}</li>)}
                   </ul>
                 </section>
@@ -3350,22 +3349,22 @@ export default function Reports() {
               ]
                 .filter((section) => section.content.trim() !== '')
                 .map((section, index) => (
-                  <section key={section.title} className={index === 0 ? '' : 'border-t border-slate-200 pt-5'}>
-                    <h4 className="mb-3 text-sm font-bold text-[#1b2a4a]">{section.title}</h4>
+                  <section key={section.title} className={index === 0 ? '' : 'border-t border-border pt-5'}>
+                    <h4 className="mb-3 text-sm font-bold text-text-primary">{section.title}</h4>
                     {renderParagraphs(section.content)}
                   </section>
                 ))}
               {aiSections?.dataNotes && aiSections.dataNotes.length > 0 && (
-                <section className="border-t border-slate-200 pt-5">
-                  <h4 className="mb-3 text-sm font-bold text-[#1b2a4a]">Data Notes</h4>
-                  <ul className="list-disc space-y-2 pl-5 text-sm leading-6 text-slate-700">
+                <section className="border-t border-border pt-5">
+                  <h4 className="mb-3 text-sm font-bold text-text-primary">Data Notes</h4>
+                  <ul className="list-disc space-y-2 pl-5 text-sm leading-6 text-text-secondary">
                     {aiSections.dataNotes.map((note) => <li key={note}>{note}</li>)}
                   </ul>
                 </section>
               )}
             </div>
           )}
-          <p className="mt-5 border-t border-slate-100 pt-4 text-xs text-slate-500">
+          <p className="mt-5 border-t border-border pt-4 text-xs text-text-muted">
             AI-assisted interpretation is based only on the currently selected GradTrack data and remains descriptive, not inferential.
           </p>
         </div>
@@ -4554,12 +4553,12 @@ function InferentialResults({ result }: { result: InferentialAnalysisResult }) {
             <InferentialDetail label="Answers left out" value={analysis.excludedResponses.toLocaleString()} />
             <InferentialDetail label="Data check" value={dataCheckLabel} />
           </dl>
-          <details className="mt-4 rounded-lg border bg-gray-50">
-            <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-[#1b2a4a]">
+          <details className="mt-4 rounded-lg border border-border bg-surface-alt">
+            <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-text-primary">
               View technical statistical details
             </summary>
-            <div className="border-t bg-white px-4 pb-2">
-              <p className="py-3 text-xs leading-relaxed text-gray-500">
+            <div className="border-t border-border bg-surface px-4 pb-2">
+              <p className="py-3 text-xs leading-relaxed text-text-muted">
                 These values are included for researchers and report verification.
               </p>
               <dl className="divide-y text-sm">
@@ -4634,8 +4633,8 @@ function InferentialStatCard({ icon: Icon = BarChart3, label, value, subtext, co
 function InferentialDetail({ label, value }: { label: string; value: string }) {
   return (
     <div className="grid grid-cols-1 gap-1 py-2.5 sm:grid-cols-2 sm:gap-3">
-      <dt className="text-gray-500">{label}</dt>
-      <dd className="font-semibold text-[#1b2a4a] sm:text-right">{value}</dd>
+      <dt className="text-text-muted">{label}</dt>
+      <dd className="font-semibold text-text-primary sm:text-right">{value}</dd>
     </div>
   );
 }
@@ -4656,22 +4655,22 @@ function InferentialFrequencyTable({ table }: { table: InferentialTable }) {
         </thead>
         <tbody>
           {table.rows.map((row) => (
-            <tr key={row.key} className="odd:bg-white even:bg-gray-50">
-              <th className="border border-gray-200 px-3 py-2 text-left font-semibold text-[#1b2a4a]">{row.label}</th>
+            <tr key={row.key} className="odd:bg-surface even:bg-surface-alt">
+              <th className="border border-border px-3 py-2 text-left font-semibold text-text-primary">{row.label}</th>
               {row.frequencies.map((frequency, index) => (
-                <td key={`${row.key}-${table.columns[index]?.key ?? index}`} className="border border-gray-200 px-3 py-2 text-center">
+                <td key={`${row.key}-${table.columns[index]?.key ?? index}`} className="border border-border px-3 py-2 text-center text-text-secondary">
                   {formatCell(frequency)}
                 </td>
               ))}
-              <td className="border border-gray-200 px-3 py-2 text-center font-semibold">{formatCell(row.total)}</td>
+              <td className="border border-border px-3 py-2 text-center font-semibold text-text-primary">{formatCell(row.total)}</td>
             </tr>
           ))}
-          <tr className="bg-gray-100 font-bold text-[#1b2a4a]">
-            <th className="border border-gray-200 px-3 py-2 text-left">Total</th>
+          <tr className="bg-surface-muted font-bold text-text-primary">
+            <th className="border border-border px-3 py-2 text-left">Total</th>
             {table.columnTotals.map((total, index) => (
-              <td key={table.columns[index]?.key ?? index} className="border border-gray-200 px-3 py-2 text-center">{formatCell(total)}</td>
+              <td key={table.columns[index]?.key ?? index} className="border border-border px-3 py-2 text-center">{formatCell(total)}</td>
             ))}
-            <td className="border border-gray-200 px-3 py-2 text-center">{formatCell(table.grandTotal)}</td>
+            <td className="border border-border px-3 py-2 text-center">{formatCell(table.grandTotal)}</td>
           </tr>
         </tbody>
       </table>

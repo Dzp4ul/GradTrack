@@ -1280,14 +1280,12 @@ function gradtrack_genai_finalize_program_rows(array $programs): array
     foreach ($rows as &$row) {
         $employed = (int)($row['employed'] ?? 0);
         $unemployed = (int)($row['unemployed'] ?? 0);
-        $alignmentTotal = (int)($row['aligned'] ?? 0)
-            + (int)($row['partially_aligned'] ?? 0)
-            + (int)($row['not_aligned'] ?? 0);
+        $alignmentTotal = (int)($row['aligned'] ?? 0) + (int)($row['not_aligned'] ?? 0);
         $row['unemployed'] = $unemployed;
         $row['not_employed'] = $unemployed;
         $row['employment_total'] = $employed + $unemployed;
         $row['alignment_total'] = $alignmentTotal;
-        $row['not_aligned_binary'] = (int)($row['partially_aligned'] ?? 0) + (int)($row['not_aligned'] ?? 0);
+        $row['not_aligned_binary'] = (int)($row['not_aligned'] ?? 0);
         $row['employment_rate'] = $row['employment_total'] > 0
             ? gradtrack_genai_percent($employed, $row['employment_total'])
             : null;
@@ -1310,9 +1308,7 @@ function gradtrack_genai_finalize_year_rows(array $years): array
     foreach ($rows as &$row) {
         $employed = (int)($row['employed'] ?? 0);
         $unemployed = (int)($row['unemployed'] ?? 0);
-        $alignmentTotal = (int)($row['aligned'] ?? 0)
-            + (int)($row['partially_aligned'] ?? 0)
-            + (int)($row['not_aligned'] ?? 0);
+        $alignmentTotal = (int)($row['aligned'] ?? 0) + (int)($row['not_aligned'] ?? 0);
         $row['not_employed'] = $unemployed;
         $row['employment_total'] = $employed + $unemployed;
         $row['alignment_total'] = $alignmentTotal;
@@ -1371,7 +1367,6 @@ function gradtrack_genai_collect_dataset(
     ];
     $jobRelevance = [
         'Aligned' => ['label' => 'Aligned', 'count' => 0],
-        'Partially Aligned' => ['label' => 'Partially Aligned', 'count' => 0],
         'Not Aligned' => ['label' => 'Not Aligned', 'count' => 0],
         'Not Classified' => ['label' => 'Not Classified', 'count' => 0],
     ];
@@ -1383,7 +1378,6 @@ function gradtrack_genai_collect_dataset(
     $local = 0;
     $abroad = 0;
     $aligned = 0;
-    $partiallyAligned = 0;
     $notAligned = 0;
     $salaryTotal = 0;
 
@@ -1426,7 +1420,6 @@ function gradtrack_genai_collect_dataset(
             'local' => 0,
             'abroad' => 0,
             'aligned' => 0,
-            'partially_aligned' => 0,
             'not_aligned' => 0,
         ], static function (&$bucket) use ($details) {
             $bucket['total_graduates']++;
@@ -1440,8 +1433,6 @@ function gradtrack_genai_collect_dataset(
                 }
                 if (($details['alignment_bucket'] ?? null) === 'aligned') {
                     $bucket['aligned']++;
-                } elseif (($details['alignment_bucket'] ?? null) === 'partially_aligned') {
-                    $bucket['partially_aligned']++;
                 } elseif (($details['alignment_bucket'] ?? null) === 'not_aligned') {
                     $bucket['not_aligned']++;
                 }
@@ -1456,7 +1447,6 @@ function gradtrack_genai_collect_dataset(
             'employed' => 0,
             'unemployed' => 0,
             'aligned' => 0,
-            'partially_aligned' => 0,
             'not_aligned' => 0,
         ], static function (&$bucket) use ($details) {
             $bucket['total_graduates']++;
@@ -1464,8 +1454,6 @@ function gradtrack_genai_collect_dataset(
                 $bucket['employed']++;
                 if (($details['alignment_bucket'] ?? null) === 'aligned') {
                     $bucket['aligned']++;
-                } elseif (($details['alignment_bucket'] ?? null) === 'partially_aligned') {
-                    $bucket['partially_aligned']++;
                 } elseif (($details['alignment_bucket'] ?? null) === 'not_aligned') {
                     $bucket['not_aligned']++;
                 }
@@ -1488,9 +1476,6 @@ function gradtrack_genai_collect_dataset(
             if (($details['alignment_bucket'] ?? null) === 'aligned') {
                 $aligned++;
                 $jobRelevance['Aligned']['count']++;
-            } elseif (($details['alignment_bucket'] ?? null) === 'partially_aligned') {
-                $partiallyAligned++;
-                $jobRelevance['Partially Aligned']['count']++;
             } elseif (($details['alignment_bucket'] ?? null) === 'not_aligned') {
                 $notAligned++;
                 $jobRelevance['Not Aligned']['count']++;
@@ -1527,10 +1512,8 @@ function gradtrack_genai_collect_dataset(
         'total_employed_local' => $local,
         'total_employed_abroad' => $abroad,
         'total_aligned' => $aligned,
-        'total_partially_aligned' => $partiallyAligned,
-        'total_not_aligned' => $partiallyAligned + $notAligned,
-        'total_explicit_not_aligned' => $notAligned,
-        'total_alignment_known' => $aligned + $partiallyAligned + $notAligned,
+        'total_not_aligned' => $notAligned,
+        'total_alignment_known' => $aligned + $notAligned,
         'total_survey_responses' => $total,
         'employment_rate' => ($employed + $unemployed) > 0
             ? gradtrack_genai_percent($employed, $employed + $unemployed)
@@ -1538,8 +1521,8 @@ function gradtrack_genai_collect_dataset(
         'employment_known_rate' => ($employed + $unemployed) > 0
             ? gradtrack_genai_percent($employed, $employed + $unemployed)
             : null,
-        'alignment_rate' => ($aligned + $partiallyAligned + $notAligned) > 0
-            ? gradtrack_genai_percent($aligned, $aligned + $partiallyAligned + $notAligned)
+        'alignment_rate' => ($aligned + $notAligned) > 0
+            ? gradtrack_genai_percent($aligned, $aligned + $notAligned)
             : null,
     ];
 
