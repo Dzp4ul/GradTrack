@@ -5,6 +5,7 @@ import PublicAnnouncementsPage from './pages/PublicAnnouncementsPage';
 import AboutPage from './pages/AboutPage';
 import FAQPage from './pages/FAQPage';
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage';
+import AlumniMembershipPage from './pages/AlumniMembershipPage';
 import SignIn from './pages/SignIn';
 import AdminForgotPassword from './pages/AdminForgotPassword';
 import Survey from './pages/Survey';
@@ -32,6 +33,7 @@ import ForumModeration from './pages/admin/ForumModeration';
 import Announcements from './pages/admin/Announcements';
 import JobPostings from './pages/admin/JobPostings';
 import AlumniRegisteredList from './pages/admin/AlumniRegisteredList';
+import AlumniMembershipManagement from './pages/admin/AlumniMembershipManagement';
 import AuditTrail from './pages/admin/AuditTrail.jsx';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ProtectedRoute } from './lib/ProtectedRoute';
@@ -126,6 +128,8 @@ function App() {
           <Route path="/about" element={<PublicPage><AboutPage /></PublicPage>} />
           <Route path="/faq" element={<PublicPage><FAQPage /></PublicPage>} />
           <Route path="/privacy-policy" element={<PublicPage><PrivacyPolicyPage /></PublicPage>} />
+          <Route path="/alumni/membership-information" element={<PublicPage><AlumniMembershipPage audience="registration" /></PublicPage>} />
+          <Route path="/alumni/registered-information" element={<PublicPage><AlumniMembershipPage audience="registered" /></PublicPage>} />
           <Route path="/maintenance" element={<MaintenancePage />} />
           <Route path="/survey-verify" element={<SurveyVerification />} />
           <Route path="/survey" element={<Survey />} />
@@ -221,6 +225,14 @@ function App() {
               element={
                 <ProtectedRoute allowedRoles={ALUMNI_PRESIDENT_ROLES}>
                   <AlumniRegisteredList />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="alumni-membership-page"
+              element={
+                <ProtectedRoute allowedRoles={ALUMNI_PRESIDENT_ROLES}>
+                  <AlumniMembershipManagement />
                 </ProtectedRoute>
               }
             />

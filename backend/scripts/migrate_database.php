@@ -18,6 +18,7 @@ require_once __DIR__ . '/../api/config/admin_roles.php';
 require_once __DIR__ . '/../api/config/archive.php';
 require_once __DIR__ . '/../api/config/admin_profile_image.php';
 require_once __DIR__ . '/../api/config/alumni_registry.php';
+require_once __DIR__ . '/../api/config/alumni_membership.php';
 require_once __DIR__ . '/../api/config/announcements.php';
 require_once __DIR__ . '/../api/config/audit_trail.php';
 require_once __DIR__ . '/../api/config/engagement_approval.php';

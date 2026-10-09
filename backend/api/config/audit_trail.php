@@ -169,7 +169,7 @@ if (!function_exists('gradtrack_audit_registrar_modules')) {
 if (!function_exists('gradtrack_audit_alumni_president_modules')) {
     function gradtrack_audit_alumni_president_modules(): array
     {
-        return ['Community Forum', 'Job Posting', 'Alumni Registered List'];
+        return ['Community Forum', 'Job Posting', 'Alumni Registered List', 'Alumni Membership Page'];
     }
 }
 

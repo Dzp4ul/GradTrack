@@ -19,6 +19,7 @@ import {
   History,
   Mail,
   Megaphone,
+  PanelsTopLeft,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
@@ -57,6 +58,7 @@ const registrarNavItems: NavItem[] = [];
 
 const alumniPresidentNavItems: NavItem[] = [
   { to: '/admin/alumni-registered-list', icon: Users, label: 'Alumni Verification' },
+  { to: '/admin/alumni-membership-page', icon: PanelsTopLeft, label: 'Membership Page' },
   { to: '/admin/announcements', icon: Megaphone, label: 'Announcements' },
   { to: '/admin/forum-moderation', icon: MessageSquareMore, label: 'Forum Moderation', end: true },
   { to: '/admin/job-postings', icon: Briefcase, label: 'Job Postings' },

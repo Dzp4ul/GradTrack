@@ -68,6 +68,7 @@ export const API_ENDPOINTS = {
   DEAN_SURVEY_STATUS: `${API_ROOT}/dean/survey-status.php`,
   ENGAGEMENT_APPROVALS: `${API_ROOT}/moderation/approvals.php`,
   ALUMNI_REGISTRY: `${API_ROOT}/alumni-registry/index.php`,
+  ALUMNI_MEMBERSHIP: `${API_ROOT}/alumni-membership/index.php`,
   FORUM: {
     POSTS: `${API_ROOT}/forum/posts.php`,
     COMMENTS: `${API_ROOT}/forum/comments.php`,

@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef, type ClipboardEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ShieldCheck, ChevronRight, ChevronLeft, ClipboardList, Save, Eye, EyeOff, Users, Briefcase, RefreshCw } from 'lucide-react';
+import { ShieldCheck, ChevronRight, ChevronLeft, ClipboardList, Save, BadgeCheck, GraduationCap, RefreshCw, X } from 'lucide-react';
 import MessageBox from '../components/MessageBox';
 import SearchableSelect from '../components/SearchableSelect';
 import FeatureUnavailable from '../components/FeatureUnavailable';
 import ThemeToggle from '../components/ThemeToggle';
-import { API_ENDPOINTS, API_ROOT } from '../config/api';
+import { API_ROOT } from '../config/api';
 import { useSystemSettings } from '../contexts/SystemSettingsContext';
 import { usePsgcAddress } from '../hooks/usePsgcAddress';
 import { PsgcAddressPayload } from '../services/psgc';
@@ -47,18 +47,6 @@ interface Survey {
   description: string;
   status: string;
   questions: Question[];
-}
-
-interface AccountPrefillData {
-  first_name: string;
-  middle_name: string;
-  last_name: string;
-  email: string;
-  phone: string;
-  year_graduated: string;
-  address: string;
-  program_id: number | null;
-  program_name: string;
 }
 
 interface TokenProfileData {
@@ -394,9 +382,6 @@ const isFirstNameQuestion = (question: Question) =>
 const isMiddleNameQuestion = (question: Question) =>
   questionMatchesIdentity(question, 'middle_name', ['middle name', 'middle initial']);
 
-const isMiddleInitialQuestion = (question: Question) =>
-  normalizeComparable(question.question_text).includes('middle initial');
-
 const isPermanentAddressHeader = (question: Question) =>
   isHeaderQuestion(question)
   && questionMatchesIdentity(question, 'permanent_address', ['permanent address']);
@@ -458,7 +443,6 @@ const getOtherTextFromAnswer = (answer: SurveyAnswer, option: string) => {
   return '';
 };
 
-const PASSWORD_COMPLEXITY_REGEX = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/;
 const NAME_EXTENSION_OPTIONS = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V', 'VI'];
 
 const isNameExtensionQuestion = (question: Question) =>
@@ -777,18 +761,13 @@ function Survey() {
   const [graduateId, setGraduateId] = useState<number | null>(null);
   const [graduateName, setGraduateName] = useState<string>('');
   const [postSubmitModalOpen, setPostSubmitModalOpen] = useState(false);
-  const [showCreateAccountForm, setShowCreateAccountForm] = useState(false);
   const [submittedResponseId, setSubmittedResponseId] = useState<number | null>(null);
-  const [prefillData, setPrefillData] = useState<AccountPrefillData | null>(null);
   const [tokenProfileData, setTokenProfileData] = useState<TokenProfileData | null>(null);
-  const [accountPassword, setAccountPassword] = useState('');
-  const [accountConfirmPassword, setAccountConfirmPassword] = useState('');
-  const [showAccountPassword, setShowAccountPassword] = useState(false);
-  const [showAccountConfirmPassword, setShowAccountConfirmPassword] = useState(false);
-  const [accountSubmitting, setAccountSubmitting] = useState(false);
   const [surveySubmitting, setSurveySubmitting] = useState(false);
   const [isReviewing, setIsReviewing] = useState(false);
   const surveySubmissionInFlightRef = useRef(false);
+  const surveySubmissionSucceededRef = useRef(false);
+  const postSubmitInitialFocusRef = useRef<HTMLAnchorElement | null>(null);
 
   useEffect(() => {
     if (isMaintenanceMode || !surveyAvailable) {
@@ -1172,240 +1151,28 @@ function Survey() {
     }, 50);
   };
 
-  const extractSurveyProfileData = (): AccountPrefillData => {
-    const prefill: AccountPrefillData = {
-      first_name: String(tokenProfileData?.first_name || '').trim(),
-      middle_name: String(tokenProfileData?.middle_name || '').trim(),
-      last_name: String(tokenProfileData?.last_name || '').trim(),
-      email: String(tokenProfileData?.email || '').trim(),
-      phone: String(tokenProfileData?.phone || '').trim(),
-      year_graduated: tokenProfileData?.year_graduated ? String(tokenProfileData.year_graduated) : '',
-      address: String(tokenProfileData?.address || '').trim(),
-      program_id: tokenProfileData?.program_id ? Number(tokenProfileData.program_id) : null,
-      program_name: String(tokenProfileData?.program_name || tokenProfileData?.program_code || '').trim(),
-    };
-
-    const questionMap = new Map<number, Question>();
-    (activeSurvey?.questions || []).forEach((q) => {
-      if (q.id) {
-        questionMap.set(q.id, q);
-      }
-    });
-
-    Object.entries(responses).forEach(([questionId, answer]) => {
-      const q = questionMap.get(Number(questionId));
-      if (!q || isHeaderQuestion(q) || answer === null || answer === undefined) {
-        return;
-      }
-
-      const questionText = q.question_text.toLowerCase();
-      const value = Array.isArray(answer) ? answer.join(', ') : String(answer).trim();
-      if (!value) {
-        return;
-      }
-
-      if (isFirstNameQuestion(q)) {
-        prefill.first_name = value;
-      } else if (isMiddleNameQuestion(q)) {
-        if (!isMiddleInitialQuestion(q) || !prefill.middle_name) {
-          prefill.middle_name = value;
-        }
-      } else if (isLastNameQuestion(q)) {
-        prefill.last_name = value;
-      } else if (questionText.includes('email') || questionText.includes('e-mail')) {
-        prefill.email = value;
-      } else if (questionText.includes('mobile') || questionText.includes('contact number') || questionText.includes('contact no') || questionText.includes('contact #') || questionText.includes('telephone') || questionText.includes('phone') || questionText.includes('cellphone') || questionText.includes('cp number')) {
-        if (!prefill.phone) {
-          prefill.phone = value;
-        }
-      } else if (questionText.includes('year graduated') || questionText.includes('year of graduation') || questionText.includes('yr graduated') || questionText.includes('graduation year')) {
-        prefill.year_graduated = value;
-      } else if (questionText.includes('degree program') || questionText.includes('degree/course') || questionText.includes('degree / course') || questionText.includes('course') || questionText.includes('program completed') || questionText.includes('course completed')) {
-        if (!prefill.program_name) {
-          prefill.program_name = value;
-        }
-      } else if (
-        questionText.includes('address')
-        || questionText.includes('region')
-        || questionText.includes('barangay')
-        || questionText.includes('city')
-        || questionText.includes('municipality')
-        || questionText.includes('province')
-      ) {
-        prefill.address = prefill.address ? `${prefill.address}, ${value}` : value;
-      }
-    });
-
-    // Pattern-based fallback to catch fields even when question labels are custom.
-    const allAnswerValues = Object.values(responses)
-      .flatMap((raw) => (Array.isArray(raw) ? raw : [raw]))
-      .map((raw) => String(raw ?? '').trim())
-      .filter(Boolean);
-
-    if (!prefill.email) {
-      const detectedEmail = allAnswerValues.find((value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value));
-      if (detectedEmail) {
-        prefill.email = detectedEmail;
-      }
-    }
-
-    if (!prefill.phone) {
-      const phoneRegex = /^(?:\+63|0)?9\d{9}$|^(?:\+63\s?|0)9\d{2}[\s-]?\d{3}[\s-]?\d{4}$/;
-      const compact = (value: string) => value.replace(/[\s()-]/g, '');
-      const detectedPhone = allAnswerValues.find((value) => phoneRegex.test(compact(value)));
-      if (detectedPhone) {
-        prefill.phone = detectedPhone;
-      }
-    }
-
-    if (!prefill.year_graduated) {
-      const detectedYear = allAnswerValues.find((value) => /^(19|20)\d{2}$/.test(value));
-      if (detectedYear) {
-        prefill.year_graduated = detectedYear;
-      }
-    }
-
-    const fullNameParts = (graduateName || '').trim().split(' ').filter(Boolean);
-    if (!prefill.first_name && fullNameParts.length > 0) {
-      prefill.first_name = fullNameParts[0];
-    }
-    if (!prefill.last_name && fullNameParts.length > 1) {
-      prefill.last_name = fullNameParts[fullNameParts.length - 1];
-    }
-    if (!prefill.middle_name && fullNameParts.length > 2) {
-      prefill.middle_name = fullNameParts.slice(1, fullNameParts.length - 1).join(' ');
-    }
-
-    if (psgcAddress.payload) {
-      prefill.address = [
-        psgcAddress.payload.barangay_name,
-        psgcAddress.payload.city_municipality_name,
-        psgcAddress.payload.province_name,
-        psgcAddress.payload.region_name,
-      ].filter(Boolean).join(', ');
-    }
-
-    return prefill;
-  };
-
-  const finishSurveyFlow = (goHome: boolean = true) => {
+  const leavePostSurveyFlow = () => {
     setPostSubmitModalOpen(false);
-    setShowCreateAccountForm(false);
-    setAccountPassword('');
-    setAccountConfirmPassword('');
-    setShowAccountPassword(false);
-    setShowAccountConfirmPassword(false);
-    setSubmittedResponseId(null);
-    setPrefillData(null);
-    setResponses({});
-    psgcAddress.resetAddress();
-    setAutoFilledQuestionIds(new Set());
-    setCurrentSection(0);
-    setAgreed(false);
-    setLastSaved(null);
-
-    if (goHome) {
-      setTimeout(() => {
-        window.location.href = '/';
-      }, 1200);
-    }
+    window.location.assign('/');
   };
 
-  const handleCreateGraduateAccount = async () => {
-    if (!prefillData || !submittedResponseId || !graduateId) {
-      setMsgBox({
-        isOpen: true,
-        type: 'error',
-        title: 'Cannot Create Account',
-        message: 'Missing submission reference. Please sign up later from the graduate portal.',
-      });
-      return;
-    }
-
-    if (!prefillData.email) {
-      setMsgBox({
-        isOpen: true,
-        type: 'warning',
-        title: 'Email Required',
-        message: 'Your survey response did not include an email address. Please provide an email in the survey next time or contact the registrar.',
-      });
-      return;
-    }
-
-    if (!PASSWORD_COMPLEXITY_REGEX.test(accountPassword)) {
-      setMsgBox({
-        isOpen: true,
-        type: 'warning',
-        title: 'Weak Password',
-        message: 'Password must be 8 or more characters and include uppercase, lowercase, number, and symbol.',
-      });
-      return;
-    }
-
-    if (accountPassword !== accountConfirmPassword) {
-      setMsgBox({
-        isOpen: true,
-        type: 'warning',
-        title: 'Password Mismatch',
-        message: 'Password and confirm password must match.',
-      });
-      return;
-    }
-
-    setAccountSubmitting(true);
-    try {
-      const response = await fetch(API_ENDPOINTS.GRADUATE_AUTH.REGISTER_FROM_SURVEY, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          survey_response_id: submittedResponseId,
-          graduate_id: graduateId,
-          survey_token: token,
-          email: prefillData.email,
-          phone: prefillData.phone,
-          year_graduated: prefillData.year_graduated ? Number(prefillData.year_graduated) : null,
-          address: prefillData.address,
-          program_id: prefillData.program_id,
-          password: accountPassword,
-          confirm_password: accountConfirmPassword,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok || !result.success) {
-        const suggestion = result.suggestion ? `\n\n${result.suggestion}` : '';
-        setMsgBox({
-          isOpen: true,
-          type: 'error',
-          title: 'Account Creation Failed',
-          message: `${result.error || 'Unable to create account right now.'}${suggestion}`,
-        });
-        return;
+  useEffect(() => {
+    if (!postSubmitModalOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    postSubmitInitialFocusRef.current?.focus();
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setPostSubmitModalOpen(false);
+        window.location.assign('/');
       }
-
-      setMsgBox({
-        isOpen: true,
-        type: 'success',
-        title: 'Pending Alumni Verification',
-        message: result.message || 'Your account is currently pending alumni verification. Please wait for the Alumni President to review and approve your account.',
-      });
-
-      setTimeout(() => {
-        window.location.href = '/graduate/signin';
-      }, 1800);
-    } catch (error) {
-      setMsgBox({
-        isOpen: true,
-        type: 'error',
-        title: 'Network Error',
-        message: error instanceof Error ? error.message : 'Unable to create account. Please try again later.',
-      });
-    } finally {
-      setAccountSubmitting(false);
-    }
-  };
+    };
+    window.addEventListener('keydown', handleEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleEscape);
+    };
+  }, [postSubmitModalOpen]);
 
   const isQuestionDisabled = (question: Question, responseSnapshot: SurveyResponses = responses) =>
     activeSurvey ? shouldDisableQuestion(question, activeSurvey.questions, responseSnapshot) : false;
@@ -1585,7 +1352,7 @@ function Survey() {
   };
 
   const handleSubmit = async () => {
-    if (!activeSurvey || !token || !graduateId || surveySubmissionInFlightRef.current || submittedResponseId) return;
+    if (!activeSurvey || !token || !graduateId || surveySubmissionInFlightRef.current || surveySubmissionSucceededRef.current || submittedResponseId) return;
 
     const validatedSubmission = validateAllSurveyResponses();
     if (!validatedSubmission) return;
@@ -1610,16 +1377,13 @@ function Survey() {
       const result = await response.json();
 
       if (response.ok && result.success) {
-        const extractedProfile = extractSurveyProfileData();
-
         localStorage.removeItem(getSurveyDraftKey(activeSurvey.id, graduateId));
         localStorage.removeItem(`survey_draft_${activeSurvey.id}`);
         removeSurveyAccess();
 
-        setSubmittedResponseId(result.survey_response_id || result.id || null);
-        setPrefillData(extractedProfile);
+        surveySubmissionSucceededRef.current = true;
+        setSubmittedResponseId(result.survey_response_id || result.id || -1);
         setPostSubmitModalOpen(true);
-        setShowCreateAccountForm(false);
       } else {
         const backendFieldErrors = result.field_errors && typeof result.field_errors === 'object'
           ? Object.fromEntries(
@@ -2874,197 +2638,47 @@ function Survey() {
       />
 
       {postSubmitModalOpen && (
-        <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-blue-100 overflow-hidden">
-            <div className="bg-blue-50 border-b border-blue-100 px-4 py-5 sm:px-6">
-              <h3 className="text-lg font-bold text-blue-900 sm:text-xl">{getSetting('survey_completion_message', 'Your survey has been submitted successfully.')}</h3>
-              <p className="text-sm text-gray-600 mt-1">
-                Create a GradTrack account now and submit it for Alumni President verification using the information you already provided.
-              </p>
+        <div className="fixed inset-0 z-[9998] flex items-center justify-center overflow-y-auto bg-slate-950/75 p-3 backdrop-blur-sm sm:p-6">
+          <div role="dialog" aria-modal="true" aria-labelledby="post-survey-title" aria-describedby="post-survey-description" className="relative my-auto w-full max-w-4xl overflow-hidden rounded-[1.75rem] border border-white/15 bg-surface shadow-2xl">
+            <button type="button" onClick={leavePostSurveyFlow} className="absolute right-3 top-3 z-10 rounded-full border border-border bg-surface/90 p-2 text-text-muted shadow-sm transition hover:bg-surface-hover hover:text-text-primary focus:outline-none focus:ring-4 focus:ring-blue-300" aria-label="Close and return home"><X className="h-5 w-5" /></button>
+            <div className="relative overflow-hidden bg-gradient-to-br from-blue-950 via-blue-900 to-emerald-800 px-5 py-7 text-white sm:px-8 sm:py-9">
+              <div className="absolute -right-16 -top-24 h-64 w-64 rounded-full bg-yellow-300/15 blur-3xl" />
+              <div className="relative flex items-start gap-4">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-400/20 text-emerald-200 ring-1 ring-emerald-300/30"><ShieldCheck className="h-7 w-7" /></span>
+                <div className="pr-8">
+                  <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-yellow-300">Submission complete</p>
+                  <h2 id="post-survey-title" className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">{getSetting('survey_completion_message', 'Your survey has been submitted successfully.')}</h2>
+                  <p id="post-survey-description" className="mt-2 max-w-2xl text-sm leading-6 text-blue-100 sm:text-base">Choose the alumni information that applies to you. This choice does not create, approve, or change an alumni account or membership record.</p>
+                </div>
+              </div>
             </div>
 
-            {!showCreateAccountForm ? (
-              <div className="p-4 space-y-4 sm:p-6">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="flex gap-3 rounded-lg border border-blue-100 bg-blue-50 p-4">
-                    <Users className="mt-0.5 h-5 w-5 flex-shrink-0 text-blue-700" />
-                    <div>
-                      <p className="font-semibold text-blue-950">Community Forum</p>
-                      <p className="mt-1 text-sm text-gray-600">
-                        Join graduate discussions, share experiences, ask questions, and grow your professional network.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex gap-3 rounded-lg border border-green-100 bg-green-50 p-4">
-                    <Briefcase className="mt-0.5 h-5 w-5 flex-shrink-0 text-green-700" />
-                    <div>
-                      <p className="font-semibold text-green-950">Job opportunities</p>
-                      <p className="mt-1 text-sm text-gray-600">
-                        Browse approved job posts and find opportunities connected to your program and career path.
-                      </p>
-                    </div>
-                  </div>
-                </div>
+            <div className="grid gap-4 p-4 sm:p-7 md:grid-cols-2">
+              <article className="group flex min-h-[22rem] flex-col overflow-hidden rounded-2xl border border-emerald-200 bg-gradient-to-b from-emerald-50 to-white p-5 transition duration-300 hover:-translate-y-1 hover:shadow-xl dark:border-emerald-900 dark:from-emerald-950/60 dark:to-slate-900 sm:p-6">
+                <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-700 text-white shadow-lg shadow-emerald-700/20"><GraduationCap className="h-6 w-6" /></span>
+                <p className="mt-5 text-xs font-extrabold uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-300">New alumni membership</p>
+                <h3 className="mt-2 text-xl font-black leading-tight text-text-primary sm:text-2xl">Become a Registered Norzagaray College Alumni</h3>
+                <p className="mt-3 flex-1 text-sm leading-6 text-text-secondary">Join the official Norzagaray College Alumni Association, access membership information, connect with fellow graduates, and stay updated with alumni activities.</p>
+                <Link ref={postSubmitInitialFocusRef} to="/alumni/membership-information" className="mt-6 inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-5 py-3 font-extrabold text-white transition hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-300">
+                  Register as Alumni <ChevronRight className="h-5 w-5 transition group-hover:translate-x-0.5" />
+                </Link>
+              </article>
 
-                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-sm text-gray-700 space-y-1">
-                  <p><span className="font-semibold">Name:</span> {prefillData?.first_name || '-'} {prefillData?.middle_name || ''} {prefillData?.last_name || ''}</p>
-                  <p><span className="font-semibold">Email:</span> {prefillData?.email || '-'}</p>
-                  <p><span className="font-semibold">Program:</span> {prefillData?.program_name || '-'}</p>
-                  <p><span className="font-semibold">Year Graduated:</span> {prefillData?.year_graduated || '-'}</p>
-                  <p><span className="font-semibold">Contact:</span> {prefillData?.phone || '-'}</p>
-                </div>
+              <article className="group flex min-h-[22rem] flex-col overflow-hidden rounded-2xl border border-blue-200 bg-gradient-to-b from-blue-50 to-white p-5 transition duration-300 hover:-translate-y-1 hover:shadow-xl dark:border-blue-900 dark:from-blue-950/60 dark:to-slate-900 sm:p-6">
+                <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-900 text-yellow-300 shadow-lg shadow-blue-900/20"><BadgeCheck className="h-6 w-6" /></span>
+                <p className="mt-5 text-xs font-extrabold uppercase tracking-[0.16em] text-blue-700 dark:text-blue-300">Existing association member</p>
+                <h3 className="mt-2 text-xl font-black leading-tight text-text-primary sm:text-2xl">Already a Registered Alumni?</h3>
+                <p className="mt-3 flex-1 text-sm leading-6 text-text-secondary">Explore your alumni membership benefits, review important information, and continue your alumni journey with GradTrack without registering again.</p>
+                <Link to="/alumni/registered-information" className="mt-6 inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-blue-900 px-5 py-3 font-extrabold text-white transition hover:bg-blue-800 focus:outline-none focus:ring-4 focus:ring-blue-300">
+                  I'm Already Registered <ChevronRight className="h-5 w-5 transition group-hover:translate-x-0.5" />
+                </Link>
+              </article>
+            </div>
 
-                <div className="grid sm:grid-cols-3 gap-3">
-                  <button
-                    onClick={() => setShowCreateAccountForm(true)}
-                    className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg font-semibold transition"
-                  >
-                    Create Account Now
-                  </button>
-                  <button
-                    onClick={() => {
-                      setMsgBox({
-                        isOpen: true,
-                        type: 'success',
-                        title: 'Survey Submitted',
-                        message: getSetting('survey_completion_message', 'Your response was saved. You can create an account later, then wait for Alumni President verification before accessing the Graduate Portal.'),
-                      });
-                      finishSurveyFlow(true);
-                    }}
-                    className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2.5 rounded-lg font-semibold transition"
-                  >
-                    Not Now
-                  </button>
-                  <button
-                    onClick={() => {
-                      setMsgBox({
-                        isOpen: true,
-                        type: 'info',
-                        title: 'You are logged out',
-                        message: 'You may close this message or go back to home anytime.',
-                      });
-                      finishSurveyFlow(false);
-                    }}
-                    className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2.5 rounded-lg font-semibold transition"
-                  >
-                    Stay Logged Out
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="p-4 space-y-4 sm:p-6">
-                <div className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-gray-700">
-                  Set your password to submit your Graduate Portal account for Alumni President verification.
-                </div>
-
-                <div className="grid sm:grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <label className="block text-gray-600 mb-1">Name</label>
-                    <input
-                      type="text"
-                      readOnly
-                      value={`${prefillData?.first_name || ''} ${prefillData?.middle_name || ''} ${prefillData?.last_name || ''}`.trim()}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-gray-600 mb-1">Email</label>
-                    <input
-                      type="text"
-                      readOnly
-                      value={prefillData?.email || ''}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-gray-600 mb-1">Program</label>
-                    <input
-                      type="text"
-                      readOnly
-                      value={prefillData?.program_name || ''}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-gray-600 mb-1">Year Graduated</label>
-                    <input
-                      type="text"
-                      readOnly
-                      value={prefillData?.year_graduated || ''}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm text-gray-700 mb-1">Password</label>
-                    <div className="relative">
-                      <input
-                        type={showAccountPassword ? 'text' : 'password'}
-                        value={accountPassword}
-                        onChange={(e) => setAccountPassword(e.target.value)}
-                        className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        minLength={8}
-                        placeholder="Min 8 chars, Aa1!"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowAccountPassword((prev) => !prev)}
-                        className="absolute inset-y-0 right-0 px-3 text-gray-500 hover:text-gray-700"
-                        aria-label={showAccountPassword ? 'Hide password' : 'Show password'}
-                        title={showAccountPassword ? 'Hide password' : 'Show password'}
-                      >
-                        {showAccountPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm text-gray-700 mb-1">Confirm Password</label>
-                    <div className="relative">
-                      <input
-                        type={showAccountConfirmPassword ? 'text' : 'password'}
-                        value={accountConfirmPassword}
-                        onChange={(e) => setAccountConfirmPassword(e.target.value)}
-                        className="w-full px-3 py-2 pr-10 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        minLength={8}
-                        placeholder="Re-enter password"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowAccountConfirmPassword((prev) => !prev)}
-                        className="absolute inset-y-0 right-0 px-3 text-gray-500 hover:text-gray-700"
-                        aria-label={showAccountConfirmPassword ? 'Hide password' : 'Show password'}
-                        title={showAccountConfirmPassword ? 'Hide password' : 'Show password'}
-                      >
-                        {showAccountConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <p className="text-xs text-gray-500">
-                  Password must be at least 8 characters with uppercase, lowercase, number, and symbol.
-                </p>
-
-                <div className="grid sm:grid-cols-2 gap-3">
-                  <button
-                    onClick={handleCreateGraduateAccount}
-                    disabled={accountSubmitting}
-                    className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-4 py-2.5 rounded-lg font-semibold transition"
-                  >
-                    {accountSubmitting ? 'Creating Account...' : 'Create Account'}
-                  </button>
-                  <button
-                    onClick={() => setShowCreateAccountForm(false)}
-                    disabled={accountSubmitting}
-                    className="bg-gray-100 hover:bg-gray-200 text-gray-700 px-4 py-2.5 rounded-lg font-semibold transition"
-                  >
-                    Back
-                  </button>
-                </div>
-              </div>
-            )}
+            <div className="flex flex-col items-center justify-between gap-3 border-t border-border bg-surface-alt px-5 py-4 text-center sm:flex-row sm:text-left">
+              <p className="text-xs leading-5 text-text-muted">Your survey is already saved. Leaving this screen will not submit it again.</p>
+              <button type="button" onClick={leavePostSurveyFlow} className="shrink-0 rounded-lg px-3 py-2 text-sm font-bold text-text-secondary transition hover:bg-surface-hover hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-400">Return to home</button>
+            </div>
           </div>
         </div>
       )}
