@@ -1,4 +1,5 @@
 import type { Ref } from 'react';
+import { Link } from 'react-router-dom';
 import {
   ArrowLeft,
   ArrowRight,
@@ -8,8 +9,6 @@ import {
   GraduationCap,
   Info,
 } from 'lucide-react';
-
-const ALUMNI_REGISTRATION_URL = 'https://forms.gle/UWWfnV8LPDG2hwru8';
 
 interface SurveyCompletionChoicesProps {
   backgroundImage: string;
@@ -109,15 +108,13 @@ export default function SurveyCompletionChoices({
                 <BenefitItem tone="emerald">Enjoy alumni membership benefits</BenefitItem>
                 <BenefitItem tone="emerald">Be officially recognized as an alumni member</BenefitItem>
               </ul>
-              <a
-                href={ALUMNI_REGISTRATION_URL}
-                target="_blank"
-                rel="noopener noreferrer"
+              <Link
+                to="/alumni/membership-information"
                 className="mt-auto inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-700 to-emerald-600 px-5 py-3 text-center text-sm font-extrabold text-white shadow-lg shadow-emerald-700/20 transition duration-200 hover:-translate-y-0.5 hover:from-emerald-800 hover:to-emerald-700 hover:shadow-xl focus:outline-none focus:ring-4 focus:ring-emerald-200 sm:text-base"
               >
                 Register as Alumni Member
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
-              </a>
+              </Link>
             </article>
 
             <article className="group relative flex h-full min-h-[25rem] flex-col overflow-hidden rounded-3xl border border-[#bfdbfe] bg-[linear-gradient(135deg,#ffffff_0%,#eff6ff_58%,#dbeafe_100%)] p-5 shadow-[0_14px_35px_rgba(37,99,235,0.1)] transition duration-300 hover:-translate-y-1 hover:border-[#93c5fd] hover:shadow-[0_20px_45px_rgba(37,99,235,0.17)] sm:p-6">
