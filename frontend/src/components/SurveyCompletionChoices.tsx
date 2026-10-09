@@ -47,12 +47,12 @@ export default function SurveyCompletionChoices({
       className={`${overlay ? 'fixed inset-0 z-[9998]' : 'relative min-h-[100svh]'} isolate overflow-x-hidden overflow-y-auto bg-slate-950`}
     >
       <div
-        className="pointer-events-none fixed inset-[-12px] scale-[1.03] bg-cover bg-center blur-[4px]"
+        className="pointer-events-none fixed inset-0 bg-cover bg-center"
         style={{ backgroundImage: `url(${backgroundImage})` }}
         aria-hidden="true"
       />
       <div
-        className="pointer-events-none fixed inset-0 bg-gradient-to-br from-slate-950/55 via-blue-950/35 to-blue-900/45"
+        className="pointer-events-none fixed inset-0 bg-gradient-to-br from-blue-900/80 via-blue-800/80 to-blue-900/80"
         aria-hidden="true"
       />
 
@@ -84,8 +84,8 @@ export default function SurveyCompletionChoices({
               Your Next <span className="text-[#1d4ed8]">Opportunity</span> Starts Here<span className="text-[#f59e0b]">!</span>
             </h1>
             <p className="mx-auto mt-3 max-w-3xl text-sm leading-6 text-[#475569] sm:text-base sm:leading-7">
-              Graduation is just the beginning! Create your GradTrack account to discover exciting job opportunities,
-              connect with fellow alumni, and open doors to your future career.
+              Create your GradTrack account to discover exciting job opportunities, connect with fellow alumni, and
+              open doors to your future career.
             </p>
           </div>
 
