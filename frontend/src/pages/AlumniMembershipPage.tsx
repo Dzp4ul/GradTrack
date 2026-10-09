@@ -2,44 +2,43 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
+  ArrowLeft,
   ArrowRight,
   BadgeCheck,
-  Building2,
   CheckCircle2,
-  HelpCircle,
-  CreditCard,
-  GraduationCap,
-  HandHeart,
   Contact,
-  Mail,
+  CreditCard,
   ExternalLink,
+  HelpCircle,
+  Mail,
   RefreshCw,
   ShieldCheck,
-  Sparkles,
-  UsersRound,
 } from 'lucide-react';
-import PublicNav from '../components/PublicNav';
 import Footer from '../components/Footer';
+import PublicNav from '../components/PublicNav';
 import {
+  fetchAlumniMembership,
+  OFFICIAL_ALUMNI_REGISTRATION_URL,
+  resolveAlumniMembershipAsset,
   type AlumniMembershipAudience,
   type AlumniMembershipContent,
   type AlumniMembershipSection,
-  fetchAlumniMembership,
-  resolveAlumniMembershipAsset,
 } from '../services/alumniMembership';
 import { hasGraduateAccountResume } from '../services/graduateAccountResume';
 
-const benefitIcons = [BadgeCheck, UsersRound, Contact, HandHeart, Building2, GraduationCap];
+const brochureSectionKeys = new Set(['benefits', 'fees', 'id_cards']);
 const peso = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' });
 
 function PageSkeleton() {
   return (
     <div className="min-h-screen bg-background" aria-label="Loading alumni membership information">
       <PublicNav />
-      <div className="mx-auto max-w-6xl space-y-8 px-4 py-10 sm:px-6">
-        <div className="h-64 animate-pulse rounded-2xl bg-surface-muted" />
-        <div className="grid gap-5 md:grid-cols-3">
-          {[0, 1, 2].map((item) => <div key={item} className="h-44 animate-pulse rounded-2xl bg-surface-muted" />)}
+      <div className="mx-auto max-w-7xl space-y-5 px-4 py-8 sm:px-6">
+        <div className="h-32 animate-pulse rounded-3xl bg-surface-muted" />
+        <div className="grid gap-5 lg:grid-cols-12">
+          <div className="h-[32rem] animate-pulse rounded-3xl bg-surface-muted lg:col-span-5" />
+          <div className="h-[32rem] animate-pulse rounded-3xl bg-surface-muted lg:col-span-3" />
+          <div className="h-[32rem] animate-pulse rounded-3xl bg-surface-muted lg:col-span-4" />
         </div>
       </div>
       <Footer />
@@ -53,15 +52,13 @@ function EmptyPage({ retry }: { retry: () => void }) {
       <PublicNav />
       <div className="mx-auto flex min-h-[60vh] max-w-5xl items-center justify-center px-4 py-12">
         <div className="max-w-lg rounded-3xl border border-border bg-surface p-8 text-center shadow-xl">
-        <HelpCircle className="mx-auto h-12 w-12 text-amber-500" />
-        <h1 className="mt-4 text-2xl font-extrabold text-text-primary">Membership information is being updated</h1>
-        <p className="mt-3 leading-7 text-text-secondary">The Alumni President has not published this page yet. Please check again soon or contact the college for assistance.</p>
-        <div className="mt-6 flex flex-wrap justify-center gap-3">
-          <button type="button" onClick={retry} className="inline-flex items-center gap-2 rounded-xl bg-blue-900 px-4 py-2.5 font-semibold text-white hover:bg-blue-800 focus:outline-none focus:ring-4 focus:ring-blue-300">
-            <RefreshCw className="h-4 w-4" /> Try again
-          </button>
-          <Link to="/" className="rounded-xl border border-border px-4 py-2.5 font-semibold text-text-primary hover:bg-surface-hover">Back to home</Link>
-        </div>
+          <HelpCircle className="mx-auto h-12 w-12 text-amber-500" />
+          <h1 className="mt-4 text-2xl font-extrabold text-text-primary">Membership information is being updated</h1>
+          <p className="mt-3 leading-7 text-text-secondary">The Alumni President has not published this page yet. Please check again soon.</p>
+          <div className="mt-6 flex flex-wrap justify-center gap-3">
+            <button type="button" onClick={retry} className="inline-flex items-center gap-2 rounded-xl bg-blue-900 px-4 py-2.5 font-semibold text-white hover:bg-blue-800"><RefreshCw className="h-4 w-4" /> Try again</button>
+            <Link to="/" className="rounded-xl border border-border px-4 py-2.5 font-semibold text-text-primary hover:bg-surface-hover">Back to home</Link>
+          </div>
         </div>
       </div>
       <Footer />
@@ -69,16 +66,11 @@ function EmptyPage({ retry }: { retry: () => void }) {
   );
 }
 
-function SectionHeading({ title, eyebrow, icon: Icon, id }: { title: string; eyebrow: string; icon: typeof BadgeCheck; id?: string }) {
+function PanelHeading({ title, icon: Icon }: { title: string; icon: typeof BadgeCheck }) {
   return (
-    <div className="mb-7 flex items-start gap-4">
-      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-blue-900 text-yellow-300 shadow-lg shadow-blue-900/20">
-        <Icon className="h-6 w-6" aria-hidden="true" />
-      </span>
-      <div>
-        <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-emerald-600 dark:text-emerald-400">{eyebrow}</p>
-        <h2 id={id} className="mt-1 text-2xl font-black tracking-tight text-text-primary sm:text-3xl">{title}</h2>
-      </div>
+    <div className="flex items-center gap-3">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-700 text-white shadow-sm"><Icon className="h-5 w-5" aria-hidden="true" /></span>
+      <h2 className="min-w-0 break-words text-base font-black uppercase leading-tight tracking-wide text-emerald-800 dark:text-emerald-300 sm:text-lg">{title}</h2>
     </div>
   );
 }
@@ -90,220 +82,149 @@ function MembershipContent({ content, audience, preview }: { content: AlumniMemb
     () => content.section_settings.filter((section) => section.is_visible).sort((a, b) => a.display_order - b.display_order),
     [content.section_settings],
   );
-  const activeBenefits = content.benefits.filter((benefit) => benefit.is_active).sort((a, b) => a.display_order - b.display_order);
-  const activeFees = content.fees.filter((fee) => fee.is_active).sort((a, b) => a.display_order - b.display_order);
+  const benefits = content.benefits.filter((item) => item.is_active).sort((a, b) => a.display_order - b.display_order);
+  const fees = content.fees.filter((item) => item.is_active).sort((a, b) => a.display_order - b.display_order);
   const information = content.information_sections
     .filter((item) => item.is_active && (item.audience === 'both' || item.audience === audience))
     .sort((a, b) => a.display_order - b.display_order);
-  const total = activeFees.reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
+  const total = fees.reduce((sum, fee) => sum + Number(fee.amount || 0), 0);
   const heading = registered ? config.registered_heading : config.main_heading;
   const intro = registered ? config.registered_intro_text : config.intro_text;
   const collegeLogo = resolveAlumniMembershipAsset(config.college_logo_url || config.college_logo_path);
   const alumniLogo = resolveAlumniMembershipAsset(config.alumni_logo_url || config.alumni_logo_path);
+  const idFront = resolveAlumniMembershipAsset(config.id_card_front_url || config.id_card_front_path);
+  const idBack = resolveAlumniMembershipAsset(config.id_card_back_url || config.id_card_back_path);
   const canResumeAccount = hasGraduateAccountResume();
-  const registrationAvailable = !registered
-    && config.registration_button_enabled
-    && Boolean(config.registration_url);
+  const registrationEnabled = !registered && config.registration_button_enabled;
+  const primarySections = sections.filter((section) => brochureSectionKeys.has(section.section_key));
+  const supportingSections = sections.filter((section) => !brochureSectionKeys.has(section.section_key));
 
-  const renderSection = (section: AlumniMembershipSection) => {
-    switch (section.section_key) {
-      case 'benefits':
-        return (
-          <section key={section.section_key} className="rounded-[2rem] border border-border bg-surface p-5 shadow-sm sm:p-8 lg:p-10" aria-labelledby="alumni-benefits-heading">
-            <SectionHeading id="alumni-benefits-heading" title={section.section_title} eyebrow="Why membership matters" icon={Sparkles} />
-            {activeBenefits.length > 0 ? (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {activeBenefits.map((benefit, index) => {
-                  const Icon = benefitIcons[index % benefitIcons.length];
-                  return (
-                    <article key={benefit.id ?? `${benefit.title}-${index}`} className="group relative overflow-hidden rounded-2xl border border-border bg-surface-alt p-5 transition duration-300 hover:-translate-y-1 hover:border-blue-300 hover:shadow-lg dark:hover:border-blue-700">
-                      <span className="absolute right-4 top-3 text-5xl font-black text-blue-900/[0.05] dark:text-white/[0.05]">{String(index + 1).padStart(2, '0')}</span>
-                      <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300"><Icon className="h-5 w-5" /></span>
-                      <h3 className="mt-4 pr-8 text-base font-extrabold text-text-primary">{benefit.title}</h3>
-                      <p className="mt-2 text-sm leading-6 text-text-secondary">{benefit.description}</p>
-                    </article>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="rounded-2xl border border-dashed border-border bg-surface-alt p-8 text-center text-text-secondary">Membership benefits are currently being updated.</div>
-            )}
-          </section>
-        );
-      case 'fees':
-        return (
-          <section key={section.section_key} className="overflow-hidden rounded-[2rem] border border-border bg-surface shadow-sm" aria-labelledby="alumni-fees-heading">
-            <div className="grid lg:grid-cols-[0.78fr_1.22fr]">
-              <div className="bg-gradient-to-br from-emerald-700 via-emerald-600 to-green-500 p-7 text-white sm:p-10">
-                <SectionHeading title={section.section_title} eyebrow="Transparent information" icon={CreditCard} />
-                <p className="leading-7 text-emerald-50">{registered ? 'Current amounts are shown for membership reference. Existing members are not being asked to register again.' : 'Review the currently published association fees before contacting the Alumni President to proceed.'}</p>
-                <div className="mt-8 rounded-2xl bg-white/15 p-5 backdrop-blur-sm">
-                  <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-100">Important</p>
-                  <p className="mt-2 text-sm leading-6 text-white">GradTrack does not collect payment on this page. Confirm payment instructions with the Alumni President.</p>
-                </div>
-              </div>
-              <div className="p-5 sm:p-8 lg:p-10">
-                {activeFees.length > 0 ? (
-                  <div className="space-y-1">
-                    {activeFees.map((fee) => (
-                      <div key={fee.id ?? fee.name} className="flex flex-col gap-3 border-b border-border py-5 first:pt-0 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="max-w-xl">
-                          <h3 className="font-extrabold text-text-primary">{fee.name}</h3>
-                          {fee.description && <p className="mt-1 text-sm leading-6 text-text-secondary">{fee.description}</p>}
-                        </div>
-                        <p className="shrink-0 text-lg font-black text-emerald-700 dark:text-emerald-300">{peso.format(Number(fee.amount))}</p>
-                      </div>
-                    ))}
-                    {config.total_fee_enabled && (
-                      <div className="mt-5 flex items-center justify-between rounded-2xl bg-blue-950 px-5 py-4 text-white">
-                        <span className="font-bold">Published total</span>
-                        <span className="text-2xl font-black text-yellow-300">{peso.format(total)}</span>
-                      </div>
-                    )}
+  const renderBrochureSection = (section: AlumniMembershipSection) => {
+    if (section.section_key === 'benefits') {
+      return (
+        <section key="benefits" className="min-w-0 overflow-hidden rounded-3xl border border-emerald-100 bg-emerald-50/70 p-5 dark:border-emerald-900 dark:bg-emerald-950/30 sm:p-7 lg:col-span-5" style={{ order: section.display_order }}>
+          <PanelHeading title={section.section_title} icon={BadgeCheck} />
+          <p className="mt-2 text-xs font-black uppercase tracking-[0.15em] text-emerald-600 dark:text-emerald-400">What&apos;s included in the alumni fee?</p>
+          {benefits.length ? (
+            <ol className="mt-5 space-y-3.5">
+              {benefits.map((benefit, index) => (
+                <li key={benefit.id ?? `${benefit.title}-${index}`} className="grid grid-cols-[2rem_1fr] gap-3">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-700 text-sm font-black text-white">{index + 1}</span>
+                  <div className="min-w-0 pt-0.5"><h3 className="break-words text-sm font-extrabold leading-5 text-emerald-950 dark:text-emerald-100">{benefit.title}</h3><p className="mt-0.5 break-words text-xs leading-5 text-emerald-900/75 dark:text-emerald-100/75">{benefit.description}</p></div>
+                </li>
+              ))}
+            </ol>
+          ) : <div className="mt-5 rounded-2xl border border-dashed border-emerald-300 p-6 text-center text-sm text-text-secondary">Membership benefits are currently being updated.</div>}
+        </section>
+      );
+    }
+
+    if (section.section_key === 'fees') {
+      return (
+        <section key="fees" className="min-w-0 overflow-hidden rounded-3xl border-2 border-emerald-500 bg-surface p-5 shadow-[0_16px_40px_rgba(5,150,105,0.12)] sm:p-6 lg:col-span-3" style={{ order: section.display_order }}>
+          <PanelHeading title={section.section_title} icon={CreditCard} />
+          <p className="mt-3 text-xs leading-5 text-text-secondary">Current published Alumni Association fees.</p>
+          {fees.length ? (
+            <div className="mt-5">
+              <div className="divide-y divide-border">
+                {fees.map((fee) => (
+                  <div key={fee.id ?? fee.name} className="py-4 first:pt-0">
+                    <div className="flex min-w-0 items-start justify-between gap-3"><h3 className="min-w-0 break-words text-sm font-extrabold leading-5 text-text-primary">{fee.name}</h3><p className="shrink-0 text-sm font-black text-emerald-700 dark:text-emerald-300">{peso.format(Number(fee.amount))}</p></div>
+                    {fee.description && <p className="mt-1 text-xs leading-5 text-text-secondary">{fee.description}</p>}
                   </div>
-                ) : (
-                  <div className="flex min-h-48 items-center justify-center rounded-2xl border border-dashed border-border bg-surface-alt p-8 text-center">
-                    <div><CreditCard className="mx-auto h-9 w-9 text-text-muted" /><p className="mt-3 font-bold text-text-primary">Membership fee information is currently being updated</p><p className="mt-1 text-sm text-text-secondary">Please contact the Alumni President for the latest information.</p></div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </section>
-        );
-      case 'id_cards': {
-        const front = resolveAlumniMembershipAsset(config.id_card_front_url || config.id_card_front_path);
-        const back = resolveAlumniMembershipAsset(config.id_card_back_url || config.id_card_back_path);
-        return (
-          <section key={section.section_key} className="rounded-[2rem] border border-border bg-surface p-5 shadow-sm sm:p-8 lg:p-10" aria-labelledby="alumni-id-heading">
-            <SectionHeading id="alumni-id-heading" title={section.section_title} eyebrow="Official alumni identity" icon={Contact} />
-            <p className="mb-7 max-w-3xl leading-7 text-text-secondary">Preview the official card design. Actual issuance remains subject to association verification, requirements, and applicable fees.</p>
-            {front || back ? (
-              <div className="grid items-start gap-6 lg:grid-cols-2">
-                {[['Front', front], ['Back', back]].map(([label, image]) => image ? (
-                  <figure key={label} className="min-w-0">
-                    <div className="overflow-hidden rounded-[1.35rem] border border-border bg-surface-muted p-2 shadow-xl shadow-slate-950/10">
-                      <img src={image} alt={`Alumni identification card ${label.toLowerCase()}`} className="aspect-[1.586/1] w-full rounded-2xl object-contain" />
-                    </div>
-                    <figcaption className="mt-3 text-center text-xs font-extrabold uppercase tracking-[0.18em] text-text-muted">{label} of card</figcaption>
-                  </figure>
-                ) : null)}
-              </div>
-            ) : (
-              <div className="rounded-2xl border border-dashed border-border bg-surface-alt p-8 text-center text-text-secondary">Alumni identification card previews are currently being updated.</div>
-            )}
-          </section>
-        );
-      }
-      case 'registration':
-        return (
-          <section key={section.section_key} className="relative overflow-hidden rounded-[2rem] bg-blue-950 p-6 text-white shadow-xl sm:p-9 lg:p-11" aria-labelledby="alumni-registration-heading">
-            <div className="absolute -right-16 -top-16 h-56 w-56 rounded-full bg-yellow-300/10 blur-2xl" />
-            <div className="relative grid gap-8 lg:grid-cols-[1fr_auto] lg:items-center">
-              <div>
-                <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-yellow-300">Your next step</p>
-                <h2 id="alumni-registration-heading" className="mt-2 text-2xl font-black sm:text-3xl">{section.section_title}</h2>
-                <p className="mt-4 max-w-3xl whitespace-pre-line leading-7 text-blue-100">{registered ? config.registered_instructions : config.registration_instructions}</p>
-              </div>
-              {registered ? (
-                <Link to="/graduate/signin" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-yellow-300 px-6 py-3 font-extrabold text-blue-950 shadow-lg transition hover:-translate-y-0.5 hover:bg-yellow-200 focus:outline-none focus:ring-4 focus:ring-yellow-100/50">
-                  Graduate Portal Sign In <ArrowRight className="h-5 w-5" />
-                </Link>
-              ) : registrationAvailable ? (
-                <div className="max-w-sm">
-                  <a href={config.registration_url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-yellow-300 px-6 py-3 text-center font-extrabold text-blue-950 shadow-lg transition hover:-translate-y-0.5 hover:bg-yellow-200 focus:outline-none focus:ring-4 focus:ring-yellow-100/50">
-                    {config.registration_button_text || 'Proceed to Alumni Registration'} <ExternalLink className="h-5 w-5" />
-                  </a>
-                  <p className="mt-2 text-center text-xs leading-5 text-blue-200">Opens the official Alumni Association registration form in a new tab.</p>
-                </div>
-              ) : (
-                <p className="max-w-sm rounded-xl border border-white/20 bg-white/10 px-5 py-4 text-center text-sm text-blue-100">Online registration is temporarily unavailable. Please use the published contact information below.</p>
-              )}
-            </div>
-          </section>
-        );
-      case 'additional':
-        return (
-          <section key={section.section_key} className="rounded-[2rem] border border-border bg-surface p-5 shadow-sm sm:p-8 lg:p-10" aria-labelledby="alumni-additional-heading">
-            <SectionHeading id="alumni-additional-heading" title={section.section_title} eyebrow="Good to know" icon={ShieldCheck} />
-            {information.length > 0 ? (
-              <div className="grid gap-4 md:grid-cols-2">
-                {information.map((item) => (
-                  <article key={item.id ?? item.title} className="rounded-2xl border border-border bg-surface-alt p-5">
-                    <h3 className="flex items-center gap-2 font-extrabold text-text-primary"><CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />{item.title}</h3>
-                    <p className="mt-3 whitespace-pre-line text-sm leading-6 text-text-secondary">{item.content}</p>
-                  </article>
                 ))}
               </div>
-            ) : <div className="rounded-2xl border border-dashed border-border p-7 text-center text-text-secondary">Additional membership information is currently being updated.</div>}
-          </section>
-        );
-      case 'contact':
-        return (
-          <section id="membership-contact" key={section.section_key} className="scroll-mt-24 rounded-[2rem] border border-emerald-200 bg-emerald-50 p-6 dark:border-emerald-900 dark:bg-emerald-950/40 sm:p-8" aria-labelledby="alumni-contact-heading">
-            <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-700 text-white"><Mail className="h-6 w-6" /></span>
-              <div>
-                <h2 id="alumni-contact-heading" className="text-2xl font-black text-text-primary">{section.section_title}</h2>
-                <p className="mt-3 whitespace-pre-line leading-7 text-text-secondary">{config.contact_information || 'Official contact information is currently being updated.'}</p>
-              </div>
+              {config.total_fee_enabled && <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl bg-emerald-700 px-4 py-4 text-white"><span className="text-sm font-black uppercase tracking-wider">Total</span><span className="text-xl font-black text-yellow-300">{peso.format(total)}</span></div>}
+              <p className="mt-4 rounded-xl bg-amber-50 p-3 text-xs leading-5 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">GradTrack displays information only and does not collect membership payments.</p>
             </div>
-          </section>
-        );
-      default:
-        return null;
+          ) : <div className="mt-5 rounded-2xl border border-dashed border-border p-6 text-center text-sm text-text-secondary">Membership fee information is currently being updated.</div>}
+        </section>
+      );
     }
+
+    if (section.section_key === 'id_cards') {
+      return (
+        <section key="id_cards" className="min-w-0 overflow-hidden rounded-3xl border border-blue-100 bg-blue-50/60 p-5 dark:border-blue-900 dark:bg-blue-950/25 sm:p-7 lg:col-span-4" style={{ order: section.display_order }}>
+          <PanelHeading title={section.section_title} icon={Contact} />
+          <p className="mt-2 text-xs leading-5 text-text-secondary">Official card preview. Issuance remains subject to Alumni Association verification.</p>
+          {idFront || idBack ? (
+            <div className="mt-5 space-y-5">
+              {[['Front', idFront], ['Back', idBack]].map(([label, image]) => image ? (
+                <figure key={label} className="relative overflow-hidden rounded-2xl bg-white p-2 shadow-lg ring-1 ring-blue-100 dark:bg-slate-900 dark:ring-blue-900">
+                  <span className="absolute left-4 top-4 z-10 rounded-full bg-emerald-700 px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-white shadow-md">{label}</span>
+                  <img src={image} alt={`Alumni identification card ${label.toLowerCase()}`} className="aspect-[1.586/1] w-full rounded-xl object-contain" />
+                </figure>
+              ) : null)}
+            </div>
+          ) : <div className="mt-5 rounded-2xl border border-dashed border-border p-6 text-center text-sm text-text-secondary">Card previews are currently being updated.</div>}
+        </section>
+      );
+    }
+    return null;
+  };
+
+  const renderSupportingSection = (section: AlumniMembershipSection) => {
+    if (section.section_key === 'registration') {
+      return (
+        <section key="registration" className="overflow-hidden rounded-3xl border border-blue-800 bg-blue-950 text-white shadow-xl">
+          <div className="grid lg:grid-cols-[1fr_auto] lg:items-center">
+            <div className="p-6 sm:p-8"><p className="text-xs font-black uppercase tracking-[0.2em] text-yellow-300">Official registration</p><h2 className="mt-2 text-2xl font-black">{section.section_title}</h2><p className="mt-3 max-w-3xl whitespace-pre-line text-sm leading-6 text-blue-100">{registered ? config.registered_instructions : config.registration_instructions}</p></div>
+            <div className="border-t border-white/10 bg-blue-900/70 p-6 lg:w-80 lg:border-l lg:border-t-0">
+              {registered ? (
+                <Link to="/survey-verify" className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-yellow-300 px-5 py-3 text-center font-extrabold text-blue-950 hover:bg-yellow-200">Continue to Graduate Portal <ArrowRight className="h-5 w-5" /></Link>
+              ) : registrationEnabled ? (
+                <><a href={OFFICIAL_ALUMNI_REGISTRATION_URL} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-yellow-300 px-5 py-3 text-center font-extrabold text-blue-950 hover:bg-yellow-200">{config.registration_button_text || 'Proceed to Alumni Registration'} <ExternalLink className="h-5 w-5" /></a><p className="mt-2 text-center text-xs leading-5 text-blue-200">Opens the official Google Form in a new tab.</p></>
+              ) : <p className="rounded-xl border border-white/20 bg-white/10 p-4 text-center text-sm text-blue-100">Online registration is temporarily unavailable.</p>}
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    if (section.section_key === 'additional') {
+      return (
+        <section key="additional" className="rounded-3xl border border-border bg-surface p-6 shadow-sm sm:p-8">
+          <div className="flex items-center gap-3"><ShieldCheck className="h-6 w-6 text-blue-800 dark:text-blue-300" /><h2 className="text-xl font-black text-text-primary">{section.section_title}</h2></div>
+          {information.length ? <div className="mt-5 grid gap-4 md:grid-cols-2">{information.map((item) => <article key={item.id ?? item.title} className="rounded-2xl border border-border bg-surface-alt p-5"><h3 className="flex items-center gap-2 font-extrabold text-text-primary"><CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />{item.title}</h3><p className="mt-2 whitespace-pre-line text-sm leading-6 text-text-secondary">{item.content}</p></article>)}</div> : <div className="mt-5 rounded-2xl border border-dashed border-border p-6 text-center text-text-secondary">Additional information is currently being updated.</div>}
+        </section>
+      );
+    }
+
+    if (section.section_key === 'contact') {
+      return (
+        <section id="membership-contact" key="contact" className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 dark:border-emerald-900 dark:bg-emerald-950/30 sm:p-8">
+          <div className="flex flex-col gap-4 sm:flex-row"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-700 text-white"><Mail className="h-5 w-5" /></span><div><h2 className="text-xl font-black text-text-primary">{section.section_title}</h2><p className="mt-2 whitespace-pre-line text-sm leading-6 text-text-secondary">{config.contact_information || 'Official contact information is currently being updated.'}</p></div></div>
+        </section>
+      );
+    }
+    return null;
   };
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-background text-text-primary">
       <PublicNav />
       {preview && <div className="bg-amber-400 px-4 py-2 text-center text-sm font-extrabold text-amber-950">Draft preview — only authenticated Alumni Presidents can see this version.</div>}
+      <main className="overflow-x-hidden bg-[radial-gradient(circle_at_top_left,rgba(34,197,94,0.08),transparent_28%),radial-gradient(circle_at_top_right,rgba(37,99,235,0.08),transparent_30%)] px-4 py-7 sm:px-6 sm:py-10">
+        <div className="mx-auto min-w-0 max-w-7xl">
+          <Link to="/" className="mb-5 inline-flex items-center gap-2 text-sm font-bold text-blue-800 hover:text-blue-600 dark:text-blue-300"><ArrowLeft className="h-4 w-4" /> Back to GradTrack home</Link>
+          <article className="min-w-0 max-w-full overflow-hidden rounded-[2rem] border border-border bg-surface shadow-[0_24px_70px_rgba(15,23,42,0.12)]">
+            <header className="relative overflow-hidden border-b border-border px-5 py-7 sm:px-8 lg:px-10">
+              <div className="absolute inset-0 bg-[linear-gradient(110deg,rgba(16,185,129,0.08),transparent_45%,rgba(37,99,235,0.08))]" />
+              <div className="relative grid min-w-0 gap-6 lg:grid-cols-[auto_1fr] lg:items-center">
+                <div className="flex items-center gap-3">{collegeLogo && <img src={collegeLogo} alt="Norzagaray College logo" className="h-14 w-14 rounded-full bg-white p-1 object-contain shadow-sm sm:h-16 sm:w-16" />}{alumniLogo && <img src={alumniLogo} alt="Alumni Association logo" className="h-14 w-14 rounded-full bg-white p-1 object-contain shadow-sm sm:h-16 sm:w-16" />}</div>
+                <div className="min-w-0"><p className="break-words text-xs font-black uppercase tracking-[0.18em] text-emerald-700 dark:text-emerald-300">{config.association_name}</p><h1 className="mt-2 break-words text-2xl font-black uppercase leading-tight tracking-tight text-blue-950 dark:text-blue-100 sm:text-3xl lg:text-4xl">{heading}</h1><p className="mt-2 max-w-4xl break-words text-sm leading-6 text-text-secondary sm:text-base">{intro}</p>{config.membership_subtitle && <p className="mt-3 break-words text-xs font-bold uppercase tracking-[0.14em] text-text-muted">{config.membership_subtitle}</p>}</div>
+              </div>
+            </header>
+            <div className="grid min-w-0 gap-5 bg-surface-alt p-4 sm:p-6 lg:grid-cols-12 lg:p-8">{primarySections.map(renderBrochureSection)}</div>
+          </article>
 
-      <main>
-        <section className="relative isolate overflow-hidden bg-gradient-to-br from-blue-950 via-blue-900 to-blue-800 px-4 py-11 text-white sm:px-6 sm:py-14">
-          <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_15%_20%,rgba(250,204,21,0.18),transparent_32%),radial-gradient(circle_at_85%_70%,rgba(16,185,129,0.2),transparent_34%)]" />
-          <div className="mx-auto grid max-w-6xl items-center gap-10 lg:grid-cols-[1fr_0.72fr]">
-            <div>
-              <div className="flex flex-wrap items-center gap-3">
-                {collegeLogo && <img src={collegeLogo} alt="Norzagaray College logo" className="h-12 w-12 rounded-full bg-white p-1 object-contain" />}
-                <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-yellow-300/30 bg-yellow-300/10 px-3 py-1.5 text-xs font-extrabold uppercase tracking-[0.12em] text-yellow-200"><GraduationCap className="h-4 w-4 shrink-0" /> <span className="break-words">{config.association_name}</span></div>
-              </div>
-              <p className="mt-6 text-sm font-bold uppercase tracking-[0.18em] text-emerald-200">{config.membership_subtitle}</p>
-              <h1 className="mt-3 max-w-4xl text-3xl font-black leading-tight tracking-tight sm:text-4xl lg:text-5xl">{heading}</h1>
-              <p className="mt-5 max-w-3xl text-base leading-8 text-blue-100 sm:text-lg">{intro}</p>
-              <div className="mt-8 flex flex-wrap gap-3">
-                <a href="#membership-content" className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-yellow-300 px-5 py-3 font-extrabold text-blue-950 transition hover:-translate-y-0.5 hover:bg-yellow-200 focus:outline-none focus:ring-4 focus:ring-yellow-100/50">Explore membership <ArrowRight className="h-5 w-5" /></a>
-                <Link to={registered ? '/alumni/membership-information' : '/survey-verify'} className="inline-flex min-h-12 items-center rounded-xl border border-white/25 px-5 py-3 font-bold text-white hover:bg-white/10 focus:outline-none focus:ring-4 focus:ring-white/20">{registered ? 'View registration information' : 'Graduate Portal account'}</Link>
-              </div>
-            </div>
-            <div className="relative mx-auto flex w-full max-w-md items-center justify-center">
-              <div className="absolute h-72 w-72 rounded-full bg-emerald-400/20 blur-3xl" />
-              <div className="relative flex aspect-square w-64 items-center justify-center rounded-full border border-white/20 bg-white/10 p-8 shadow-2xl backdrop-blur sm:w-80">
-                {alumniLogo ? <img src={alumniLogo} alt="" className="h-full w-full object-contain drop-shadow-2xl" /> : <GraduationCap className="h-32 w-32 text-yellow-300" />}
-              </div>
-            </div>
+          <div className="mt-6 space-y-5">
+            {supportingSections.map(renderSupportingSection)}
+            {canResumeAccount && <section className="flex flex-col gap-4 rounded-2xl border border-blue-200 bg-blue-50 p-5 dark:border-blue-900 dark:bg-blue-950/40 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-extrabold text-blue-950 dark:text-blue-100">Ready to continue with your GradTrack account?</p><p className="mt-1 text-sm leading-6 text-blue-800 dark:text-blue-200">Your completed survey remains saved. Continue account creation without answering it again.</p></div><Link to="/survey-verify?resume=graduate-account&step=create-account" className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-900 px-5 py-3 text-sm font-extrabold text-white hover:bg-blue-800">Continue account creation <ArrowRight className="h-4 w-4" /></Link></section>}
           </div>
-        </section>
-        <div className="h-2 bg-gradient-to-r from-yellow-300 via-emerald-500 to-yellow-300" />
-
-        <div id="membership-content" className="mx-auto max-w-7xl space-y-7 px-4 py-10 sm:px-6 sm:py-14">
-          {canResumeAccount && (
-            <section className="flex flex-col gap-4 rounded-2xl border border-blue-200 bg-blue-50 p-5 dark:border-blue-900 dark:bg-blue-950/40 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="font-extrabold text-blue-950 dark:text-blue-100">Ready to continue with your GradTrack account?</p>
-                <p className="mt-1 text-sm leading-6 text-blue-800 dark:text-blue-200">Your completed survey remains saved. Return to the secure Graduate Portal account form without answering it again.</p>
-              </div>
-              <Link to="/survey-verify?resume=graduate-account&step=create-account" className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-900 px-5 py-3 text-sm font-extrabold text-white hover:bg-blue-800">Continue account creation <ArrowRight className="h-4 w-4" /></Link>
-            </section>
-          )}
-          {sections.map(renderSection)}
         </div>
       </main>
-
-      <div className="border-t border-border bg-surface px-4 py-5 text-center text-sm text-text-secondary">
-        <p>{config.footer_text || config.association_name}</p>
-        <p className="mt-1 text-xs text-text-muted">Membership status is confirmed only through the Alumni Association's authorized process.</p>
-      </div>
+      <div className="border-t border-border bg-surface px-4 py-5 text-center text-sm text-text-secondary"><p>{config.footer_text || config.association_name}</p><p className="mt-1 text-xs text-text-muted">Membership status is confirmed only through the Alumni Association&apos;s authorized process.</p></div>
       <Footer />
     </div>
   );
@@ -319,35 +240,14 @@ export default function AlumniMembershipPage({ audience }: { audience: AlumniMem
   const load = useCallback(async () => {
     setLoading(true);
     setError('');
-    try {
-      const response = await fetchAlumniMembership(audience, preview);
-      setContent(response.data);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Unable to load alumni membership information.');
-    } finally {
-      setLoading(false);
-    }
+    try { setContent((await fetchAlumniMembership(audience, preview)).data); }
+    catch (caught) { setError(caught instanceof Error ? caught.message : 'Unable to load alumni membership information.'); }
+    finally { setLoading(false); }
   }, [audience, preview]);
 
   useEffect(() => { void load(); }, [load]);
-
   if (loading) return <PageSkeleton />;
-  if (error) {
-    return (
-      <div className="min-h-screen bg-background">
-        <PublicNav />
-        <div className="mx-auto flex min-h-[60vh] max-w-5xl items-center justify-center px-4 py-12">
-          <div className="max-w-lg rounded-3xl border border-red-200 bg-surface p-8 text-center shadow-xl dark:border-red-900">
-          <AlertCircle className="mx-auto h-12 w-12 text-red-500" />
-          <h1 className="mt-4 text-2xl font-extrabold text-text-primary">We couldn’t load this page</h1>
-          <p className="mt-3 leading-7 text-text-secondary">{error}</p>
-          <button type="button" onClick={() => void load()} className="mt-6 inline-flex items-center gap-2 rounded-xl bg-blue-900 px-5 py-3 font-bold text-white hover:bg-blue-800"><RefreshCw className="h-4 w-4" /> Try again</button>
-          </div>
-        </div>
-        <Footer />
-      </div>
-    );
-  }
+  if (error) return <div className="min-h-screen bg-background"><PublicNav /><div className="mx-auto flex min-h-[60vh] max-w-5xl items-center justify-center px-4 py-12"><div className="max-w-lg rounded-3xl border border-red-200 bg-surface p-8 text-center shadow-xl dark:border-red-900"><AlertCircle className="mx-auto h-12 w-12 text-red-500" /><h1 className="mt-4 text-2xl font-extrabold text-text-primary">We couldn&apos;t load this page</h1><p className="mt-3 leading-7 text-text-secondary">{error}</p><button type="button" onClick={() => void load()} className="mt-6 inline-flex items-center gap-2 rounded-xl bg-blue-900 px-5 py-3 font-bold text-white hover:bg-blue-800"><RefreshCw className="h-4 w-4" /> Try again</button></div></div><Footer /></div>;
   if (!content) return <EmptyPage retry={() => void load()} />;
   return <MembershipContent content={content} audience={audience} preview={preview} />;
 }

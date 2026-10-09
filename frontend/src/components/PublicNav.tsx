@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import {
   ChevronDown,
   ClipboardList,
+  GraduationCap,
   HelpCircle,
   Home,
   Info,
@@ -16,7 +17,7 @@ import ThemeToggle from './ThemeToggle';
 import { useSystemSettings } from '../contexts/SystemSettingsContext';
 
 type PublicNavProps = {
-  active?: 'about' | 'faq' | 'privacy';
+  active?: 'about' | 'faq' | 'privacy' | 'membership';
 };
 
 export default function PublicNav({ active }: PublicNavProps) {
@@ -31,12 +32,14 @@ export default function PublicNav({ active }: PublicNavProps) {
     { to: '/', label: 'Home', icon: Home, active: location.pathname === '/' && !active },
     { to: '/about', label: 'About', icon: Info, active: location.pathname === '/about' || active === 'about' },
     { to: '/faq', label: 'FAQ', icon: HelpCircle, active: location.pathname === '/faq' || active === 'faq' },
+    { to: '/alumni/membership-information', label: 'Alumni Membership', icon: GraduationCap, active: location.pathname.startsWith('/alumni/') || active === 'membership' },
     { to: '/privacy-policy', label: 'Privacy', icon: ShieldCheck, active: location.pathname === '/privacy-policy' || active === 'privacy' },
   ];
   const mobileNavItems = [
     { key: 'home', to: '/', label: 'Home', icon: Home, active: location.pathname === '/' },
     { key: 'about', to: '/about', label: 'About', icon: Info, active: location.pathname === '/about' },
     { key: 'faq', to: '/faq', label: 'FAQ', icon: HelpCircle, active: location.pathname === '/faq' },
+    { key: 'membership', to: '/alumni/membership-information', label: 'Alumni', icon: GraduationCap, active: location.pathname.startsWith('/alumni/') },
     { key: 'privacy', to: '/privacy-policy', label: 'Privacy', icon: ShieldCheck, active: location.pathname === '/privacy-policy' },
     { key: 'portal', to: '/graduate/signin', label: 'Portal', icon: Users, active: location.pathname.startsWith('/graduate') },
   ];

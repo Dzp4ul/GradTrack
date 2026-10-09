@@ -1,5 +1,7 @@
 import { API_BASE_URL, API_ENDPOINTS } from '../config/api';
 
+export const OFFICIAL_ALUMNI_REGISTRATION_URL = 'https://forms.gle/UWWfnV8LPDG2hwru8';
+
 export type AlumniMembershipAudience = 'registration' | 'registered';
 export type AlumniMembershipAssetKey = 'college_logo' | 'alumni_logo' | 'id_card_front' | 'id_card_back';
 
@@ -83,8 +85,13 @@ export type AlumniMembershipResponse = {
   has_published_content?: boolean;
 };
 
-let publicRequest: Promise<AlumniMembershipResponse> | null = null;
-let publicContent: AlumniMembershipResponse | null = null;
+const publicRequests: Partial<Record<AlumniMembershipAudience, Promise<AlumniMembershipResponse>>> = {};
+const publicContent: Partial<Record<AlumniMembershipAudience, AlumniMembershipResponse>> = {};
+
+function clearPublicMembershipCache() {
+  delete publicContent.registration;
+  delete publicContent.registered;
+}
 
 export function resolveAlumniMembershipAsset(path?: string | null) {
   if (!path) return '';
@@ -113,21 +120,22 @@ export async function fetchAlumniMembership(
     return parseMembershipResponse(response);
   }
 
-  if (publicContent) return publicContent;
-  if (publicRequest) return publicRequest;
-  publicRequest = fetch(`${API_ENDPOINTS.ALUMNI_MEMBERSHIP}?view=${audience}`, {
+  if (publicContent[audience]) return publicContent[audience];
+  if (publicRequests[audience]) return publicRequests[audience];
+  const request = fetch(`${API_ENDPOINTS.ALUMNI_MEMBERSHIP}?view=${audience}`, {
     credentials: 'include',
     cache: 'no-store',
   })
     .then(parseMembershipResponse)
     .then((result) => {
-      publicContent = result;
+      publicContent[audience] = result;
       return result;
     })
     .finally(() => {
-      publicRequest = null;
+      delete publicRequests[audience];
     });
-  return publicRequest;
+  publicRequests[audience] = request;
+  return request;
 }
 
 export async function saveAlumniMembershipDraft(content: AlumniMembershipContent): Promise<AlumniMembershipResponse> {
@@ -146,7 +154,7 @@ export async function publishAlumniMembership(): Promise<AlumniMembershipRespons
     credentials: 'include',
   });
   const result = await parseMembershipResponse(response);
-  publicContent = null;
+  clearPublicMembershipCache();
   return result;
 }
 
@@ -156,7 +164,7 @@ export async function unpublishAlumniMembership(): Promise<AlumniMembershipRespo
     credentials: 'include',
   });
   const result = await parseMembershipResponse(response);
-  publicContent = null;
+  clearPublicMembershipCache();
   return result;
 }
 

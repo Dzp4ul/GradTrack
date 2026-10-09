@@ -56,6 +56,11 @@ function gradtrack_alumni_membership_section_defaults(): array
     ];
 }
 
+function gradtrack_alumni_membership_registration_url(): string
+{
+    return 'https://forms.gle/UWWfnV8LPDG2hwru8';
+}
+
 function gradtrack_alumni_membership_asset_columns(): array
 {
     return [
@@ -114,7 +119,7 @@ function gradtrack_alumni_membership_payload_for_version(PDO $db, array $version
         'registered_intro_text' => (string) $version['registered_intro_text'],
         'registration_instructions' => (string) $version['registration_instructions'],
         'registration_button_text' => (string) $version['registration_button_text'],
-        'registration_url' => (string) $version['registration_url'],
+        'registration_url' => gradtrack_alumni_membership_registration_url(),
         'registration_button_enabled' => (bool) $version['registration_button_enabled'],
         'registered_instructions' => (string) $version['registered_instructions'],
         'contact_information' => (string) ($version['contact_information'] ?? ''),
@@ -225,18 +230,6 @@ function gradtrack_alumni_membership_validate_collection($value, string $label, 
     return array_values($value);
 }
 
-function gradtrack_alumni_membership_registration_url($value, bool $required): string
-{
-    $url = gradtrack_alumni_membership_clean_text($value, 'Official registration link', 1000, $required);
-    if ($url === '') {
-        return '';
-    }
-    if (filter_var($url, FILTER_VALIDATE_URL) === false || strtolower((string) parse_url($url, PHP_URL_SCHEME)) !== 'https') {
-        throw new InvalidArgumentException('Official registration link must be a valid HTTPS URL.');
-    }
-    return $url;
-}
-
 function gradtrack_alumni_membership_save_draft(PDO $db, array $payload, int $adminId): array
 {
     $draft = gradtrack_alumni_membership_version($db, 'draft');
@@ -259,7 +252,7 @@ function gradtrack_alumni_membership_save_draft(PDO $db, array $payload, int $ad
         ':registered_intro_text' => gradtrack_alumni_membership_clean_text($config['registered_intro_text'] ?? '', 'Registered alumni introduction', 3000),
         ':registration_instructions' => gradtrack_alumni_membership_clean_text($config['registration_instructions'] ?? '', 'Registration instructions', 5000),
         ':registration_button_text' => gradtrack_alumni_membership_clean_text($config['registration_button_text'] ?? '', 'Registration button text', 120, $registrationButtonEnabled),
-        ':registration_url' => gradtrack_alumni_membership_registration_url($config['registration_url'] ?? '', $registrationButtonEnabled),
+        ':registration_url' => gradtrack_alumni_membership_registration_url(),
         ':registration_button_enabled' => $registrationButtonEnabled ? 1 : 0,
         ':registered_instructions' => gradtrack_alumni_membership_clean_text($config['registered_instructions'] ?? '', 'Registered alumni instructions', 5000),
         ':contact_information' => gradtrack_alumni_membership_clean_text($config['contact_information'] ?? '', 'Contact information', 3000, false),

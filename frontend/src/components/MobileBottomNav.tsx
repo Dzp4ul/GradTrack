@@ -48,10 +48,10 @@ export default function MobileBottomNav({ items, ariaLabel, className = '' }: Mo
   return (
     <nav
       aria-label={ariaLabel}
-      className={`fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/95 shadow-[0_-10px_30px_rgba(15,23,42,0.08)] backdrop-blur-xl dark:border-slate-700 dark:bg-slate-900/95 ${className}`}
+      className={`fixed inset-x-0 bottom-0 z-40 overflow-hidden border-t border-slate-200 bg-white/95 shadow-[0_-10px_30px_rgba(15,23,42,0.08)] backdrop-blur-xl dark:border-slate-700 dark:bg-slate-900/95 ${className}`}
     >
       <div
-        className="mx-auto grid min-h-[4.5rem] max-w-xl items-stretch px-1 [padding-bottom:env(safe-area-inset-bottom)]"
+        className="mx-auto grid min-h-[4.5rem] w-full min-w-0 max-w-xl items-stretch overflow-hidden px-1 [padding-bottom:env(safe-area-inset-bottom)]"
         style={{ gridTemplateColumns: `repeat(${items.length}, minmax(0, 1fr))` }}
       >
         {items.map((item) => {
