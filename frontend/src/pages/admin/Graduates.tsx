@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Search, Plus, Eye, Edit2, Archive, RotateCcw, Trash2, X, ChevronLeft, ChevronRight, Download,
+  Search, Plus, Archive, X, ChevronLeft, ChevronRight, Download,
 } from 'lucide-react';
 import MessageBox from '../../components/MessageBox';
 import { API_ROOT } from '../../config/api';
@@ -129,10 +129,6 @@ const normalizeText = (value: unknown): string => {
   return String(value).trim();
 };
 
-const normalizeProgramNameKey = (value: unknown): string => normalizeText(value)
-  .replace(/\s+/g, ' ')
-  .toLocaleLowerCase();
-
 const normalizeFieldKey = (value: unknown): string => normalizeText(value).toLowerCase().replace(/[^a-z0-9]/g, '');
 
 const pickValue = (row: Record<string, unknown>, keys: string[]): string => {
@@ -223,28 +219,6 @@ const displayOptionalValue = (value: unknown): string => {
   const normalized = normalizeText(value);
   return normalized && !['null', 'undefined', 'n/a'].includes(normalized.toLowerCase()) ? normalized : '—';
 };
-
-const graduateToFormData = (graduate: Graduate): FormData => ({
-  ...emptyForm,
-  student_id: normalizeText(graduate.student_id),
-  first_name: normalizeText(graduate.first_name),
-  middle_name: normalizeText(graduate.middle_name),
-  last_name: normalizeText(graduate.last_name),
-  name_extension: normalizeText(graduate.name_extension),
-  email: normalizeText(graduate.email),
-  phone: normalizeText(graduate.phone),
-  program_id: graduate.program_id === null ? '' : String(graduate.program_id),
-  year_graduated: normalizeText(graduate.year_graduated),
-  address: normalizeText(graduate.address),
-  employment_status: normalizeEmploymentStatus(normalizeText(graduate.employment_status)),
-  is_aligned: normalizeAlignment(normalizeText(graduate.is_aligned)),
-  company_name: normalizeText(graduate.company_name),
-  job_title: normalizeText(graduate.job_title),
-  industry: normalizeText(graduate.industry),
-  date_hired: normalizeText(graduate.date_hired),
-  monthly_salary: normalizeText(graduate.monthly_salary),
-  time_to_employment: normalizeText(graduate.time_to_employment),
-});
 
 const normalizeEmploymentStatus = (value: string): string => {
   const parsed = value.toLowerCase().replace(/\s+/g, '_');
@@ -421,11 +395,6 @@ export default function Graduates() {
   const [archiveView, setArchiveView] = useState<'active' | 'archived'>('active');
   const [archiveCounts, setArchiveCounts] = useState({ active: 0, archived: 0 });
   const [showModal, setShowModal] = useState(false);
-  const [editingGraduateId, setEditingGraduateId] = useState<number | null>(null);
-  const [editingProgramOption, setEditingProgramOption] = useState<ProgramOption | null>(null);
-  const [viewedGraduate, setViewedGraduate] = useState<Graduate | null>(null);
-  const [showDetailsModal, setShowDetailsModal] = useState(false);
-  const [loadingGraduateId, setLoadingGraduateId] = useState<number | null>(null);
   const [formData, setFormData] = useState<FormData>(emptyForm);
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
@@ -537,68 +506,7 @@ export default function Graduates() {
       ? selectedProgramId
       : '';
     setFormData({ ...emptyForm, program_id: activeProgramId });
-    setEditingGraduateId(null);
-    setEditingProgramOption(null);
     setShowModal(true);
-  };
-
-  const fetchGraduateRecord = async (graduate: Graduate): Promise<Graduate> => {
-    const params = new URLSearchParams({ id: String(graduate.id) });
-    if (archiveView === 'archived') params.set('archive', 'archived');
-
-    const response = await fetch(`${API_BASE}/graduates/index.php?${params}`, {
-      credentials: 'include',
-    });
-    const result = await response.json();
-
-    if (!response.ok || !result.success) {
-      throw new Error(result.error || 'Unable to load graduate details');
-    }
-
-    return result.data as Graduate;
-  };
-
-  const openDetails = async (graduate: Graduate) => {
-    setViewedGraduate(graduate);
-    setShowDetailsModal(true);
-    setLoadingGraduateId(graduate.id);
-
-    try {
-      setViewedGraduate(await fetchGraduateRecord(graduate));
-    } catch (error) {
-      setShowDetailsModal(false);
-      setMsgBox({
-        isOpen: true,
-        type: 'error',
-        message: getSafeErrorMessage(error, 'Unable to load graduate details'),
-      });
-    } finally {
-      setLoadingGraduateId(null);
-    }
-  };
-
-  const openEdit = async (graduate: Graduate) => {
-    setLoadingGraduateId(graduate.id);
-
-    try {
-      const currentGraduate = await fetchGraduateRecord(graduate);
-      setFormData(graduateToFormData(currentGraduate));
-      setEditingGraduateId(currentGraduate.id);
-      setEditingProgramOption(currentGraduate.program_id === null ? null : {
-        id: String(currentGraduate.program_id),
-        code: normalizeText(currentGraduate.program_code).toUpperCase(),
-        name: normalizeText(currentGraduate.program_name || currentGraduate.program_code),
-      });
-      setShowModal(true);
-    } catch (error) {
-      setMsgBox({
-        isOpen: true,
-        type: 'error',
-        message: getSafeErrorMessage(error, 'Unable to load graduate for editing'),
-      });
-    } finally {
-      setLoadingGraduateId(null);
-    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -641,12 +549,11 @@ export default function Graduates() {
     }
 
     try {
-      const isEditing = editingGraduateId !== null;
       const response = await fetch(`${API_BASE}/graduates/index.php`, {
-        method: isEditing ? 'PUT' : 'POST',
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(isEditing ? { ...formData, id: editingGraduateId } : formData),
+        body: JSON.stringify(formData),
       });
       const res = await response.json();
 
@@ -655,13 +562,11 @@ export default function Graduates() {
       }
 
       setShowModal(false);
-      setEditingGraduateId(null);
-      setEditingProgramOption(null);
       await fetchGraduates();
       setMsgBox({
         isOpen: true,
         type: 'success',
-        message: isEditing ? 'Graduate updated successfully.' : 'Graduate added successfully.',
+        message: 'Graduate added successfully.',
       });
     } catch (error) {
       setMsgBox({
@@ -823,75 +728,6 @@ export default function Graduates() {
             isOpen: true,
             type: 'error',
             message: getSafeErrorMessage(error, 'Unable to archive graduates by year'),
-          });
-        }
-      },
-    });
-  };
-
-  const handleRestore = (graduate: Graduate) => {
-    setMsgBox({
-      isOpen: true,
-      type: 'confirm',
-      message: 'Restore Graduate Record?\n\nThis record will return to the active Registrar list with all existing relationships intact.',
-      confirmText: 'Restore',
-      cancelText: 'Cancel',
-      onConfirm: async () => {
-        try {
-          const response = await fetch(`${API_BASE}/graduates/index.php`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ id: graduate.id, action: 'restore' }),
-          });
-          const result = await response.json();
-          if (!response.ok || !result.success) {
-            throw new Error(result.error || 'Unable to restore graduate');
-          }
-
-          setGraduates((current) => current.filter((item) => item.id !== graduate.id));
-          await fetchGraduates();
-          setMsgBox({ isOpen: true, type: 'success', message: 'Graduate restored successfully.' });
-        } catch (error) {
-          setMsgBox({
-            isOpen: true,
-            type: 'error',
-            message: getSafeErrorMessage(error, 'Unable to restore graduate'),
-          });
-        }
-      },
-    });
-  };
-
-  const handlePermanentDelete = (graduate: Graduate) => {
-    setMsgBox({
-      isOpen: true,
-      type: 'confirm',
-      title: 'Permanently Delete Graduate?',
-      message: 'This will permanently delete this graduate account and its account-owned data. Historical survey responses will be preserved for reporting. This action cannot be undone.',
-      confirmText: 'Permanently Delete',
-      cancelText: 'Cancel',
-      destructive: true,
-      onConfirm: async () => {
-        try {
-          const response = await fetch(`${API_BASE}/graduates/index.php`, {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ id: graduate.id, action: 'permanent_delete' }),
-          });
-          const result = await response.json();
-          if (!response.ok || !result.success) {
-            throw new Error(result.error || 'Unable to permanently delete graduate');
-          }
-
-          await fetchGraduates();
-          setMsgBox({ isOpen: true, type: 'success', message: result.message || 'Graduate permanently deleted successfully.' });
-        } catch (error) {
-          setMsgBox({
-            isOpen: true,
-            type: 'error',
-            message: getSafeErrorMessage(error, 'Unable to permanently delete graduate'),
           });
         }
       },
@@ -1162,16 +998,7 @@ export default function Graduates() {
     }
   };
 
-  const graduateFormProgramOptions = editingGraduateId !== null
-    && editingProgramOption
-    && !programOptions.some((program) => program.id === editingProgramOption.id)
-    ? [
-        editingProgramOption,
-        ...programOptions.filter((program) => (
-          normalizeProgramNameKey(program.name) !== normalizeProgramNameKey(editingProgramOption.name)
-        )),
-      ]
-    : programOptions;
+  const graduateFormProgramOptions = programOptions;
 
   const updateField = (field: keyof FormData, value: string) => {
     setFormData((prev) => {
@@ -1417,14 +1244,6 @@ export default function Graduates() {
                     </p>
                     <p className="mt-1 font-mono text-xs text-gray-500">{g.student_id}</p>
                   </div>
-                  {archiveView === 'archived' && <div className="flex shrink-0 items-center gap-1">
-                      <button onClick={() => handleRestore(g)} className="p-2 rounded-lg hover:bg-emerald-50 text-emerald-600 transition-colors" aria-label="Restore graduate">
-                        <RotateCcw className="w-4 h-4" />
-                      </button>
-                      <button onClick={() => handlePermanentDelete(g)} className="p-2 rounded-lg hover:bg-red-50 text-red-600 transition-colors" aria-label="Permanently delete graduate">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                  </div>}
                 </div>
                 <div className="mt-3 grid grid-cols-2 gap-2 text-sm text-gray-600">
                   <p className="col-span-2 break-all">{displayOptionalValue(g.email)}</p>
@@ -1437,33 +1256,13 @@ export default function Graduates() {
                   </p>
                   {archiveView === 'archived' && <p className="col-span-2 text-xs text-gray-500">Archived {formatDateTime(g.archived_at)}{g.archived_by_name ? ` by ${g.archived_by_name}` : ''}</p>}
                 </div>
-                {archiveView === 'active' && (
-                  <div className="mt-4 flex flex-wrap gap-2 border-t pt-3">
-                    <button
-                      type="button"
-                      onClick={() => void openDetails(g)}
-                      disabled={loadingGraduateId === g.id}
-                      className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-blue-200 px-3 py-2 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-50 disabled:cursor-wait disabled:opacity-60"
-                    >
-                      <Eye className="h-4 w-4" /> View Details
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void openEdit(g)}
-                      disabled={loadingGraduateId === g.id}
-                      className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-[#1b2a4a] px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-[#263c66] disabled:cursor-wait disabled:opacity-60"
-                    >
-                      <Edit2 className="h-4 w-4" /> Edit
-                    </button>
-                  </div>
-                )}
               </div>
             ))
           )}
         </div>
 
         <div className="hidden overflow-x-auto md:block">
-          <table className={`w-full text-sm ${archiveView === 'archived' ? 'min-w-[1180px]' : 'min-w-[1120px]'}`}>
+          <table className={`w-full text-sm ${archiveView === 'archived' ? 'min-w-[1060px]' : 'min-w-[940px]'}`}>
             <thead className="bg-gray-50 border-b">
               <tr>
                 <th className="text-center px-4 py-3 font-semibold text-gray-600 w-16">
@@ -1483,14 +1282,13 @@ export default function Graduates() {
                 <th className="text-left px-4 py-3 font-semibold text-gray-600">Year Graduated</th>
                 {archiveView === 'archived' && <th className="text-left px-4 py-3 font-semibold text-gray-600">Date Archived</th>}
                 {archiveView === 'archived' && <th className="text-left px-4 py-3 font-semibold text-gray-600">Archived By</th>}
-                <th className="text-center px-4 py-3 font-semibold text-gray-600">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={archiveView === 'archived' ? 10 : 8} className="text-center py-12 text-gray-400">Loading...</td></tr>
+                <tr><td colSpan={archiveView === 'archived' ? 9 : 7} className="text-center py-12 text-gray-400">Loading...</td></tr>
               ) : graduates.length === 0 ? (
-                <tr><td colSpan={archiveView === 'archived' ? 10 : 8} className="text-center py-12 text-gray-400">{archiveView === 'archived' ? 'No archived registrar records.' : 'No graduates found'}</td></tr>
+                <tr><td colSpan={archiveView === 'archived' ? 9 : 7} className="text-center py-12 text-gray-400">{archiveView === 'archived' ? 'No archived registrar records.' : 'No graduates found'}</td></tr>
               ) : (
                 graduates.map((g) => (
                   <tr key={g.id} className="border-b last:border-0 hover:bg-gray-50 transition-colors">
@@ -1519,37 +1317,6 @@ export default function Graduates() {
                     <td className="px-4 py-3">{displayOptionalValue(g.year_graduated)}</td>
                     {archiveView === 'archived' && <td className="px-4 py-3 text-gray-600">{formatDateTime(g.archived_at)}</td>}
                     {archiveView === 'archived' && <td className="px-4 py-3 text-gray-600">{g.archived_by_name || '-'}</td>}
-                    <td className="px-4 py-3">
-                      {archiveView === 'active' ? (
-                        <div className="flex items-center justify-center gap-2 whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={() => void openDetails(g)}
-                            disabled={loadingGraduateId === g.id}
-                            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-50 disabled:cursor-wait disabled:opacity-60"
-                          >
-                            <Eye className="h-4 w-4" /> View Details
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void openEdit(g)}
-                            disabled={loadingGraduateId === g.id}
-                            className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-100 disabled:cursor-wait disabled:opacity-60"
-                          >
-                            <Edit2 className="h-4 w-4" /> Edit
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-center gap-1">
-                          <button onClick={() => handleRestore(g)} className="p-1.5 rounded-lg hover:bg-emerald-50 text-emerald-600 transition-colors" aria-label="Restore graduate">
-                            <RotateCcw className="w-4 h-4" />
-                          </button>
-                          <button onClick={() => handlePermanentDelete(g)} className="p-1.5 rounded-lg hover:bg-red-50 text-red-600 transition-colors" aria-label="Permanently delete graduate">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      )}
-                    </td>
                   </tr>
                 ))
               )}
@@ -1582,55 +1349,14 @@ export default function Graduates() {
         )}
       </div>
 
-      {showDetailsModal && viewedGraduate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6" role="dialog" aria-modal="true" aria-labelledby="graduate-details-title">
-          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-2xl">
-            <div className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b bg-white p-5">
-              <div className="min-w-0">
-                <h2 id="graduate-details-title" className="text-lg font-bold text-[#1b2a4a]">Graduate Details</h2>
-                <p className="mt-1 break-words text-sm font-medium text-gray-600">{formatGraduateDisplayName(viewedGraduate)}</p>
-              </div>
-              <button type="button" onClick={() => setShowDetailsModal(false)} className="shrink-0 rounded-lg p-1 text-gray-500 hover:bg-gray-100" aria-label="Close graduate details">
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            <div className="space-y-6 p-4 sm:p-5">
-              {loadingGraduateId === viewedGraduate.id && (
-                <p className="rounded-lg bg-blue-50 px-3 py-2 text-xs font-medium text-blue-700">Loading current graduate information...</p>
-              )}
-
-              <section>
-                <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500">Registrar Information</h3>
-                <dl className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <GraduateDetail label="Student ID" value={viewedGraduate.student_id} />
-                  <GraduateDetail label="Name" value={formatGraduateDisplayName(viewedGraduate)} />
-                  <GraduateDetail label="Email" value={viewedGraduate.email} breakAll />
-                  <GraduateDetail label="Contact No." value={viewedGraduate.phone} />
-                  <GraduateDetail label="Program" value={viewedGraduate.program_code || viewedGraduate.program_name} />
-                  <GraduateDetail label="Year Graduated" value={viewedGraduate.year_graduated} />
-                  <GraduateDetail label="Address" value={viewedGraduate.address} wide />
-                </dl>
-              </section>
-
-              <div className="flex justify-end border-t pt-4">
-                <button type="button" onClick={() => setShowDetailsModal(false)} className="rounded-lg bg-[#1b2a4a] px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-[#263c66]">
-                  Close
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6" role="dialog" aria-modal="true" aria-labelledby="graduate-form-title">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-5 border-b">
               <h2 id="graduate-form-title" className="text-lg font-bold text-[#1b2a4a]">
-                {editingGraduateId !== null ? 'Edit Graduate' : 'Add Graduate'}
+                Add Graduate
               </h2>
-              <button type="button" onClick={() => { setShowModal(false); setEditingGraduateId(null); setEditingProgramOption(null); }} className="p-1 rounded-lg hover:bg-gray-100" aria-label="Close graduate form">
+              <button type="button" onClick={() => setShowModal(false)} className="p-1 rounded-lg hover:bg-gray-100" aria-label="Close graduate form">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1714,7 +1440,7 @@ export default function Graduates() {
               <div className="flex flex-col-reverse gap-3 pt-2 sm:flex-row sm:justify-end">
                 <button
                   type="button"
-                    onClick={() => { setShowModal(false); setEditingGraduateId(null); setEditingProgramOption(null); }}
+                  onClick={() => setShowModal(false)}
                   className="px-4 py-2.5 border rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
                 >
                   Cancel
@@ -1723,7 +1449,7 @@ export default function Graduates() {
                   type="submit"
                   className="px-6 py-2.5 bg-[#1b2a4a] text-white rounded-lg text-sm font-medium hover:bg-[#263c66] transition-colors"
                 >
-                    {editingGraduateId !== null ? 'Save Changes' : 'Add Graduate'}
+                  Add Graduate
                 </button>
               </div>
             </form>
@@ -1906,27 +1632,6 @@ export default function Graduates() {
         cancelText={msgBox.cancelText}
         destructive={msgBox.destructive}
       />
-    </div>
-  );
-}
-
-function GraduateDetail({
-  label,
-  value,
-  wide = false,
-  breakAll = false,
-}: {
-  label: string;
-  value: unknown;
-  wide?: boolean;
-  breakAll?: boolean;
-}) {
-  return (
-    <div className={`rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 ${wide ? 'sm:col-span-2' : ''}`}>
-      <dt className="text-xs font-medium text-gray-500">{label}</dt>
-      <dd className={`mt-1 whitespace-pre-line text-sm font-semibold text-[#1b2a4a] ${breakAll ? 'break-all' : 'break-words [overflow-wrap:anywhere]'}`}>
-        {displayOptionalValue(value)}
-      </dd>
     </div>
   );
 }

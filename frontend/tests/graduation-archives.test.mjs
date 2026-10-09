@@ -72,14 +72,13 @@ assert.equal(
 
 const registrar = await readFile(new URL('../src/pages/admin/Graduates.tsx', import.meta.url), 'utf8');
 assert.match(registrar, />Year Graduated<\/th>/);
-assert.match(registrar, /<th[^>]*>Actions<\/th>/);
-assert.match(registrar, /const openDetails = async/);
-assert.match(registrar, /View Details/);
-assert.match(registrar, /const openEdit = async/);
-assert.match(registrar, /method: isEditing \? 'PUT' : 'POST'/);
-assert.match(registrar, /<Edit2[^>]*\/> Edit/);
+assert.doesNotMatch(registrar, /<th[^>]*>Actions<\/th>/);
+assert.doesNotMatch(registrar, /const openDetails = async/);
+assert.doesNotMatch(registrar, /View Details/);
+assert.doesNotMatch(registrar, /const openEdit = async/);
+assert.doesNotMatch(registrar, /<Edit2[^>]*\/> Edit/);
 assert.doesNotMatch(registrar, /handleArchive\(g/);
-assert.match(registrar, /archiveView === 'archived' && <td[^>]*>[\s\S]*handlePermanentDelete\(g\)/);
+assert.doesNotMatch(registrar, /handlePermanentDelete\(g\)/);
 assert.match(registrar, /handlePermanentDeleteSelected/);
 assert.match(registrar, /action: 'permanent_delete'/);
 assert.match(registrar, /Delete Permanently/);
