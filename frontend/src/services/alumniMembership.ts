@@ -7,11 +7,15 @@ export type AlumniMembershipConfig = {
   id: number;
   status: 'draft' | 'published' | 'archived';
   association_name: string;
+  membership_subtitle: string;
   main_heading: string;
   intro_text: string;
   registered_heading: string;
   registered_intro_text: string;
   registration_instructions: string;
+  registration_button_text: string;
+  registration_url: string;
+  registration_button_enabled: boolean;
   registered_instructions: string;
   contact_information: string;
   footer_text: string;

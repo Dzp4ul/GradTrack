@@ -9,6 +9,7 @@ import { API_ROOT } from '../config/api';
 import { useSystemSettings } from '../contexts/SystemSettingsContext';
 import { usePsgcAddress } from '../hooks/usePsgcAddress';
 import { PsgcAddressPayload } from '../services/psgc';
+import { saveGraduateAccountResume } from '../services/graduateAccountResume';
 import {
   buildOtherSurveyAnswer,
   classifySurveyTextField,
@@ -1377,12 +1378,34 @@ function Survey() {
       const result = await response.json();
 
       if (response.ok && result.success) {
+        const savedResponseId = Number(result.survey_response_id || result.id || 0);
+        if (savedResponseId > 0) {
+          const profileProgramId = Number(tokenProfileData?.program_id);
+          saveGraduateAccountResume({
+            graduateId,
+            graduateName,
+            surveyResponseId: savedResponseId,
+            surveyToken: token,
+            surveyTitle: activeSurvey.title,
+            prefill: {
+              first_name: String(tokenProfileData?.first_name || '').trim(),
+              middle_name: String(tokenProfileData?.middle_name || '').trim(),
+              last_name: String(tokenProfileData?.last_name || '').trim(),
+              email: String(tokenProfileData?.email || '').trim().toLowerCase(),
+              phone: String(tokenProfileData?.phone || tokenProfileData?.mobile || '').trim(),
+              year_graduated: String(tokenProfileData?.year_graduated || '').trim(),
+              address: String(tokenProfileData?.address || '').trim(),
+              program_id: Number.isFinite(profileProgramId) && profileProgramId > 0 ? profileProgramId : null,
+              program_name: String(tokenProfileData?.program_name || tokenProfileData?.program_code || '').trim(),
+            },
+          });
+        }
         localStorage.removeItem(getSurveyDraftKey(activeSurvey.id, graduateId));
         localStorage.removeItem(`survey_draft_${activeSurvey.id}`);
         removeSurveyAccess();
 
         surveySubmissionSucceededRef.current = true;
-        setSubmittedResponseId(result.survey_response_id || result.id || -1);
+        setSubmittedResponseId(savedResponseId || -1);
         setPostSubmitModalOpen(true);
       } else {
         const backendFieldErrors = result.field_errors && typeof result.field_errors === 'object'
@@ -2668,8 +2691,8 @@ function Survey() {
                 <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-900 text-yellow-300 shadow-lg shadow-blue-900/20"><BadgeCheck className="h-6 w-6" /></span>
                 <p className="mt-5 text-xs font-extrabold uppercase tracking-[0.16em] text-blue-700 dark:text-blue-300">Existing association member</p>
                 <h3 className="mt-2 text-xl font-black leading-tight text-text-primary sm:text-2xl">Already a Registered Alumni?</h3>
-                <p className="mt-3 flex-1 text-sm leading-6 text-text-secondary">Explore your alumni membership benefits, review important information, and continue your alumni journey with GradTrack without registering again.</p>
-                <Link to="/alumni/registered-information" className="mt-6 inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-blue-900 px-5 py-3 font-extrabold text-white transition hover:bg-blue-800 focus:outline-none focus:ring-4 focus:ring-blue-300">
+                <p className="mt-3 flex-1 text-sm leading-6 text-text-secondary">If you already belong to the Alumni Association, continue to the separate GradTrack Graduate Portal account creation process.</p>
+                <Link to="/survey-verify?resume=graduate-account&step=create-account" className="mt-6 inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-blue-900 px-5 py-3 font-extrabold text-white transition hover:bg-blue-800 focus:outline-none focus:ring-4 focus:ring-blue-300">
                   I'm Already Registered <ChevronRight className="h-5 w-5 transition group-hover:translate-x-0.5" />
                 </Link>
               </article>

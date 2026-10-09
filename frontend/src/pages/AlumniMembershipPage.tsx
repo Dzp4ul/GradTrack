@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import {
   AlertCircle,
-  ArrowLeft,
   ArrowRight,
   BadgeCheck,
   Building2,
@@ -13,12 +12,14 @@ import {
   HandHeart,
   Contact,
   Mail,
+  ExternalLink,
   RefreshCw,
   ShieldCheck,
   Sparkles,
   UsersRound,
 } from 'lucide-react';
-import ThemeToggle from '../components/ThemeToggle';
+import PublicNav from '../components/PublicNav';
+import Footer from '../components/Footer';
 import {
   type AlumniMembershipAudience,
   type AlumniMembershipContent,
@@ -26,6 +27,7 @@ import {
   fetchAlumniMembership,
   resolveAlumniMembershipAsset,
 } from '../services/alumniMembership';
+import { hasGraduateAccountResume } from '../services/graduateAccountResume';
 
 const benefitIcons = [BadgeCheck, UsersRound, Contact, HandHeart, Building2, GraduationCap];
 const peso = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' });
@@ -33,21 +35,24 @@ const peso = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP'
 function PageSkeleton() {
   return (
     <div className="min-h-screen bg-background" aria-label="Loading alumni membership information">
-      <div className="h-20 animate-pulse bg-slate-900" />
+      <PublicNav />
       <div className="mx-auto max-w-6xl space-y-8 px-4 py-10 sm:px-6">
-        <div className="h-80 animate-pulse rounded-[2rem] bg-surface-muted" />
+        <div className="h-64 animate-pulse rounded-2xl bg-surface-muted" />
         <div className="grid gap-5 md:grid-cols-3">
           {[0, 1, 2].map((item) => <div key={item} className="h-44 animate-pulse rounded-2xl bg-surface-muted" />)}
         </div>
       </div>
+      <Footer />
     </div>
   );
 }
 
 function EmptyPage({ retry }: { retry: () => void }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="max-w-lg rounded-3xl border border-border bg-surface p-8 text-center shadow-xl">
+    <div className="min-h-screen bg-background">
+      <PublicNav />
+      <div className="mx-auto flex min-h-[60vh] max-w-5xl items-center justify-center px-4 py-12">
+        <div className="max-w-lg rounded-3xl border border-border bg-surface p-8 text-center shadow-xl">
         <HelpCircle className="mx-auto h-12 w-12 text-amber-500" />
         <h1 className="mt-4 text-2xl font-extrabold text-text-primary">Membership information is being updated</h1>
         <p className="mt-3 leading-7 text-text-secondary">The Alumni President has not published this page yet. Please check again soon or contact the college for assistance.</p>
@@ -57,7 +62,9 @@ function EmptyPage({ retry }: { retry: () => void }) {
           </button>
           <Link to="/" className="rounded-xl border border-border px-4 py-2.5 font-semibold text-text-primary hover:bg-surface-hover">Back to home</Link>
         </div>
+        </div>
       </div>
+      <Footer />
     </div>
   );
 }
@@ -93,6 +100,10 @@ function MembershipContent({ content, audience, preview }: { content: AlumniMemb
   const intro = registered ? config.registered_intro_text : config.intro_text;
   const collegeLogo = resolveAlumniMembershipAsset(config.college_logo_url || config.college_logo_path);
   const alumniLogo = resolveAlumniMembershipAsset(config.alumni_logo_url || config.alumni_logo_path);
+  const canResumeAccount = hasGraduateAccountResume();
+  const registrationAvailable = !registered
+    && config.registration_button_enabled
+    && Boolean(config.registration_url);
 
   const renderSection = (section: AlumniMembershipSection) => {
     switch (section.section_key) {
@@ -197,10 +208,15 @@ function MembershipContent({ content, audience, preview }: { content: AlumniMemb
                 <Link to="/graduate/signin" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-yellow-300 px-6 py-3 font-extrabold text-blue-950 shadow-lg transition hover:-translate-y-0.5 hover:bg-yellow-200 focus:outline-none focus:ring-4 focus:ring-yellow-100/50">
                   Graduate Portal Sign In <ArrowRight className="h-5 w-5" />
                 </Link>
+              ) : registrationAvailable ? (
+                <div className="max-w-sm">
+                  <a href={config.registration_url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-yellow-300 px-6 py-3 text-center font-extrabold text-blue-950 shadow-lg transition hover:-translate-y-0.5 hover:bg-yellow-200 focus:outline-none focus:ring-4 focus:ring-yellow-100/50">
+                    {config.registration_button_text || 'Proceed to Alumni Registration'} <ExternalLink className="h-5 w-5" />
+                  </a>
+                  <p className="mt-2 text-center text-xs leading-5 text-blue-200">Opens the official Alumni Association registration form in a new tab.</p>
+                </div>
               ) : (
-                <a href="#membership-contact" className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-yellow-300 px-6 py-3 font-extrabold text-blue-950 shadow-lg transition hover:-translate-y-0.5 hover:bg-yellow-200 focus:outline-none focus:ring-4 focus:ring-yellow-100/50">
-                  View contact instructions <ArrowRight className="h-5 w-5" />
-                </a>
+                <p className="max-w-sm rounded-xl border border-white/20 bg-white/10 px-5 py-4 text-center text-sm text-blue-100">Online registration is temporarily unavailable. Please use the published contact information below.</p>
               )}
             </div>
           </section>
@@ -240,34 +256,24 @@ function MembershipContent({ content, audience, preview }: { content: AlumniMemb
 
   return (
     <div className="min-h-screen overflow-x-hidden bg-background text-text-primary">
+      <PublicNav />
       {preview && <div className="bg-amber-400 px-4 py-2 text-center text-sm font-extrabold text-amber-950">Draft preview — only authenticated Alumni Presidents can see this version.</div>}
-      <header className="sticky top-0 z-40 border-b border-white/10 bg-blue-950/95 text-white shadow-lg backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3 sm:px-6">
-          <Link to="/" className="flex min-w-0 items-center gap-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-300">
-            <span className="flex -space-x-2">
-              {collegeLogo && <img src={collegeLogo} alt="Norzagaray College logo" className="h-11 w-11 rounded-full border-2 border-white bg-white object-contain p-0.5" />}
-              {alumniLogo && <img src={alumniLogo} alt="Alumni Association logo" className="h-11 w-11 rounded-full border-2 border-white bg-white object-contain p-0.5" />}
-            </span>
-            <span className="hidden min-w-0 sm:block"><strong className="block truncate text-sm">{config.association_name}</strong><span className="block text-xs text-blue-200">Official membership information</span></span>
-          </Link>
-          <div className="flex items-center gap-2">
-            <Link to="/" className="hidden items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold text-blue-100 hover:bg-white/10 sm:inline-flex"><ArrowLeft className="h-4 w-4" /> Home</Link>
-            <ThemeToggle compact />
-          </div>
-        </div>
-      </header>
 
       <main>
-        <section className="relative isolate overflow-hidden bg-blue-950 px-4 py-14 text-white sm:px-6 sm:py-20">
+        <section className="relative isolate overflow-hidden bg-gradient-to-br from-blue-950 via-blue-900 to-blue-800 px-4 py-11 text-white sm:px-6 sm:py-14">
           <div className="absolute inset-0 -z-10 bg-[radial-gradient(circle_at_15%_20%,rgba(250,204,21,0.18),transparent_32%),radial-gradient(circle_at_85%_70%,rgba(16,185,129,0.2),transparent_34%)]" />
           <div className="mx-auto grid max-w-6xl items-center gap-10 lg:grid-cols-[1fr_0.72fr]">
             <div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-yellow-300/30 bg-yellow-300/10 px-3 py-1.5 text-xs font-extrabold uppercase tracking-[0.18em] text-yellow-200"><GraduationCap className="h-4 w-4" /> Norzagaray College Alumni</div>
-              <h1 className="mt-6 max-w-4xl text-4xl font-black leading-tight tracking-tight sm:text-5xl lg:text-6xl">{heading}</h1>
+              <div className="flex flex-wrap items-center gap-3">
+                {collegeLogo && <img src={collegeLogo} alt="Norzagaray College logo" className="h-12 w-12 rounded-full bg-white p-1 object-contain" />}
+                <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-yellow-300/30 bg-yellow-300/10 px-3 py-1.5 text-xs font-extrabold uppercase tracking-[0.12em] text-yellow-200"><GraduationCap className="h-4 w-4 shrink-0" /> <span className="break-words">{config.association_name}</span></div>
+              </div>
+              <p className="mt-6 text-sm font-bold uppercase tracking-[0.18em] text-emerald-200">{config.membership_subtitle}</p>
+              <h1 className="mt-3 max-w-4xl text-3xl font-black leading-tight tracking-tight sm:text-4xl lg:text-5xl">{heading}</h1>
               <p className="mt-5 max-w-3xl text-base leading-8 text-blue-100 sm:text-lg">{intro}</p>
               <div className="mt-8 flex flex-wrap gap-3">
                 <a href="#membership-content" className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-yellow-300 px-5 py-3 font-extrabold text-blue-950 transition hover:-translate-y-0.5 hover:bg-yellow-200 focus:outline-none focus:ring-4 focus:ring-yellow-100/50">Explore membership <ArrowRight className="h-5 w-5" /></a>
-                <Link to={registered ? '/alumni/membership-information' : '/alumni/registered-information'} className="inline-flex min-h-12 items-center rounded-xl border border-white/25 px-5 py-3 font-bold text-white hover:bg-white/10 focus:outline-none focus:ring-4 focus:ring-white/20">{registered ? 'View registration information' : 'I am already registered'}</Link>
+                <Link to={registered ? '/alumni/membership-information' : '/survey-verify'} className="inline-flex min-h-12 items-center rounded-xl border border-white/25 px-5 py-3 font-bold text-white hover:bg-white/10 focus:outline-none focus:ring-4 focus:ring-white/20">{registered ? 'View registration information' : 'Graduate Portal account'}</Link>
               </div>
             </div>
             <div className="relative mx-auto flex w-full max-w-md items-center justify-center">
@@ -281,14 +287,24 @@ function MembershipContent({ content, audience, preview }: { content: AlumniMemb
         <div className="h-2 bg-gradient-to-r from-yellow-300 via-emerald-500 to-yellow-300" />
 
         <div id="membership-content" className="mx-auto max-w-7xl space-y-7 px-4 py-10 sm:px-6 sm:py-14">
+          {canResumeAccount && (
+            <section className="flex flex-col gap-4 rounded-2xl border border-blue-200 bg-blue-50 p-5 dark:border-blue-900 dark:bg-blue-950/40 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="font-extrabold text-blue-950 dark:text-blue-100">Ready to continue with your GradTrack account?</p>
+                <p className="mt-1 text-sm leading-6 text-blue-800 dark:text-blue-200">Your completed survey remains saved. Return to the secure Graduate Portal account form without answering it again.</p>
+              </div>
+              <Link to="/survey-verify?resume=graduate-account&step=create-account" className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-900 px-5 py-3 text-sm font-extrabold text-white hover:bg-blue-800">Continue account creation <ArrowRight className="h-4 w-4" /></Link>
+            </section>
+          )}
           {sections.map(renderSection)}
         </div>
       </main>
 
-      <footer className="border-t border-border bg-blue-950 px-4 py-8 text-center text-sm text-blue-100">
+      <div className="border-t border-border bg-surface px-4 py-5 text-center text-sm text-text-secondary">
         <p>{config.footer_text || config.association_name}</p>
-        <p className="mt-2 text-xs text-blue-300">Membership status is confirmed only through the Alumni Association’s authorized verification process.</p>
-      </footer>
+        <p className="mt-1 text-xs text-text-muted">Membership status is confirmed only through the Alumni Association's authorized process.</p>
+      </div>
+      <Footer />
     </div>
   );
 }
@@ -318,13 +334,17 @@ export default function AlumniMembershipPage({ audience }: { audience: AlumniMem
   if (loading) return <PageSkeleton />;
   if (error) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background px-4">
-        <div className="max-w-lg rounded-3xl border border-red-200 bg-surface p-8 text-center shadow-xl dark:border-red-900">
+      <div className="min-h-screen bg-background">
+        <PublicNav />
+        <div className="mx-auto flex min-h-[60vh] max-w-5xl items-center justify-center px-4 py-12">
+          <div className="max-w-lg rounded-3xl border border-red-200 bg-surface p-8 text-center shadow-xl dark:border-red-900">
           <AlertCircle className="mx-auto h-12 w-12 text-red-500" />
           <h1 className="mt-4 text-2xl font-extrabold text-text-primary">We couldn’t load this page</h1>
           <p className="mt-3 leading-7 text-text-secondary">{error}</p>
           <button type="button" onClick={() => void load()} className="mt-6 inline-flex items-center gap-2 rounded-xl bg-blue-900 px-5 py-3 font-bold text-white hover:bg-blue-800"><RefreshCw className="h-4 w-4" /> Try again</button>
+          </div>
         </div>
+        <Footer />
       </div>
     );
   }

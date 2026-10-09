@@ -1,9 +1,53 @@
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { BarChart2, Bell, ShieldCheck } from 'lucide-react';
+import { ArrowRight, BarChart2, Bell, GraduationCap, ShieldCheck } from 'lucide-react';
 import Footer from '../components/Footer';
 import LatestAnnouncements from '../components/LatestAnnouncements';
 import PublicNav from '../components/PublicNav';
 import { useSystemSettings } from '../contexts/SystemSettingsContext';
+import {
+  fetchAlumniMembership,
+  resolveAlumniMembershipAsset,
+  type AlumniMembershipContent,
+} from '../services/alumniMembership';
+
+function AlumniMembershipHomeSection() {
+  const [content, setContent] = useState<AlumniMembershipContent | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void fetchAlumniMembership('registration')
+      .then((response) => { if (active) setContent(response.data); })
+      .catch(() => { if (active) setContent(null); });
+    return () => { active = false; };
+  }, []);
+
+  const heading = content?.config.main_heading || 'Become a Registered Norzagaray College Alumni';
+  const description = content?.config.intro_text || 'Stay connected with Norzagaray College and discover the benefits of joining the official Alumni Association. Explore membership information, fees, and registration instructions.';
+  const logo = content
+    ? resolveAlumniMembershipAsset(content.config.alumni_logo_url || content.config.alumni_logo_path)
+    : '';
+
+  return (
+    <section className="bg-white px-4 py-12 dark:bg-slate-950 sm:px-6 sm:py-16" aria-labelledby="home-membership-heading">
+      <div className="mx-auto max-w-7xl overflow-hidden rounded-3xl border border-blue-100 bg-gradient-to-br from-blue-950 via-blue-900 to-emerald-800 text-white shadow-xl dark:border-blue-900">
+        <div className="grid items-center gap-8 p-6 sm:p-9 lg:grid-cols-[1fr_auto] lg:p-12">
+          <div className="max-w-3xl">
+            <p className="flex items-center gap-2 text-xs font-extrabold uppercase tracking-[0.18em] text-yellow-300"><GraduationCap className="h-4 w-4" /> Official Alumni Association</p>
+            <h2 id="home-membership-heading" className="mt-3 text-2xl font-black leading-tight sm:text-4xl">{heading}</h2>
+            <p className="mt-4 max-w-2xl text-sm leading-7 text-blue-100 sm:text-base">{description}</p>
+            <Link to="/alumni/membership-information" className="mt-7 inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-yellow-400 px-6 py-3 font-extrabold text-blue-950 shadow-lg transition hover:-translate-y-0.5 hover:bg-yellow-300 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-white/40">
+              View Alumni Membership <ArrowRight className="h-5 w-5" />
+            </Link>
+          </div>
+          <div className="mx-auto flex h-40 w-40 shrink-0 items-center justify-center rounded-full border border-white/20 bg-white/10 p-5 sm:h-48 sm:w-48">
+            {logo ? <img src={logo} alt="Norzagaray College Alumni Association logo" className="h-full w-full object-contain" /> : <GraduationCap className="h-20 w-20 text-yellow-300" />}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 function HomePage() {
   const { getSetting, isEnabled, resolveAssetUrl } = useSystemSettings();
@@ -48,6 +92,8 @@ function HomePage() {
         </section>
 
         <LatestAnnouncements />
+
+        <AlumniMembershipHomeSection />
 
         <section id="why-gradtrack" className="bg-gray-50 py-12 sm:py-20">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

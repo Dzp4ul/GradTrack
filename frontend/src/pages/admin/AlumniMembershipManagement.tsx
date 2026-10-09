@@ -279,7 +279,7 @@ export default function AlumniMembershipManagement() {
         <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-xs font-extrabold uppercase tracking-[0.2em] text-yellow-300">Alumni President</p>
-            <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Alumni Membership Page Management</h1>
+            <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">Membership Management</h1>
             <p className="mt-3 max-w-3xl leading-7 text-blue-100">Manage the shared branding, benefits, fees, ID previews, and instructions shown on both graduate-facing alumni pages.</p>
             <p className="mt-3 text-xs text-blue-200">{publishedAt ? `Last published ${new Date(publishedAt).toLocaleString('en-PH')}` : 'No content has been published yet.'}</p>
           </div>
@@ -302,6 +302,7 @@ export default function AlumniMembershipManagement() {
         <div className="mb-5"><h2 className="text-xl font-black text-text-primary">Branding and page copy</h2><p className="mt-1 text-sm text-text-secondary">Text is stored as plain content and safely rendered on both public views.</p></div>
         <div className="grid gap-5 md:grid-cols-2">
           <div><FieldLabel required>Alumni Association name</FieldLabel><input className={fieldClass} value={content.config.association_name} maxLength={180} onChange={(event) => updateConfig('association_name', event.target.value)} /></div>
+          <div><FieldLabel required>Page subtitle</FieldLabel><input className={fieldClass} value={content.config.membership_subtitle} maxLength={220} onChange={(event) => updateConfig('membership_subtitle', event.target.value)} /></div>
           <div><FieldLabel required>Registration page heading</FieldLabel><input className={fieldClass} value={content.config.main_heading} maxLength={220} onChange={(event) => updateConfig('main_heading', event.target.value)} /></div>
           <div className="md:col-span-2"><FieldLabel required>Registration page introduction</FieldLabel><textarea className={fieldClass} rows={3} value={content.config.intro_text} maxLength={3000} onChange={(event) => updateConfig('intro_text', event.target.value)} /></div>
           <div><FieldLabel required>Registered alumni heading</FieldLabel><input className={fieldClass} value={content.config.registered_heading} maxLength={220} onChange={(event) => updateConfig('registered_heading', event.target.value)} /></div>
@@ -311,6 +312,18 @@ export default function AlumniMembershipManagement() {
           <div><FieldLabel>Contact information</FieldLabel><textarea className={fieldClass} rows={4} value={content.config.contact_information} maxLength={3000} onChange={(event) => updateConfig('contact_information', event.target.value)} /></div>
           <div><FieldLabel>Footer text</FieldLabel><textarea className={fieldClass} rows={4} value={content.config.footer_text} maxLength={500} onChange={(event) => updateConfig('footer_text', event.target.value)} /></div>
         </div>
+      </section>
+
+      <section className={panelClass}>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div><h2 className="text-xl font-black text-text-primary">Registration settings</h2><p className="mt-1 text-sm text-text-secondary">Configure the official external Alumni Association form. Opening this link never creates or approves a GradTrack account.</p></div>
+          <ActiveToggle active={content.config.registration_button_enabled} label="Registration enabled" onChange={(value) => updateConfig('registration_button_enabled', value)} />
+        </div>
+        <div className="mt-5 grid gap-5 md:grid-cols-2">
+          <div><FieldLabel required={content.config.registration_button_enabled}>Registration button text</FieldLabel><input className={fieldClass} value={content.config.registration_button_text} maxLength={120} onChange={(event) => updateConfig('registration_button_text', event.target.value)} placeholder="Proceed to Alumni Registration" /></div>
+          <div><FieldLabel required={content.config.registration_button_enabled}>Official registration link</FieldLabel><input type="url" inputMode="url" className={fieldClass} value={content.config.registration_url} maxLength={1000} onChange={(event) => updateConfig('registration_url', event.target.value)} placeholder="https://forms.gle/..." /></div>
+        </div>
+        <p className="mt-3 text-xs leading-5 text-text-muted">Only HTTPS links are accepted. The public button opens the form in a new tab with opener access disabled.</p>
       </section>
 
       <section className={panelClass}>

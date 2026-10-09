@@ -22,6 +22,26 @@ function gradtrack_alumni_membership_assert_schema(PDO $db): void
             throw new RuntimeException('Alumni membership content has not been migrated yet.');
         }
     }
+
+    $requiredVersionColumns = [
+        'membership_subtitle',
+        'registration_button_text',
+        'registration_url',
+        'registration_button_enabled',
+    ];
+    $columnStmt = $db->prepare(
+        'SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :table_name AND COLUMN_NAME = :column_name'
+    );
+    foreach ($requiredVersionColumns as $column) {
+        $columnStmt->execute([
+            ':table_name' => 'alumni_membership_versions',
+            ':column_name' => $column,
+        ]);
+        if ((int) $columnStmt->fetchColumn() === 0) {
+            throw new RuntimeException('Alumni membership content has not been migrated yet.');
+        }
+    }
 }
 
 function gradtrack_alumni_membership_section_defaults(): array
@@ -87,11 +107,15 @@ function gradtrack_alumni_membership_payload_for_version(PDO $db, array $version
         'id' => $versionId,
         'status' => (string) $version['status'],
         'association_name' => (string) $version['association_name'],
+        'membership_subtitle' => (string) $version['membership_subtitle'],
         'main_heading' => (string) $version['main_heading'],
         'intro_text' => (string) $version['intro_text'],
         'registered_heading' => (string) $version['registered_heading'],
         'registered_intro_text' => (string) $version['registered_intro_text'],
         'registration_instructions' => (string) $version['registration_instructions'],
+        'registration_button_text' => (string) $version['registration_button_text'],
+        'registration_url' => (string) $version['registration_url'],
+        'registration_button_enabled' => (bool) $version['registration_button_enabled'],
         'registered_instructions' => (string) $version['registered_instructions'],
         'contact_information' => (string) ($version['contact_information'] ?? ''),
         'footer_text' => (string) ($version['footer_text'] ?? ''),
@@ -201,6 +225,18 @@ function gradtrack_alumni_membership_validate_collection($value, string $label, 
     return array_values($value);
 }
 
+function gradtrack_alumni_membership_registration_url($value, bool $required): string
+{
+    $url = gradtrack_alumni_membership_clean_text($value, 'Official registration link', 1000, $required);
+    if ($url === '') {
+        return '';
+    }
+    if (filter_var($url, FILTER_VALIDATE_URL) === false || strtolower((string) parse_url($url, PHP_URL_SCHEME)) !== 'https') {
+        throw new InvalidArgumentException('Official registration link must be a valid HTTPS URL.');
+    }
+    return $url;
+}
+
 function gradtrack_alumni_membership_save_draft(PDO $db, array $payload, int $adminId): array
 {
     $draft = gradtrack_alumni_membership_version($db, 'draft');
@@ -212,14 +248,19 @@ function gradtrack_alumni_membership_save_draft(PDO $db, array $payload, int $ad
     $fees = gradtrack_alumni_membership_validate_collection($payload['fees'] ?? [], 'fees');
     $information = gradtrack_alumni_membership_validate_collection($payload['information_sections'] ?? [], 'information sections');
     $sectionSettings = gradtrack_alumni_membership_validate_collection($payload['section_settings'] ?? [], 'section settings', 12);
+    $registrationButtonEnabled = !empty($config['registration_button_enabled']);
 
     $validatedConfig = [
         ':association_name' => gradtrack_alumni_membership_clean_text($config['association_name'] ?? '', 'Association name', 180),
+        ':membership_subtitle' => gradtrack_alumni_membership_clean_text($config['membership_subtitle'] ?? '', 'Membership page subtitle', 220),
         ':main_heading' => gradtrack_alumni_membership_clean_text($config['main_heading'] ?? '', 'Main page heading', 220),
         ':intro_text' => gradtrack_alumni_membership_clean_text($config['intro_text'] ?? '', 'Introductory text', 3000),
         ':registered_heading' => gradtrack_alumni_membership_clean_text($config['registered_heading'] ?? '', 'Registered alumni heading', 220),
         ':registered_intro_text' => gradtrack_alumni_membership_clean_text($config['registered_intro_text'] ?? '', 'Registered alumni introduction', 3000),
         ':registration_instructions' => gradtrack_alumni_membership_clean_text($config['registration_instructions'] ?? '', 'Registration instructions', 5000),
+        ':registration_button_text' => gradtrack_alumni_membership_clean_text($config['registration_button_text'] ?? '', 'Registration button text', 120, $registrationButtonEnabled),
+        ':registration_url' => gradtrack_alumni_membership_registration_url($config['registration_url'] ?? '', $registrationButtonEnabled),
+        ':registration_button_enabled' => $registrationButtonEnabled ? 1 : 0,
         ':registered_instructions' => gradtrack_alumni_membership_clean_text($config['registered_instructions'] ?? '', 'Registered alumni instructions', 5000),
         ':contact_information' => gradtrack_alumni_membership_clean_text($config['contact_information'] ?? '', 'Contact information', 3000, false),
         ':footer_text' => gradtrack_alumni_membership_clean_text($config['footer_text'] ?? '', 'Footer text', 500, false),
@@ -305,11 +346,15 @@ function gradtrack_alumni_membership_save_draft(PDO $db, array $payload, int $ad
         $stmt = $db->prepare(
             'UPDATE alumni_membership_versions
                 SET association_name = :association_name,
+                    membership_subtitle = :membership_subtitle,
                     main_heading = :main_heading,
                     intro_text = :intro_text,
                     registered_heading = :registered_heading,
                     registered_intro_text = :registered_intro_text,
                     registration_instructions = :registration_instructions,
+                    registration_button_text = :registration_button_text,
+                    registration_url = :registration_url,
+                    registration_button_enabled = :registration_button_enabled,
                     registered_instructions = :registered_instructions,
                     contact_information = :contact_information,
                     footer_text = :footer_text,
@@ -401,7 +446,7 @@ function gradtrack_alumni_membership_publish(PDO $db, int $adminId): array
     if ($draft === null) {
         throw new RuntimeException('No editable alumni membership draft is available.');
     }
-    foreach (['association_name', 'main_heading', 'intro_text', 'registered_heading', 'registered_intro_text'] as $field) {
+    foreach (['association_name', 'membership_subtitle', 'main_heading', 'intro_text', 'registered_heading', 'registered_intro_text'] as $field) {
         if (trim((string) ($draft[$field] ?? '')) === '') {
             throw new InvalidArgumentException('Complete all required headings and introductory text before publishing.');
         }
@@ -427,12 +472,14 @@ function gradtrack_alumni_membership_publish(PDO $db, int $adminId): array
 
         $clone = $db->prepare(
             "INSERT INTO alumni_membership_versions
-                (status, association_name, main_heading, intro_text, registered_heading, registered_intro_text,
-                 registration_instructions, registered_instructions, contact_information, footer_text,
+                (status, association_name, membership_subtitle, main_heading, intro_text, registered_heading, registered_intro_text,
+                 registration_instructions, registration_button_text, registration_url, registration_button_enabled,
+                 registered_instructions, contact_information, footer_text,
                  college_logo_path, alumni_logo_path, id_card_front_path, id_card_back_path,
                  total_fee_enabled, created_by, updated_by)
-             SELECT 'draft', association_name, main_heading, intro_text, registered_heading, registered_intro_text,
-                    registration_instructions, registered_instructions, contact_information, footer_text,
+             SELECT 'draft', association_name, membership_subtitle, main_heading, intro_text, registered_heading, registered_intro_text,
+                    registration_instructions, registration_button_text, registration_url, registration_button_enabled,
+                    registered_instructions, contact_information, footer_text,
                     college_logo_path, alumni_logo_path, id_card_front_path, id_card_back_path,
                     total_fee_enabled, :created_by, :updated_by
                FROM alumni_membership_versions WHERE id = :source_id"

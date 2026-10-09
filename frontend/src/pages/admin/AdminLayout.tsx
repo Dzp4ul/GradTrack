@@ -58,7 +58,7 @@ const registrarNavItems: NavItem[] = [];
 
 const alumniPresidentNavItems: NavItem[] = [
   { to: '/admin/alumni-registered-list', icon: Users, label: 'Alumni Verification' },
-  { to: '/admin/alumni-membership-page', icon: PanelsTopLeft, label: 'Membership Page' },
+  { to: '/admin/alumni-membership-page', icon: PanelsTopLeft, label: 'Membership Management' },
   { to: '/admin/announcements', icon: Megaphone, label: 'Announcements' },
   { to: '/admin/forum-moderation', icon: MessageSquareMore, label: 'Forum Moderation', end: true },
   { to: '/admin/job-postings', icon: Briefcase, label: 'Job Postings' },
