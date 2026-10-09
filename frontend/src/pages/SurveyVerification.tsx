@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { ShieldCheck, AlertCircle, ArrowRight, BadgeCheck, GraduationCap, Loader2, UserPlus, Eye, EyeOff } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { ShieldCheck, AlertCircle, Loader2, UserPlus, Eye, EyeOff } from 'lucide-react';
 import { API_ENDPOINTS, API_ROOT } from '../config/api';
 import MessageBox from '../components/MessageBox';
 import FeatureUnavailable from '../components/FeatureUnavailable';
+import SurveyCompletionChoices from '../components/SurveyCompletionChoices';
 import { useSystemSettings } from '../contexts/SystemSettingsContext';
 import MaintenancePage from './MaintenancePage';
 import {
@@ -583,51 +584,15 @@ function SurveyVerification() {
   if (accountContext) {
     if (accountStage === 'choice') {
       return (
-        <div
-          className="relative flex min-h-screen flex-col items-center justify-center overflow-x-hidden bg-cover bg-center bg-fixed p-4 sm:p-6"
-          style={{ backgroundImage: `url(${pageBackground})` }}
-        >
-          <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-blue-900/85 via-blue-800/85 to-blue-900/85" />
-          <div className="relative z-10 mb-6 flex w-full justify-center">
-            <img src={brandLogo} alt="GradTrack Logo" className="h-auto max-h-20 w-full max-w-[360px] object-contain" />
-          </div>
-          <section className="relative z-10 w-full max-w-4xl overflow-hidden rounded-3xl border border-white/20 bg-white shadow-2xl" aria-labelledby="membership-choice-heading">
-            <div className="bg-gradient-to-r from-blue-950 via-blue-900 to-emerald-800 px-5 py-7 text-white sm:px-8">
-              <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-yellow-300">Survey already completed</p>
-              <h1 id="membership-choice-heading" className="mt-2 text-2xl font-black sm:text-3xl">Choose how you would like to continue</h1>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-blue-100 sm:text-base">Your identity and completed survey were found. Alumni Association membership and a GradTrack Graduate Portal account are separate processes.</p>
-            </div>
-
-            <div className="grid gap-4 p-4 sm:p-7 md:grid-cols-2">
-              <article className="flex flex-col rounded-2xl border border-emerald-200 bg-emerald-50 p-5 sm:p-6">
-                <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-700 text-white"><GraduationCap className="h-6 w-6" /></span>
-                <p className="mt-5 text-xs font-extrabold uppercase tracking-[0.16em] text-emerald-700">Option 1 · Register as alumni</p>
-                <h2 className="mt-2 text-xl font-black leading-tight text-slate-950 sm:text-2xl">Become a Registered Norzagaray College Alumni</h2>
-                <p className="mt-3 flex-1 text-sm leading-6 text-slate-600">View Alumni Association registration information, membership fees, benefits, and the official registration link.</p>
-                <Link to="/alumni/membership-information" className="mt-6 inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-5 py-3 font-extrabold text-white transition hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-300">
-                  Register as Alumni <ArrowRight className="h-5 w-5" />
-                </Link>
-              </article>
-
-              <article className="flex flex-col rounded-2xl border border-blue-200 bg-blue-50 p-5 sm:p-6">
-                <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-900 text-yellow-300"><BadgeCheck className="h-6 w-6" /></span>
-                <p className="mt-5 text-xs font-extrabold uppercase tracking-[0.16em] text-blue-700">Option 2 · Already registered alumni</p>
-                <h2 className="mt-2 text-xl font-black leading-tight text-slate-950 sm:text-2xl">Already a Registered Alumni?</h2>
-                <p className="mt-3 flex-1 text-sm leading-6 text-slate-600">Continue to the separate Graduate Portal account form. Your account will still require Alumni President verification.</p>
-                <button type="button" onClick={() => setAccountStage('form')} className="mt-6 inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-blue-900 px-5 py-3 font-extrabold text-white transition hover:bg-blue-800 focus:outline-none focus:ring-4 focus:ring-blue-300">
-                  Continue to Graduate Portal Account Creation <ArrowRight className="h-5 w-5" />
-                </button>
-              </article>
-            </div>
-
-            <div className="flex flex-col items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-5 py-4 text-center sm:flex-row sm:text-left">
-              <p className="text-xs leading-5 text-slate-500">Neither choice grants Alumni Association membership or approves a Graduate Portal account automatically.</p>
-              <button type="button" onClick={resetAccountCreation} className="rounded-lg px-3 py-2 text-sm font-bold text-blue-700 hover:bg-blue-50">Back to verification</button>
-            </div>
-          </section>
-
+        <>
+          <SurveyCompletionChoices
+            backgroundImage={pageBackground}
+            logoSrc={brandLogo}
+            onCreateAccount={() => setAccountStage('form')}
+            onBackToVerification={resetAccountCreation}
+          />
           <MessageBox isOpen={msgBox.isOpen} onClose={closeMessageBox} type={msgBox.type} message={msgBox.message} title={msgBox.title} actionLink={msgBox.actionLink} />
-        </div>
+        </>
       );
     }
 

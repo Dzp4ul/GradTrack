@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, type ClipboardEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { ShieldCheck, ChevronRight, ChevronLeft, ClipboardList, Save, BadgeCheck, GraduationCap, RefreshCw, X } from 'lucide-react';
+import { ShieldCheck, ChevronRight, ChevronLeft, ClipboardList, Save, RefreshCw } from 'lucide-react';
 import MessageBox from '../components/MessageBox';
 import SearchableSelect from '../components/SearchableSelect';
 import FeatureUnavailable from '../components/FeatureUnavailable';
+import SurveyCompletionChoices from '../components/SurveyCompletionChoices';
 import ThemeToggle from '../components/ThemeToggle';
 import { API_ROOT } from '../config/api';
 import { useSystemSettings } from '../contexts/SystemSettingsContext';
@@ -768,7 +769,7 @@ function Survey() {
   const [isReviewing, setIsReviewing] = useState(false);
   const surveySubmissionInFlightRef = useRef(false);
   const surveySubmissionSucceededRef = useRef(false);
-  const postSubmitInitialFocusRef = useRef<HTMLAnchorElement | null>(null);
+  const postSubmitInitialFocusRef = useRef<HTMLHeadingElement | null>(null);
 
   useEffect(() => {
     if (isMaintenanceMode || !surveyAvailable) {
@@ -1150,11 +1151,6 @@ function Survey() {
       target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       target?.focus({ preventScroll: true });
     }, 50);
-  };
-
-  const leavePostSurveyFlow = () => {
-    setPostSubmitModalOpen(false);
-    window.location.assign('/');
   };
 
   useEffect(() => {
@@ -2661,49 +2657,14 @@ function Survey() {
       />
 
       {postSubmitModalOpen && (
-        <div className="fixed inset-0 z-[9998] flex items-center justify-center overflow-y-auto bg-slate-950/75 p-3 backdrop-blur-sm sm:p-6">
-          <div role="dialog" aria-modal="true" aria-labelledby="post-survey-title" aria-describedby="post-survey-description" className="relative my-auto w-full max-w-4xl overflow-hidden rounded-[1.75rem] border border-white/15 bg-surface shadow-2xl">
-            <button type="button" onClick={leavePostSurveyFlow} className="absolute right-3 top-3 z-10 rounded-full border border-border bg-surface/90 p-2 text-text-muted shadow-sm transition hover:bg-surface-hover hover:text-text-primary focus:outline-none focus:ring-4 focus:ring-blue-300" aria-label="Close and return home"><X className="h-5 w-5" /></button>
-            <div className="relative overflow-hidden bg-gradient-to-br from-blue-950 via-blue-900 to-emerald-800 px-5 py-7 text-white sm:px-8 sm:py-9">
-              <div className="absolute -right-16 -top-24 h-64 w-64 rounded-full bg-yellow-300/15 blur-3xl" />
-              <div className="relative flex items-start gap-4">
-                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-emerald-400/20 text-emerald-200 ring-1 ring-emerald-300/30"><ShieldCheck className="h-7 w-7" /></span>
-                <div className="pr-8">
-                  <p className="text-xs font-extrabold uppercase tracking-[0.18em] text-yellow-300">Submission complete</p>
-                  <h2 id="post-survey-title" className="mt-1 text-2xl font-black tracking-tight sm:text-3xl">{getSetting('survey_completion_message', 'Your survey has been submitted successfully.')}</h2>
-                  <p id="post-survey-description" className="mt-2 max-w-2xl text-sm leading-6 text-blue-100 sm:text-base">Choose the alumni information that applies to you. This choice does not create, approve, or change an alumni account or membership record.</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid gap-4 p-4 sm:p-7 md:grid-cols-2">
-              <article className="group flex min-h-[22rem] flex-col overflow-hidden rounded-2xl border border-emerald-200 bg-gradient-to-b from-emerald-50 to-white p-5 transition duration-300 hover:-translate-y-1 hover:shadow-xl dark:border-emerald-900 dark:from-emerald-950/60 dark:to-slate-900 sm:p-6">
-                <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-700 text-white shadow-lg shadow-emerald-700/20"><GraduationCap className="h-6 w-6" /></span>
-                <p className="mt-5 text-xs font-extrabold uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-300">New alumni membership</p>
-                <h3 className="mt-2 text-xl font-black leading-tight text-text-primary sm:text-2xl">Become a Registered Norzagaray College Alumni</h3>
-                <p className="mt-3 flex-1 text-sm leading-6 text-text-secondary">Join the official Norzagaray College Alumni Association, access membership information, connect with fellow graduates, and stay updated with alumni activities.</p>
-                <Link ref={postSubmitInitialFocusRef} to="/alumni/membership-information" className="mt-6 inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-5 py-3 font-extrabold text-white transition hover:bg-emerald-800 focus:outline-none focus:ring-4 focus:ring-emerald-300">
-                  Register as Alumni <ChevronRight className="h-5 w-5 transition group-hover:translate-x-0.5" />
-                </Link>
-              </article>
-
-              <article className="group flex min-h-[22rem] flex-col overflow-hidden rounded-2xl border border-blue-200 bg-gradient-to-b from-blue-50 to-white p-5 transition duration-300 hover:-translate-y-1 hover:shadow-xl dark:border-blue-900 dark:from-blue-950/60 dark:to-slate-900 sm:p-6">
-                <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-900 text-yellow-300 shadow-lg shadow-blue-900/20"><BadgeCheck className="h-6 w-6" /></span>
-                <p className="mt-5 text-xs font-extrabold uppercase tracking-[0.16em] text-blue-700 dark:text-blue-300">Existing association member</p>
-                <h3 className="mt-2 text-xl font-black leading-tight text-text-primary sm:text-2xl">Already a Registered Alumni?</h3>
-                <p className="mt-3 flex-1 text-sm leading-6 text-text-secondary">If you already belong to the Alumni Association, continue to the separate GradTrack Graduate Portal account creation process.</p>
-                <Link to="/survey-verify?resume=graduate-account&step=create-account" className="mt-6 inline-flex min-h-12 items-center justify-center gap-2 rounded-xl bg-blue-900 px-5 py-3 font-extrabold text-white transition hover:bg-blue-800 focus:outline-none focus:ring-4 focus:ring-blue-300">
-                  I'm Already Registered <ChevronRight className="h-5 w-5 transition group-hover:translate-x-0.5" />
-                </Link>
-              </article>
-            </div>
-
-            <div className="flex flex-col items-center justify-between gap-3 border-t border-border bg-surface-alt px-5 py-4 text-center sm:flex-row sm:text-left">
-              <p className="text-xs leading-5 text-text-muted">Your survey is already saved. Leaving this screen will not submit it again.</p>
-              <button type="button" onClick={leavePostSurveyFlow} className="shrink-0 rounded-lg px-3 py-2 text-sm font-bold text-text-secondary transition hover:bg-surface-hover hover:text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-400">Return to home</button>
-            </div>
-          </div>
-        </div>
+        <SurveyCompletionChoices
+          backgroundImage={pageBackground}
+          logoSrc={brandLogo}
+          onCreateAccount={() => window.location.assign('/survey-verify?resume=graduate-account&step=create-account')}
+          onBackToVerification={() => window.location.assign('/survey-verify')}
+          initialFocusRef={postSubmitInitialFocusRef}
+          overlay
+        />
       )}
     </div>
   );
