@@ -1,5 +1,7 @@
 <?php
 
+require_once __DIR__ . '/survey_lifecycle.php';
+
 if (!function_exists('gradtrack_normalize_graduation_year')) {
     function gradtrack_normalize_graduation_year($value): ?int
     {
@@ -274,6 +276,9 @@ if (!function_exists('gradtrack_get_survey_graduation_year_coverage')) {
 if (!function_exists('gradtrack_get_active_survey_graduation_year_coverage')) {
     function gradtrack_get_active_survey_graduation_year_coverage(PDO $db): array
     {
+        // Access-time reconciliation closes expired/fulfilled surveys even
+        // between scheduled lifecycle runs.
+        gradtrack_enforce_survey_completion($db);
         $stmt = $db->query(
             "SELECT id FROM surveys
              WHERE status = 'active' AND archived_at IS NULL

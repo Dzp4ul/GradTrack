@@ -5,6 +5,7 @@ require_once __DIR__ . '/../config/system_settings.php';
 require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/graduation_years.php';
 require_once __DIR__ . '/../config/survey_program_scope.php';
+require_once __DIR__ . '/../config/survey_lifecycle.php';
 
 function survey_verification_graduate_name(array $graduate): string
 {
@@ -315,13 +316,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         if ($coverage['survey'] === null) {
-            http_response_code(404);
+            $closedSurvey = null;
+            if ($surveyId !== null && (int) $surveyId > 0) {
+                $closedStmt = $conn->prepare(
+                    "SELECT id, completion_reason FROM surveys
+                      WHERE id = :id AND status = 'completed' AND archived_at IS NULL LIMIT 1"
+                );
+                $closedStmt->execute([':id' => (int) $surveyId]);
+                $closedSurvey = $closedStmt->fetch(PDO::FETCH_ASSOC) ?: null;
+            }
+            if ($closedSurvey === null) {
+                $closedSurvey = $conn->query(
+                    "SELECT id, completion_reason FROM surveys
+                      WHERE status = 'completed' AND archived_at IS NULL
+                      ORDER BY completed_at DESC, updated_at DESC, id DESC LIMIT 1"
+                )->fetch(PDO::FETCH_ASSOC) ?: null;
+            }
+            http_response_code($closedSurvey !== null ? 410 : 404);
             echo json_encode([
                 'success' => false,
-                'code' => 'NO_ACTIVE_SURVEY',
+                'code' => $closedSurvey !== null ? 'SURVEY_COMPLETED' : 'NO_ACTIVE_SURVEY',
                 'title' => 'Survey Not Available',
                 'error' => 'Survey not available',
-                'message' => 'There is no active Graduate Tracer Survey available right now.',
+                'completion_reason' => $closedSurvey['completion_reason'] ?? null,
+                'message' => $closedSurvey !== null
+                    ? gradtrack_survey_completion_message($closedSurvey['completion_reason'] ?? null)
+                    : 'There is no active Graduate Tracer Survey available right now.',
             ]);
             exit();
         }

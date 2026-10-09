@@ -4,6 +4,7 @@ require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/system_settings.php';
 require_once __DIR__ . '/../config/archive.php';
 require_once __DIR__ . '/../config/graduation_years.php';
+require_once __DIR__ . '/../config/survey_lifecycle.php';
 
 $database = new Database();
 $conn = $database->getConnection();
@@ -26,12 +27,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     
     try {
+        gradtrack_enforce_survey_completion($conn);
         // Validate token
         $query = "SELECT st.*, (st.expires_at < NOW()) AS is_expired,
               g.first_name, g.middle_name, g.last_name, g.student_id,
               g.email, g.phone, g.year_graduated, g.address, g.program_id,
               p.name AS program_name, p.code AS program_code,
-              s.title as survey_title, s.status as survey_status
+              s.title as survey_title, s.status as survey_status, s.completion_reason
                   FROM survey_tokens st
                   JOIN graduates g ON st.graduate_id = g.id
               LEFT JOIN programs p ON g.program_id = p.id
@@ -102,8 +104,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             http_response_code(403);
             echo json_encode([
                 "success" => false,
-                "error" => "Survey inactive",
-                "message" => "This survey is no longer active"
+                "code" => $tokenData['survey_status'] === 'completed' ? 'SURVEY_COMPLETED' : 'SURVEY_INACTIVE',
+                "error" => $tokenData['survey_status'] === 'completed' ? 'Survey completed' : 'Survey inactive',
+                "message" => $tokenData['survey_status'] === 'completed'
+                    ? gradtrack_survey_completion_message($tokenData['completion_reason'] ?? null)
+                    : 'This survey is no longer active'
             ]);
             exit();
         }

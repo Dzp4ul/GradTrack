@@ -9,6 +9,7 @@ require_once __DIR__ . '/../config/graduation_years.php';
 require_once __DIR__ . '/../config/permanent_delete.php';
 require_once __DIR__ . '/../config/survey_program_scope.php';
 require_once __DIR__ . '/../config/survey_versioning.php';
+require_once __DIR__ . '/../config/survey_lifecycle.php';
 
 $database = new Database();
 $db = $database->getConnection();
@@ -293,6 +294,7 @@ function gradtrack_survey_clone_version(PDO $db, int $sourceSurveyId, string $ac
 
 try {
     gradtrack_ensure_archive_schema($db, 'surveys', true);
+    gradtrack_enforce_survey_completion($db);
 
     switch ($method) {
         case 'GET':
@@ -338,6 +340,11 @@ try {
                     $rStmt->bindParam(':id', $_GET['id']);
                     $rStmt->execute();
                     $survey['response_count'] = (int)$rStmt->fetch(PDO::FETCH_ASSOC)['count'];
+                    $survey['target_progress'] = gradtrack_survey_progress($db, (int) $survey['id'], $survey);
+                    $survey['program_targets'] = $survey['target_progress']['programs'];
+                    $survey['completion_message'] = ($survey['status'] ?? '') === 'completed'
+                        ? gradtrack_survey_completion_message($survey['completion_reason'] ?? null)
+                        : null;
 
                     $survey['created_by'] = trim((string)($survey['created_by'] ?? '')) ?: gradtrack_current_admin_display_name();
                     $survey['modified_by'] = trim((string)($survey['modified_by'] ?? '')) ?: $survey['created_by'];
@@ -360,6 +367,25 @@ try {
 
                     echo json_encode(["success" => true, "data" => $survey]);
                 } else {
+                    if (!$staffViewer) {
+                        $closedStmt = $db->prepare(
+                            "SELECT status, completion_reason FROM surveys
+                              WHERE id = :id AND archived_at IS NULL AND status = 'completed' LIMIT 1"
+                        );
+                        $closedStmt->execute([':id' => $_GET['id']]);
+                        $closedSurvey = $closedStmt->fetch(PDO::FETCH_ASSOC);
+                        if ($closedSurvey) {
+                            http_response_code(410);
+                            echo json_encode([
+                                'success' => false,
+                                'code' => 'SURVEY_COMPLETED',
+                                'error' => 'Survey completed',
+                                'completion_reason' => $closedSurvey['completion_reason'],
+                                'message' => gradtrack_survey_completion_message($closedSurvey['completion_reason'] ?? null),
+                            ]);
+                            break;
+                        }
+                    }
                     http_response_code(404);
                     echo json_encode(["success" => false, "error" => "Survey not found"]);
                 }
@@ -404,6 +430,14 @@ try {
                 ");
                 $stmt->execute($params);
                 $surveys = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                foreach ($surveys as &$surveyRow) {
+                    $surveyRow['target_progress'] = gradtrack_survey_progress($db, (int) $surveyRow['id'], $surveyRow);
+                    $surveyRow['program_targets'] = $surveyRow['target_progress']['programs'];
+                    $surveyRow['completion_message'] = ($surveyRow['status'] ?? '') === 'completed'
+                        ? gradtrack_survey_completion_message($surveyRow['completion_reason'] ?? null)
+                        : null;
+                }
+                unset($surveyRow);
                 $counts = ['active' => $total, 'archived' => 0];
                 if ($staffViewer) {
                     $countRows = $db->query("SELECT
@@ -416,6 +450,18 @@ try {
                     ];
                 }
                 $activeCoverage = gradtrack_get_active_survey_graduation_year_coverage($db);
+                $closedSurvey = null;
+                if (!$staffViewer && $surveys === []) {
+                    $closedSurvey = $db->query(
+                        "SELECT id, title, completion_reason, completed_at, deadline_at
+                           FROM surveys
+                          WHERE status = 'completed' AND archived_at IS NULL
+                          ORDER BY completed_at DESC, updated_at DESC, id DESC LIMIT 1"
+                    )->fetch(PDO::FETCH_ASSOC) ?: null;
+                    if ($closedSurvey !== null) {
+                        $closedSurvey['message'] = gradtrack_survey_completion_message($closedSurvey['completion_reason'] ?? null);
+                    }
+                }
                 echo json_encode([
                     "success" => true,
                     "data" => $surveys,
@@ -427,6 +473,7 @@ try {
                         'error' => $activeCoverage['error'],
                     ],
                     'archive_counts' => $counts,
+                    'closed_survey' => $closedSurvey,
                     'pagination' => [
                         'total' => $total,
                         'page' => $page,
@@ -473,9 +520,28 @@ try {
             }
 
             $status = $data['status'] ?? 'draft';
-            if (!in_array($status, ['draft', 'active', 'inactive'], true)) {
+            if (!in_array($status, ['draft', 'active', 'inactive', 'completed'], true)) {
                 http_response_code(400);
                 echo json_encode(['success' => false, 'error' => 'Invalid survey status']);
+                break;
+            }
+
+            try {
+                $deadlineAt = gradtrack_survey_parse_deadline($data['deadline_at'] ?? null);
+                $targetConfiguration = gradtrack_survey_validate_target_configuration($db, $data);
+            } catch (InvalidArgumentException $exception) {
+                http_response_code(422);
+                echo json_encode(['success' => false, 'error' => $exception->getMessage()]);
+                break;
+            }
+            if ($status === 'active' && $deadlineAt === null) {
+                http_response_code(422);
+                echo json_encode(['success' => false, 'error' => 'A survey deadline is required before activation.']);
+                break;
+            }
+            if ($deadlineAt !== null && gradtrack_survey_deadline_reached($deadlineAt)) {
+                http_response_code(422);
+                echo json_encode(['success' => false, 'error' => 'Survey deadline must be later than the survey start time in Asia/Manila.']);
                 break;
             }
 
@@ -498,7 +564,7 @@ try {
             $templateId = gradtrack_survey_create_template($db, $title, (string)($data['description'] ?? ''));
 
             if ($auditColumnsReady) {
-                $stmt = $db->prepare("INSERT INTO surveys (template_id, version_number, title, description, status, published_at, locked_at, created_by, modified_by, modified_at) VALUES (:template_id, 1, :title, :desc, :status, CASE WHEN :publish_status = 'draft' THEN NULL ELSE NOW() END, CASE WHEN :lock_status = 'draft' THEN NULL ELSE NOW() END, :created_by, :modified_by, NOW())");
+                $stmt = $db->prepare("INSERT INTO surveys (template_id, version_number, title, description, status, published_at, locked_at, deadline_at, target_type, total_response_target, completion_reason, completed_at, created_by, modified_by, modified_at) VALUES (:template_id, 1, :title, :desc, :status, CASE WHEN :publish_status = 'draft' THEN NULL ELSE NOW() END, CASE WHEN :lock_status = 'draft' THEN NULL ELSE NOW() END, :deadline_at, :target_type, :total_response_target, :completion_reason, CASE WHEN :completed_status = 'completed' THEN NOW() ELSE NULL END, :created_by, :modified_by, NOW())");
                 $stmt->execute([
                     ':template_id' => $templateId,
                     ':title' => $title,
@@ -506,11 +572,16 @@ try {
                     ':status' => $status,
                     ':publish_status' => $status,
                     ':lock_status' => $status,
+                    ':deadline_at' => $deadlineAt,
+                    ':target_type' => $targetConfiguration['target_type'],
+                    ':total_response_target' => $targetConfiguration['total_response_target'],
+                    ':completion_reason' => $status === 'completed' ? 'manual' : null,
+                    ':completed_status' => $status,
                     ':created_by' => $actorName,
                     ':modified_by' => $actorName,
                 ]);
             } else {
-                $stmt = $db->prepare("INSERT INTO surveys (template_id, version_number, title, description, status, published_at, locked_at) VALUES (:template_id, 1, :title, :desc, :status, CASE WHEN :publish_status = 'draft' THEN NULL ELSE NOW() END, CASE WHEN :lock_status = 'draft' THEN NULL ELSE NOW() END)");
+                $stmt = $db->prepare("INSERT INTO surveys (template_id, version_number, title, description, status, published_at, locked_at, deadline_at, target_type, total_response_target, completion_reason, completed_at) VALUES (:template_id, 1, :title, :desc, :status, CASE WHEN :publish_status = 'draft' THEN NULL ELSE NOW() END, CASE WHEN :lock_status = 'draft' THEN NULL ELSE NOW() END, :deadline_at, :target_type, :total_response_target, :completion_reason, CASE WHEN :completed_status = 'completed' THEN NOW() ELSE NULL END)");
                 $stmt->execute([
                     ':template_id' => $templateId,
                     ':title' => $title,
@@ -518,9 +589,15 @@ try {
                     ':status' => $status,
                     ':publish_status' => $status,
                     ':lock_status' => $status,
+                    ':deadline_at' => $deadlineAt,
+                    ':target_type' => $targetConfiguration['target_type'],
+                    ':total_response_target' => $targetConfiguration['total_response_target'],
+                    ':completion_reason' => $status === 'completed' ? 'manual' : null,
+                    ':completed_status' => $status,
                 ]);
             }
             $surveyId = (int)$db->lastInsertId();
+            gradtrack_survey_replace_program_targets($db, $surveyId, $targetConfiguration['program_targets']);
 
             if (isset($data['questions']) && is_array($data['questions'])) {
                 $sectionIds = gradtrack_survey_sync_sections($db, $surveyId, $data['questions']);
@@ -556,6 +633,11 @@ try {
                 null,
                 [
                     'status' => $status,
+                    'deadline_at' => $deadlineAt,
+                    'target_type' => $targetConfiguration['target_type'],
+                    'configured_target' => $targetConfiguration['target_type'] === 'program'
+                        ? array_sum($targetConfiguration['program_targets'])
+                        : $targetConfiguration['total_response_target'],
                     'question_count' => isset($data['questions']) && is_array($data['questions']) ? count($data['questions']) : 0,
                 ]
             );
@@ -584,7 +666,7 @@ try {
                     break;
                 }
 
-                $restoreStatus = in_array($archivedSurvey['status_before_archive'] ?? '', ['draft', 'active', 'inactive'], true)
+                $restoreStatus = in_array($archivedSurvey['status_before_archive'] ?? '', ['draft', 'active', 'inactive', 'completed'], true)
                     ? $archivedSurvey['status_before_archive']
                     : 'inactive';
                 if ($restoreStatus === 'active') {
@@ -644,6 +726,106 @@ try {
                 echo json_encode(['success' => false, 'error' => 'Restore this survey before editing it']);
                 break;
             }
+
+            $status = $data['status'] ?? 'draft';
+            if (!in_array($status, ['draft', 'active', 'inactive', 'completed'], true)) {
+                http_response_code(400);
+                echo json_encode(['success' => false, 'error' => 'Invalid survey status']);
+                break;
+            }
+            $deadlineProvided = array_key_exists('deadline_at', $data);
+            $targetConfigurationProvided = array_key_exists('target_type', $data)
+                || array_key_exists('total_response_target', $data)
+                || array_key_exists('program_targets', $data);
+            try {
+                $deadlineAt = $deadlineProvided
+                    ? gradtrack_survey_parse_deadline($data['deadline_at'])
+                    : gradtrack_survey_parse_deadline($editableSurvey['deadline_at'] ?? null);
+                if ($targetConfigurationProvided) {
+                    $targetConfiguration = gradtrack_survey_validate_target_configuration($db, $data);
+                } else {
+                    $preservedTargets = [];
+                    foreach (gradtrack_survey_program_targets($db, $surveyId) as $programTarget) {
+                        $preservedTargets[(int) $programTarget['program_id']] = (int) $programTarget['target'];
+                    }
+                    $targetConfiguration = [
+                        'target_type' => (string) ($editableSurvey['target_type'] ?? 'none'),
+                        'total_response_target' => isset($editableSurvey['total_response_target'])
+                            ? (int) $editableSurvey['total_response_target']
+                            : null,
+                        'program_targets' => $preservedTargets,
+                    ];
+                }
+            } catch (InvalidArgumentException $exception) {
+                http_response_code(422);
+                echo json_encode(['success' => false, 'error' => $exception->getMessage()]);
+                break;
+            }
+
+            $publishedAt = trim((string) ($editableSurvey['published_at'] ?? ''));
+            $createdAt = trim((string) ($editableSurvey['created_at'] ?? ''));
+            $surveyStartText = $publishedAt !== '' ? $publishedAt : $createdAt;
+            if ($deadlineAt !== null && $surveyStartText !== '') {
+                $timezone = new DateTimeZone(GRADTRACK_SURVEY_TIMEZONE);
+                $deadlineValue = DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', $deadlineAt, $timezone);
+                $startValue = DateTimeImmutable::createFromFormat('!Y-m-d H:i:s', $surveyStartText, $timezone);
+                if ($deadlineValue === false || ($startValue !== false && $deadlineValue <= $startValue)) {
+                    http_response_code(422);
+                    echo json_encode(['success' => false, 'error' => 'Survey deadline must be later than the survey start time in Asia/Manila.']);
+                    break;
+                }
+            }
+            if (
+                $status === 'active'
+                && $deadlineAt === null
+                && ($deadlineProvided || ($editableSurvey['status'] ?? '') !== 'active')
+            ) {
+                http_response_code(422);
+                echo json_encode(['success' => false, 'error' => 'A survey deadline is required before activation.']);
+                break;
+            }
+            if ($status === 'active' && gradtrack_survey_deadline_reached($deadlineAt)) {
+                http_response_code(422);
+                echo json_encode([
+                    'success' => false,
+                    'code' => 'DEADLINE_EXTENSION_REQUIRED',
+                    'error' => 'Extend the deadline to a future Philippine date and time before reactivating this survey.',
+                ]);
+                break;
+            }
+
+            $existingProgramTargets = [];
+            foreach (gradtrack_survey_program_targets($db, $surveyId) as $programTarget) {
+                $existingProgramTargets[(int) $programTarget['program_id']] = (int) $programTarget['target'];
+            }
+            $existingTargetSignature = gradtrack_survey_configuration_signature(
+                (string) ($editableSurvey['target_type'] ?? 'none'),
+                isset($editableSurvey['total_response_target']) ? (int) $editableSurvey['total_response_target'] : null,
+                $existingProgramTargets
+            );
+            $newTargetSignature = gradtrack_survey_configuration_signature(
+                $targetConfiguration['target_type'],
+                $targetConfiguration['total_response_target'],
+                $targetConfiguration['program_targets']
+            );
+            $targetConfigurationChanged = !hash_equals($existingTargetSignature, $newTargetSignature);
+            $isManualReactivation = ($editableSurvey['status'] ?? '') === 'completed' && $status === 'active';
+            $reactivationReason = trim((string) ($data['reactivation_reason'] ?? ''));
+            if ($isManualReactivation && $reactivationReason === '') {
+                http_response_code(422);
+                echo json_encode(['success' => false, 'error' => 'Please provide a reason for reactivating this completed survey.']);
+                break;
+            }
+            if (strlen($reactivationReason) > 500) {
+                http_response_code(422);
+                echo json_encode(['success' => false, 'error' => 'Reactivation reason must not exceed 500 characters.']);
+                break;
+            }
+
+            $existingProgress = gradtrack_survey_progress($db, $surveyId, $editableSurvey);
+            $suppressSatisfiedTarget = $isManualReactivation
+                && !$targetConfigurationChanged
+                && (bool) ($existingProgress['target_reached'] ?? false);
 
             $responseCount = gradtrack_survey_response_count($db, $surveyId);
             $protectExistingQuestionDefinitions = $responseCount > 0 || ($editableSurvey['status'] ?? '') === 'active';
@@ -965,13 +1147,6 @@ try {
 
             $db->beginTransaction();
 
-            $status = $data['status'] ?? 'draft';
-            if (!in_array($status, ['draft', 'active', 'inactive'], true)) {
-                $db->rollBack();
-                http_response_code(400);
-                echo json_encode(['success' => false, 'error' => 'Invalid survey status']);
-                break;
-            }
             if ($status === 'active') {
                 $activeStmt = $db->prepare("SELECT id, title, template_id FROM surveys WHERE status = 'active' AND archived_at IS NULL AND id <> :id LIMIT 1 FOR UPDATE");
                 $activeStmt->execute([':id' => $data['id']]);
@@ -1020,8 +1195,18 @@ try {
                 $data['questions'] = $questionValidation['questions'];
             }
 
+            $completionReason = $status === 'completed'
+                ? (($editableSurvey['status'] ?? '') === 'completed'
+                    ? ($editableSurvey['completion_reason'] ?? 'manual')
+                    : 'manual')
+                : null;
+            $targetSuppressed = $targetConfigurationChanged ? 0 : (int) ($editableSurvey['target_completion_suppressed'] ?? 0);
+            if ($isManualReactivation) {
+                $targetSuppressed = $suppressSatisfiedTarget ? 1 : 0;
+            }
+
             if ($auditColumnsReady) {
-                $stmt = $db->prepare("UPDATE surveys SET title = :title, description = :desc, status = :status, published_at = CASE WHEN :publish_status = 'draft' THEN published_at ELSE COALESCE(published_at, NOW()) END, locked_at = CASE WHEN :lock_status = 'draft' THEN locked_at ELSE COALESCE(locked_at, NOW()) END, modified_by = :modified_by, modified_at = NOW() WHERE id = :id AND archived_at IS NULL");
+                $stmt = $db->prepare("UPDATE surveys SET title = :title, description = :desc, status = :status, published_at = CASE WHEN :publish_status = 'draft' THEN published_at ELSE COALESCE(published_at, NOW()) END, locked_at = CASE WHEN :lock_status = 'draft' THEN locked_at ELSE COALESCE(locked_at, NOW()) END, deadline_at = :deadline_at, target_type = :target_type, total_response_target = :total_response_target, completion_reason = :completion_reason, completed_at = CASE WHEN :completed_status = 'completed' THEN COALESCE(completed_at, NOW()) ELSE NULL END, target_completion_suppressed = :target_completion_suppressed, reactivated_at = CASE WHEN :is_reactivation = 1 THEN NOW() ELSE reactivated_at END, reactivated_by = CASE WHEN :is_reactivation_actor = 1 THEN :reactivated_by ELSE reactivated_by END, reactivation_reason = CASE WHEN :is_reactivation_reason = 1 THEN :reactivation_reason ELSE reactivation_reason END, modified_by = :modified_by, modified_at = NOW() WHERE id = :id AND archived_at IS NULL");
                 $stmt->execute([
                     ':id' => $data['id'],
                     ':title' => $title,
@@ -1029,10 +1214,21 @@ try {
                     ':status' => $status,
                     ':publish_status' => $status,
                     ':lock_status' => $status,
+                    ':deadline_at' => $deadlineAt,
+                    ':target_type' => $targetConfiguration['target_type'],
+                    ':total_response_target' => $targetConfiguration['total_response_target'],
+                    ':completion_reason' => $completionReason,
+                    ':completed_status' => $status,
+                    ':target_completion_suppressed' => $targetSuppressed,
+                    ':is_reactivation' => $isManualReactivation ? 1 : 0,
+                    ':is_reactivation_actor' => $isManualReactivation ? 1 : 0,
+                    ':reactivated_by' => $auditUser['user_id'],
+                    ':is_reactivation_reason' => $isManualReactivation ? 1 : 0,
+                    ':reactivation_reason' => $isManualReactivation ? $reactivationReason : null,
                     ':modified_by' => $actorName,
                 ]);
             } else {
-                $stmt = $db->prepare("UPDATE surveys SET title = :title, description = :desc, status = :status, published_at = CASE WHEN :publish_status = 'draft' THEN published_at ELSE COALESCE(published_at, NOW()) END, locked_at = CASE WHEN :lock_status = 'draft' THEN locked_at ELSE COALESCE(locked_at, NOW()) END WHERE id = :id AND archived_at IS NULL");
+                $stmt = $db->prepare("UPDATE surveys SET title = :title, description = :desc, status = :status, published_at = CASE WHEN :publish_status = 'draft' THEN published_at ELSE COALESCE(published_at, NOW()) END, locked_at = CASE WHEN :lock_status = 'draft' THEN locked_at ELSE COALESCE(locked_at, NOW()) END, deadline_at = :deadline_at, target_type = :target_type, total_response_target = :total_response_target, completion_reason = :completion_reason, completed_at = CASE WHEN :completed_status = 'completed' THEN COALESCE(completed_at, NOW()) ELSE NULL END, target_completion_suppressed = :target_completion_suppressed, reactivated_at = CASE WHEN :is_reactivation = 1 THEN NOW() ELSE reactivated_at END, reactivated_by = CASE WHEN :is_reactivation_actor = 1 THEN :reactivated_by ELSE reactivated_by END, reactivation_reason = CASE WHEN :is_reactivation_reason = 1 THEN :reactivation_reason ELSE reactivation_reason END WHERE id = :id AND archived_at IS NULL");
                 $stmt->execute([
                     ':id' => $data['id'],
                     ':title' => $title,
@@ -1040,8 +1236,20 @@ try {
                     ':status' => $status,
                     ':publish_status' => $status,
                     ':lock_status' => $status,
+                    ':deadline_at' => $deadlineAt,
+                    ':target_type' => $targetConfiguration['target_type'],
+                    ':total_response_target' => $targetConfiguration['total_response_target'],
+                    ':completion_reason' => $completionReason,
+                    ':completed_status' => $status,
+                    ':target_completion_suppressed' => $targetSuppressed,
+                    ':is_reactivation' => $isManualReactivation ? 1 : 0,
+                    ':is_reactivation_actor' => $isManualReactivation ? 1 : 0,
+                    ':reactivated_by' => $auditUser['user_id'],
+                    ':is_reactivation_reason' => $isManualReactivation ? 1 : 0,
+                    ':reactivation_reason' => $isManualReactivation ? $reactivationReason : null,
                 ]);
             }
+            gradtrack_survey_replace_program_targets($db, $surveyId, $targetConfiguration['program_targets']);
 
             if (isset($data['questions']) && is_array($data['questions'])) {
                 if ($protectExistingQuestionDefinitions) {
@@ -1304,6 +1512,10 @@ try {
                 ]);
             }
 
+            if ($status === 'active') {
+                gradtrack_enforce_survey_completion($db, $surveyId);
+            }
+
             $db->commit();
             // Audit Trail: call logAuditTrail() after a survey is successfully updated and committed.
             logAuditTrail(
@@ -1311,13 +1523,20 @@ try {
                 $auditUser['user_name'],
                 $auditUser['user_role'],
                 $auditUser['department'],
-                'Update',
+                $isManualReactivation ? 'Reactivate' : 'Update',
                 'Survey Management',
-                "Updated survey with record ID {$data['id']}.",
+                $isManualReactivation
+                    ? "Reactivated completed survey with record ID {$data['id']}."
+                    : "Updated survey with record ID {$data['id']}.",
                 $data['id'],
                 null,
                 [
                     'status' => $status,
+                    'deadline_at' => $deadlineAt,
+                    'target_type' => $targetConfiguration['target_type'],
+                    'target_configuration_changed' => $targetConfigurationChanged,
+                    'target_completion_suppressed' => (bool) $targetSuppressed,
+                    'reactivation_reason' => $isManualReactivation ? $reactivationReason : null,
                     'question_count' => isset($data['questions']) && is_array($data['questions']) ? count($data['questions']) : 0,
                     'text_changes' => $protectedTextChanges,
                 ]

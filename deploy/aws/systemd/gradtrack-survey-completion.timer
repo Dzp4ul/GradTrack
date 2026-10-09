@@ -1,0 +1,11 @@
+[Unit]
+Description=Reconcile GradTrack survey deadlines and respondent targets every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00 Asia/Manila
+Persistent=true
+AccuracySec=15s
+Unit=gradtrack-survey-completion.service
+
+[Install]
+WantedBy=timers.target

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../api/config/database.php';
 require_once __DIR__ . '/../api/config/survey_versioning.php';
+require_once __DIR__ . '/../api/config/survey_program_scope.php';
 
 function survey_idempotency_assert(bool $condition, string $message): void
 {
@@ -46,6 +47,37 @@ function survey_idempotency_execute(string $url, array $payload): array
     return ['status' => $status, 'body' => is_array($decoded) ? $decoded : []];
 }
 
+function survey_idempotency_execute_concurrent(string $url, array $payloads): array
+{
+    $requests = array_map(
+        static fn (array $payload): array => survey_idempotency_request($url, $payload),
+        $payloads
+    );
+    $multi = curl_multi_init();
+    foreach ($requests as $request) {
+        curl_multi_add_handle($multi, $request['handle']);
+    }
+    do {
+        $status = curl_multi_exec($multi, $running);
+        if ($running > 0) curl_multi_select($multi, 1.0);
+    } while ($running > 0 && $status === CURLM_OK);
+
+    $results = [];
+    foreach ($requests as $request) {
+        $handle = $request['handle'];
+        $raw = (string) curl_multi_getcontent($handle);
+        $results[] = [
+            'status' => (int) curl_getinfo($handle, CURLINFO_RESPONSE_CODE),
+            'body' => is_array($decoded = json_decode($raw, true)) ? $decoded : [],
+            'transport_error' => curl_error($handle),
+        ];
+        curl_multi_remove_handle($multi, $handle);
+        curl_close($handle);
+    }
+    curl_multi_close($multi);
+    return $results;
+}
+
 if (!function_exists('curl_multi_init')) {
     fwrite(STDERR, "FAIL: PHP cURL support is required for the concurrent survey test.\n");
     exit(1);
@@ -58,6 +90,8 @@ $surveyId = 0;
 $templateId = 0;
 $graduateId = 0;
 $graduationYearQuestionId = 0;
+$programQuestionId = 0;
+$targetGraduateIds = [];
 $previousActiveSurveyIds = [];
 
 try {
@@ -99,12 +133,34 @@ try {
     ]);
     $graduationYearQuestionId = (int) $db->lastInsertId();
 
+    $programRow = $db->query('SELECT id, name FROM programs ORDER BY id LIMIT 1')->fetch(PDO::FETCH_ASSOC);
+    if (!$programRow) throw new RuntimeException('At least one graduate program is required for the survey scope fixture.');
+    $programQuestionKey = gradtrack_survey_uuid();
+    $programQuestionStmt = $db->prepare("INSERT INTO survey_questions
+        (survey_id, question_key, analytics_key, section, question_text, question_type, options, is_required, sort_order)
+        VALUES (:survey_id, :question_key, 'program', 'Educational Background',
+                'Degree Program & Specialization', 'multiple_choice', :options, 0, 2)");
+    $programQuestionStmt->execute([
+        ':survey_id' => $surveyId,
+        ':question_key' => $programQuestionKey,
+        ':options' => json_encode([(string) $programRow['name']], JSON_THROW_ON_ERROR),
+    ]);
+    $programQuestionId = (int) $db->lastInsertId();
+    gradtrack_survey_sync_question_options(
+        $db,
+        $programQuestionId,
+        $programQuestionKey,
+        [(string) $programRow['name']]
+    );
+    gradtrack_link_survey_program_question_options($db, $programQuestionId);
+
     $graduateStmt = $db->prepare("INSERT INTO graduates
-        (student_id, first_name, last_name, email, year_graduated, status)
-        VALUES (:student_id, 'Concurrency', 'Fixture', :email, 2025, 'active')");
+        (student_id, first_name, last_name, email, program_id, year_graduated, status)
+        VALUES (:student_id, 'Concurrency', 'Fixture', :email, :program_id, 2025, 'active')");
     $graduateStmt->execute([
         ':student_id' => 'IDEM-' . $suffix,
         ':email' => 'invalid-' . $suffix,
+        ':program_id' => (int) $programRow['id'],
     ]);
     $graduateId = (int) $db->lastInsertId();
 
@@ -140,37 +196,7 @@ try {
     $failedDeliveryStmt->execute([':survey_id' => $surveyId, ':graduate_id' => $graduateId]);
     survey_idempotency_assert((int) $failedDeliveryStmt->fetchColumn() === 0, 'a failed survey submission does not create an email delivery');
 
-    $requests = [
-        survey_idempotency_request($endpoint, $payload),
-        survey_idempotency_request($endpoint, $payload),
-    ];
-    $multi = curl_multi_init();
-    foreach ($requests as $request) {
-        curl_multi_add_handle($multi, $request['handle']);
-    }
-    do {
-        $status = curl_multi_exec($multi, $running);
-        if ($running > 0) {
-            curl_multi_select($multi, 1.0);
-        }
-    } while ($running > 0 && $status === CURLM_OK);
-
-    $results = [];
-    foreach ($requests as $request) {
-        $handle = $request['handle'];
-        $raw = (string) curl_multi_getcontent($handle);
-        $httpStatus = (int) curl_getinfo($handle, CURLINFO_RESPONSE_CODE);
-        $error = curl_error($handle);
-        curl_multi_remove_handle($multi, $handle);
-        curl_close($handle);
-        $decoded = json_decode($raw, true);
-        $results[] = [
-            'status' => $httpStatus,
-            'body' => is_array($decoded) ? $decoded : [],
-            'transport_error' => $error,
-        ];
-    }
-    curl_multi_close($multi);
+    $results = survey_idempotency_execute_concurrent($endpoint, [$payload, $payload]);
 
     foreach ($results as $index => $result) {
         survey_idempotency_assert($result['transport_error'] === '', 'rapid request ' . ($index + 1) . ' completed without a transport error');
@@ -226,6 +252,58 @@ try {
     $accountStmt->execute([':graduate_id' => $graduateId]);
     survey_idempotency_assert((int) $accountStmt->fetchColumn() === $responseIds[0], 'the created account remains linked to the canonical survey response');
 
+    // With one existing valid response, two different graduates race for the
+    // final slot of a total target of two. Exactly one request may commit.
+    $db->prepare("UPDATE surveys
+                     SET status = 'active', deadline_at = DATE_ADD(NOW(), INTERVAL 1 DAY),
+                         target_type = 'total', total_response_target = 2,
+                         completion_reason = NULL, completed_at = NULL,
+                         target_completion_suppressed = 0
+                   WHERE id = :id")
+        ->execute([':id' => $surveyId]);
+
+    $targetPayloads = [];
+    foreach (['A', 'B'] as $label) {
+        $graduateStmt->execute([
+            ':student_id' => 'TARGET-' . $label . '-' . $suffix,
+            ':email' => 'invalid-target-' . strtolower($label) . '-' . $suffix,
+            ':program_id' => (int) $programRow['id'],
+        ]);
+        $targetGraduateId = (int) $db->lastInsertId();
+        $targetGraduateIds[] = $targetGraduateId;
+        $targetToken = bin2hex(random_bytes(32));
+        $tokenStmt->execute([
+            ':survey_id' => $surveyId,
+            ':graduate_id' => $targetGraduateId,
+            ':token' => $targetToken,
+        ]);
+        $targetPayloads[] = [
+            'survey_id' => $surveyId,
+            'graduate_id' => $targetGraduateId,
+            'token' => $targetToken,
+            'responses' => [(string) $graduationYearQuestionId => '2025'],
+        ];
+    }
+
+    $targetResults = survey_idempotency_execute_concurrent($endpoint, $targetPayloads);
+    foreach ($targetResults as $index => $result) {
+        survey_idempotency_assert($result['transport_error'] === '', 'target race request ' . ($index + 1) . ' completed without a transport error');
+    }
+    $targetStatuses = array_column($targetResults, 'status');
+    sort($targetStatuses);
+    survey_idempotency_assert($targetStatuses === [201, 409], 'only one of two simultaneous graduates can claim the final target slot');
+
+    $targetCountStmt = $db->prepare('SELECT COUNT(DISTINCT graduate_id) FROM survey_responses WHERE survey_id = :survey_id AND submitted_at IS NOT NULL');
+    $targetCountStmt->execute([':survey_id' => $surveyId]);
+    survey_idempotency_assert((int) $targetCountStmt->fetchColumn() === 2, 'simultaneous submissions do not exceed or corrupt the configured target count');
+    $targetSurveyStmt = $db->prepare('SELECT status, completion_reason FROM surveys WHERE id = :id');
+    $targetSurveyStmt->execute([':id' => $surveyId]);
+    $targetSurvey = $targetSurveyStmt->fetch(PDO::FETCH_ASSOC);
+    survey_idempotency_assert(
+        ($targetSurvey['status'] ?? '') === 'completed' && ($targetSurvey['completion_reason'] ?? '') === 'target_reached',
+        'the serialized final submission atomically completes the survey'
+    );
+
     echo PHP_EOL . 'Survey submission idempotency integration test passed.' . PHP_EOL;
 } catch (Throwable $error) {
     fwrite(STDERR, 'FAIL: ' . $error->getMessage() . PHP_EOL);
@@ -233,14 +311,11 @@ try {
 } finally {
     if ($surveyId > 0) {
         if ($db->query("SHOW TABLES LIKE 'email_notification_deliveries'")->fetchColumn() !== false) {
-            $responseIdsForCleanup = array_values(array_filter($responseIds ?? [], static fn ($id): bool => (int) $id > 0));
-            if ($responseIdsForCleanup !== []) {
-                $placeholders = implode(',', array_fill(0, count($responseIdsForCleanup), '?'));
-                $db->prepare("DELETE FROM email_notification_deliveries
-                              WHERE notification_type = 'graduate_survey_submitted'
-                                AND entity_id IN ($placeholders)")
-                    ->execute($responseIdsForCleanup);
-            }
+            $db->prepare("DELETE delivery FROM email_notification_deliveries delivery
+                          INNER JOIN survey_responses response ON response.id = delivery.entity_id
+                          WHERE delivery.notification_type = 'graduate_survey_submitted'
+                            AND response.survey_id = :survey_id")
+                ->execute([':survey_id' => $surveyId]);
         }
         $db->prepare('DELETE FROM graduate_accounts WHERE graduate_id = :graduate_id')
             ->execute([':graduate_id' => $graduateId]);
@@ -264,6 +339,10 @@ try {
     if ($graduateId > 0) {
         $cleanupGraduate = $db->prepare('DELETE FROM graduates WHERE id = :id');
         $cleanupGraduate->execute([':id' => $graduateId]);
+    }
+    if ($targetGraduateIds !== []) {
+        $placeholders = implode(',', array_fill(0, count($targetGraduateIds), '?'));
+        $db->prepare("DELETE FROM graduates WHERE id IN ($placeholders)")->execute($targetGraduateIds);
     }
     if ($previousActiveSurveyIds !== []) {
         $placeholders = implode(',', array_fill(0, count($previousActiveSurveyIds), '?'));

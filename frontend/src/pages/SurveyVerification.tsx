@@ -122,7 +122,7 @@ function SurveyVerification() {
         const detailResult = await detailResponse.json();
 
         if (!detailResponse.ok || !detailResult.success || detailResult.data?.status !== 'active') {
-          throw new Error('This Graduate Tracer Survey is not active or is no longer available.');
+          throw new Error(detailResult.message || 'This Graduate Tracer Survey is not active or is no longer available.');
         }
         setActiveSurvey(detailResult.data);
         if (!detailResult.data?.graduation_year_coverage?.configured) {
@@ -140,7 +140,7 @@ function SurveyVerification() {
 
       const active = (result.data || []).find((s: SurveySummary) => s.status === 'active');
       if (!active) {
-        throw new Error('There is no active Graduate Tracer Survey available right now.');
+        throw new Error(result.closed_survey?.message || 'There is no active Graduate Tracer Survey available right now.');
       }
       setActiveSurvey(active);
       if (!result.active_survey_coverage?.configured) {
@@ -188,6 +188,27 @@ function SurveyVerification() {
     }
   }, []);
 
+  const fetchMasterProgramsForCompletedRespondent = useCallback(async () => {
+    setLoadingPrograms(true);
+    setProgram('');
+    setPrograms([]);
+    try {
+      const response = await fetch(`${API_ROOT}/surveys/programs.php`);
+      const result = await response.json();
+      if (!response.ok || !result.success || !Array.isArray(result.data)) {
+        throw new Error(result.error || 'Unable to load graduate programs.');
+      }
+      setPrograms(result.data);
+      setProgramsLoadFailed(false);
+      setProgramsError('');
+    } catch (error) {
+      setProgramsLoadFailed(true);
+      setProgramsError(error instanceof Error ? error.message : 'Unable to load graduate programs.');
+    } finally {
+      setLoadingPrograms(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (isMaintenanceMode || !surveyAvailable) {
       setLoadingPrograms(false);
@@ -202,13 +223,15 @@ function SurveyVerification() {
       if (survey) {
         await fetchPrograms(survey.id);
       } else {
-        setPrograms([]);
-        setLoadingPrograms(false);
+        // Previously submitted graduates may still verify to create/access
+        // their portal account after the survey closes. The server permits
+        // only graduates with an existing valid response through that path.
+        await fetchMasterProgramsForCompletedRespondent();
       }
     };
     void loadVerificationContext();
     return () => { cancelled = true; };
-  }, [fetchActiveSurvey, fetchPrograms, isMaintenanceMode, surveyAvailable]);
+  }, [fetchActiveSurvey, fetchMasterProgramsForCompletedRespondent, fetchPrograms, isMaintenanceMode, surveyAvailable]);
 
   const resetAccountCreation = () => {
     setAccountContext(null);

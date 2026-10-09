@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Eye } from 'lucide-react';
+import { ArrowLeft, CalendarClock, Eye, Target } from 'lucide-react';
 import { API_ROOT } from '../../config/api';
 
 interface Question {
@@ -25,8 +25,39 @@ interface Survey {
   created_by?: string;
   modified_by?: string;
   modified_at?: string;
+  deadline_at?: string | null;
+  completion_reason?: string | null;
+  completion_message?: string | null;
+  target_progress?: {
+    target_type: 'none' | 'total' | 'program';
+    configured_target: number | null;
+    valid_responses: number;
+    target_progress_count?: number;
+    remaining: number | null;
+    progress_percent: number | null;
+    target_completion_suppressed: boolean;
+    programs: Array<{
+      program_id: number;
+      program_code: string;
+      program_name: string;
+      target: number;
+      submitted: number;
+      remaining: number;
+      progress_percent: number;
+      reached: boolean;
+    }>;
+  };
   questions?: Question[];
 }
+
+const formatManilaDateTime = (value?: string | null) => {
+  if (!value) return 'Not set';
+  const parsed = new Date(`${value.replace(' ', 'T').replace(/(?:Z|[+-]\d{2}:\d{2})$/, '')}+08:00`);
+  if (Number.isNaN(parsed.getTime())) return 'Not set';
+  return new Intl.DateTimeFormat('en-PH', {
+    timeZone: 'Asia/Manila', year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit',
+  }).format(parsed);
+};
 
 const isProfessionalExamHeader = (question: Question) =>
   question.question_text.toLowerCase().startsWith('professional examination(s) passed');
@@ -118,6 +149,16 @@ export default function SurveyDetail() {
             <p className="text-gray-900 mt-1">{survey.description}</p>
           </div>
           <div>
+            <label className="text-sm font-semibold text-gray-600">Status</label>
+            <p className="mt-1 capitalize text-gray-900">{survey.status}</p>
+            {survey.completion_message && <p className="mt-1 text-xs text-blue-700">{survey.completion_message}</p>}
+          </div>
+          <div>
+            <label className="flex items-center gap-1 text-sm font-semibold text-gray-600"><CalendarClock className="h-4 w-4" /> Deadline</label>
+            <p className="mt-1 text-gray-900">{formatManilaDateTime(survey.deadline_at)}</p>
+            <p className="text-xs text-gray-500">Asia/Manila</p>
+          </div>
+          <div>
             <label className="text-sm font-semibold text-gray-600">Modified By</label>
             <p className="text-gray-900 mt-1">{survey.modified_by || 'N/A'}</p>
             {survey.modified_at && (
@@ -136,6 +177,43 @@ export default function SurveyDetail() {
           </div>
         </div>
       </div>
+
+      {survey.target_progress && survey.target_progress.target_type !== 'none' && (
+        <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm sm:p-6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="flex items-center gap-2 text-xl font-bold text-blue-900"><Target className="h-5 w-5" /> Survey Progress</h2>
+              <p className="mt-1 text-sm text-gray-600">{survey.target_progress.valid_responses} valid unique response(s) submitted.</p>
+            </div>
+            <div className="text-right">
+              <p className="text-lg font-bold text-blue-900">{survey.target_progress.target_progress_count ?? survey.target_progress.valid_responses} / {survey.target_progress.configured_target}</p>
+              <p className="text-xs text-gray-500">{survey.target_progress.remaining ?? 0} remaining</p>
+            </div>
+          </div>
+          <div className="mt-4 h-3 overflow-hidden rounded-full bg-gray-200" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={survey.target_progress.progress_percent ?? 0}>
+            <div className="h-full rounded-full bg-blue-600" style={{ width: `${survey.target_progress.progress_percent ?? 0}%` }} />
+          </div>
+          <p className="mt-1 text-right text-xs font-semibold text-blue-800">{survey.target_progress.progress_percent ?? 0}%</p>
+          {survey.target_progress.programs.length > 0 && (
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              {survey.target_progress.programs.map((program) => (
+                <div key={program.program_id} className="rounded-lg border border-gray-200 p-3">
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <div className="min-w-0">
+                      <p className="font-bold text-gray-900">{program.program_code}</p>
+                      <p className="truncate text-xs text-gray-500" title={program.program_name}>{program.program_name}</p>
+                    </div>
+                    <p className={program.reached ? 'font-semibold text-emerald-600' : 'font-semibold text-gray-700'}>{program.submitted} / {program.target}</p>
+                  </div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-gray-200">
+                    <div className={`h-full rounded-full ${program.reached ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${program.progress_percent}%` }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Preview Section */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 sm:p-6">

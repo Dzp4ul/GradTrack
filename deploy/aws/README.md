@@ -74,6 +74,9 @@ systemctl list-timers gradtrack-reminders.timer
 sudo -u www-data /usr/bin/php /var/www/gradtrack/backend/scripts/disable_inactive_graduate_accounts.php
 sudo systemctl enable --now gradtrack-account-status.timer
 systemctl list-timers gradtrack-account-status.timer
+sudo -u www-data /usr/bin/php /var/www/gradtrack/backend/scripts/complete_surveys.php
+sudo systemctl enable --now gradtrack-survey-completion.timer
+systemctl list-timers gradtrack-survey-completion.timer
 ```
 
 ## 4. Legacy upload migration (separate approved change)
@@ -101,8 +104,8 @@ The update script creates the Nginx maintenance marker, performs a fast-forward-
 ## 6. Operations and rollback
 
 ```bash
-systemctl status gradtrack-realtime.service gradtrack-reminders.timer gradtrack-account-status.timer php8.3-fpm nginx
-journalctl -u gradtrack-realtime.service -u gradtrack-reminders.service -u gradtrack-account-status.service --since today
+systemctl status gradtrack-realtime.service gradtrack-reminders.timer gradtrack-account-status.timer gradtrack-survey-completion.timer php8.3-fpm nginx
+journalctl -u gradtrack-realtime.service -u gradtrack-reminders.service -u gradtrack-account-status.service -u gradtrack-survey-completion.service --since today
 sudo nginx -t
 curl -fsS https://grad-track.app/healthz
 ```

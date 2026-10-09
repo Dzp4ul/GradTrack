@@ -36,6 +36,8 @@ npm --prefix "$APP_ROOT/frontend" run build
 install -m 0644 "$APP_ROOT/deploy/aws/nginx/gradtrack-internal.conf" /etc/nginx/conf.d/gradtrack-internal.conf
 install -m 0644 "$APP_ROOT/deploy/aws/systemd/gradtrack-account-status.service" /etc/systemd/system/gradtrack-account-status.service
 install -m 0644 "$APP_ROOT/deploy/aws/systemd/gradtrack-account-status.timer" /etc/systemd/system/gradtrack-account-status.timer
+install -m 0644 "$APP_ROOT/deploy/aws/systemd/gradtrack-survey-completion.service" /etc/systemd/system/gradtrack-survey-completion.service
+install -m 0644 "$APP_ROOT/deploy/aws/systemd/gradtrack-survey-completion.timer" /etc/systemd/system/gradtrack-survey-completion.timer
 
 if [[ -r "$MIGRATION_ENV" ]]; then
     GRADTRACK_MIGRATION_ENV="$MIGRATION_ENV" \
@@ -54,6 +56,7 @@ chmod 0750 "$APP_ROOT/deploy/aws/scripts/verify-production.sh" "$APP_ROOT/deploy
 
 systemctl daemon-reload
 systemctl enable --now gradtrack-account-status.timer
+systemctl enable --now gradtrack-survey-completion.timer
 systemctl restart php8.3-fpm gradtrack-realtime.service
 nginx -t
 systemctl reload nginx

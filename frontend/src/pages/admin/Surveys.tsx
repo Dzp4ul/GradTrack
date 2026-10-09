@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import {
-  Plus, Edit2, Archive, RotateCcw, Search, ChevronLeft, ChevronRight, X, ClipboardList, ChevronDown, ChevronUp, ShieldCheck, BarChart3, Briefcase, Info, Trash2, ArrowUp, ArrowDown,
+  Plus, Edit2, Archive, RotateCcw, Search, ChevronLeft, ChevronRight, X, ClipboardList, ChevronDown, ChevronUp, ShieldCheck, BarChart3, Briefcase, Info, Trash2, ArrowUp, ArrowDown, CalendarClock, Target,
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import MessageBox from '../../components/MessageBox';
@@ -16,6 +16,11 @@ interface SurveyOption {
   value: string;
   label: string;
   sort_order: number;
+}
+
+interface ApiSurveyOption extends Partial<SurveyOption> {
+  option_key?: string | null;
+  option_value?: string | null;
 }
 
 interface MasterProgramOption {
@@ -38,6 +43,11 @@ interface Question {
   section?: string;
 }
 
+interface ApiQuestion extends Omit<Question, 'options' | 'option_definitions'> {
+  options: string[] | string | null;
+  option_definitions?: ApiSurveyOption[];
+}
+
 interface Survey {
   id: number;
   template_id?: number | null;
@@ -52,6 +62,41 @@ interface Survey {
   archived_by_name?: string | null;
   restored_at?: string | null;
   restored_by_name?: string | null;
+  published_at?: string | null;
+  deadline_at?: string | null;
+  target_type: TargetType;
+  total_response_target?: number | null;
+  completion_reason?: string | null;
+  completion_message?: string | null;
+  target_completion_suppressed?: boolean | number;
+  target_progress?: TargetProgress;
+  program_targets?: ProgramTargetProgress[];
+}
+
+type TargetType = 'none' | 'total' | 'program';
+
+interface ProgramTargetProgress {
+  program_id: number;
+  program_code: string;
+  program_name: string;
+  target: number;
+  submitted: number;
+  remaining: number;
+  progress_percent: number;
+  reached: boolean;
+}
+
+interface TargetProgress {
+  target_type: TargetType;
+  configured_target: number | null;
+  total_target: number | null;
+  valid_responses: number;
+  target_progress_count?: number;
+  remaining: number | null;
+  progress_percent: number | null;
+  target_reached: boolean;
+  target_completion_suppressed: boolean;
+  programs: ProgramTargetProgress[];
 }
 
 interface FormData {
@@ -62,17 +107,59 @@ interface FormData {
   title: string;
   description: string;
   status: string;
+  original_status?: string;
+  published_at?: string | null;
+  created_at?: string | null;
+  deadline_at: string;
+  target_type: TargetType;
+  total_response_target: string;
+  program_targets: Record<number, string>;
+  reactivation_reason: string;
   questions: Question[];
 }
 
 const emptyForm: FormData = {
-  title: '', description: '', status: 'draft', questions: [],
+  title: '', description: '', status: 'draft', deadline_at: '', target_type: 'none',
+  total_response_target: '', program_targets: {}, reactivation_reason: '', questions: [],
 };
 
 const statusStyle: Record<string, string> = {
   active: 'bg-green-100 text-green-700',
   inactive: 'bg-gray-100 text-gray-600',
   draft: 'bg-yellow-100 text-yellow-700',
+  completed: 'bg-blue-100 text-blue-700',
+};
+
+const MANILA_TIME_ZONE = 'Asia/Manila';
+
+const toDateTimeLocalValue = (value?: string | null) => (
+  value ? value.replace(' ', 'T').slice(0, 16) : ''
+);
+
+const manilaDate = (value?: string | null) => {
+  if (!value) return null;
+  const normalized = value.includes('T') ? value : value.replace(' ', 'T');
+  const parsed = new Date(`${normalized.replace(/(?:Z|[+-]\d{2}:\d{2})$/, '')}+08:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const formatManilaDateTime = (value?: string | null) => {
+  const parsed = manilaDate(value);
+  if (!parsed) return 'Not set';
+  return new Intl.DateTimeFormat('en-PH', {
+    timeZone: MANILA_TIME_ZONE,
+    year: 'numeric', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit',
+  }).format(parsed);
+};
+
+const getManilaDateTimeLocalNow = () => {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: MANILA_TIME_ZONE,
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}T${values.hour}:${values.minute}`;
 };
 
 const isProfessionalExamHeader = (question: Question) =>
@@ -275,6 +362,11 @@ export default function Surveys() {
       title: 'Graduate Tracer Study Survey',
       description: 'Comprehensive survey for tracking graduate employment and career outcomes',
       status: 'draft',
+      deadline_at: '',
+      target_type: 'none',
+      total_response_target: '',
+      program_targets: {},
+      reactivation_reason: '',
       questions: [
         // SECTION 1: PERSONAL INFORMATION
         { question_text: 'Last Name', question_type: 'text', options: null, is_required: 1, sort_order: 1, section: 'Personal Information' },
@@ -406,13 +498,23 @@ export default function Surveys() {
             title: d.title,
             description: d.description || '',
             status: d.status,
-            questions: ensurePermanentAddressSubheader((d.questions || []).map((q: any) => {
+            original_status: d.status,
+            published_at: d.published_at || null,
+            created_at: d.created_at || null,
+            deadline_at: toDateTimeLocalValue(d.deadline_at),
+            target_type: ['total', 'program'].includes(d.target_type) ? d.target_type : 'none',
+            total_response_target: d.total_response_target ? String(d.total_response_target) : '',
+            program_targets: Object.fromEntries((d.program_targets || []).map((target: ProgramTargetProgress) => [
+              Number(target.program_id), String(target.target),
+            ])),
+            reactivation_reason: '',
+            questions: ensurePermanentAddressSubheader((d.questions || []).map((q: ApiQuestion) => {
               const parsedQuestion: Question = {
                 ...q,
                 question_type: q.question_type || 'text',
                 options: typeof q.options === 'string' ? JSON.parse(q.options) : q.options,
                 option_definitions: Array.isArray(q.option_definitions)
-                  ? q.option_definitions.map((option: any, optionIndex: number) => ({
+                  ? q.option_definitions.map((option: ApiSurveyOption, optionIndex: number) => ({
                     id: option.id ? Number(option.id) : null,
                     program_id: option.program_id ? Number(option.program_id) : null,
                     key: option.key || option.option_key || null,
@@ -471,6 +573,78 @@ export default function Surveys() {
       return;
     }
 
+    if (formData.status === 'active' && !formData.deadline_at) {
+      setMsgBox({
+        isOpen: true,
+        type: 'error',
+        title: 'Deadline Required',
+        message: 'Set a survey end date and time before activating this survey.',
+      });
+      return;
+    }
+
+    const deadline = manilaDate(formData.deadline_at);
+    if (formData.deadline_at && !deadline) {
+      setMsgBox({ isOpen: true, type: 'error', message: 'Enter a valid survey deadline.' });
+      return;
+    }
+    const surveyStart = manilaDate(formData.published_at || formData.created_at);
+    if (deadline && surveyStart && deadline <= surveyStart) {
+      setMsgBox({
+        isOpen: true,
+        type: 'error',
+        title: 'Invalid Deadline',
+        message: 'The deadline must be later than the survey start time in Philippine time.',
+      });
+      return;
+    }
+    if (formData.status === 'active' && deadline && deadline <= new Date()) {
+      setMsgBox({
+        isOpen: true,
+        type: 'error',
+        title: 'Extend the Deadline',
+        message: 'An active survey needs a future deadline in Philippine time.',
+      });
+      return;
+    }
+
+    if (formData.target_type === 'total' && !/^[1-9]\d*$/.test(formData.total_response_target)) {
+      setMsgBox({ isOpen: true, type: 'error', message: 'Total response target must be a positive whole number.' });
+      return;
+    }
+    const configuredProgramTargets = masterPrograms
+      .map((program) => ({
+        program_id: program.id,
+        target: formData.program_targets[program.id]?.trim() || '',
+      }))
+      .filter((target) => target.target !== '');
+    if (
+      formData.target_type === 'program'
+      && (
+        configuredProgramTargets.length === 0
+        || configuredProgramTargets.some((target) => !/^[1-9]\d*$/.test(target.target))
+      )
+    ) {
+      setMsgBox({
+        isOpen: true,
+        type: 'error',
+        message: 'Configure at least one program target using positive whole numbers.',
+      });
+      return;
+    }
+    const isManualReactivation = isEditing
+      && formData.original_status === 'completed'
+      && formData.status === 'active';
+    if (isManualReactivation && !formData.reactivation_reason.trim()) {
+      setMsgBox({
+        isOpen: true,
+        type: 'error',
+        title: 'Reactivation Reason Required',
+        message: 'Enter a reason for reopening this completed survey.',
+      });
+      return;
+    }
+
     const yearQuestionIndexes = formData.questions
       .map((question, index) => isGraduationYearQuestion(question.question_text) ? index : -1)
       .filter((index) => index >= 0);
@@ -511,7 +685,17 @@ export default function Surveys() {
         method,
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ ...formData, questions: normalizedQuestions }),
+        body: JSON.stringify({
+          ...formData,
+          deadline_at: formData.deadline_at || null,
+          total_response_target: formData.target_type === 'total'
+            ? Number(formData.total_response_target)
+            : null,
+          program_targets: formData.target_type === 'program'
+            ? configuredProgramTargets.map((target) => ({ ...target, target: Number(target.target) }))
+            : [],
+          questions: normalizedQuestions,
+        }),
       })
         .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
         .then(({ ok, body: res }) => {
@@ -532,6 +716,19 @@ export default function Surveys() {
         })
         .catch(() => setMsgBox({ isOpen: true, type: 'error', message: 'Unable to save survey.' }));
     };
+
+    if (isManualReactivation) {
+      setMsgBox({
+        isOpen: true,
+        type: 'confirm',
+        title: 'Reactivate Completed Survey?',
+        message: 'Reactivation will allow eligible graduates to answer again. Existing responses and analytics will be preserved. A passed deadline must be extended first; an already-reached target will be deliberately suppressed until the target configuration changes.',
+        confirmText: 'Reactivate Survey',
+        cancelText: 'Cancel',
+        onConfirm: saveSurvey,
+      });
+      return;
+    }
 
     if (isEditing && formData.question_definitions_locked) {
       setMsgBox({
@@ -879,6 +1076,9 @@ export default function Surveys() {
                       <span className="flex items-center gap-1"><ClipboardList className="w-4 h-4" /> {getAnswerableQuestionCount(s.questions, s.question_count)} questions</span>
                       <span className="flex items-center gap-1"><ShieldCheck className="w-4 h-4" /> {s.response_count} responses</span>
                       <span>Created: {new Date(s.created_at).toLocaleDateString()}</span>
+                      {s.deadline_at && (
+                        <span className="flex items-center gap-1"><CalendarClock className="h-4 w-4" /> Deadline: {formatManilaDateTime(s.deadline_at)}</span>
+                      )}
                       {archiveView === 'archived' && <span>Archived: {s.archived_at ? new Date(s.archived_at.replace(' ', 'T')).toLocaleDateString() : '-'}</span>}
                       {archiveView === 'archived' && <span>Archived by: {s.archived_by_name || '-'}</span>}
                     </div>
@@ -909,6 +1109,51 @@ export default function Surveys() {
                     )}
                   </div>
                 </div>
+
+                {s.target_progress && s.target_progress.target_type !== 'none' && (
+                  <div className="mt-4 rounded-xl border border-border bg-surface-alt p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                      <div>
+                        <span className="font-semibold text-text-primary">
+                          {s.target_progress.target_type === 'program' ? 'Program target progress' : 'Total target progress'}
+                        </span>
+                        <span className="ml-2 text-text-secondary">
+                          {s.target_progress.target_progress_count ?? s.target_progress.valid_responses} / {s.target_progress.configured_target}
+                        </span>
+                      </div>
+                      <span className="font-semibold text-blue-800 dark:text-blue-200">
+                        {s.target_progress.progress_percent ?? 0}% · {s.target_progress.remaining ?? 0} remaining
+                      </span>
+                    </div>
+                    <div className="mt-2 h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={s.target_progress.progress_percent ?? 0}>
+                      <div className="h-full rounded-full bg-blue-600 transition-all" style={{ width: `${s.target_progress.progress_percent ?? 0}%` }} />
+                    </div>
+                    {s.target_progress.target_completion_suppressed && s.status === 'active' && (
+                      <p className="mt-2 text-xs font-medium text-amber-700 dark:text-amber-300">Target auto-completion is paused because this survey was intentionally reactivated. Changing the target resets this override.</p>
+                    )}
+                    {s.target_progress.target_type === 'program' && s.target_progress.programs.length > 0 && (
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        {s.target_progress.programs.map((program) => (
+                          <div key={program.program_id} className="rounded-lg border border-border bg-surface px-3 py-2 text-xs">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-semibold text-text-primary">{program.program_code}</span>
+                              <span className={program.reached ? 'font-semibold text-emerald-600 dark:text-emerald-300' : 'text-text-secondary'}>{program.submitted} / {program.target}</span>
+                            </div>
+                            <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                              <div className={`h-full rounded-full ${program.reached ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${program.progress_percent}%` }} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {s.status === 'completed' && s.completion_message && (
+                  <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 dark:border-blue-400/30 dark:bg-blue-400/10 dark:text-blue-100">
+                    {s.completion_message}
+                  </div>
+                )}
 
                 {/* Questions Preview Section */}
                 {s.questions && s.questions.length > 0 && (
@@ -1054,41 +1299,153 @@ export default function Surveys() {
                 ))}
               </datalist>
               <div className="p-4 space-y-6 sm:p-6">
-                <div className="space-y-4">
+                <section className="space-y-4" aria-labelledby="survey-information-heading">
                   <div>
-                    <label className="block text-sm font-bold text-blue-900 mb-2">Survey Title</label>
+                    <h3 id="survey-information-heading" className="text-lg font-bold text-blue-900 dark:text-blue-200">Survey Information</h3>
+                    <p className="mt-1 text-xs text-text-secondary">All dates and deadline checks use Philippine time (Asia/Manila).</p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-bold text-blue-900 dark:text-blue-200 mb-2">Survey Title</label>
                     <input
                       type="text"
                       value={formData.title}
                       onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                       required
                       placeholder="Enter survey title"
-                      className="w-full border-2 border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                      className="w-full rounded-lg border-2 border-border bg-surface px-4 py-2.5 text-sm text-text-primary transition focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-blue-900 mb-2">Description</label>
+                    <label className="block text-sm font-bold text-blue-900 dark:text-blue-200 mb-2">Description</label>
                     <textarea
                       value={formData.description}
                       onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                       rows={3}
                       placeholder="Describe the purpose of this survey"
-                      className="w-full border-2 border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition resize-none"
+                      className="w-full resize-none rounded-lg border-2 border-border bg-surface px-4 py-2.5 text-sm text-text-primary transition focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-bold text-blue-900 mb-2">Status</label>
+                    <label className="block text-sm font-bold text-blue-900 dark:text-blue-200 mb-2">Status</label>
                     <select
                       value={formData.status}
                       onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                      className="w-full border-2 border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition bg-white"
+                      className="w-full rounded-lg border-2 border-border bg-surface px-4 py-2.5 text-sm text-text-primary transition focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
                       <option value="draft">Draft</option>
                       <option value="active">Active</option>
                       <option value="inactive">Inactive</option>
+                      <option value="completed">Completed</option>
                     </select>
                   </div>
-                </div>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    {isEditing && (formData.published_at || formData.created_at) && (
+                      <div>
+                        <label className="mb-2 block text-sm font-bold text-blue-900 dark:text-blue-200">Survey Start</label>
+                        <div className="rounded-lg border-2 border-border bg-surface-alt px-4 py-2.5 text-sm text-text-secondary">
+                          {formatManilaDateTime(formData.published_at || formData.created_at)}
+                        </div>
+                      </div>
+                    )}
+                    <div className={isEditing && (formData.published_at || formData.created_at) ? '' : 'sm:col-span-2'}>
+                      <label className="mb-2 block text-sm font-bold text-blue-900 dark:text-blue-200">
+                        Survey End Date / Deadline {formData.status === 'active' && <span className="text-red-500">*</span>}
+                      </label>
+                      <input
+                        type="datetime-local"
+                        value={formData.deadline_at}
+                        min={formData.status === 'completed' ? undefined : getManilaDateTimeLocalNow()}
+                        required={formData.status === 'active'}
+                        onChange={(event) => setFormData({ ...formData, deadline_at: event.target.value })}
+                        className="w-full rounded-lg border-2 border-border bg-surface px-4 py-2.5 text-sm text-text-primary transition focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                      <p className="mt-1 text-xs text-text-secondary">Graduates cannot verify or submit at or after this Philippine date and time.</p>
+                    </div>
+                  </div>
+                  {formData.original_status === 'completed' && formData.status === 'active' && (
+                    <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 dark:border-amber-400/40 dark:bg-amber-400/10">
+                      <label className="mb-2 block text-sm font-bold text-amber-900 dark:text-amber-200">Reason for Reactivation <span className="text-red-500">*</span></label>
+                      <textarea
+                        value={formData.reactivation_reason}
+                        maxLength={500}
+                        rows={2}
+                        onChange={(event) => setFormData({ ...formData, reactivation_reason: event.target.value })}
+                        placeholder="Explain why eligible graduates should be allowed to answer again"
+                        className="w-full resize-none rounded-lg border border-amber-300 bg-surface px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-amber-500"
+                      />
+                    </div>
+                  )}
+                </section>
+
+                <section className="space-y-4 border-t border-border pt-6" aria-labelledby="respondent-targets-heading">
+                  <div>
+                    <h3 id="respondent-targets-heading" className="flex items-center gap-2 text-lg font-bold text-blue-900 dark:text-blue-200">
+                      <Target className="h-5 w-5" /> Respondent Targets
+                    </h3>
+                    <p className="mt-1 text-xs text-text-secondary">Targets are optional. Counts use unique, successfully submitted responses and each graduate's official program record.</p>
+                  </div>
+                  <div>
+                    <label htmlFor="survey-target-type" className="mb-2 block text-sm font-bold text-blue-900 dark:text-blue-200">Target Type</label>
+                    <select
+                      id="survey-target-type"
+                      value={formData.target_type}
+                      onChange={(event) => setFormData({ ...formData, target_type: event.target.value as TargetType })}
+                      className="w-full rounded-lg border-2 border-border bg-surface px-4 py-2.5 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="none">No Target</option>
+                      <option value="total">Total Target</option>
+                      <option value="program">Per Program</option>
+                    </select>
+                  </div>
+                  {formData.target_type === 'total' && (
+                    <div>
+                      <label htmlFor="survey-total-target" className="mb-2 block text-sm font-bold text-blue-900 dark:text-blue-200">Total Graduate Target</label>
+                      <input
+                        id="survey-total-target"
+                        type="number"
+                        min={1}
+                        step={1}
+                        inputMode="numeric"
+                        value={formData.total_response_target}
+                        onChange={(event) => setFormData({ ...formData, total_response_target: event.target.value })}
+                        placeholder="e.g. 200"
+                        className="w-full rounded-lg border-2 border-border bg-surface px-4 py-2.5 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  )}
+                  {formData.target_type === 'program' && (
+                    <div className="space-y-3">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {masterPrograms.map((program) => (
+                          <label key={program.id} className="rounded-lg border border-border bg-surface-alt p-3">
+                            <span className="block text-sm font-semibold text-text-primary">{program.code}</span>
+                            <span className="mb-2 block truncate text-xs text-text-secondary" title={program.name}>{program.name}</span>
+                            <input
+                              type="number"
+                              min={1}
+                              step={1}
+                              inputMode="numeric"
+                              value={formData.program_targets[program.id] || ''}
+                              onChange={(event) => setFormData({
+                                ...formData,
+                                program_targets: { ...formData.program_targets, [program.id]: event.target.value },
+                              })}
+                              placeholder="No target"
+                              className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                          </label>
+                        ))}
+                      </div>
+                      <div className="flex items-center justify-between rounded-lg bg-blue-50 px-4 py-3 text-sm dark:bg-blue-400/10">
+                        <span className="font-semibold text-blue-900 dark:text-blue-200">Overall configured target</span>
+                        <span className="text-lg font-bold text-blue-900 dark:text-blue-200">
+                          {Object.values(formData.program_targets).reduce((sum, target) => sum + (/^[1-9]\d*$/.test(target) ? Number(target) : 0), 0)}
+                        </span>
+                      </div>
+                      <p className="text-xs text-text-secondary">Leave a program blank when it should not have a target. Every configured program must reach its own target before automatic completion.</p>
+                    </div>
+                  )}
+                </section>
 
                 {/* Questions */}
                 <div className="border-t pt-6">

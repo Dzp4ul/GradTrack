@@ -702,7 +702,7 @@ export default function GraduateParticipation() {
             ) : (
               surveys.map((survey) => (
                 <option key={survey.id} value={survey.id}>
-                  {survey.title} ({survey.status === 'active' ? 'Active' : survey.status === 'draft' ? 'Draft' : 'Inactive'})
+                  {survey.title} ({survey.status === 'active' ? 'Active' : survey.status === 'draft' ? 'Draft' : survey.status === 'completed' ? 'Completed' : 'Inactive'})
                 </option>
               ))
             )}

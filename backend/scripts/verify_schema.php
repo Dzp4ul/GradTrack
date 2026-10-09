@@ -13,7 +13,8 @@ $requirements = [
     'programs' => ['id', 'name', 'code'],
     'program_code_catalog' => ['id', 'normalized_name', 'official_name', 'program_code', 'alternate_codes', 'created_at', 'updated_at'],
     'graduates' => ['id', 'student_id', 'first_name', 'last_name', 'name_extension', 'program_id', 'year_graduated', 'archived_at'],
-    'surveys' => ['id', 'title', 'status', 'created_by', 'modified_by', 'modified_at', 'archived_at', 'status_before_archive'],
+    'surveys' => ['id', 'title', 'status', 'deadline_at', 'target_type', 'total_response_target', 'completion_reason', 'completed_at', 'target_completion_suppressed', 'reactivated_at', 'reactivated_by', 'reactivation_reason', 'created_by', 'modified_by', 'modified_at', 'archived_at', 'status_before_archive'],
+    'survey_program_targets' => ['id', 'survey_id', 'program_id', 'target_responses', 'created_at', 'updated_at'],
     'survey_questions' => ['id', 'survey_id', 'question_text', 'question_type'],
     'survey_question_options' => ['id', 'survey_question_id', 'program_id', 'option_key', 'option_value', 'label'],
     'survey_tokens' => ['id', 'survey_id', 'graduate_id', 'token', 'expires_at'],
@@ -89,6 +90,9 @@ $requiredIndexes = [
     ['forum_chat_blocks', 'blocker_id,blocked_id', true],
     ['notification_reads', 'target_type,target_id,notification_key', true],
     ['email_notification_deliveries', 'notification_type,entity_id', true],
+    ['survey_program_targets', 'survey_id,program_id', true],
+    ['survey_responses', 'survey_id,graduate_id', true],
+    ['surveys', 'status,deadline_at,archived_at', false],
 ];
 $indexRows = $db->query("SELECT TABLE_NAME, INDEX_NAME, NON_UNIQUE,
     GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX SEPARATOR ',') AS columns_list

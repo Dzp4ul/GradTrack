@@ -232,20 +232,32 @@ try {
                     (string)$alignmentQuestionId => 'No',
                 ]),
             ]);
-            $responseStmt->execute([
-                ':survey_id' => $fixtureSurveyId,
-                ':survey_version_id' => $fixtureSurveyId,
-                ':graduate_id' => $graduateId,
-                ':responses' => json_encode([
-                    (string)$employmentQuestionId => 'Yes',
-                    (string)$alignmentQuestionId => 'Yes',
-                ]),
-            ]);
+            $duplicateRejected = false;
+            try {
+                $responseStmt->execute([
+                    ':survey_id' => $fixtureSurveyId,
+                    ':survey_version_id' => $fixtureSurveyId,
+                    ':graduate_id' => $graduateId,
+                    ':responses' => json_encode([
+                        (string)$employmentQuestionId => 'Yes',
+                        (string)$alignmentQuestionId => 'Yes',
+                    ]),
+                ]);
+            } catch (PDOException $error) {
+                if ((string)$error->getCode() !== '23000') {
+                    throw $error;
+                }
+                $duplicateRejected = true;
+            }
 
             $fixture = gradtrack_analytics_calculate($db, $fixtureSurveyId);
-            analytics_assert((int)$fixture['summary']['response_count'] === 1, 'legacy duplicate responses are de-duplicated by graduate');
-            analytics_assert((int)$fixture['summary']['employed'] === 1, 'the latest submitted duplicate is the canonical response');
-            analytics_assert((int)$fixture['summary']['aligned'] === 1, 'the canonical duplicate supplies alignment statistics');
+            analytics_assert((int)$fixture['summary']['response_count'] === 1, 'duplicate responses cannot increase the fixture response count');
+            if ($duplicateRejected) {
+                analytics_assert(true, 'the database constraint rejects a second response from the same graduate');
+            } else {
+                analytics_assert((int)$fixture['summary']['employed'] === 1, 'legacy data without the constraint uses the latest duplicate as canonical');
+                analytics_assert((int)$fixture['summary']['aligned'] === 1, 'legacy duplicate analytics use the canonical response');
+            }
 
             $archiveStmt = $db->prepare('UPDATE graduates SET archived_at = NOW() WHERE id = :graduate_id');
             $archiveStmt->execute([':graduate_id' => $graduateId]);

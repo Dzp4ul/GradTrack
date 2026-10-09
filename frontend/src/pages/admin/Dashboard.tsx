@@ -528,7 +528,7 @@ export default function Dashboard() {
             <option value="none">No active survey selected</option>
             {surveyOptions.map((survey) => (
               <option key={survey.id} value={survey.id}>
-                {survey.title}{survey.status === 'active' ? ' (Active)' : ' (Saved)'}
+                {survey.title}{survey.status === 'active' ? ' (Active)' : survey.status === 'completed' ? ' (Completed)' : ' (Saved)'}
               </option>
             ))}
           </select>

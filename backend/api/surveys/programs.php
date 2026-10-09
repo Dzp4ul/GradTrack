@@ -2,6 +2,7 @@
 require_once __DIR__ . '/../config/cors.php';
 require_once __DIR__ . '/../config/database.php';
 require_once __DIR__ . '/../config/survey_program_scope.php';
+require_once __DIR__ . '/../config/survey_lifecycle.php';
 
 $database = new Database();
 $conn = $database->getConnection();
@@ -16,6 +17,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
                     'success' => false,
                     'code' => 'INVALID_SURVEY_ID',
                     'error' => 'A valid survey ID is required.',
+                ]);
+                exit;
+            }
+
+            $lifecycle = gradtrack_enforce_survey_completion($conn, (int) $requestedSurveyId);
+            if (($lifecycle['survey']['status'] ?? '') === 'completed') {
+                http_response_code(410);
+                echo json_encode([
+                    'success' => false,
+                    'code' => 'SURVEY_COMPLETED',
+                    'completion_reason' => $lifecycle['survey']['completion_reason'] ?? null,
+                    'error' => gradtrack_survey_completion_message($lifecycle['survey']['completion_reason'] ?? null),
                 ]);
                 exit;
             }

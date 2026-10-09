@@ -46,9 +46,18 @@ CREATE TABLE `surveys` (
     `based_on_survey_id` INT DEFAULT NULL,
     `title` VARCHAR(200) NOT NULL,
     `description` TEXT DEFAULT NULL,
-    `status` ENUM('active','inactive','draft') DEFAULT 'draft',
+    `status` ENUM('active','inactive','draft','completed') DEFAULT 'draft',
     `published_at` DATETIME DEFAULT NULL,
     `locked_at` DATETIME DEFAULT NULL,
+    `deadline_at` DATETIME DEFAULT NULL,
+    `target_type` ENUM('none','total','program') NOT NULL DEFAULT 'none',
+    `total_response_target` INT UNSIGNED DEFAULT NULL,
+    `completion_reason` VARCHAR(50) DEFAULT NULL,
+    `completed_at` DATETIME DEFAULT NULL,
+    `target_completion_suppressed` TINYINT(1) NOT NULL DEFAULT 0,
+    `reactivated_at` DATETIME DEFAULT NULL,
+    `reactivated_by` INT DEFAULT NULL,
+    `reactivation_reason` VARCHAR(500) DEFAULT NULL,
     `created_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
     `created_by` VARCHAR(100) DEFAULT NULL,
     `modified_by` VARCHAR(100) DEFAULT NULL,
@@ -357,7 +366,20 @@ CREATE TABLE `survey_responses` (
     KEY `idx_survey_responses_survey_id` (`survey_id`),
     KEY `idx_survey_responses_version` (`survey_version_id`),
     KEY `idx_survey_responses_graduate_id` (`graduate_id`),
-    KEY `idx_survey_responses_graduate_account_id` (`graduate_account_id`)
+    KEY `idx_survey_responses_graduate_account_id` (`graduate_account_id`),
+    UNIQUE KEY `uq_survey_responses_survey_graduate` (`survey_id`, `graduate_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE `survey_program_targets` (
+    `id` INT NOT NULL AUTO_INCREMENT,
+    `survey_id` INT NOT NULL,
+    `program_id` INT NOT NULL,
+    `target_responses` INT UNSIGNED NOT NULL,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uq_survey_program_target` (`survey_id`, `program_id`),
+    KEY `idx_survey_program_targets_program` (`program_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE `survey_templates` (

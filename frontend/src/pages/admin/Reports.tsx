@@ -3572,7 +3572,7 @@ export default function Reports() {
                 {surveyItems.map((survey) => (
                   <option key={survey.id} value={survey.id}>
                     {survey.title}
-                    {survey.archived_at ? ' (Archived)' : survey.status === 'active' ? ' (Active)' : ''}
+                    {survey.archived_at ? ' (Archived)' : survey.status === 'active' ? ' (Active)' : survey.status === 'completed' ? ' (Completed)' : ''}
                   </option>
                 ))}
               </select>
@@ -4307,7 +4307,7 @@ export default function Reports() {
                             {surveyItems.map((survey) => (
                               <option key={survey.id} value={survey.id}>
                                 {survey.title}
-                                {survey.archived_at ? ' (Archived)' : survey.status === 'active' ? ' (Active)' : ''}
+                                {survey.archived_at ? ' (Archived)' : survey.status === 'active' ? ' (Active)' : survey.status === 'completed' ? ' (Completed)' : ''}
                               </option>
                             ))}
                           </select>

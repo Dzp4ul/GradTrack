@@ -51,6 +51,8 @@ pass "production environment policy"
 for command_name in php node aws nginx systemctl curl; do require_command "$command_name"; done
 [[ "$(systemctl show -p User --value gradtrack-realtime.service)" == "gradtrack" ]] || fail "realtime service must run as the dedicated gradtrack user"
 systemctl is-active --quiet gradtrack-realtime.service || fail "realtime service is not active"
+systemctl is-enabled --quiet gradtrack-survey-completion.timer || fail "survey completion timer is not enabled"
+systemctl is-active --quiet gradtrack-survey-completion.timer || fail "survey completion timer is not active"
 realtime_health_payload=""
 for attempt in $(seq 1 15); do
     if realtime_health_payload="$(curl -fsS --max-time 3 "http://127.0.0.1:${realtime_port}/health" 2>/dev/null)"; then

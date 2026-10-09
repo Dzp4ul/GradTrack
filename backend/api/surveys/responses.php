@@ -11,6 +11,8 @@ require_once __DIR__ . '/../config/graduation_years.php';
 require_once __DIR__ . '/../config/survey_versioning.php';
 require_once __DIR__ . '/../config/graduate_email_notifications.php';
 require_once __DIR__ . '/../config/survey_contact_email.php';
+require_once __DIR__ . '/../config/survey_program_scope.php';
+require_once __DIR__ . '/../config/survey_lifecycle.php';
 
 function survey_response_send_saved(int $responseId, bool $idempotent, array $emailNotification = []): never
 {
@@ -193,6 +195,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $token = trim($token);
 
     try {
+        $accessLifecycle = gradtrack_enforce_survey_completion($conn, (int) $surveyId);
+        if (($accessLifecycle['survey']['status'] ?? '') === 'completed') {
+            http_response_code(409);
+            echo json_encode([
+                'success' => false,
+                'code' => 'SURVEY_COMPLETED',
+                'error' => 'Survey completed',
+                'completion_reason' => $accessLifecycle['survey']['completion_reason'] ?? null,
+                'message' => gradtrack_survey_completion_message($accessLifecycle['survey']['completion_reason'] ?? null),
+            ]);
+            exit();
+        }
         $activeSurveyStmt = $conn->prepare("SELECT id FROM surveys
                                             WHERE id = :survey_id
                                               AND status = 'active'
@@ -257,6 +271,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $responses = $surveyValidation['responses'];
 
         $conn->beginTransaction();
+
+        // This row lock serializes submissions and lifecycle checks. A
+        // concurrent request cannot insert past the final target response.
+        $lifecycle = gradtrack_enforce_survey_completion($conn, (int) $surveyId);
+        $lockedSurvey = $lifecycle['survey'] ?? null;
+        if (!$lockedSurvey || ($lockedSurvey['status'] ?? '') !== 'active') {
+            $conn->rollBack();
+            http_response_code(409);
+            echo json_encode([
+                'success' => false,
+                'code' => 'SURVEY_COMPLETED',
+                'error' => 'Survey completed',
+                'completion_reason' => $lockedSurvey['completion_reason'] ?? null,
+                'message' => gradtrack_survey_completion_message($lockedSurvey['completion_reason'] ?? null),
+            ]);
+            exit();
+        }
         
         // Lock the token and graduate row so retries cannot create duplicate responses.
         $tokenQuery = "SELECT st.*, (st.expires_at < NOW()) AS is_expired FROM survey_tokens st
@@ -299,7 +330,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
         // The authenticated graduate identity always comes from the server token.
         $graduateId = (int) $tokenData['graduate_id'];
-        $graduateLockStmt = $conn->prepare('SELECT id, year_graduated FROM graduates WHERE id = :id AND archived_at IS NULL FOR UPDATE');
+        $graduateLockStmt = $conn->prepare('SELECT id, program_id, year_graduated FROM graduates WHERE id = :id AND archived_at IS NULL FOR UPDATE');
         $graduateLockStmt->execute([':id' => $graduateId]);
         $lockedGraduate = $graduateLockStmt->fetch(PDO::FETCH_ASSOC);
         if (!$lockedGraduate) {
@@ -315,6 +346,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 'success' => false,
                 'code' => 'GRADUATION_YEAR_NOT_ELIGIBLE',
                 'error' => 'Your graduation year is not included in the current survey.',
+            ]);
+            exit();
+        }
+        $programScope = gradtrack_get_survey_program_scope($conn, (int) $surveyId);
+        if (
+            !$programScope['configured']
+            || !in_array((int) ($lockedGraduate['program_id'] ?? 0), $programScope['program_ids'], true)
+        ) {
+            $conn->rollBack();
+            http_response_code(403);
+            echo json_encode([
+                'success' => false,
+                'code' => 'PROGRAM_NOT_IN_SURVEY_SCOPE',
+                'error' => 'Your official graduate program is not included in this survey.',
             ]);
             exit();
         }
@@ -422,6 +467,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $updateTokenStmt->bindParam(':token', $token);
             $updateTokenStmt->execute();
         }
+
+        // The accepted response participates in this transaction's target
+        // count. Reaching the final total/program target closes the survey
+        // before another concurrent submission can acquire the survey lock.
+        gradtrack_enforce_survey_completion($conn, (int) $surveyId);
         
         $conn->commit();
 
