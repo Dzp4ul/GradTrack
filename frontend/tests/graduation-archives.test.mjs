@@ -83,6 +83,10 @@ assert.match(registrar, /archiveView === 'archived' && <td[^>]*>[\s\S]*handlePer
 assert.match(registrar, /handlePermanentDeleteSelected/);
 assert.match(registrar, /action: 'permanent_delete'/);
 assert.match(registrar, /Delete Permanently/);
+assert.match(registrar, /ids_only/);
+assert.match(registrar, /Select All \(\$\{total\.toLocaleString\(\)\} Records\)/);
+assert.match(registrar, /PERMANENT_DELETE_BATCH_SIZE = 100/);
+assert.match(registrar, /All \{selectedGraduateIds\.length\.toLocaleString\(\)\} matching archived records are selected across every page/);
 assert.match(registrar, /aria-label="Filter graduates by department"/);
 assert.match(registrar, /aria-label="Filter graduates by graduation year"/);
 assert.match(registrar, /res\.program_options/);

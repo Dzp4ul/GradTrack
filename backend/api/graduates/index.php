@@ -271,6 +271,29 @@ try {
 
                 $whereClause = count($where) > 0 ? 'WHERE ' . implode(' AND ', $where) : '';
 
+                // The Registrar archive uses this lightweight response to select
+                // every matching record across all paginated pages. Returning IDs
+                // only keeps large archive selections small while preserving the
+                // exact same search, department, year, and archive filters as the
+                // normal list endpoint.
+                if (isset($_GET['ids_only']) && $_GET['ids_only'] === '1') {
+                    $selectionSql = "SELECT DISTINCT g.id
+                                     FROM graduates g
+                                     LEFT JOIN employment e ON e.graduate_id = g.id
+                                     $whereClause
+                                     ORDER BY g.id ASC";
+                    $selectionStmt = $db->prepare($selectionSql);
+                    $selectionStmt->execute($params);
+                    $selectionIds = array_map('intval', $selectionStmt->fetchAll(PDO::FETCH_COLUMN));
+
+                    echo json_encode([
+                        'success' => true,
+                        'ids' => $selectionIds,
+                        'total' => count($selectionIds),
+                    ]);
+                    break;
+                }
+
                 $page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
                 $limit = isset($_GET['limit']) ? min(100, max(1, (int)$_GET['limit'])) : 20;
                 $offset = ($page - 1) * $limit;

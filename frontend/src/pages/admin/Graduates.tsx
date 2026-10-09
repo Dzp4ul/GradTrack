@@ -16,6 +16,7 @@ import { parseGraduateName, uppercaseGraduateName } from '../../utils/graduateNa
 import { normalizeGraduationYear, normalizeGraduationYears } from '../../utils/graduationYears';
 
 const API_BASE = API_ROOT;
+const PERMANENT_DELETE_BATCH_SIZE = 100;
 
 interface Graduate {
   id: number;
@@ -430,6 +431,9 @@ export default function Graduates() {
   const [importProgress, setImportProgress] = useState<ImportProgress | null>(null);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const [bulkDeleteProgress, setBulkDeleteProgress] = useState<{ completed: number; total: number } | null>(null);
+  const [isSelectingAll, setIsSelectingAll] = useState(false);
+  const [allMatchingSelected, setAllMatchingSelected] = useState(false);
   const [selectedGraduateIds, setSelectedGraduateIds] = useState<number[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const importLockRef = useRef(false);
@@ -503,6 +507,7 @@ export default function Graduates() {
       setTotal(res.pagination.total);
       setArchiveCounts(res.archive_counts || { active: 0, archived: 0 });
       setSelectedGraduateIds([]);
+      setAllMatchingSelected(false);
 
       const nextYears = normalizeGraduationYears(Array.isArray(res.year_options) ? res.year_options : []);
       setYearTabOptions(nextYears);
@@ -673,6 +678,7 @@ export default function Graduates() {
   const isGraduateSelected = (id: number) => selectedGraduateIds.includes(id);
 
   const toggleGraduateSelection = (id: number) => {
+    setAllMatchingSelected(false);
     setSelectedGraduateIds((prev) => {
       if (prev.includes(id)) return prev.filter((item) => item !== id);
       return [...prev, id];
@@ -682,11 +688,51 @@ export default function Graduates() {
   const allVisibleSelected = graduates.length > 0 && graduates.every((g) => selectedGraduateIds.includes(g.id));
 
   const toggleSelectAllVisible = () => {
+    setAllMatchingSelected(false);
     if (allVisibleSelected) {
       setSelectedGraduateIds([]);
       return;
     }
     setSelectedGraduateIds(graduates.map((g) => g.id));
+  };
+
+  const toggleSelectAllMatching = async () => {
+    if (allMatchingSelected) {
+      setSelectedGraduateIds([]);
+      setAllMatchingSelected(false);
+      return;
+    }
+
+    if (archiveView !== 'archived' || total === 0 || isSelectingAll || isBulkDeleting) return;
+
+    setIsSelectingAll(true);
+    try {
+      const params = buildQueryParams(1, 100);
+      params.set('ids_only', '1');
+      const response = await fetch(`${API_BASE}/graduates/index.php?${params}`, {
+        credentials: 'include',
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success || !Array.isArray(result.ids)) {
+        throw new Error(result.error || 'Unable to select all archived graduates');
+      }
+
+      const ids: number[] = Array.from(new Set<number>(
+        (result.ids as unknown[])
+          .map((value: unknown) => Number(value))
+          .filter((value: number) => Number.isInteger(value) && value > 0),
+      ));
+      setSelectedGraduateIds(ids);
+      setAllMatchingSelected(ids.length > 0);
+    } catch (error) {
+      setMsgBox({
+        isOpen: true,
+        type: 'error',
+        message: getSafeErrorMessage(error, 'Unable to select all archived graduates'),
+      });
+    } finally {
+      setIsSelectingAll(false);
+    }
   };
 
   const performArchiveRequest = async (payload: Record<string, unknown>) => {
@@ -855,42 +901,63 @@ export default function Graduates() {
   const handlePermanentDeleteSelected = () => {
     if (selectedGraduateIds.length === 0 || isBulkDeleting) return;
 
-    const selectedCount = selectedGraduateIds.length;
+    const idsToDelete = [...selectedGraduateIds];
+    const selectedCount = idsToDelete.length;
     setMsgBox({
       isOpen: true,
       type: 'confirm',
       title: 'Permanently Delete Selected Graduates?',
-      message: `This will permanently delete ${selectedCount} selected graduate record(s) and their account-owned data. Historical survey responses will be preserved for reporting. This action cannot be undone.`,
+      message: `This will permanently delete all ${selectedCount.toLocaleString()} selected graduate record(s) across every archive page, together with their account-owned data. Historical survey responses will be preserved for reporting. This action cannot be undone.`,
       confirmText: 'Permanently Delete',
       cancelText: 'Cancel',
       destructive: true,
       onConfirm: async () => {
         setIsBulkDeleting(true);
+        setBulkDeleteProgress({ completed: 0, total: selectedCount });
+        let deletedCount = 0;
         try {
-          const response = await fetch(`${API_BASE}/graduates/index.php`, {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include',
-            body: JSON.stringify({ ids: selectedGraduateIds, action: 'permanent_delete' }),
-          });
-          const result = await response.json();
-          if (!response.ok || !result.success) {
-            throw new Error(result.error || 'Unable to permanently delete selected graduates');
+          for (let start = 0; start < idsToDelete.length; start += PERMANENT_DELETE_BATCH_SIZE) {
+            const batch = idsToDelete.slice(start, start + PERMANENT_DELETE_BATCH_SIZE);
+            const response = await fetch(`${API_BASE}/graduates/index.php`, {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ ids: batch, action: 'permanent_delete' }),
+            });
+            const result = await response.json();
+            if (!response.ok || !result.success) {
+              throw new Error(result.error || 'Unable to permanently delete selected graduates');
+            }
+
+            deletedCount += Number(result.deleted ?? batch.length);
+            setBulkDeleteProgress({
+              completed: Math.min(start + batch.length, selectedCount),
+              total: selectedCount,
+            });
           }
 
+          setSelectedGraduateIds([]);
+          setAllMatchingSelected(false);
           await fetchGraduates();
           setMsgBox({
             isOpen: true,
             type: 'success',
-            message: result.message || `${result.deleted ?? selectedCount} selected graduate record(s) permanently deleted.`,
+            message: `${deletedCount.toLocaleString()} selected graduate record(s) permanently deleted.`,
           });
         } catch (error) {
+          setSelectedGraduateIds([]);
+          setAllMatchingSelected(false);
+          await fetchGraduates();
           setMsgBox({
             isOpen: true,
             type: 'error',
-            message: getSafeErrorMessage(error, 'Unable to permanently delete selected graduates'),
+            title: deletedCount > 0 ? 'Deletion Partially Completed' : 'Unable to Delete Graduates',
+            message: deletedCount > 0
+              ? `${deletedCount.toLocaleString()} graduate record(s) were permanently deleted before the process stopped. The archive has been refreshed. Please select the remaining records and try again.\n\n${getSafeErrorMessage(error, 'Unable to permanently delete the remaining graduates')}`
+              : getSafeErrorMessage(error, 'Unable to permanently delete selected graduates'),
           });
         } finally {
+          setBulkDeleteProgress(null);
           setIsBulkDeleting(false);
         }
       },
@@ -1166,7 +1233,8 @@ export default function Graduates() {
       <nav aria-label="Registrar graduate sections" className="flex flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => { setArchiveView('active'); setPage(1); }}
+          onClick={() => { setArchiveView('active'); setSelectedGraduateIds([]); setAllMatchingSelected(false); setPage(1); }}
+          disabled={isBulkDeleting || isSelectingAll}
           className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold ${archiveView === 'active' ? 'border-blue-700 bg-blue-700 text-white' : 'bg-white text-gray-700'}`}
         >
           Manage Graduates
@@ -1174,7 +1242,8 @@ export default function Graduates() {
         </button>
         <button
           type="button"
-          onClick={() => { setArchiveView('archived'); setSelectedGraduateIds([]); setPage(1); }}
+          onClick={() => { setArchiveView('archived'); setSelectedGraduateIds([]); setAllMatchingSelected(false); setPage(1); }}
+          disabled={isBulkDeleting || isSelectingAll}
           className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-semibold ${archiveView === 'archived' ? 'border-blue-700 bg-blue-700 text-white' : 'bg-white text-gray-700'}`}
         >
           <Archive className="h-4 w-4" />
@@ -1194,8 +1263,9 @@ export default function Graduates() {
                   type="text"
                   placeholder="Search by name, student ID, or email..."
                   value={search}
+                  disabled={isSelectingAll || isBulkDeleting}
                   onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-                  className="w-full pl-10 pr-4 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className="w-full pl-10 pr-4 py-2.5 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:bg-gray-50"
                 />
               </div>
             </label>
@@ -1205,12 +1275,13 @@ export default function Graduates() {
               <select
                 aria-label="Filter graduates by department"
                 value={selectedProgramId}
+                disabled={isSelectingAll || isBulkDeleting}
                 onChange={(event) => {
                   setSelectedProgramId(event.target.value);
                   setFilterYear('');
                   setPage(1);
                 }}
-                className="w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:bg-gray-50"
               >
                 <option value="">All Departments</option>
                 {departmentFilterOptions.map((program) => (
@@ -1226,8 +1297,9 @@ export default function Graduates() {
               <select
                 aria-label="Filter graduates by graduation year"
                 value={filterYear}
+                disabled={isSelectingAll || isBulkDeleting}
                 onChange={(event) => { setFilterYear(event.target.value); setPage(1); }}
-                className="w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:bg-gray-50"
               >
                 <option value="">All Years</option>
                 {yearTabOptions.map((year) => (
@@ -1268,10 +1340,24 @@ export default function Graduates() {
           {archiveView === 'archived' && <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={toggleSelectAllVisible}
+              disabled={loading || isSelectingAll || isBulkDeleting}
               className="px-3 py-2 border rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
               type="button"
             >
               {allVisibleSelected ? 'Clear Selection' : 'Select All (This Page)'}
+            </button>
+
+            <button
+              onClick={() => void toggleSelectAllMatching()}
+              disabled={loading || total === 0 || isSelectingAll || isBulkDeleting}
+              className="px-3 py-2 rounded-lg border border-blue-200 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
+              type="button"
+            >
+              {isSelectingAll
+                ? 'Selecting All...'
+                : allMatchingSelected
+                  ? `Clear All (${selectedGraduateIds.length.toLocaleString()})`
+                  : `Select All (${total.toLocaleString()} Records)`}
             </button>
 
             <button
@@ -1280,7 +1366,11 @@ export default function Graduates() {
               className="px-3 py-2 rounded-lg text-sm font-medium text-white bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               type="button"
             >
-              {isBulkDeleting ? 'Deleting...' : `Delete Permanently (${selectedGraduateIds.length})`}
+              {isBulkDeleting
+                ? bulkDeleteProgress
+                  ? `Deleting ${bulkDeleteProgress.completed.toLocaleString()} of ${bulkDeleteProgress.total.toLocaleString()}...`
+                  : 'Deleting...'
+                : `Delete Permanently (${selectedGraduateIds.length.toLocaleString()})`}
             </button>
 
             <button
@@ -1291,6 +1381,12 @@ export default function Graduates() {
             >
               Delete Year Permanently
             </button>
+
+            {allMatchingSelected && (
+              <span className="w-full text-xs font-medium text-blue-700" role="status">
+                All {selectedGraduateIds.length.toLocaleString()} matching archived records are selected across every page.
+              </span>
+            )}
           </div>}
 
         </div>
@@ -1469,14 +1565,14 @@ export default function Graduates() {
             <div className="flex gap-1">
               <button
                 onClick={() => setPage(Math.max(1, page - 1))}
-                disabled={page === 1}
+                disabled={page === 1 || isSelectingAll || isBulkDeleting}
                 className="p-2 rounded-lg hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <ChevronLeft className="w-4 h-4" />
               </button>
               <button
                 onClick={() => setPage(Math.min(totalPages, page + 1))}
-                disabled={page === totalPages}
+                disabled={page === totalPages || isSelectingAll || isBulkDeleting}
                 className="p-2 rounded-lg hover:bg-gray-200 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <ChevronRight className="w-4 h-4" />

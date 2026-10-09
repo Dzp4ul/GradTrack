@@ -357,6 +357,19 @@ try {
     $archiveGraduate = graduation_http_request('graduates/index.php', $registrarSession, 'DELETE', ['id' => $graduate2027]);
     $graduateArchiveList = graduation_http_request('graduates/index.php?archive=archived&limit=100&year=2027', $registrarSession);
     graduation_http_assert($archiveGraduate['status'] === 200 && graduation_http_contains_id($graduateArchiveList, $graduate2027), 'graduate archive stores and lists the safe test record');
+    $archiveSelection = graduation_http_request(
+        'graduates/index.php?archive=archived&ids_only=1&year_graduated=2027&search=' . rawurlencode($suffix),
+        $registrarSession
+    );
+    $archiveSelectionIds = array_map('intval', $archiveSelection['json']['ids'] ?? []);
+    graduation_http_assert(
+        $archiveSelection['status'] === 200
+            && ($archiveSelection['json']['success'] ?? false) === true
+            && in_array($graduate2027, $archiveSelectionIds, true)
+            && !in_array($graduate2026, $archiveSelectionIds, true)
+            && (int) ($archiveSelection['json']['total'] ?? 0) === count($archiveSelectionIds),
+        'Registrar can select every archived record matching the current filters without pagination'
+    );
     $restoreGraduate = graduation_http_request('graduates/index.php', $registrarSession, 'PUT', ['id' => $graduate2027, 'action' => 'restore']);
     graduation_http_assert($restoreGraduate['status'] === 200 && graduation_http_contains_id(graduation_http_request('graduates/index.php?archive=active&year=2027&limit=100', $registrarSession), $graduate2027), 'graduate Restore returns the record to the active list');
     graduation_http_request('graduates/index.php', $registrarSession, 'DELETE', ['id' => $graduate2027]);
