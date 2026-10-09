@@ -355,14 +355,26 @@ if (!function_exists('gradtrack_survey_validate_target_configuration')) {
             }
 
             $placeholders = implode(',', array_fill(0, count($programTargets), '?'));
-            $programStmt = $db->prepare("SELECT id FROM programs WHERE id IN ({$placeholders})");
+            $programStmt = $db->prepare(
+                "SELECT program.id
+                   FROM programs program
+                  WHERE program.id IN ({$placeholders})
+                    AND EXISTS (
+                        SELECT 1
+                          FROM graduates graduate
+                         WHERE graduate.program_id = program.id
+                           AND graduate.archived_at IS NULL
+                    )"
+            );
             $programStmt->execute(array_keys($programTargets));
             $knownIds = array_map('intval', $programStmt->fetchAll(PDO::FETCH_COLUMN));
             sort($knownIds);
             $submittedIds = array_map('intval', array_keys($programTargets));
             sort($submittedIds);
             if ($knownIds !== $submittedIds) {
-                throw new InvalidArgumentException('One or more selected graduate programs no longer exist.');
+                throw new InvalidArgumentException(
+                    'One or more selected programs have no active Registrar graduate records.'
+                );
             }
         }
 

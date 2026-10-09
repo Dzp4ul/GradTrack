@@ -19,7 +19,7 @@ try {
         'INSERT INTO programs (name, code, description) VALUES (:name, :code, :description)'
     );
     $programIds = [];
-    foreach (['A', 'B'] as $programLabel) {
+    foreach (['A', 'B', 'EMPTY'] as $programLabel) {
         $programInsert->execute([
             ':name' => "Lifecycle Program {$programLabel} {$suffix}",
             ':code' => "LC{$programLabel}{$suffix}",
@@ -194,6 +194,20 @@ try {
         $invalidTargetRejected = true;
     }
     lifecycle_assert($invalidTargetRejected, 'zero and non-positive response targets are rejected');
+
+    $emptyProgramTargetRejected = false;
+    try {
+        gradtrack_survey_validate_target_configuration($db, [
+            'target_type' => 'program',
+            'program_targets' => [[
+                'program_id' => $programIds['EMPTY'],
+                'target' => 1,
+            ]],
+        ]);
+    } catch (InvalidArgumentException $exception) {
+        $emptyProgramTargetRejected = str_contains($exception->getMessage(), 'no active Registrar graduate records');
+    }
+    lifecycle_assert($emptyProgramTargetRejected, 'program targets reject catalog entries with no active Registrar graduate records');
 
     lifecycle_assert($firstTotalResponse > 0 && $secondTotalResponse > 0, 'valid response fixtures were stored successfully');
     echo PHP_EOL . 'Survey lifecycle integration test passed.' . PHP_EOL;

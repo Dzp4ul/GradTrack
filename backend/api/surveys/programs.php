@@ -70,8 +70,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
 
         // Other GradTrack screens use this endpoint as the program master
         // list. Job-posting forms can request only programs represented by at
-        // least one Registrar graduate record, without deleting unused master
-        // programs that may be needed by future imports.
+        // least one active Registrar graduate record, without deleting unused
+        // master programs that may be needed by future imports.
         $withGraduateRecords = filter_var(
             $_GET['with_graduate_records'] ?? false,
             FILTER_VALIDATE_BOOLEAN
@@ -83,6 +83,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
                             SELECT 1
                             FROM graduates g
                             WHERE g.program_id = p.id
+                              AND g.archived_at IS NULL
                         )";
         }
         $query .= " ORDER BY p.name ASC";

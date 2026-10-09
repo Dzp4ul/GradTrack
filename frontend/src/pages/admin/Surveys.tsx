@@ -324,7 +324,7 @@ export default function Surveys() {
   }, [archiveView, page, limit, search]);
 
   useEffect(() => {
-    fetch(`${API_BASE}/surveys/programs.php`, { credentials: 'include' })
+    fetch(`${API_BASE}/surveys/programs.php?with_graduate_records=1`, { credentials: 'include' })
       .then((response) => response.json())
       .then((result) => {
         if (!result.success || !Array.isArray(result.data)) return;
@@ -1415,27 +1415,33 @@ export default function Surveys() {
                   )}
                   {formData.target_type === 'program' && (
                     <div className="space-y-3">
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        {masterPrograms.map((program) => (
-                          <label key={program.id} className="rounded-lg border border-border bg-surface-alt p-3">
-                            <span className="block text-sm font-semibold text-text-primary">{program.code}</span>
-                            <span className="mb-2 block truncate text-xs text-text-secondary" title={program.name}>{program.name}</span>
-                            <input
-                              type="number"
-                              min={1}
-                              step={1}
-                              inputMode="numeric"
-                              value={formData.program_targets[program.id] || ''}
-                              onChange={(event) => setFormData({
-                                ...formData,
-                                program_targets: { ...formData.program_targets, [program.id]: event.target.value },
-                              })}
-                              placeholder="No target"
-                              className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            />
-                          </label>
-                        ))}
-                      </div>
+                      {masterPrograms.length > 0 ? (
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          {masterPrograms.map((program) => (
+                            <label key={program.id} className="rounded-lg border border-border bg-surface-alt p-3">
+                              <span className="block text-sm font-semibold text-text-primary">{program.code}</span>
+                              <span className="mb-2 block truncate text-xs text-text-secondary" title={program.name}>{program.name}</span>
+                              <input
+                                type="number"
+                                min={1}
+                                step={1}
+                                inputMode="numeric"
+                                value={formData.program_targets[program.id] || ''}
+                                onChange={(event) => setFormData({
+                                  ...formData,
+                                  program_targets: { ...formData.program_targets, [program.id]: event.target.value },
+                                })}
+                                placeholder="No target"
+                                className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              />
+                            </label>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-400/40 dark:bg-amber-400/10 dark:text-amber-200">
+                          No graduate programs with active Registrar records are available for respondent targets.
+                        </div>
+                      )}
                       <div className="flex items-center justify-between rounded-lg bg-blue-50 px-4 py-3 text-sm dark:bg-blue-400/10">
                         <span className="font-semibold text-blue-900 dark:text-blue-200">Overall configured target</span>
                         <span className="text-lg font-bold text-blue-900 dark:text-blue-200">
