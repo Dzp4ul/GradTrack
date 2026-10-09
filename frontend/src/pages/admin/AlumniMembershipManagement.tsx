@@ -23,7 +23,6 @@ import {
   type AlumniMembershipInformation,
   type AlumniMembershipSection,
   fetchAlumniMembership,
-  OFFICIAL_ALUMNI_REGISTRATION_URL,
   publishAlumniMembership,
   removeAlumniMembershipImage,
   resolveAlumniMembershipAsset,
@@ -142,10 +141,7 @@ export default function AlumniMembershipManagement() {
     setSaving(true);
     if (showNotice) setNotice(null);
     try {
-      const response = await saveAlumniMembershipDraft({
-        ...content,
-        config: { ...content.config, registration_url: OFFICIAL_ALUMNI_REGISTRATION_URL },
-      });
+      const response = await saveAlumniMembershipDraft(content);
       setContent(response.data);
       setDirty(false);
       if (showNotice) setNotice({ type: 'success', message: response.message || 'Draft saved successfully.' });
@@ -325,9 +321,10 @@ export default function AlumniMembershipManagement() {
         </div>
         <div className="mt-5 grid gap-5 md:grid-cols-2">
           <div><FieldLabel required={content.config.registration_button_enabled}>Registration button text</FieldLabel><input className={fieldClass} value={content.config.registration_button_text} maxLength={120} onChange={(event) => updateConfig('registration_button_text', event.target.value)} placeholder="Proceed to Alumni Registration" /></div>
-          <div><FieldLabel>Official registration link</FieldLabel><input type="url" className={`${fieldClass} cursor-not-allowed bg-surface-muted`} value={OFFICIAL_ALUMNI_REGISTRATION_URL} readOnly aria-readonly="true" /></div>
+          <div><FieldLabel required={content.config.registration_button_enabled}>Official registration link</FieldLabel><input type="url" inputMode="url" className={fieldClass} value={content.config.registration_url} maxLength={1000} onChange={(event) => updateConfig('registration_url', event.target.value)} placeholder="https://forms.gle/UWWfnV8LPDG2hwru8" /></div>
+          <div className="md:col-span-2"><FieldLabel>Official NorCAA Facebook page</FieldLabel><input type="url" inputMode="url" className={fieldClass} value={content.config.facebook_url} maxLength={1000} onChange={(event) => updateConfig('facebook_url', event.target.value)} placeholder="https://www.facebook.com/norcaa" /></div>
         </div>
-        <p className="mt-3 text-xs leading-5 text-text-muted">The official Google Form link is fixed for safety. The public button opens it in a new tab and never creates or approves a GradTrack membership record.</p>
+        <p className="mt-3 text-xs leading-5 text-text-muted">Only valid HTTPS links are accepted. Public links open in a new tab and never create or approve a GradTrack membership record.</p>
       </section>
 
       <section className={panelClass}>

@@ -18,7 +18,6 @@ import Footer from '../components/Footer';
 import PublicNav from '../components/PublicNav';
 import {
   fetchAlumniMembership,
-  OFFICIAL_ALUMNI_REGISTRATION_URL,
   resolveAlumniMembershipAsset,
   type AlumniMembershipAudience,
   type AlumniMembershipContent,
@@ -95,7 +94,7 @@ function MembershipContent({ content, audience, preview }: { content: AlumniMemb
   const idFront = resolveAlumniMembershipAsset(config.id_card_front_url || config.id_card_front_path);
   const idBack = resolveAlumniMembershipAsset(config.id_card_back_url || config.id_card_back_path);
   const canResumeAccount = hasGraduateAccountResume();
-  const registrationEnabled = !registered && config.registration_button_enabled;
+  const registrationEnabled = !registered && config.registration_button_enabled && Boolean(config.registration_url);
   const primarySections = sections.filter((section) => brochureSectionKeys.has(section.section_key));
   const supportingSections = sections.filter((section) => !brochureSectionKeys.has(section.section_key));
 
@@ -173,7 +172,7 @@ function MembershipContent({ content, audience, preview }: { content: AlumniMemb
               {registered ? (
                 <Link to="/survey-verify" className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-yellow-300 px-5 py-3 text-center font-extrabold text-blue-950 hover:bg-yellow-200">Continue to Graduate Portal <ArrowRight className="h-5 w-5" /></Link>
               ) : registrationEnabled ? (
-                <><a href={OFFICIAL_ALUMNI_REGISTRATION_URL} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-yellow-300 px-5 py-3 text-center font-extrabold text-blue-950 hover:bg-yellow-200">{config.registration_button_text || 'Proceed to Alumni Registration'} <ExternalLink className="h-5 w-5" /></a><p className="mt-2 text-center text-xs leading-5 text-blue-200">Opens the official Google Form in a new tab.</p></>
+                <><a href={config.registration_url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-yellow-300 px-5 py-3 text-center font-extrabold text-blue-950 hover:bg-yellow-200">{config.registration_button_text || 'Proceed to Alumni Registration'} <ExternalLink className="h-5 w-5" /></a><p className="mt-2 text-center text-xs leading-5 text-blue-200">Opens the official registration form in a new tab.</p></>
               ) : <p className="rounded-xl border border-white/20 bg-white/10 p-4 text-center text-sm text-blue-100">Online registration is temporarily unavailable.</p>}
             </div>
           </div>
@@ -193,7 +192,10 @@ function MembershipContent({ content, audience, preview }: { content: AlumniMemb
     if (section.section_key === 'contact') {
       return (
         <section id="membership-contact" key="contact" className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 dark:border-emerald-900 dark:bg-emerald-950/30 sm:p-8">
-          <div className="flex flex-col gap-4 sm:flex-row"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-700 text-white"><Mail className="h-5 w-5" /></span><div><h2 className="text-xl font-black text-text-primary">{section.section_title}</h2><p className="mt-2 whitespace-pre-line text-sm leading-6 text-text-secondary">{config.contact_information || 'Official contact information is currently being updated.'}</p></div></div>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex min-w-0 flex-col gap-4 sm:flex-row"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-700 text-white"><Mail className="h-5 w-5" /></span><div><h2 className="text-xl font-black text-text-primary">{section.section_title}</h2><p className="mt-2 whitespace-pre-line text-sm leading-6 text-text-secondary">{config.contact_information || 'Official contact information is currently being updated.'}</p></div></div>
+            {config.facebook_url && <a href={config.facebook_url} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-extrabold text-white shadow-sm transition hover:bg-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2">Visit NorCAA on Facebook <ExternalLink className="h-4 w-4" aria-hidden="true" /></a>}
+          </div>
         </section>
       );
     }

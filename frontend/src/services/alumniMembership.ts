@@ -1,7 +1,5 @@
 import { API_BASE_URL, API_ENDPOINTS } from '../config/api';
 
-export const OFFICIAL_ALUMNI_REGISTRATION_URL = 'https://forms.gle/UWWfnV8LPDG2hwru8';
-
 export type AlumniMembershipAudience = 'registration' | 'registered';
 export type AlumniMembershipAssetKey = 'college_logo' | 'alumni_logo' | 'id_card_front' | 'id_card_back';
 
@@ -18,6 +16,7 @@ export type AlumniMembershipConfig = {
   registration_button_text: string;
   registration_url: string;
   registration_button_enabled: boolean;
+  facebook_url: string;
   registered_instructions: string;
   contact_information: string;
   footer_text: string;

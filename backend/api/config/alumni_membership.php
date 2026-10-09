@@ -28,6 +28,7 @@ function gradtrack_alumni_membership_assert_schema(PDO $db): void
         'registration_button_text',
         'registration_url',
         'registration_button_enabled',
+        'facebook_url',
     ];
     $columnStmt = $db->prepare(
         'SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS
@@ -54,11 +55,6 @@ function gradtrack_alumni_membership_section_defaults(): array
         'additional' => 'Important Membership Information',
         'contact' => 'Need Assistance?',
     ];
-}
-
-function gradtrack_alumni_membership_registration_url(): string
-{
-    return 'https://forms.gle/UWWfnV8LPDG2hwru8';
 }
 
 function gradtrack_alumni_membership_asset_columns(): array
@@ -119,8 +115,9 @@ function gradtrack_alumni_membership_payload_for_version(PDO $db, array $version
         'registered_intro_text' => (string) $version['registered_intro_text'],
         'registration_instructions' => (string) $version['registration_instructions'],
         'registration_button_text' => (string) $version['registration_button_text'],
-        'registration_url' => gradtrack_alumni_membership_registration_url(),
+        'registration_url' => (string) $version['registration_url'],
         'registration_button_enabled' => (bool) $version['registration_button_enabled'],
+        'facebook_url' => (string) ($version['facebook_url'] ?? ''),
         'registered_instructions' => (string) $version['registered_instructions'],
         'contact_information' => (string) ($version['contact_information'] ?? ''),
         'footer_text' => (string) ($version['footer_text'] ?? ''),
@@ -230,6 +227,18 @@ function gradtrack_alumni_membership_validate_collection($value, string $label, 
     return array_values($value);
 }
 
+function gradtrack_alumni_membership_https_url($value, string $label, bool $required = false): string
+{
+    $url = gradtrack_alumni_membership_clean_text($value, $label, 1000, $required);
+    if ($url === '') {
+        return '';
+    }
+    if (filter_var($url, FILTER_VALIDATE_URL) === false || strtolower((string) parse_url($url, PHP_URL_SCHEME)) !== 'https') {
+        throw new InvalidArgumentException("{$label} must be a valid HTTPS URL.");
+    }
+    return $url;
+}
+
 function gradtrack_alumni_membership_save_draft(PDO $db, array $payload, int $adminId): array
 {
     $draft = gradtrack_alumni_membership_version($db, 'draft');
@@ -252,8 +261,9 @@ function gradtrack_alumni_membership_save_draft(PDO $db, array $payload, int $ad
         ':registered_intro_text' => gradtrack_alumni_membership_clean_text($config['registered_intro_text'] ?? '', 'Registered alumni introduction', 3000),
         ':registration_instructions' => gradtrack_alumni_membership_clean_text($config['registration_instructions'] ?? '', 'Registration instructions', 5000),
         ':registration_button_text' => gradtrack_alumni_membership_clean_text($config['registration_button_text'] ?? '', 'Registration button text', 120, $registrationButtonEnabled),
-        ':registration_url' => gradtrack_alumni_membership_registration_url(),
+        ':registration_url' => gradtrack_alumni_membership_https_url($config['registration_url'] ?? '', 'Official registration link', $registrationButtonEnabled),
         ':registration_button_enabled' => $registrationButtonEnabled ? 1 : 0,
+        ':facebook_url' => gradtrack_alumni_membership_https_url($config['facebook_url'] ?? '', 'Facebook page link'),
         ':registered_instructions' => gradtrack_alumni_membership_clean_text($config['registered_instructions'] ?? '', 'Registered alumni instructions', 5000),
         ':contact_information' => gradtrack_alumni_membership_clean_text($config['contact_information'] ?? '', 'Contact information', 3000, false),
         ':footer_text' => gradtrack_alumni_membership_clean_text($config['footer_text'] ?? '', 'Footer text', 500, false),
@@ -348,6 +358,7 @@ function gradtrack_alumni_membership_save_draft(PDO $db, array $payload, int $ad
                     registration_button_text = :registration_button_text,
                     registration_url = :registration_url,
                     registration_button_enabled = :registration_button_enabled,
+                    facebook_url = :facebook_url,
                     registered_instructions = :registered_instructions,
                     contact_information = :contact_information,
                     footer_text = :footer_text,
@@ -466,12 +477,12 @@ function gradtrack_alumni_membership_publish(PDO $db, int $adminId): array
         $clone = $db->prepare(
             "INSERT INTO alumni_membership_versions
                 (status, association_name, membership_subtitle, main_heading, intro_text, registered_heading, registered_intro_text,
-                 registration_instructions, registration_button_text, registration_url, registration_button_enabled,
+                 registration_instructions, registration_button_text, registration_url, registration_button_enabled, facebook_url,
                  registered_instructions, contact_information, footer_text,
                  college_logo_path, alumni_logo_path, id_card_front_path, id_card_back_path,
                  total_fee_enabled, created_by, updated_by)
              SELECT 'draft', association_name, membership_subtitle, main_heading, intro_text, registered_heading, registered_intro_text,
-                    registration_instructions, registration_button_text, registration_url, registration_button_enabled,
+                    registration_instructions, registration_button_text, registration_url, registration_button_enabled, facebook_url,
                     registered_instructions, contact_information, footer_text,
                     college_logo_path, alumni_logo_path, id_card_front_path, id_card_back_path,
                     total_fee_enabled, :created_by, :updated_by
