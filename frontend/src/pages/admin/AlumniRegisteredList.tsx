@@ -20,6 +20,7 @@ import {
   ShieldCheck,
   Trash2,
   X,
+  XCircle,
 } from 'lucide-react';
 import MessageBox from '../../components/MessageBox';
 import { API_ENDPOINTS } from '../../config/api';
@@ -1836,7 +1837,7 @@ function AccountReviewPanel({
       </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[760px] text-sm">
+        <table className="w-full min-w-[940px] text-sm">
           <thead className="border-b bg-gray-50">
             <tr>
               <th className="px-4 py-3 text-left font-semibold text-gray-600">Graduate</th>
@@ -1875,26 +1876,34 @@ function AccountReviewPanel({
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex justify-end gap-1">
-                      <IconButton title="View details" onClick={() => onView(account)} disabled={actionKey !== ''} className="text-blue-600 hover:bg-blue-50">
-                        <Search className="h-4 w-4" />
-                      </IconButton>
-                      <IconButton
-                        title="Approve account"
+                    <div className="flex justify-end gap-2">
+                      <ReviewActionButton
+                        label="View"
+                        title="View account details"
+                        onClick={() => onView(account)}
+                        disabled={actionKey !== ''}
+                        className="border-blue-200 text-blue-700 hover:bg-blue-50"
+                      >
+                        <Eye className="h-4 w-4" />
+                      </ReviewActionButton>
+                      <ReviewActionButton
+                        label="Approve"
+                        title="Approve alumni account"
                         onClick={() => onApprove(account)}
                         disabled={actionKey !== '' || account.alumni_verification_status === 'approved'}
-                        className="text-emerald-600 hover:bg-emerald-50"
+                        className="border-emerald-200 text-emerald-700 hover:bg-emerald-50"
                       >
-                        {actionKey === `approve-account-${account.account_id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserCheck className="h-4 w-4" />}
-                      </IconButton>
-                      <IconButton
-                        title="Reject account"
+                        {actionKey === `approve-account-${account.account_id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                      </ReviewActionButton>
+                      <ReviewActionButton
+                        label="Reject"
+                        title="Reject alumni account"
                         onClick={() => onReject(account)}
                         disabled={actionKey !== '' || account.alumni_verification_status === 'rejected'}
-                        className="text-red-600 hover:bg-red-50"
+                        className="border-red-200 text-red-700 hover:bg-red-50"
                       >
-                        {actionKey === `reject-account-${account.account_id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserX className="h-4 w-4" />}
-                      </IconButton>
+                        {actionKey === `reject-account-${account.account_id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <XCircle className="h-4 w-4" />}
+                      </ReviewActionButton>
                     </div>
                   </td>
                 </tr>
@@ -2163,6 +2172,36 @@ function IconButton({
       className={`inline-flex h-8 w-8 items-center justify-center rounded-lg transition disabled:cursor-not-allowed disabled:opacity-40 ${className}`}
     >
       {children}
+    </button>
+  );
+}
+
+function ReviewActionButton({
+  label,
+  title,
+  onClick,
+  disabled,
+  className,
+  children,
+}: {
+  label: string;
+  title: string;
+  onClick: () => void;
+  disabled?: boolean;
+  className: string;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      onClick={onClick}
+      disabled={disabled}
+      className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border bg-white px-2.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40 ${className}`}
+    >
+      {children}
+      <span>{label}</span>
     </button>
   );
 }
