@@ -5,6 +5,7 @@ import {
   type StatisticalInterpretation,
   type StatisticalInterpretationContext,
 } from '../../services/analyticsAiService';
+import { normalizeReportParagraphs } from '../../utils/reportText';
 
 interface AIStatisticalInterpretationProps {
   context: StatisticalInterpretationContext;
@@ -99,9 +100,11 @@ export default function AIStatisticalInterpretation({ context }: AIStatisticalIn
             <h4 className="text-sm font-bold text-blue-900 dark:text-blue-100">
               What This Result Means
             </h4>
-            <p className="mt-2 text-[15px] leading-7 text-slate-800 dark:text-slate-200">
-              {interpretation.practical_interpretation}
-            </p>
+            <div className="mt-2 space-y-3 text-[15px] leading-7 text-slate-800 dark:text-slate-200">
+              {normalizeReportParagraphs(interpretation.practical_interpretation).map((paragraph, index) => (
+                <p key={index}>{paragraph}</p>
+              ))}
+            </div>
           </div>
 
           <div className="mt-5 border-t border-slate-200 pt-4 dark:border-slate-700">

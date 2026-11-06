@@ -11,7 +11,7 @@ import {
   normalizeSalaryLabel,
   percentage,
 } from '../src/utils/descriptiveAnalytics.ts';
-import { hasBrokenReportText, normalizeReportText } from '../src/utils/reportText.ts';
+import { hasBrokenReportText, normalizeReportParagraphs, normalizeReportText } from '../src/utils/reportText.ts';
 
 const snapshot = {
   overview: {
@@ -92,6 +92,9 @@ assert.match(structured.programAnalysis, /BSHM:/);
 assert.doesNotMatch(structured.summary, /\b(?:caused?|proves?)\b/i);
 
 const pdf = buildPdfInterpretations(snapshot);
+Object.entries(pdf).forEach(([key, interpretation]) => {
+  assert.equal(normalizeReportParagraphs(interpretation).length, 2, `${key} fallback contains exactly two paragraphs`);
+});
 for (const program of ['ACT', 'BEED', 'BSCS', 'BSED', 'BSHM']) {
   assert.match(pdf.programPerformance, new RegExp(program), `program interpretation includes ${program}`);
 }
@@ -123,6 +126,9 @@ const emptySnapshot = {
   salaryDistribution: [],
 };
 const emptyPdf = buildPdfInterpretations(emptySnapshot);
+Object.entries(emptyPdf).forEach(([key, interpretation]) => {
+  assert.equal(normalizeReportParagraphs(interpretation).length, 2, `${key} empty-data fallback contains exactly two paragraphs`);
+});
 assert.match(emptyPdf.overview, /no traced graduate responses/i);
 assert.match(emptyPdf.salaryDistribution, /missing salary information is not treated as ₱0/i);
 assert.notEqual(analyticsFingerprint(snapshot), analyticsFingerprint(emptySnapshot), 'data changes invalidate the analytics cache key');
@@ -140,13 +146,17 @@ assert.match(singlePdf.yearlyTrend, /Only one graduation year/);
 assert.match(singlePdf.overview, /1 are aligned and 2 are not aligned/);
 assert.doesNotMatch(Object.values(singlePdf).join(' '), /NaN|Infinity|undefined|null/);
 
-const validAiOverview = `${pdf.overview}\n\nWithin the selected responses, this additional synthesis remains descriptive and uses the same verified counts and denominators.`;
+const validAiOverview = pdf.overview;
 const acceptedAi = mergeValidatedPdfInterpretations({ overview: validAiOverview }, pdf, snapshot);
 assert.equal(acceptedAi.overview, validAiOverview, 'valid GROQ content is retained when it matches the current snapshot');
 const inventedCountAi = mergeValidatedPdfInterpretations({
   overview: `${validAiOverview} An unsupported total of 999 respondents is also claimed.`,
 }, pdf, snapshot);
 assert.equal(inventedCountAi.overview, pdf.overview, 'GROQ content with an unsupported number is rejected');
+const threeParagraphAi = mergeValidatedPdfInterpretations({
+  overview: `${validAiOverview}\n\nA third paragraph must not be retained.`,
+}, pdf, snapshot);
+assert.equal(threeParagraphAi.overview, pdf.overview, 'GROQ content with a third paragraph is rejected');
 
 const here = dirname(fileURLToPath(import.meta.url));
 const reportsSource = readFileSync(resolve(here, '../src/pages/admin/Reports.tsx'), 'utf8');
@@ -169,8 +179,10 @@ assert.doesNotMatch(aiApiSource, /llama-3\.3-70b-versatile|llama-3\.1-8b-instant
 assert.match(reportsSource, /\{ name: 'Aligned', value: overview\.total_aligned \}[\s\S]*\{ name: 'Not Aligned', value: overviewNotAligned \}/, 'Job Alignment chart has exactly the two supported categories');
 assert.match(reportsSource, /type: 'formal_report'/, 'PDF export requests all chart interpretations in one GROQ payload');
 assert.match(reportsSource, /controller\.abort\(\)/, 'PDF GROQ request has a timeout fallback');
+const formalChartImageIndex = reportsSource.indexOf('pdf.addImage(imageBase64');
 assert.ok(
-  reportsSource.indexOf("pdf.addImage(imageBase64") < reportsSource.indexOf("pdf.text('Descriptive Interpretation'"),
+  formalChartImageIndex >= 0
+    && reportsSource.indexOf("pdf.text('Descriptive Interpretation'", formalChartImageIndex) > formalChartImageIndex,
   'PDF sections place the graph before its detailed interpretation',
 );
 

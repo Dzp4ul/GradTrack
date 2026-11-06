@@ -144,7 +144,7 @@ function getOverviewData(PDO $db, ?int $surveyId, array $analyticsOptions = []):
 
 function normalizeReportType(string $type): string
 {
-    $allowed = ['overview', 'by_program', 'by_year', 'employment_status', 'salary_distribution', 'formal_report'];
+    $allowed = ['overview', 'by_program', 'by_year', 'employment_status', 'salary_distribution', 'formal_report', 'survey_report'];
     return in_array($type, $allowed, true) ? $type : 'overview';
 }
 
@@ -1039,6 +1039,16 @@ function validFormalReportInterpretation($value): bool
     if ($wordCount < 35 || preg_match('/\b(?:NaN|Infinity|undefined|null)\b/i', $clean)) {
         return false;
     }
+    $paragraphs = preg_split('/\R\s*\R/u', str_replace(["\r\n", "\r"], "\n", $clean)) ?: [];
+    $paragraphs = array_values(array_filter(array_map('trim', $paragraphs), static fn (string $paragraph): bool => $paragraph !== ''));
+    if (count($paragraphs) !== 2) {
+        return false;
+    }
+    foreach ($paragraphs as $paragraph) {
+        if (preg_match('/[.!?]$/u', $paragraph) !== 1) {
+            return false;
+        }
+    }
     return preg_match('/\b(?:statistically significant|significant relationship|caused?|proves?|best program|worst program|more successful|less successful)\b/i', $clean) !== 1;
 }
 
@@ -1051,7 +1061,7 @@ function buildFormalReportPrompt(array $reportData, array $filters): string
 
     return 'Create five separate descriptive interpretations for a formal graduate tracer report. '
         . 'Each interpretation must use only its matching dataset and the shared overview denominators. '
-        . 'For datasets with enough observations, target approximately 120 to 220 words in 2 to 4 short paragraphs; use a shorter explanation for very small or empty datasets. '
+        . 'Every interpretation must contain exactly two complete paragraphs separated by one blank line. Paragraph 1 must preserve the existing descriptive approach by reporting the relevant frequencies, percentages, highest and lowest values, and other important numerical findings. Paragraph 2 must add meaningful observations about patterns, comparisons, distributions, denominator differences, or data-supported implications without repeating Paragraph 1; use approximately 3 to 5 sentences when sufficient data are available. Use shorter but still complete paragraphs for very small or empty datasets. '
         . 'Overview must cover total responses, known employment, employed, unemployed, local, abroad, valid alignment responses, aligned, not aligned, and denominator differences. GradTrack has exactly two alignment categories: Aligned and Not Aligned; do not introduce any other category. '
         . 'Program performance must discuss every program, sample-size differences, employment rates, and alignment rates without ranking programs from raw counts. '
         . 'Yearly trend must discuss every displayed year and visible count changes while noting different cohort sample sizes. '
@@ -1059,6 +1069,45 @@ function buildFormalReportPrompt(array $reportData, array $filters): string
         . 'Salary distribution must discuss every range, valid salary responses, percentages, ties, concentration, and missing salary responses without treating missing values as zero or estimating an exact mean. '
         . 'Return valid JSON only, with exactly these string keys: overview, programPerformance, yearlyTrend, employmentStatus, salaryDistribution. '
         . 'Do not include markdown, headings inside the strings, recommendations, causal claims, or inferential claims. Payload: ' . $payload;
+}
+
+function parseSurveyReportInterpretations(string $content): ?array
+{
+    $candidate = trim($content);
+    $candidate = preg_replace('/^```(?:json)?\s*/i', '', $candidate) ?? $candidate;
+    $candidate = preg_replace('/\s*```$/', '', $candidate) ?? $candidate;
+    $decoded = json_decode($candidate, true);
+    if (!is_array($decoded)) {
+        $start = strpos($candidate, '{');
+        $end = strrpos($candidate, '}');
+        if ($start !== false && $end !== false && $end > $start) {
+            $decoded = json_decode(substr($candidate, $start, $end - $start + 1), true);
+        }
+    }
+    if (!is_array($decoded)) {
+        return null;
+    }
+
+    $interpretations = $decoded['interpretations'] ?? null;
+    return is_array($interpretations) ? $interpretations : null;
+}
+
+function buildSurveyReportPrompt(array $reportData, array $filters): string
+{
+    $tables = isset($reportData['tables']) && is_array($reportData['tables'])
+        ? array_values($reportData['tables'])
+        : [];
+    $payload = json_encode([
+        'filters' => $filters,
+        'tables' => $tables,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    return 'Create one descriptive interpretation for every supplied Survey Analytics table. '
+        . 'Use each table key exactly as supplied and analyze only that table\'s title, headers, rows, totals, notes, frequencies, percentages, and other displayed values. '
+        . 'Every interpretation must contain exactly two complete paragraphs separated by one blank line. Paragraph 1 must describe the actual data, including relevant frequencies, percentages, highest and lowest values, totals, and other important numerical findings. Paragraph 2 must add meaningful table-specific observations about patterns, comparisons, distributions, denominators, and data-supported implications without repeating Paragraph 1, using approximately 3 to 5 sentences when sufficient data are available. '
+        . 'Do not invent a value, convert missing markers into zero, infer a cause, add a recommendation, or claim statistical significance. Keep the established academic graduate-tracer style. '
+        . 'Return valid JSON only in this structure: {"interpretations":{"SUPPLIED_TABLE_KEY":"paragraph 1\\n\\nparagraph 2"}}. Include every supplied table key exactly once and no headings or markdown inside the strings. Payload: '
+        . $payload;
 }
 
 try {
@@ -1128,6 +1177,58 @@ try {
     }
 
     $reportData = normalizeDescriptiveAlignmentCategories($reportType, $reportData);
+
+    if ($reportType === 'survey_report') {
+        $filters = is_array($requestBody) && is_array($requestBody['filters'] ?? null)
+            ? $requestBody['filters']
+            : [];
+        $tables = is_array($reportData) && is_array($reportData['tables'] ?? null)
+            ? array_values($reportData['tables'])
+            : [];
+        $expectedKeys = [];
+        foreach ($tables as $table) {
+            $key = is_array($table) ? trim((string)($table['key'] ?? '')) : '';
+            if ($key === '' || in_array($key, $expectedKeys, true)) {
+                continue;
+            }
+            $expectedKeys[] = $key;
+        }
+
+        $providerResult = callGroqAnalytics(
+            graduateTracerSystemPrompt('Return valid JSON only in the exact structure requested by the user prompt.'),
+            buildSurveyReportPrompt(['tables' => $tables], $filters),
+            3600
+        );
+        $interpretations = is_string($providerResult['content'] ?? null)
+            ? parseSurveyReportInterpretations((string)$providerResult['content'])
+            : null;
+        $validatedInterpretations = [];
+        if (is_array($interpretations)) {
+            foreach ($expectedKeys as $key) {
+                if (validFormalReportInterpretation($interpretations[$key] ?? null)) {
+                    $validatedInterpretations[$key] = $interpretations[$key];
+                }
+            }
+        }
+        $providerResponded = is_string($providerResult['content'] ?? null)
+            && trim((string)$providerResult['content']) !== '';
+        if (!$providerResponded && !empty($providerResult['error'])) {
+            error_log('Survey report AI interpretation request failed: ' . (string)$providerResult['error']);
+        }
+        $complete = $expectedKeys !== [] && count($validatedInterpretations) === count($expectedKeys);
+
+        echo json_encode([
+            'success' => true,
+            'data' => [
+                'report_type' => 'survey_report',
+                'ai_model' => $providerResponded ? $providerResult['model'] : null,
+                'survey_interpretations' => $validatedInterpretations,
+                'ai_error' => $complete ? null : 'One or more AI interpretations were unavailable; use the verified local fallback for those tables.',
+            ],
+            'cached' => false,
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
 
     if ($reportType === 'formal_report') {
         $filters = is_array($requestBody) && is_array($requestBody['filters'] ?? null)

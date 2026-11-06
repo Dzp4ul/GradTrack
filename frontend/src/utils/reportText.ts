@@ -91,3 +91,7 @@ export const normalizeReportParagraphs = (
   .split(/\n{2,}/)
   .map((paragraph) => paragraph.replace(/\n+/g, ' ').trim())
   .filter(Boolean);
+
+export const hasExactlyTwoReportParagraphs = (value: unknown): boolean => (
+  normalizeReportParagraphs(value).length === 2
+);

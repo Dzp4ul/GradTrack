@@ -3,7 +3,12 @@ import JSZip from 'jszip';
 import { jsPDF } from 'jspdf';
 import { buildReportChartDefinitions } from '../src/utils/reportCharts.ts';
 import { generateGenericReportDocx } from '../src/utils/reportDocumentExport.ts';
-import { normalizeReportText } from '../src/utils/reportText.ts';
+import { normalizeReportParagraphs, normalizeReportText } from '../src/utils/reportText.ts';
+import {
+  buildSurveyInterpretationPayload,
+  buildSurveyTableFallbackInterpretations,
+  mergeValidatedSurveyTableInterpretations,
+} from '../src/utils/surveyReportInterpretations.ts';
 
 const snapshot = {
   overview: {
@@ -131,7 +136,7 @@ const documentBlob = await generateGenericReportDocx({
   keyPerformanceIndicators: [['Total Responses', 59], ['Employed', 50]],
   sections: [{
     title: 'Program Performance',
-    interpretation: 'Program-level data show variation in sample size, employment, and alignment.',
+    interpretation: 'Program-level data show variation in sample size, employment, and alignment. The displayed counts identify the largest and smallest response groups.\n\nThe comparison remains descriptive of the selected responses. Employment and alignment values use their corresponding valid denominators. Differences in raw counts do not establish program quality.',
     table: {
       headers: ['Program', 'Responses', 'Employed'],
       rows: [['BSCS', 30, 28]],
@@ -148,8 +153,75 @@ for (const requiredPart of ['[Content_Types].xml', 'word/document.xml', 'word/st
 const documentXml = await zip.file('word/document.xml').async('string');
 assert.match(documentXml, /Graduate Tracer Study Report/);
 assert.match(documentXml, /Program-level data show variation/);
+assert.match(documentXml, /The comparison remains descriptive/);
 assert.match(documentXml, /<w:tbl>/, 'DOCX tables are native editable Word tables');
 assert.doesNotMatch(documentXml, /P r o g r a m/, 'DOCX prose contains no accidental letter spacing');
+
+const surveyTables = [{
+  number: '1',
+  title: 'Distribution of Graduates and Retrieval Rate',
+  headers: [[
+    { label: 'Year Graduated' },
+    { label: 'Number of Graduates' },
+    { label: 'Retrieved Questionnaires' },
+    { label: 'Retrieval Rate Percentage (%)' },
+  ]],
+  rows: [
+    { cells: ['2024', '20', '8', '40'] },
+    { cells: ['2025', '35', '15', '42.9'] },
+    { cells: ['TOTAL/AVE', '55', '23', '41.8'], is_total: true },
+  ],
+}];
+const surveyPayload = buildSurveyInterpretationPayload(surveyTables);
+const surveyFallback = buildSurveyTableFallbackInterpretations(surveyTables);
+assert.equal(normalizeReportParagraphs(surveyFallback.table_1).length, 2, 'survey-table fallback contains exactly two paragraphs');
+const validSurveyAi = 'The table covers the 2024 and 2025 graduation years, with 20 and 35 graduates, respectively. Retrieved questionnaires increased from 8 in 2024 to 15 in 2025. The corresponding retrieval rates were 40% and 42.9%. The total row records 55 graduates and 23 retrieved questionnaires, with an average retrieval rate of 41.8%.\n\nThe displayed distribution shows that 2025 has both the larger graduate count and the larger retrieved-questionnaire count. Its retrieval rate is also higher than the rate shown for 2024. The difference between the graduate totals is larger than the difference between the two retrieval percentages. These observations describe the reported table values and remain limited to the selected survey records.';
+const mergedSurveyAi = mergeValidatedSurveyTableInterpretations(
+  { table_1: validSurveyAi },
+  surveyFallback,
+  surveyPayload,
+);
+assert.equal(mergedSurveyAi.table_1, validSurveyAi, 'grounded two-paragraph survey AI content is retained');
+const invalidSurveyAi = mergeValidatedSurveyTableInterpretations(
+  { table_1: `${validSurveyAi}\n\nA third paragraph must be rejected.` },
+  surveyFallback,
+  surveyPayload,
+);
+assert.equal(invalidSurveyAi.table_1, surveyFallback.table_1, 'survey AI content with a third paragraph uses the verified fallback');
+
+const surveyDocumentBlob = await generateGenericReportDocx({
+  metadata: {
+    title: 'Survey Analytics Report',
+    institution: 'Norzagaray College',
+    generatedAt: 'November 6, 2026',
+    departmentLabel: 'College of Computing Studies',
+    batchLabel: 'All Batches',
+    surveyLabel: 'Graduate Tracer Study Survey 2021 - 2025',
+    employmentStatusLabel: 'All',
+    programAlignmentLabel: 'All',
+    courseLabel: 'All Courses',
+  },
+  sections: Array.from({ length: 21 }, (_, index) => ({
+    title: `Table ${index + 1}. Survey Analytics Table`,
+    interpretation: `Table ${index + 1} reports the frequencies and percentages displayed for this survey section. The first paragraph preserves the table's numerical description.\n\nThe second paragraph adds a comparison of the displayed categories. It remains limited to the available table values. It does not introduce unsupported conclusions.`,
+    table: {
+      headers: ['Category', 'Frequency', 'Percentage'],
+      rows: [['Displayed category', index + 1, '100%']],
+    },
+  })),
+});
+const surveyZip = await JSZip.loadAsync(await surveyDocumentBlob.arrayBuffer());
+const surveyDocumentXml = await surveyZip.file('word/document.xml').async('string');
+assert.equal(
+  (surveyDocumentXml.match(/Descriptive Interpretation/g) ?? []).length,
+  21,
+  'Survey Analytics Word export includes one interpretation block for all 21 tables',
+);
+assert.equal(
+  (surveyDocumentXml.match(/The second paragraph adds a comparison/g) ?? []).length,
+  21,
+  'every Survey Analytics Word interpretation includes its second paragraph',
+);
 
 const pdf = new jsPDF({ compress: false });
 pdf.setFont('helvetica', 'normal');

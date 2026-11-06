@@ -1,0 +1,560 @@
+{
+  "generated_at": "2026-11-03T14:58:21.565Z",
+  "viewport": "1440x900",
+  "screenshots": [
+    {
+      "file": "02_Graduate_Portal/01_community_forum.png",
+      "group": "graduate",
+      "description": "Graduate Community Forum home",
+      "url": "http://127.0.0.1:5174/graduate/portal?tab=community_forum",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "Community Forum"
+    },
+    {
+      "file": "02_Graduate_Portal/02_community_post_composer.png",
+      "group": "graduate",
+      "description": "Community Forum post composer",
+      "url": "http://127.0.0.1:5174/graduate/portal?tab=community_forum",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "Community Forum"
+    },
+    {
+      "file": "02_Graduate_Portal/03_announcements.png",
+      "group": "graduate",
+      "description": "Graduate announcements module",
+      "url": "http://127.0.0.1:5174/graduate/portal?tab=announcements",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "Announcements"
+    },
+    {
+      "file": "02_Graduate_Portal/04_direct_and_group_messages.png",
+      "group": "graduate",
+      "description": "Graduate direct and group messaging workspace",
+      "url": "http://127.0.0.1:5174/graduate/portal?tab=messages",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "Messages"
+    },
+    {
+      "file": "02_Graduate_Portal/05_browse_jobs.png",
+      "group": "graduate",
+      "description": "Graduate job opportunity browsing and filters",
+      "url": "http://127.0.0.1:5174/graduate/portal?tab=jobs",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "Browse Jobs"
+    },
+    {
+      "file": "02_Graduate_Portal/06_job_opportunity_details.png",
+      "group": "graduate",
+      "description": "Graduate job opportunity details and application guidance",
+      "url": "http://127.0.0.1:5174/graduate/portal?tab=jobs",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "Browse Jobs"
+    },
+    {
+      "file": "02_Graduate_Portal/07_saved_jobs.png",
+      "group": "graduate",
+      "description": "Graduate saved job opportunities",
+      "url": "http://127.0.0.1:5174/graduate/portal?tab=saved_jobs",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "Saved Jobs"
+    },
+    {
+      "file": "02_Graduate_Portal/08_my_job_posts.png",
+      "group": "graduate",
+      "description": "Graduate job-posting module",
+      "url": "http://127.0.0.1:5174/graduate/portal?tab=job_posting",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "Job Posting"
+    },
+    {
+      "file": "02_Graduate_Portal/09_create_job_post_form.png",
+      "group": "graduate",
+      "description": "Graduate Create Job Post form",
+      "url": "http://127.0.0.1:5174/graduate/portal?tab=job_posting",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "Job Posting"
+    },
+    {
+      "file": "02_Graduate_Portal/10_profile_and_credentials.png",
+      "group": "graduate",
+      "description": "Graduate profile, career information, and credentials",
+      "url": "http://127.0.0.1:5174/graduate/portal?tab=my_profile",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "My Profile"
+    },
+    {
+      "file": "02_Graduate_Portal/11_add_professional_credential.png",
+      "group": "graduate",
+      "description": "Professional credential upload form",
+      "url": "http://127.0.0.1:5174/graduate/portal?tab=my_profile",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "My Profile"
+    },
+    {
+      "file": "02_Graduate_Portal/12_profile_settings.png",
+      "group": "graduate",
+      "description": "Graduate profile and account settings",
+      "url": "http://127.0.0.1:5174/graduate/portal?tab=settings&section=basic",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "Settings"
+    },
+    {
+      "file": "02_Graduate_Portal/13_notifications_panel.png",
+      "group": "graduate",
+      "description": "Graduate notification panel",
+      "url": "http://127.0.0.1:5174/graduate/portal?tab=settings&section=basic",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "Settings"
+    },
+    {
+      "file": "06_Alumni_President/01_alumni_verification_updated_view_details_action.png",
+      "group": "alumni",
+      "description": "Alumni account verification table showing the updated View Details eye icon and action",
+      "url": "http://127.0.0.1:5174/admin/alumni-registered-list",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "06_Alumni_President/02_account_verification_details.png",
+      "group": "alumni",
+      "description": "Graduate account details for Alumni President review",
+      "url": "http://127.0.0.1:5174/admin/alumni-registered-list",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "06_Alumni_President/03_membership_management.png",
+      "group": "alumni",
+      "description": "Alumni membership information and branding management",
+      "url": "http://127.0.0.1:5174/admin/alumni-membership-page",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "06_Alumni_President/04_announcements.png",
+      "group": "alumni",
+      "description": "Alumni President Announcement Manager",
+      "url": "http://127.0.0.1:5174/admin/announcements",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "06_Alumni_President/05_create_announcement.png",
+      "group": "alumni",
+      "description": "Create Announcement form",
+      "url": "http://127.0.0.1:5174/admin/announcements",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "06_Alumni_President/06_forum_moderation.png",
+      "group": "alumni",
+      "description": "Reported forum content moderation",
+      "url": "http://127.0.0.1:5174/admin/forum-moderation",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "06_Alumni_President/07_staff_job_postings.png",
+      "group": "alumni",
+      "description": "Alumni President staff job-posting management",
+      "url": "http://127.0.0.1:5174/admin/job-postings",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "06_Alumni_President/08_graduate_job_approval.png",
+      "group": "alumni",
+      "description": "Graduate-submitted job approval queue",
+      "url": "http://127.0.0.1:5174/admin/job-approvals",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "07_Admin/01_user_management.png",
+      "group": "admin",
+      "description": "Admin personnel account and role management",
+      "url": "http://127.0.0.1:5174/admin/user-management",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "07_Admin/02_add_user_form.png",
+      "group": "admin",
+      "description": "Admin Add User form and role selection",
+      "url": "http://127.0.0.1:5174/admin/user-management",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "07_Admin/03_auto_email_reminders.png",
+      "group": "admin",
+      "description": "Automated survey-reminder configuration and delivery log",
+      "url": "http://127.0.0.1:5174/admin/auto-reminders",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "07_Admin/04_audit_trail.png",
+      "group": "admin",
+      "description": "Audit trail, filters, and event details",
+      "url": "http://127.0.0.1:5174/admin/audit-trail",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "07_Admin/05_database_backup.png",
+      "group": "admin",
+      "description": "Database backup status and download control",
+      "url": "http://127.0.0.1:5174/admin/backup-database",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "07_Admin/06_system_settings.png",
+      "group": "admin",
+      "description": "System settings general configuration",
+      "url": "http://127.0.0.1:5174/admin/system-settings",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "07_Admin/07_branding_settings.png",
+      "group": "admin",
+      "description": "Current GradTrack logo and branding configuration",
+      "url": "http://127.0.0.1:5174/admin/system-settings",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "07_Admin/08_personnel_profile.png",
+      "group": "admin",
+      "description": "Admin personnel profile and password controls",
+      "url": "http://127.0.0.1:5174/admin/profile",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "07_Admin/09_ai_assistant.png",
+      "group": "admin",
+      "description": "Admin role-scoped GradTrack AI Assistant",
+      "url": "http://127.0.0.1:5174/admin/profile",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "05_Registrar/01_manage_graduates.png",
+      "group": "registrar",
+      "description": "Registrar graduate-record management table",
+      "url": "http://127.0.0.1:5174/admin/graduates",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "05_Registrar/02_search_and_filters.png",
+      "group": "registrar",
+      "description": "Registrar program and graduation-year filters",
+      "url": "http://127.0.0.1:5174/admin/graduates",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "05_Registrar/03_add_graduate_form.png",
+      "group": "registrar",
+      "description": "Registrar Add Graduate form",
+      "url": "http://127.0.0.1:5174/admin/graduates",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "05_Registrar/04_import_excel_control.png",
+      "group": "registrar",
+      "description": "Registrar Excel import control and read-only graduate record table with no row-level edit actions",
+      "url": "http://127.0.0.1:5174/admin/graduates",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "05_Registrar/05_archive_records.png",
+      "group": "registrar",
+      "description": "Registrar archived graduate records; the current interface does not provide restore or edit actions",
+      "url": "http://127.0.0.1:5174/admin/graduates",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "05_Registrar/06_personnel_profile.png",
+      "group": "registrar",
+      "description": "Registrar personnel profile",
+      "url": "http://127.0.0.1:5174/admin/profile",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "01_Public_and_Access/01_public_home.png",
+      "group": "public",
+      "description": "GradTrack public home page and current branding",
+      "url": "http://127.0.0.1:5174/",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "01_Public_and_Access/02_public_announcements.png",
+      "group": "public",
+      "description": "Public announcements page",
+      "url": "http://127.0.0.1:5174/announcements",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "01_Public_and_Access/03_about_gradtrack.png",
+      "group": "public",
+      "description": "About GradTrack public page",
+      "url": "http://127.0.0.1:5174/about",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "01_Public_and_Access/04_frequently_asked_questions.png",
+      "group": "public",
+      "description": "Frequently asked questions page",
+      "url": "http://127.0.0.1:5174/faq",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "01_Public_and_Access/05_privacy_policy.png",
+      "group": "public",
+      "description": "Public privacy policy page",
+      "url": "http://127.0.0.1:5174/privacy-policy",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "01_Public_and_Access/06_alumni_membership_information.png",
+      "group": "public",
+      "description": "Public alumni membership information page",
+      "url": "http://127.0.0.1:5174/alumni/registered-information",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "01_Public_and_Access/07_alumni_membership_registration.png",
+      "group": "public",
+      "description": "Alumni membership registration information and current branding",
+      "url": "http://127.0.0.1:5174/alumni/membership-information",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "01_Public_and_Access/08_personnel_sign_in.png",
+      "group": "public",
+      "description": "Personnel sign-in page",
+      "url": "http://127.0.0.1:5174/admin/signin",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "Sign In"
+    },
+    {
+      "file": "01_Public_and_Access/09_graduate_portal_login.png",
+      "group": "public",
+      "description": "Graduate Portal login page",
+      "url": "http://127.0.0.1:5174/graduate/signin",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "Graduate Portal"
+    },
+    {
+      "file": "01_Public_and_Access/10_graduate_identity_verification.png",
+      "group": "public",
+      "description": "Graduate identity verification with safe local documentation data",
+      "url": "http://127.0.0.1:5174/survey-verify",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "Graduate Tracer Survey"
+    },
+    {
+      "file": "01_Public_and_Access/11_data_privacy_consent.png",
+      "group": "public",
+      "description": "Data Privacy Notice and informed-consent screen",
+      "url": "http://127.0.0.1:5174/survey?survey_id=86",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "Data Privacy Notice & Informed Consent"
+    },
+    {
+      "file": "01_Public_and_Access/12_tracer_survey_first_section.png",
+      "group": "public",
+      "description": "Graduate Tracer Survey first section after consent",
+      "url": "http://127.0.0.1:5174/survey?survey_id=86",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack Survey"
+    },
+    {
+      "file": "01_Public_and_Access/13_survey_review.png",
+      "group": "public",
+      "description": "Graduate Tracer Survey review screen before final submission",
+      "url": "http://127.0.0.1:5174/survey?survey_id=86",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack Survey"
+    },
+    {
+      "file": "01_Public_and_Access/14_survey_submission_success.png",
+      "group": "public",
+      "description": "Survey completion screen with alumni-membership and GradTrack account choices",
+      "url": "http://127.0.0.1:5174/survey?survey_id=86",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack Survey"
+    },
+    {
+      "file": "01_Public_and_Access/15_graduate_portal_account_registration.png",
+      "group": "public",
+      "description": "Graduate Portal account registration form after survey completion",
+      "url": "http://127.0.0.1:5174/survey-verify?resume=graduate-account&step=create-account",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "Create Graduate Portal Account"
+    },
+    {
+      "file": "03_Research_Coordinator/01_dashboard.png",
+      "group": "research",
+      "description": "Research Coordinator dashboard",
+      "url": "http://127.0.0.1:5174/admin",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "03_Research_Coordinator/02_graduate_survey_participation.png",
+      "group": "research",
+      "description": "Graduate survey participation records and reminders",
+      "url": "http://127.0.0.1:5174/admin/graduates",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "03_Research_Coordinator/03_survey_management.png",
+      "group": "research",
+      "description": "Survey lifecycle and management page",
+      "url": "http://127.0.0.1:5174/admin/surveys",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "03_Research_Coordinator/04_edit_survey.png",
+      "group": "research",
+      "description": "Edit Survey form and live question controls",
+      "url": "http://127.0.0.1:5174/admin/surveys",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "03_Research_Coordinator/05_response_monitoring.png",
+      "group": "research",
+      "description": "Survey response monitoring and analytics",
+      "url": "http://127.0.0.1:5174/admin/surveys/161/analytics",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "03_Research_Coordinator/06_reports_overview.png",
+      "group": "research",
+      "description": "Research reports, filters, charts, and exports",
+      "url": "http://127.0.0.1:5174/admin/reports",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "03_Research_Coordinator/07_descriptive_analysis.png",
+      "group": "research",
+      "description": "Question-level descriptive survey analytics",
+      "url": "http://127.0.0.1:5174/admin/reports",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "03_Research_Coordinator/08_inferential_analysis.png",
+      "group": "research",
+      "description": "Inferential analysis controls and results area",
+      "url": "http://127.0.0.1:5174/admin/reports",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "03_Research_Coordinator/09_job_postings.png",
+      "group": "research",
+      "description": "Research Coordinator job-posting management",
+      "url": "http://127.0.0.1:5174/admin/job-postings",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "03_Research_Coordinator/10_ai_assistant.png",
+      "group": "research",
+      "description": "Role-scoped GradTrack AI Assistant",
+      "url": "http://127.0.0.1:5174/admin/job-postings",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "04_Dean/01_department_dashboard.png",
+      "group": "dean",
+      "description": "CCS Dean dashboard with department-scoped data",
+      "url": "http://127.0.0.1:5174/admin",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "04_Dean/02_survey_participation.png",
+      "group": "dean",
+      "description": "Dean survey participation within assigned programs",
+      "url": "http://127.0.0.1:5174/admin/survey-status",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "04_Dean/03_reports_and_analytics.png",
+      "group": "dean",
+      "description": "Dean reports and analytics with restricted program scope",
+      "url": "http://127.0.0.1:5174/admin/reports",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "04_Dean/04_job_postings.png",
+      "group": "dean",
+      "description": "Dean authorized job-posting management",
+      "url": "http://127.0.0.1:5174/admin/job-postings",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "04_Dean/05_personnel_profile.png",
+      "group": "dean",
+      "description": "Dean personnel profile",
+      "url": "http://127.0.0.1:5174/admin/profile",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "04_Dean/06_ai_assistant.png",
+      "group": "dean",
+      "description": "Dean role-scoped GradTrack AI Assistant",
+      "url": "http://127.0.0.1:5174/admin/profile",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "08_MIS_Staff/01_dashboard.png",
+      "group": "mis",
+      "description": "MIS Staff dashboard",
+      "url": "http://127.0.0.1:5174/admin",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    },
+    {
+      "file": "08_MIS_Staff/02_personnel_profile.png",
+      "group": "mis",
+      "description": "MIS Staff personnel profile",
+      "url": "http://127.0.0.1:5174/admin/profile",
+      "page_title": "GradTrack | Norzagaray College",
+      "heading": "GradTrack"
+    }
+  ],
+  "console_errors": [],
+  "source": "http://127.0.0.1:5174"
+}

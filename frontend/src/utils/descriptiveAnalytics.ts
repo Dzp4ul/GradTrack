@@ -1,4 +1,8 @@
-import { hasBrokenReportText, normalizeReportText } from './reportText.ts';
+import {
+  hasBrokenReportText,
+  hasExactlyTwoReportParagraphs,
+  normalizeReportText,
+} from './reportText.ts';
 
 export type DescriptiveSectionKey =
   | 'overview'
@@ -310,21 +314,25 @@ const buildOverviewPdfInterpretation = (snapshot: DescriptiveAnalyticsSnapshot):
   const overview = snapshot.overview;
   const counts = getOverviewCounts(overview);
   if (counts.total === 0) {
-    return 'The selected filters contain no traced graduate responses. Employment, work-location, and course-alignment percentages are therefore not available for this section.';
+    return joinedParagraphs(
+      'The selected filters contain no traced graduate responses. Employment, work-location, and course-alignment frequencies or percentages are therefore not available for this section.',
+      'Because no report data are present, the section does not support comparisons, distributional patterns, or further numerical implications. The interpretation remains limited to the absence of responses under the current filters.',
+    );
   }
 
   return joinedParagraphs(
     `The overview contains ${counts.total} traced graduate responses. Employment status is known for ${counts.employmentKnown} respondents, of whom ${counts.employed} are employed and ${counts.unemployed} are unemployed. This produces an employment rate of ${formatRate(overview?.employment_rate, counts.employed, counts.employmentKnown)} and an unemployment rate of ${formatPercentage(counts.unemployed, counts.employmentKnown)}, both calculated from respondents with a known employment status.${counts.employmentUnknown > 0 ? ` The ${counts.employmentUnknown} unclassified responses are excluded from these rates.` : ''}`,
-    `Among the ${counts.employed} employed respondents, ${counts.local} work locally and ${counts.abroad} work abroad. Local employment therefore accounts for ${formatPercentage(counts.local, counts.employed)} of employed respondents, while overseas employment accounts for ${formatPercentage(counts.abroad, counts.employed)}.${counts.locationUnknown > 0 ? ` A further ${counts.locationUnknown} employed respondents have no classified work location, which explains why these shares do not total 100.0%.` : ' The local and abroad categories account for all employed respondents in this selection.'}`,
-    `Course alignment is valid for ${counts.alignmentKnown} employed respondents: ${counts.aligned} are aligned and ${counts.notAligned} are not aligned. The alignment rate is ${formatPercentage(counts.aligned, counts.alignmentKnown)}, using aligned plus not-aligned responses as the valid denominator. This denominator differs from the overall response count because alignment applies only to employed graduates who supplied a classifiable answer.`,
-    `Overall, the observed distribution shows that employed respondents form the larger employment-status group and local work is the largest classified work-location category. The alignment results indicate how many applicable respondents report work connected to their academic preparation; these descriptive counts and percentages do not establish causes or statistical significance.`,
+    `Among the ${counts.employed} employed respondents, ${counts.local} work locally and ${counts.abroad} work abroad. Local employment accounts for ${formatPercentage(counts.local, counts.employed)} of employed respondents, while overseas employment accounts for ${formatPercentage(counts.abroad, counts.employed)}.${counts.locationUnknown > 0 ? ` A further ${counts.locationUnknown} employed respondents have no classified work location, which explains why these shares do not total 100.0%.` : ' The local and abroad categories account for all employed respondents in this selection.'} Course alignment is valid for ${counts.alignmentKnown} employed respondents: ${counts.aligned} are aligned and ${counts.notAligned} are not aligned, producing an alignment rate of ${formatPercentage(counts.aligned, counts.alignmentKnown)}. Overall, employed respondents form the larger employment-status group and local work is the largest classified work-location category, while the alignment results remain descriptive of applicable responses and do not establish causes or statistical significance.`,
   );
 };
 
 const buildProgramPdfInterpretation = (snapshot: DescriptiveAnalyticsSnapshot): string => {
   const rows = snapshot.programPerformance.map(programMetrics).filter((row) => row.total > 0);
   if (rows.length === 0) {
-    return 'No program-level responses are available for the selected filters, so program totals, employment rates, and alignment rates cannot be described.';
+    return joinedParagraphs(
+      'No program-level responses are available for the selected filters, so program totals, employment frequencies, and alignment rates cannot be described.',
+      'Without program rows, there is no supported basis for identifying the largest or smallest sample, comparing distributions, or discussing differences in valid denominators. Any broader program-level conclusion would therefore go beyond the available report data.',
+    );
   }
 
   const totalResponses = rows.reduce((sum, row) => sum + row.total, 0);
@@ -336,8 +344,7 @@ const buildProgramPdfInterpretation = (snapshot: DescriptiveAnalyticsSnapshot): 
   )).join(' ');
 
   return joinedParagraphs(
-    `The program chart represents ${totalResponses} responses across ${rows.length} ${rows.length === 1 ? 'program' : 'programs'}. ${largest.label} has the largest observed sample (${largest.total})${largest.label !== smallest.label ? `, whereas ${smallest.label} has the smallest (${smallest.total})` : ''}. Because program sample sizes differ, raw employment and alignment counts describe where responses are concentrated and are not performance rankings.`,
-    rowDetails,
+    `The program chart represents ${totalResponses} responses across ${rows.length} ${rows.length === 1 ? 'program' : 'programs'}. ${largest.label} has the largest observed sample (${largest.total})${largest.label !== smallest.label ? `, whereas ${smallest.label} has the smallest (${smallest.total})` : ''}. Because program sample sizes differ, raw employment and alignment counts describe where responses are concentrated and are not performance rankings. ${rowDetails}`,
     `${largestEmployed.label} has the largest employed count (${largestEmployed.employed}) in the displayed data. This count should be interpreted with its program denominator and employment rate, since a program with more respondents can also produce a larger employed count. Alignment rates likewise use each program's valid alignment responses rather than its full response count.`,
   );
 };
@@ -345,7 +352,10 @@ const buildProgramPdfInterpretation = (snapshot: DescriptiveAnalyticsSnapshot): 
 const buildYearlyPdfInterpretation = (snapshot: DescriptiveAnalyticsSnapshot): string => {
   const rows = snapshot.yearlyTrend.map(yearMetrics).filter((row) => row.total > 0);
   if (rows.length === 0) {
-    return 'No graduation-year rows are available for the selected filters, so a yearly employment trend cannot be described.';
+    return joinedParagraphs(
+      'No graduation-year rows are available for the selected filters, so yearly response totals, employment frequencies, and alignment percentages cannot be described.',
+      'The absence of cohort rows means that no highest or lowest year, increase, decrease, or distributional pattern is supported by this selection. A yearly interpretation would require at least one displayed graduation-year record.',
+    );
   }
 
   const totalResponses = rows.reduce((sum, row) => sum + row.total, 0);
@@ -364,8 +374,7 @@ const buildYearlyPdfInterpretation = (snapshot: DescriptiveAnalyticsSnapshot): s
     : 'Only one graduation year is displayed, so an increase or decrease across years cannot be assessed';
 
   return joinedParagraphs(
-    `The yearly chart covers ${rows.length} graduation ${rows.length === 1 ? 'year' : 'years'} and ${totalResponses} responses. The observed counts vary across graduation years, with the highest employed count in ${highestEmployed.year} (${highestEmployed.employed}) and the lowest in ${lowestEmployed.year} (${lowestEmployed.employed}).`,
-    details,
+    `The yearly chart covers ${rows.length} graduation ${rows.length === 1 ? 'year' : 'years'} and ${totalResponses} responses. The observed counts vary across graduation years, with the highest employed count in ${highestEmployed.year} (${highestEmployed.employed}) and the lowest in ${lowestEmployed.year} (${lowestEmployed.employed}). ${details}`,
     `${movement}. These changes are descriptive only. Response totals differ by year, so raw count changes should be considered together with each year's employment rate and should not be interpreted as causal evidence or as a direct ranking of cohort employability.`,
   );
 };
@@ -374,13 +383,15 @@ const buildEmploymentPdfInterpretation = (snapshot: DescriptiveAnalyticsSnapshot
   const counts = getStatusCounts(snapshot);
   const knownEmployment = counts.employmentKnown || counts.employed + counts.unemployed;
   if (knownEmployment === 0) {
-    return 'No respondents have a known employment classification under the selected filters. Local employment, overseas employment, and unemployment percentages are therefore not available.';
+    return joinedParagraphs(
+      'No respondents have a known employment classification under the selected filters. Local employment, overseas employment, and unemployment frequencies or percentages are therefore not available.',
+      'Because the employment denominator is empty, the report cannot identify a dominant status or compare work-location categories. The section supports no additional employment pattern beyond the absence of classified responses.',
+    );
   }
 
   return joinedParagraphs(
     `The employment-status analysis includes ${knownEmployment} respondents with a known employment classification. Of these, ${counts.employed} are employed and ${counts.unemployed} are unemployed, corresponding to ${formatPercentage(counts.employed, knownEmployment)} employed and ${formatPercentage(counts.unemployed, knownEmployment)} unemployed. The known-employment denominator excludes ${counts.employmentUnknown} responses whose status could not be classified.`,
-    `Within the employed group, ${counts.local} respondents work locally and ${counts.abroad} work abroad. Local employment represents ${formatPercentage(counts.local, counts.employed)} of all employed respondents, while employment abroad represents ${formatPercentage(counts.abroad, counts.employed)}. These work-location shares use employed respondents as the denominator, whereas the unemployment percentage uses all respondents with known employment status.`,
-    `${counts.local >= counts.abroad ? 'Local employment is the largest classified work-location category' : 'Employment abroad is the largest classified work-location category'} in the selected data.${counts.locationUnknown > 0 ? ` Work location is unknown for ${counts.locationUnknown} employed respondents; they remain in the employed denominator but are not assigned to local or abroad.` : ' Every employed respondent has a classified local or abroad work location.'} The distribution describes the observed categories and does not explain why respondents work locally, abroad, or remain unemployed.`,
+    `Within the employed group, ${counts.local} respondents work locally and ${counts.abroad} work abroad. Local employment represents ${formatPercentage(counts.local, counts.employed)} of all employed respondents, while employment abroad represents ${formatPercentage(counts.abroad, counts.employed)}. These work-location shares use employed respondents as the denominator, whereas the unemployment percentage uses all respondents with known employment status. ${counts.local >= counts.abroad ? 'Local employment is the largest classified work-location category' : 'Employment abroad is the largest classified work-location category'} in the selected data.${counts.locationUnknown > 0 ? ` Work location is unknown for ${counts.locationUnknown} employed respondents; they remain in the employed denominator but are not assigned to local or abroad.` : ' Every employed respondent has a classified local or abroad work location.'} The distribution describes the observed categories and does not explain why respondents work locally, abroad, or remain unemployed.`,
   );
 };
 
@@ -393,9 +404,13 @@ const buildSalaryPdfInterpretation = (snapshot: DescriptiveAnalyticsSnapshot): s
   const totalResponses = getOverviewCounts(snapshot.overview).total;
   const hasComparableResponseTotal = totalResponses >= validSalaryResponses && totalResponses > 0;
   if (validSalaryResponses === 0) {
-    return totalResponses > 0
+    const dataStatement = totalResponses > 0
       ? `None of the ${totalResponses} selected graduate responses contains a classifiable salary-range answer. Salary percentages and a modal range are therefore not available; missing salary information is not treated as ₱0.`
       : 'No classifiable salary-range responses are available for the selected filters. Salary percentages and a modal range are therefore not available; missing salary information is not treated as ₱0.';
+    return joinedParagraphs(
+      dataStatement,
+      'Because no valid grouped salary response is present, the report cannot identify a highest or lowest bracket, a concentration pattern, or a distribution across ranges. Any salary comparison or estimate would exceed the available data.',
+    );
   }
 
   const largestCount = Math.max(...rows.map((row) => row.count));
@@ -408,10 +423,9 @@ const buildSalaryPdfInterpretation = (snapshot: DescriptiveAnalyticsSnapshot): s
   )).join('; ');
 
   return joinedParagraphs(
-    hasComparableResponseTotal
+    `${hasComparableResponseTotal
       ? `Salary analysis is based on ${validSalaryResponses} valid grouped salary responses from ${totalResponses} selected graduate responses. ${Number(missing) > 0 ? `${missing} responses do not contribute a classifiable salary range and are excluded from every salary percentage.` : 'Every selected response contributes a valid salary range.'} Missing responses are not interpreted as zero salary.`
-      : `Salary analysis is based on ${validSalaryResponses} valid grouped salary responses. The overall selected-response total was not supplied with this salary-only view, so the number of missing salary responses cannot be calculated here. Missing responses are not interpreted as zero salary.`,
-    `The distribution is as follows: ${details}.`,
+      : `Salary analysis is based on ${validSalaryResponses} valid grouped salary responses. The overall selected-response total was not supplied with this salary-only view, so the number of missing salary responses cannot be calculated here. Missing responses are not interpreted as zero salary.`} The distribution is as follows: ${details}.`,
     `${largest.length > 1 ? `The highest observed count is tied across ${largest.join(', ')} at ${largestCount} responses each.` : `${largest[0]} is the most common reported range, with ${largestCount} responses.`} ${smallest.length > 1 ? `The smallest count is shared by ${smallest.join(', ')} at ${smallestCount} responses each.` : `${smallest[0]} has the smallest observed count (${smallestCount}).`} These grouped categories show where valid responses are concentrated; they do not support an exact mean salary unless midpoint estimation is explicitly performed and labelled as an estimate.`,
   );
 };
@@ -516,6 +530,7 @@ export const isValidAiInterpretation = (
       : getOverviewCounts(snapshot.overview).total >= 10;
   if (
     words < (hasSubstantialData ? 80 : 35)
+    || !hasExactlyTwoReportParagraphs(text)
     || forbiddenInference.test(text)
     || invalidOutputToken.test(text)
     || hasBrokenReportText(text)

@@ -12,7 +12,10 @@ import { normalizeGraduationYears } from '../../utils/graduationYears';
 import { PROGRAM_COLORS } from '../../config/programColors';
 import { useAuth } from '../../contexts/AuthContext';
 import AIStatisticalInterpretation from '../../components/reports/AIStatisticalInterpretation';
-import type { StatisticalInterpretationContext } from '../../services/analyticsAiService';
+import {
+  getStatisticalInterpretation,
+  type StatisticalInterpretationContext,
+} from '../../services/analyticsAiService';
 import {
   analyticsFingerprint,
   buildPdfInterpretations,
@@ -34,7 +37,14 @@ import {
   reportChartsBySection,
   type ReportChartDefinition,
 } from '../../utils/reportCharts';
-import { normalizeReportText } from '../../utils/reportText';
+import { normalizeReportParagraphs, normalizeReportText } from '../../utils/reportText';
+import {
+  buildSurveyInterpretationPayload,
+  buildSurveyTableFallbackInterpretations,
+  mergeValidatedSurveyTableInterpretations,
+  surveyTableInterpretationKey,
+  type SurveyTableInterpretations,
+} from '../../utils/surveyReportInterpretations';
 
 const API_BASE = API_ROOT;
 
@@ -869,6 +879,7 @@ export default function Reports() {
   const aiCacheRef = useRef<Record<string, AiAnalyticsCacheEntry>>({});
   const aiRequestCacheRef = useRef<Record<string, Promise<AiAnalyticsCacheEntry>>>({});
   const pdfInterpretationCacheRef = useRef<Record<string, PdfInterpretations>>({});
+  const surveyInterpretationCacheRef = useRef<Record<string, SurveyTableInterpretations>>({});
   const surveyAnalyticsCacheRef = useRef<Record<string, SurveyAnalyticsData>>({});
   const activeReportLoadKeyRef = useRef<string | null>(null);
   const surveyAnalyticsRequestKeyRef = useRef<string | null>(null);
@@ -2004,12 +2015,97 @@ export default function Reports() {
       : selectedYear === 'all' ? 'All Batches' : selectedYear
   );
 
+  const resolveSurveyReportInterpretations = async (
+    analytics: SurveyAnalyticsData,
+  ): Promise<SurveyTableInterpretations> => {
+    const tables = analytics.report_tables ?? [];
+    if (tables.length === 0) return {};
+
+    const payloadTables = buildSurveyInterpretationPayload(tables);
+    const fallbackInterpretations = buildSurveyTableFallbackInterpretations(tables);
+    const cacheKey = analyticsFingerprint({
+      surveyId: analytics.survey_id,
+      department: getReportScopeLabel(),
+      batch: getBatchLabel(),
+      tables: payloadTables,
+    });
+    const cached = surveyInterpretationCacheRef.current[cacheKey];
+    if (cached) return cached;
+
+    const interpretations = { ...fallbackInterpretations };
+    const validatedAiKeys = new Set<string>();
+    const params = new URLSearchParams({ type: 'survey_report' });
+    params.set('survey_id', analytics.survey_id.toString());
+    if (selectedYear !== 'all') params.set('year', selectedYear);
+    if (!isDean && selectedSurveyDepartment !== 'all') params.set('department', selectedSurveyDepartment);
+    const tableBatches: typeof payloadTables[] = [];
+    for (let offset = 0; offset < payloadTables.length; offset += 7) {
+      tableBatches.push(payloadTables.slice(offset, offset + 7));
+    }
+
+    const requestTableBatch = async (tableBatch: typeof payloadTables): Promise<void> => {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 45000);
+      try {
+        const response = await fetch(`${API_BASE}/reports/ai-analytics.php?${params.toString()}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          signal: controller.signal,
+          body: JSON.stringify({
+            report_data: { tables: tableBatch },
+            filters: {
+              department: getReportScopeLabel(),
+              batch: getBatchLabel(),
+              survey: analytics.survey_title,
+            },
+          }),
+        });
+        const result = await response.json().catch(() => null);
+        if (response.ok && result?.success && result.data?.ai_model && result.data?.survey_interpretations) {
+          const merged = mergeValidatedSurveyTableInterpretations(
+            result.data.survey_interpretations,
+            fallbackInterpretations,
+            tableBatch,
+          );
+          Object.assign(interpretations, merged);
+          tableBatch.forEach((table) => {
+            if (merged[table.key] !== fallbackInterpretations[table.key]) {
+              validatedAiKeys.add(table.key);
+            }
+          });
+        }
+      } catch (error) {
+        console.warn('Using verified local survey-table interpretations for one export batch:', error);
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+    };
+
+    for (const tableBatch of tableBatches) {
+      await requestTableBatch(tableBatch);
+    }
+
+    const missingTables = payloadTables.filter((table) => !validatedAiKeys.has(table.key));
+    for (const table of missingTables) {
+      await requestTableBatch([table]);
+    }
+
+    const normalized = Object.keys(interpretations).reduce<SurveyTableInterpretations>((result, key) => {
+      result[key] = normalizeReportText(interpretations[key]);
+      return result;
+    }, {});
+    surveyInterpretationCacheRef.current[cacheKey] = normalized;
+    return normalized;
+  };
+
   const handleSurveyExcelExport = async () => {
     if (!surveyAnalytics) {
       return;
     }
 
     const generatedAt = new Date();
+    const interpretations = await resolveSurveyReportInterpretations(surveyAnalytics);
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'GradTrack';
     workbook.created = generatedAt;
@@ -2024,7 +2120,12 @@ export default function Reports() {
 
     if (surveyAnalytics.report_tables && surveyAnalytics.report_tables.length > 0) {
       surveyAnalytics.report_tables.forEach((table, index) => {
-        addSurveyReportTableWorksheet(workbook, table, index);
+        addSurveyReportTableWorksheet(
+          workbook,
+          table,
+          index,
+          interpretations[surveyTableInterpretationKey(index)],
+        );
       });
     } else {
       addSurveyQuestionExportWorksheet(workbook, surveyAnalytics);
@@ -2051,6 +2152,7 @@ export default function Reports() {
     }
 
     const generatedAt = new Date();
+    const interpretations = await resolveSurveyReportInterpretations(surveyAnalytics);
     const pdf = new jsPDF('l', 'pt', 'a4');
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
@@ -2068,6 +2170,61 @@ export default function Reports() {
       pdf.setFontSize(9);
       pdf.text(subtitle || surveyAnalytics.survey_title, marginLeft, 42);
       pdf.setTextColor(45, 45, 45);
+    };
+
+    const writeSurveyInterpretation = (
+      text: string,
+      startY: number,
+      sectionTitle: string,
+      tableTitle: string,
+      note?: string,
+    ) => {
+      const contentBottom = pageHeight - 34;
+      const lineHeight = 11;
+      let y = startY;
+      const addContinuationPage = () => {
+        pdf.addPage();
+        drawSurveyPdfHeader(sectionTitle, tableTitle);
+        y = 78;
+      };
+
+      if (note) {
+        pdf.setFont('times', 'italic');
+        pdf.setFontSize(8);
+        const noteLines = pdf.splitTextToSize(normalizeReportText(note, { peso: 'php' }), pageWidth - marginLeft * 2) as string[];
+        noteLines.forEach((line) => {
+          if (y + lineHeight > contentBottom) addContinuationPage();
+          pdf.text(line, marginLeft, y);
+          y += lineHeight;
+        });
+        y += 5;
+      }
+
+      if (y + 32 > contentBottom) addContinuationPage();
+      pdf.setFont('times', 'bold');
+      pdf.setFontSize(10);
+      pdf.setTextColor(27, 42, 74);
+      pdf.text('Descriptive Interpretation', marginLeft, y);
+      y += 15;
+
+      const paragraphs = normalizeReportParagraphs(text, { peso: 'php' });
+      pdf.setFont('times', 'normal');
+      pdf.setFontSize(9);
+      pdf.setTextColor(45, 45, 45);
+      paragraphs.forEach((paragraph, paragraphIndex) => {
+        const lines = pdf.splitTextToSize(paragraph, pageWidth - marginLeft * 2) as string[];
+        lines.forEach((line) => {
+          if (y + lineHeight > contentBottom) {
+            addContinuationPage();
+            pdf.setFont('times', 'normal');
+            pdf.setFontSize(9);
+            pdf.setTextColor(45, 45, 45);
+          }
+          pdf.text(line, marginLeft, y);
+          y += lineHeight;
+        });
+        if (paragraphIndex < paragraphs.length - 1) y += 7;
+      });
     };
 
     drawSurveyPdfHeader('Survey Analytics Report');
@@ -2095,7 +2252,7 @@ export default function Reports() {
     });
 
     if (surveyAnalytics.report_tables && surveyAnalytics.report_tables.length > 0) {
-      surveyAnalytics.report_tables.forEach((table) => {
+      surveyAnalytics.report_tables.forEach((table, index) => {
         pdf.addPage();
         const tableTitle = `Table ${table.number}. ${table.title}`;
         drawSurveyPdfHeader(table.section_title || 'Survey Analytics', tableTitle);
@@ -2125,14 +2282,14 @@ export default function Reports() {
           },
         });
 
-        if (table.note) {
-          const finalY = ((pdf as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 88) + 14;
-          if (finalY < pageHeight - 30) {
-            pdf.setFont('times', 'italic');
-            pdf.setFontSize(8);
-            pdf.text(table.note, marginLeft, finalY);
-          }
-        }
+        const finalY = ((pdf as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 88) + 14;
+        writeSurveyInterpretation(
+          interpretations[surveyTableInterpretationKey(index)],
+          finalY,
+          table.section_title || 'Survey Analytics',
+          tableTitle,
+          table.note,
+        );
       });
     } else {
       pdf.addPage();
@@ -2367,6 +2524,28 @@ export default function Reports() {
     return normalized;
   };
 
+  const resolveInferentialExportInterpretation = async (
+    result: InferentialAnalysisResult,
+  ): Promise<string> => {
+    let primary = result.aiInterpretation.fallback.practical_interpretation;
+    try {
+      const response = await getStatisticalInterpretation(result.aiInterpretation);
+      primary = response.interpretation.practical_interpretation;
+    } catch (error) {
+      console.warn('Using verified local inferential interpretation:', error);
+    }
+
+    const paragraphs = normalizeReportParagraphs(primary);
+    if (paragraphs.length === 2) return paragraphs.join('\n\n');
+    if (paragraphs.length > 2) return `${paragraphs[0]}\n\n${paragraphs.slice(1).join(' ')}`;
+
+    const firstParagraph = paragraphs[0]
+      || normalizeReportText(result.interpretation || result.message || 'The selected comparison could not be calculated.');
+    const additionalParagraph = normalizeReportParagraphs(result.aiInterpretation.fallback.thesis_interpretation).join(' ')
+      || 'The interpretation is limited to the verified values and selected responses shown in this analysis.';
+    return `${firstParagraph}\n\n${additionalParagraph}`;
+  };
+
   const downloadBlob = (blob: Blob, filename: string) => {
     const link = document.createElement('a');
     link.href = URL.createObjectURL(blob);
@@ -2390,9 +2569,27 @@ export default function Reports() {
     row.alignment = { vertical: 'middle', horizontal: 'center' };
   };
 
+  const addInferentialInterpretationRows = (
+    sheet: ExcelJS.Worksheet,
+    interpretation: string,
+    columns: number,
+  ) => {
+    sheet.addRow([]);
+    const headingRow = sheet.addRow(['Descriptive Interpretation']);
+    headingRow.font = { bold: true, size: 11, color: { argb: SURVEY_REPORT_HEADER_COLOR } };
+    if (columns > 1) sheet.mergeCells(headingRow.number, 1, headingRow.number, columns);
+    normalizeReportParagraphs(interpretation).forEach((paragraph) => {
+      const paragraphRow = sheet.addRow([paragraph]);
+      paragraphRow.alignment = { vertical: 'top', wrapText: true };
+      paragraphRow.height = Math.max(34, Math.ceil(paragraph.length / Math.max(columns * 14, 60)) * 15);
+      if (columns > 1) sheet.mergeCells(paragraphRow.number, 1, paragraphRow.number, columns);
+    });
+  };
+
   const handleInferentialExcelExport = async () => {
     if (!inferentialResult) return;
     const { analysis, contingencyTable, assumptions } = inferentialResult;
+    const interpretation = await resolveInferentialExportInterpretation(inferentialResult);
     const workbook = new ExcelJS.Workbook();
     workbook.creator = 'GradTrack';
     workbook.created = new Date();
@@ -2409,7 +2606,7 @@ export default function Reports() {
       ['Valid Responses Used', analysis.validResponses],
       ['Excluded / Missing Responses', analysis.excludedResponses],
       ['Decision', analysis.decision],
-      ['Interpretation', inferentialResult.interpretation || inferentialResult.message || 'Not calculated'],
+      ['Descriptive Interpretation', interpretation],
     ].forEach((row) => summarySheet.addRow(row));
     summarySheet.getColumn(1).width = 30;
     summarySheet.getColumn(2).width = 100;
@@ -2429,6 +2626,7 @@ export default function Reports() {
     contingencyTable.rows.forEach((row) => observedSheet.addRow([row.label, ...row.frequencies, row.total]));
     const observedTotalRow = observedSheet.addRow(['Total', ...contingencyTable.columnTotals, contingencyTable.grandTotal]);
     observedTotalRow.font = { bold: true };
+    addInferentialInterpretationRows(observedSheet, interpretation, contingencyTable.columns.length + 2);
     observedSheet.columns.forEach((column, index) => { column.width = index === 0 ? 28 : 16; });
     observedSheet.views = [{ state: 'frozen', ySplit: 3 }];
 
@@ -2459,6 +2657,7 @@ export default function Reports() {
     for (let index = 3; index <= resultsSheet.rowCount; index += 1) {
       resultsSheet.getRow(index).getCell(1).font = { bold: true };
     }
+    addInferentialInterpretationRows(resultsSheet, interpretation, 2);
 
     const buffer = await workbook.xlsx.writeBuffer();
     const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
@@ -2474,6 +2673,7 @@ export default function Reports() {
   const handleInferentialPdfExport = async () => {
     if (!inferentialResult) return;
     const { analysis, contingencyTable, assumptions } = inferentialResult;
+    const interpretation = await resolveInferentialExportInterpretation(inferentialResult);
     const pdf = new jsPDF('p', 'pt', 'a4');
     const pageWidth = pdf.internal.pageSize.getWidth();
     const pageHeight = pdf.internal.pageSize.getHeight();
@@ -2487,6 +2687,43 @@ export default function Reports() {
       pdf.setFontSize(10);
       pdf.text('Norzagaray College | GradTrack Reports & Analytics', margin, 66);
       pdf.setTextColor(30, 30, 30);
+    };
+    const writeInferentialInterpretation = (
+      startY: number,
+      continuationTitle: string,
+    ): number => {
+      const contentBottom = pageHeight - 38;
+      const lineHeight = 12;
+      let y = startY;
+      const addContinuationPage = () => {
+        pdf.addPage();
+        drawHeader(continuationTitle);
+        y = 105;
+      };
+      if (y + 34 > contentBottom) addContinuationPage();
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(12);
+      pdf.setTextColor(27, 42, 74);
+      pdf.text('Descriptive Interpretation', margin, y);
+      y += 18;
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(9);
+      pdf.setTextColor(35, 35, 35);
+      normalizeReportParagraphs(interpretation, { peso: 'php' }).forEach((paragraph, paragraphIndex, paragraphs) => {
+        const lines = pdf.splitTextToSize(paragraph, pageWidth - margin * 2) as string[];
+        lines.forEach((line) => {
+          if (y + lineHeight > contentBottom) {
+            addContinuationPage();
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(9);
+            pdf.setTextColor(35, 35, 35);
+          }
+          pdf.text(line, margin, y);
+          y += lineHeight;
+        });
+        if (paragraphIndex < paragraphs.length - 1) y += 7;
+      });
+      return y + 10;
     };
 
     drawHeader('Inferential Analysis Report');
@@ -2529,6 +2766,7 @@ export default function Reports() {
           pdf.addPage();
           drawHeader('Distribution Comparison');
           pdf.addImage(chartBase64, 'PNG', margin, 110, pageWidth - margin * 2, 230);
+          writeInferentialInterpretation(365, 'Distribution Comparison');
         }
       } catch {
         // Chart capture is best-effort; the complete numeric analysis remains in the export.
@@ -2549,6 +2787,8 @@ export default function Reports() {
       columnStyles: { 0: { halign: 'left' } },
       margin: { left: margin, right: margin },
     });
+    const observedTableEndY = (pdf as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 360;
+    writeInferentialInterpretation(observedTableEndY + 24, 'Observed Frequencies');
 
     pdf.addPage();
     drawHeader('Chi-Square Test Result');
@@ -2572,18 +2812,13 @@ export default function Reports() {
       margin: { left: margin, right: margin },
     });
     const tableEndY = (pdf as jsPDF & { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? 360;
-    let textY = tableEndY + 28;
-    pdf.setFontSize(12);
-    pdf.setTextColor(27, 42, 74);
-    pdf.text('Statistical Interpretation', margin, textY);
-    textY += 18;
-    pdf.setFontSize(9);
-    pdf.setTextColor(35, 35, 35);
-    const interpretation = inferentialResult.interpretation || inferentialResult.message || 'The test could not be calculated.';
-    const interpretationLines = pdf.splitTextToSize(interpretation, pageWidth - margin * 2);
-    pdf.text(interpretationLines, margin, textY);
-    textY += interpretationLines.length * 11 + 18;
+    let textY = writeInferentialInterpretation(tableEndY + 28, 'Chi-Square Test Result');
     if (assumptions.warnings.length > 0) {
+      if (textY + 50 > pageHeight - 38) {
+        pdf.addPage();
+        drawHeader('Statistical Assumption Notice');
+        textY = 105;
+      }
       pdf.setFontSize(11);
       pdf.setTextColor(146, 64, 14);
       pdf.text('Statistical Assumption Notice', margin, textY);
@@ -2615,6 +2850,7 @@ export default function Reports() {
     }
 
     const reportData = await loadFormalReportExportData('export_excel');
+    const interpretations = await resolveFormalReportInterpretations(reportData);
     const {
       overview: overviewExport,
       programs: programExport,
@@ -2687,44 +2923,54 @@ export default function Reports() {
     summarySheet.addRow([]);
     summarySheet.getRow(1).font = { bold: true, size: 14 };
 
-    const addSheetFromRows = (sheetName: string, rows: ExcelRow[]) => {
+    const addSheetFromRows = (sheetName: string, rows: ExcelRow[], interpretation: string) => {
       const sheet = workbook.addWorksheet(sheetName);
+      const columns = rows.length > 0 ? Object.keys(rows[0]) : ['Result'];
 
       if (!rows.length) {
         sheet.addRow(['No data available for this section.']);
         sheet.columns = [{ width: 42 }];
-        return;
+      } else {
+        sheet.columns = columns.map((column) => ({
+          header: column,
+          key: column,
+          width: Math.max(16, Math.min(42, column.length + 6)),
+        }));
+
+        rows.forEach((row) => sheet.addRow(row));
+
+        const headerRow = sheet.getRow(1);
+        headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        headerRow.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FF1B2A4A' },
+        };
+
+        sheet.views = [{ state: 'frozen', ySplit: 1 }];
+        sheet.autoFilter = {
+          from: 'A1',
+          to: `${String.fromCharCode(64 + columns.length)}1`,
+        };
       }
 
-      const columns = Object.keys(rows[0]);
-      sheet.columns = columns.map((column) => ({
-        header: column,
-        key: column,
-        width: Math.max(16, Math.min(42, column.length + 6)),
-      }));
-
-      rows.forEach((row) => sheet.addRow(row));
-
-      const headerRow = sheet.getRow(1);
-      headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-      headerRow.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: 'FF1B2A4A' },
-      };
-
-      sheet.views = [{ state: 'frozen', ySplit: 1 }];
-      sheet.autoFilter = {
-        from: 'A1',
-        to: `${String.fromCharCode(64 + columns.length)}1`,
-      };
+      sheet.addRow([]);
+      const headingRow = sheet.addRow(['Descriptive Interpretation']);
+      headingRow.font = { bold: true, size: 11, color: { argb: 'FF1B2A4A' } };
+      if (columns.length > 1) sheet.mergeCells(headingRow.number, 1, headingRow.number, columns.length);
+      normalizeReportParagraphs(interpretation).forEach((paragraph) => {
+        const paragraphRow = sheet.addRow([paragraph]);
+        paragraphRow.alignment = { vertical: 'top', wrapText: true };
+        paragraphRow.height = Math.max(34, Math.ceil(paragraph.length / Math.max(columns.length * 14, 60)) * 15);
+        if (columns.length > 1) sheet.mergeCells(paragraphRow.number, 1, paragraphRow.number, columns.length);
+      });
     };
 
-    addSheetFromRows('Overview', overviewRows);
-    addSheetFromRows('By Program', programRows);
-    addSheetFromRows('By Year', yearRows);
-    addSheetFromRows('Employment Status', statusRows);
-    addSheetFromRows('Salary Distribution', salaryRows);
+    addSheetFromRows('Overview', overviewRows, interpretations.overview);
+    addSheetFromRows('By Program', programRows, interpretations.programPerformance);
+    addSheetFromRows('By Year', yearRows, interpretations.yearlyTrend);
+    addSheetFromRows('Employment Status', statusRows, interpretations.employmentStatus);
+    addSheetFromRows('Salary Distribution', salaryRows, interpretations.salaryDistribution);
 
     const chartsSheet = workbook.addWorksheet('Charts');
     chartsSheet.addRow(['Report Graphs']);
@@ -2747,6 +2993,18 @@ export default function Reports() {
         ext: { width, height },
       });
       nextChartTopRow += Math.ceil(height / 20) + 2;
+      chartsSheet.getCell(`A${nextChartTopRow}`).value = 'Descriptive Interpretation';
+      chartsSheet.getCell(`A${nextChartTopRow}`).font = { bold: true, size: 11, color: { argb: 'FF1B2A4A' } };
+      chartsSheet.mergeCells(nextChartTopRow, 1, nextChartTopRow, 10);
+      nextChartTopRow += 1;
+      normalizeReportParagraphs(interpretations[chart.section]).forEach((paragraph) => {
+        chartsSheet.getCell(`A${nextChartTopRow}`).value = paragraph;
+        chartsSheet.getCell(`A${nextChartTopRow}`).alignment = { vertical: 'top', wrapText: true };
+        chartsSheet.getRow(nextChartTopRow).height = Math.max(34, Math.ceil(paragraph.length / 150) * 15);
+        chartsSheet.mergeCells(nextChartTopRow, 1, nextChartTopRow, 10);
+        nextChartTopRow += 1;
+      });
+      nextChartTopRow += 2;
     };
 
     for (const chart of reportData.charts) {
@@ -3050,6 +3308,7 @@ export default function Reports() {
     if (tab === 'surveys') {
       if (!surveyAnalytics) throw new Error('Survey analytics are not available for this selection.');
       const generatedAt = new Date();
+      const interpretations = await resolveSurveyReportInterpretations(surveyAnalytics);
       const surveyCharts = buildSurveyReportCharts(surveyAnalytics.report_tables ?? [])
         .map((chart, chartIndex) => buildLabeledBarChart(
           `survey-${chart.tableNumber}-${chartIndex}`,
@@ -3068,7 +3327,7 @@ export default function Reports() {
       const sections = reportTables.length > 0
         ? reportTables.map((table, index) => ({
             title: `Table ${table.number || index + 1}. ${table.title}`,
-            interpretation: table.note || 'The table reports the observed frequencies and percentages for this survey section.',
+            interpretation: interpretations[surveyTableInterpretationKey(index)],
             table: {
               headers: flattenSurveyReportHeaders(table),
               rows: table.rows.map((row) => row.cells),
@@ -3112,6 +3371,7 @@ export default function Reports() {
       if (!inferentialResult) throw new Error('Run an inferential analysis before exporting the Word document.');
       const generatedAt = new Date();
       const result = inferentialResult;
+      const interpretation = await resolveInferentialExportInterpretation(result);
       const analysisChart = buildLabeledBarChart(
         'inferential-analysis',
         'overview',
@@ -3136,7 +3396,7 @@ export default function Reports() {
           programAlignmentLabel: 'Not applicable',
           courseLabel: result.filters.programLabel || 'All Courses',
         },
-        descriptiveSummary: result.interpretation || result.message || 'The selected comparison could not be calculated.',
+        descriptiveSummary: interpretation,
         keyPerformanceIndicators: [
           ['Valid Responses Used', result.analysis.validResponses],
           ['Excluded / Missing Responses', result.analysis.excludedResponses],
@@ -3147,7 +3407,7 @@ export default function Reports() {
         ],
         sections: [{
           title: 'Inferential Analysis',
-          interpretation: result.interpretation || result.message || 'The test could not be calculated.',
+          interpretation,
           charts: analysisChart ? [analysisChart] : [],
           table: {
             headers: [result.analysis.variable1.label, ...result.contingencyTable.columns.map((column) => column.label), 'Total'],
@@ -5762,6 +6022,7 @@ function addSurveyReportTableWorksheet(
   workbook: ExcelJS.Workbook,
   table: SurveyReportTable,
   index: number,
+  interpretation?: string,
 ) {
   const columnCount = getSurveyReportTableColumnCount(table);
   const sheetName = toWorksheetSafeName(`Table ${index + 1}${table.number ? ` ${table.number}` : ''}`);
@@ -5871,6 +6132,19 @@ function addSurveyReportTableWorksheet(
     const noteRow = sheet.addRow([table.note]);
     noteRow.font = { italic: true };
     sheet.mergeCells(noteRow.number, 1, noteRow.number, columnCount);
+  }
+
+  if (interpretation) {
+    sheet.addRow([]);
+    const headingRow = sheet.addRow(['Descriptive Interpretation']);
+    headingRow.font = { bold: true, size: 11, color: { argb: SURVEY_REPORT_HEADER_COLOR } };
+    sheet.mergeCells(headingRow.number, 1, headingRow.number, columnCount);
+    normalizeReportParagraphs(interpretation).forEach((paragraph) => {
+      const paragraphRow = sheet.addRow([paragraph]);
+      paragraphRow.alignment = { vertical: 'top', wrapText: true };
+      paragraphRow.height = Math.max(34, Math.ceil(paragraph.length / Math.max(columnCount * 13, 60)) * 15);
+      sheet.mergeCells(paragraphRow.number, 1, paragraphRow.number, columnCount);
+    });
   }
 
   for (let columnIndex = 1; columnIndex <= columnCount; columnIndex += 1) {

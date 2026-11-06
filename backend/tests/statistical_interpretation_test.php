@@ -61,6 +61,10 @@ $strongFallback = gradtrack_statistical_fallback($strongPayload);
 statistical_interpretation_assert($strongPayload['significant'] === true, 'TEST 1: significant adequate-data result remains backend-calculated');
 statistical_interpretation_assert($strongPayload['assumptions']['warning'] === false, 'TEST 1: adequate expected frequencies do not create a warning');
 statistical_interpretation_assert(str_contains($strongFallback['headline'], 'sufficient statistical evidence'), 'TEST 1: significant fallback uses evidence-of-association wording');
+statistical_interpretation_assert(
+    count(preg_split('/\R\s*\R/u', trim($strongFallback['practical_interpretation'])) ?: []) === 2,
+    'TEST 1: verified inferential fallback contains exactly two paragraphs'
+);
 
 // TEST 2: a non-significant result must not be described as similarity or equality.
 $nonSignificantResult = statistical_interpretation_result([[25, 25], [25, 25]]);
