@@ -45,6 +45,10 @@ import {
   surveyTableInterpretationKey,
   type SurveyTableInterpretations,
 } from '../../utils/surveyReportInterpretations';
+import {
+  generateFormalReportDocx,
+  generateGenericReportDocx,
+} from '../../utils/reportDocumentExport';
 
 const API_BASE = API_ROOT;
 
@@ -3303,8 +3307,6 @@ export default function Reports() {
   });
 
   const runWordExport = async () => {
-    const { generateFormalReportDocx, generateGenericReportDocx } = await import('../../utils/reportDocumentExport');
-
     if (tab === 'surveys') {
       if (!surveyAnalytics) throw new Error('Survey analytics are not available for this selection.');
       const generatedAt = new Date();
